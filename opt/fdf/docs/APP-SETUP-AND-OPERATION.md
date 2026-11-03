@@ -203,9 +203,13 @@ work like this -- EOC is just the example. For a media service, the requirements
   configuration among the alive members, so all compute the same member. No `select`: the most memory, then the most
   cores, then the highest guid. `fdf-app config ... --select RAM=KEY,-KEY --need RAM=KEY --serve RAM,RAM`, or the
   admin's configuration. `fdf_select.py`. Gate: `rinab/tools/test_fdf_app.py` 10-12.
-- **Open, John to rule:** `Space.kt` / `fdfspace.py` ([NO_FLAP_V1], John 2026-11-01: "never back up while it lives",
-  with a fallback list) disagree with "failover/failup are automatic" and "It does not try a backup". Unchanged until
-  he says which stands.
+- **A device's space follows capability too** ([SPACE_BY_CAPABILITY_V1], **built**). **John:** "There is no fallback
+  list. Fallback is determined by capability." Each RAM host's `fdf-org` writes its capability (its probe's scalars,
+  its guid) into each space's RAM there and into the region's, `(fdf-space, can, AREA)`. `fdfspace.py` and `Space.kt`
+  hold a read on it at every host the space is on, and on every event are on the best alive host by capability
+  (`fdf_select` / `Select.kt`); a better host coming back takes the space again; none alive: on nothing, said. This
+  replaces [NO_FLAP_V1] (2026-11-01: list order, "never back up while it lives", a fallback RAM). Gates:
+  `rinab/tools/netns-space-test.sh` (15), `netns-spaces-test.sh` (14), `netns-join-kt-test.sh` (7).
 
 **Logging in at the targets on a join line** (the bootstrap, before a device sees any capability tuple):
 - **The device is told the line at initialization**, and "as it is connected to the networks in the list, it
@@ -217,7 +221,8 @@ work like this -- EOC is just the example. For a media service, the requirements
 - **The highest on the line that admits** ([LOGIN_IN_LINE_ORDER_V1], **built**, `fdf-login` and the Android member's
   `OrgLogin.admit`): never the first to answer, so every device with the same line gets the same answer. A lower target
   that answers first waits until each above it has refused or failed. The cost: with the first target unreachable, the
-  join takes that target's own give-up time (76 s in `netns-admit-kt-test.sh` 6; it was 0.8 s first-to-answer).
+  join takes that target's own give-up time: a door that does not answer is given up in 10 s ([UNREACHABLE_IN_10S_V1],
+  John: "Change the 76s to 10"; `netns-admit-kt-test.sh` 6 joins in 10.9 s).
 - **One level per host** ([ONE_LEVEL_PER_HOST_V1], **built**, `fdf-org` r21). **John:** "a single machine can only have
   one level to any given host." From an open level to a password level is the upgrade, and the device is restricted
   until that level's login checks the password. (Before r21 the record took the new level and kept "admitted", so a
@@ -251,8 +256,8 @@ says it from the next binary build.
 5. The open public level needs a per-device rate limit at admission.
 6. Scheduled actions (an actuator run) live in a role's RAM and move with its holder: hold them where they run, or make
    running twice harmless.
-7. `netns-spaces-test` (6, 7) and `netns-c-behind-ab-test` (2 checks) fail on recovery timing after a cut, the same
-   before and after `fdf-org` r20 (found 2026-11-02).
+7. `netns-c-behind-ab-test` (2 checks) fails on recovery timing after a cut, the same before and after `fdf-org` r20
+   (found 2026-11-02). (`netns-spaces-test` 6-7 pass since [SPACE_BY_CAPABILITY_V1]: they expected the move back.)
 
 ## Enrollment: the WAN region, the EOC, a team's lead and its members ([ENROLL_V1])
 

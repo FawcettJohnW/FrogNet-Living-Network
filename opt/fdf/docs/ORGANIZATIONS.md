@@ -257,6 +257,11 @@ John's rule, applied to the egress (`[NO_FLAP_V1]`):
 4. A better exit appearing later changes nothing while the current one lives. The new plan's `exits[0]` is used only at
    the next loss.
 
+   **Superseded for spaces, John 2026-11-03:** "There is no fallback list. Fallback is determined by capability";
+   "Designation and failover/failup are automatic." A device's space is on the best alive RAM host by capability, and
+   a better one coming back takes it again ([SPACE_BY_CAPABILITY_V1], `APP-SETUP-AND-OPERATION.md`). The egress (this
+   section, proposed, not built) follows the same rule when it is built.
+
 This removes standing sessions to standby RAM managers and the probe tunnels (`fdfsp<N>`). There are no standbys any
 more. The only alternatives are exits, and the handshake through one is the probe.
 
