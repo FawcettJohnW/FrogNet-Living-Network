@@ -61,7 +61,22 @@ const catOf = (e, role) => (e.roles[role] || {}).cat
 function state(m) {
   A.state = m; A.cur = m.current
   if (!A.dirty) { A.edit = fromCurrent(A.cur); A.pw = {}; draw() }
-  members(m)
+  else dirtyLine()        // the edit against the new current: an edit the members have since adopted is no change any more
+  members(m); groups(m)
+}
+// [GROUPS_NOW_V1] each group (a role), its tab, where its lead placed it, where its RAM is served now, its lead(s)
+function groups(m) {
+  const c = m.current || {}, served = m.served || {}, places = c.places || {}, rams = new Set(c.rams || [])
+  const leads = {}; for (const [u, x] of Object.entries(c.users || {})) if ((x || {}).lead) (leads[x.role] = leads[x.role] || []).push(u)
+  const rows = Object.entries(c.roles || {}).sort((a, b) => ((a[1] || {}).category || DEF_CAT).localeCompare((b[1] || {}).category || DEF_CAT) || a[0].localeCompare(b[0]))
+  $('#groups').innerHTML = rows.map(([r, x]) => {
+    const p = places[r] || {}, own = rams.has(r)
+    const lives = !own ? '<span class="mu">no RAM of its own (the general RAM)</span>'
+      : p.at === 'here' ? `on its lead's device <span class="mu">${esc(p.guid || '')}, placed by ${esc(p.user || '')}</span>`
+      : p.at === 'databasehost' ? `on databasehost <span class="mu">placed by ${esc(p.user || '')}</span>` : 'on databasehost <span class="mu">(the app\'s selection)</span>'
+    const at = !own ? '' : served[r] ? `<span class="ok">${esc(served[r])}</span>` : (p.at === 'here' ? '<span class="mu">on the lead\'s device (not a member)</span>' : '<span class="bad">nobody</span>')
+    return `<tr><td><b>${esc(r)}</b></td><td>${esc((x || {}).category || DEF_CAT)}</td><td>${lives}</td><td>${at}</td><td>${esc((leads[r] || []).join(', ')) || '<span class="mu">none</span>'}</td></tr>`
+  }).join('') || '<tr><td colspan="5" class="mu">no groups</td></tr>'
 }
 function draw() {
   const e = A.edit

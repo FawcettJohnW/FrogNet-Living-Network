@@ -42,7 +42,7 @@
 // the network, typed by nobody. A device this node gave no lease has none here, and is told so.
 header('Content-Type: application/json');
 // [DOOR_SAYS_ITS_BUILD_V1] every answer says which door answered: the header, and "door" in the admin and roles answers
-const DOOR_BUILD = 'dc-door-2026-11-03-r8';
+const DOOR_BUILD = 'dc-door-2026-11-03-r9';
 header('X-FDF-Door: ' . DOOR_BUILD);
 set_time_limit(0);
 $env = '. ' . escapeshellarg(dirname(__DIR__, 2) . '/fdf.env') . ' && exec "$FDF_BIN"/ram ';
@@ -91,6 +91,23 @@ function for_service($s, $team = null) {                        // [APP_DROPLET_
     if ($at === '' || !preg_match('/^[0-9.]+:[0-9]+$/', $at)) fail(503, "the app's RAM " . $key . ' is not served yet: nothing works until it is');
     $where = $at;
     $env = '. ' . escapeshellarg(dirname(__DIR__, 2) . '/fdf.env') . ' && RINA_RAM=' . escapeshellarg($at) . ' exec "$FDF_BIN"/ram ';
+}
+// [GROUPS_NOW_V1] held until any of several families has a row newer than $after (or $wait s): one `ram read ... after
+// wait` child each, the first to answer ends the wait. What a screen that shows several things waits on.
+function held_any($env, $reads, $after, $wait) {
+    $kids = [];
+    foreach ($reads as $sv) {
+        $cmd = $env; foreach (['read', $sv[0], $sv[1], '', $after, $wait] as $a) $cmd .= escapeshellarg((string)$a) . ' ';
+        $p = proc_open($cmd, [1 => ['pipe', 'w'], 2 => ['pipe', 'w']], $pipes);
+        if (is_resource($p)) $kids[] = ['p' => $p, 'out' => $pipes[1], 'err' => $pipes[2]];
+    }
+    $end = microtime(true) + $wait + 2;
+    while ($kids && microtime(true) < $end) {
+        $r = array_map(function ($k) { return $k['out']; }, $kids); $x = null; $e = null;
+        if (@stream_select($r, $x, $e, 1) > 0) break;
+        if (connection_aborted()) break;
+    }
+    foreach ($kids as $k) { proc_terminate($k['p']); fclose($k['out']); fclose($k['err']); proc_close($k['p']); }
 }
 // [ENROLL_V1] the app's newest configuration (each droplet writes its own; the admin's seq decides)
 function app_cfg($app) {
@@ -255,8 +272,10 @@ if ($op === 'read') {
     $served = []; foreach ((is_array($map) ? $map : []) as $k => $v) if (strpos($k, $app . '.') === 0) $served[substr($k, strlen($app) + 1)] = $v;
     $last = -1;
     if ($op === 'admin' && isset($_GET['after'])) {           // held until a member answers the admin (or W s)
+        // [GROUPS_NOW_V1] ... or a group's place, a member's configuration or capability, or a member's map of where the
+        // app's RAMs are (fdf-app writes it when it changes, after this node's app-where.json)
         $wait = max(0, min(25, intval($_GET['wait'] ?? 20)));
-        ram($env, ['read', 'fdf-app', 'applied', '', intval($_GET['after']), $wait]);
+        held_any($env, [['fdf-app', 'applied'], ['fdf-app', 'place'], ['fdf-app', 'config'], ['fdf-app', 'can'], ['fdf-app', 'map']], intval($_GET['after']), $wait);
     }
     $cfgs = []; $best = null;
     foreach ((json_decode(ram($env, ['read', 'fdf-app', 'config']), true)['rows'] ?? []) as $c) {
@@ -282,6 +301,12 @@ if ($op === 'read') {
         $last = max($last, intval($c['id'] ?? -1));
         if (strpos($c['instance'] ?? '', $app . '.') === 0) $applied[] = $c['bag'];
     }
+    foreach ([['fdf-app', 'place'], ['fdf-app', 'can'], ['fdf-app', 'map']] as $sv)    // [GROUPS_NOW_V1] what the held read waits on
+        foreach ((json_decode(ram($env, ['read', $sv[0], $sv[1]]), true)['rows'] ?? []) as $c) $last = max($last, intval($c['id'] ?? -1));
+    // [GROUPS_NOW_V1] this node's map read AFTER `last` is known: a map written in between is newer than `last`, so the
+    // next held read wakes on it (read before, it was lost: the answer old, `last` past it)
+    $map = json_decode((string)@file_get_contents($fdf_var . '/app-where.json'), true);
+    $served = []; foreach ((is_array($map) ? $map : []) as $k => $v) if (strpos($k, $app . '.') === 0) $served[substr($k, strlen($app) + 1)] = $v;
     echo json_encode(['ok' => true, 'door' => DOOR_BUILD, 'configs' => $cfgs, 'applied' => $applied, 'served' => $served, 'last' => $last], JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE);
 } elseif ($op === 'admin' && $_SERVER['REQUEST_METHOD'] === 'POST') {
     $in = json_decode(file_get_contents('php://input'), true);

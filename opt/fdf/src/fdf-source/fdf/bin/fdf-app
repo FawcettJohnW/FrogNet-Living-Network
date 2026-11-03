@@ -64,7 +64,7 @@ default this member's .1).
 """
 import hashlib, hmac, json, os, queue, signal, subprocess, sys, threading, time, zlib
 
-BUILD_TAG = "fdf-app-2026-11-03-r6"
+BUILD_TAG = "fdf-app-2026-11-03-r7"
 LIB = os.environ.get("FDF_PY") or os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "lib", "python")
 sys.path.insert(0, LIB)
 import fdfram  # noqa: E402
@@ -477,6 +477,10 @@ class Server:
             json.dump(placed, f, sort_keys=True)
         os.replace(tmp, p)
         log("%s: the apps' RAMs: %s" % (why, ", ".join("%s at %s" % kv for kv in sorted(placed.items())) or "none served"))
+        try:                                     # [GROUPS_NOW_V1] and in the network RAM, the event a screen waits on
+            self.rm.write(SVC, "map", self.me, {"placed": placed, "member": self.f.get("name") or "", "at": int(time.time())})
+        except fdfram.RamError as e:
+            log("the map was not said in the network RAM (%s)" % e)
 
     def watch_family(self):
         last = -1

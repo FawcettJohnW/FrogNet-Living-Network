@@ -27,6 +27,9 @@
 #  10 [APP_SELECTION_V1] the admin's "Where each RAM is served": * ranked -mem_total_kb, applied: the general RAM moves to
 #     Vashon1 (the least memory; every member decides by the newest configuration, Vashon1 too, which cannot adopt it);
 #     the row removed and applied: back on Seattle5 (the most memory)
+#  11 [GROUPS_NOW_V1] the admin's "Groups now": every group, its category, where it lives and where it is served; kim
+#     places echo on its device at the door: the table says so with no reload (the held read wakes on the place and on
+#     the where cell), echo served by nobody on the members; kim places it on databasehost: served again, in the table
 #   9 [GROUP_PLACE_V1] kim, echo's lead, through the real AppCore (CoreDriver, as the lead's phone runs it): Host team
 #     places echo here, on kim's phone, at the door -- the members adopt it, none serves echo, op=rams has no echo and its
 #     places say here; Team on databasehost places it there -- a member serves echo again, and the core hears it from
@@ -103,6 +106,7 @@ time.sleep(2)
 try:
     with sync_playwright() as pw:
         br = pw.chromium.launch(); pg = br.new_context(viewport={"width": 1280, "height": 900}).new_page()
+        PAGE_ERRORS = []; pg.on("pageerror", lambda e: PAGE_ERRORS.append(str(e)))   # a page error is said, in the check that meets it
         pg.goto("http://127.0.0.1:%d/" % HP); pg.wait_for_selector("#connect:not([hidden])", timeout=8000)
         pg.fill("[name=door]", DOOR); pg.fill("[name=user]", "boss"); pg.fill("[name=password]", "wrong"); pg.click("#connect .go")
         pg.wait_for_function("/not rangertrak's admin/.test(document.querySelector('#cstatus').textContent)", timeout=15000)
@@ -209,6 +213,18 @@ try:
         check(bool(low) and bool(back) and all(x == {"*": {"need": [], "rank": ["-mem_total_kb"]}} for x in cfgsel) and len(cfgsel) == 2,
               "10 '%s': general on Vashon1 %.1f s after (%s; the adopting members' select %s); '%s': back on Seattle5 %.1f s after (%s)"
               % (chg10[:80], dt10, low, cfgsel[:1], chg10b[:60], dt10b, back))
+        # 11 Groups now
+        row = lambda g: pg.evaluate("[...document.querySelectorAll('#groups tr')].map(r=>r.innerText).find(t=>t.startsWith(%s)) || ''" % json.dumps(g))
+        g0 = {g: row(g) for g in ("echo", "crew1", "eoc")}
+        door("op=place&app=rangertrak", {"user": "kim", "password": "kim-2026", "at": "here", "guid": "phone-kim"})
+        try: pg.wait_for_function("[...document.querySelectorAll('#groups tr')].some(r=>r.innerText.startsWith('echo') && r.innerText.indexOf(\"lead's device\")>=0 && r.innerText.indexOf('not a member')>=0)", timeout=20000); live1 = row("echo")
+        except Exception: live1 = ""
+        door("op=place&app=rangertrak", {"user": "kim", "password": "kim-2026", "at": "databasehost"})
+        try: pg.wait_for_function("[...document.querySelectorAll('#groups tr')].some(r=>r.innerText.startsWith('echo') && /databasehost[\\s\\S]*127\\.0\\./.test(r.innerText))", timeout=20000); live2 = row("echo")
+        except Exception: live2 = ""
+        if SHOTS: pg.screenshot(path=os.path.join(SHOTS, "admin-groups.png"), full_page=True)
+        check("Teams" in g0["echo"] and "kim" in g0["echo"] and "Power" in g0["crew1"] and "pat" in g0["crew1"] and "no RAM of its own" in g0["eoc"] and bool(live1) and bool(live2),
+              "11 Groups now: %s; kim places echo on its device: %s; on databasehost: %s" % (" | ".join(v.replace("\t", " / ") for v in g0.values())[:260], live1.replace("\t", " / ")[:120], live2.replace("\t", " / ")[:120]))
         br.close()
     # 9 the lead says where its team lives
     import queue
