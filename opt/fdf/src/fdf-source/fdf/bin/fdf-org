@@ -38,7 +38,8 @@ is under the hub's own key.)
                                         Done by hand, on each RAM host (John 2026-11-02: "It needs to be intentional").
   fdf-org revoke NAME                   NAME's peer and its reach go now
   fdf-org serve                         the credential manager (fdf-org.service): the door and every level's login port,
-                                        each inside the tunnel on 10.253.253.254, and the reach rules
+                                        each inside the tunnel on the hub's address (hub.env FDF_HUB_ADDR: 10.253.A.B
+                                        on a node serving 10.A.B.0/24, else 10.253.253.254), and the reach rules
 
 Where things live (what survives a restart, ORGANIZATIONS.md section 1):
   levels, users, the door,      permanent cells (fdf-org, level|user|door|space, ...) in this region's RAM
@@ -63,7 +64,7 @@ ADMITTED = os.environ.get("FDF_ADMITTED", "")
 VAR = os.environ.get("FDF_SITE_KEYS", "/opt/fdf/var")
 ORG_KEY = os.environ.get("FDF_ORG_KEY", "")         # the region's own: <its directory>/org-key
 NFT = os.environ.get("FDF_NFT", "nft")
-HUB_ADDR = "10.253.253.254"
+HUB_ADDR = "10.253.253.254"           # [HUB_ADDRESS_FROM_ITS_HOST_V1] set in main from hub.env (FDF_HUB_ADDR)
 GENERIC_NAME = "_generic"
 SVC = "fdf-org"
 BUILD_TAG = "fdf-org-2026-11-02-r20"                # [APP_SAYS_ITS_BUILD_V1] said when serve starts
@@ -204,7 +205,7 @@ def used_ports():
 
 def random_port(used):
     """[REGIONS_PER_MACHINE_V1] a port no level of this region holds and nothing on this machine is bound to: every
-    region's listeners share the hub address, 10.253.253.254"""
+    region's listeners share the hub's address"""
     while True:
         p = 20000 + secrets.randbelow(40000)
         if p in used or p == int(h().get("RINA_RAM", ":0").rsplit(":", 1)[1] or 0):
@@ -696,7 +697,7 @@ def cmd_revoke(name):
 
 
 def main():
-    global HUBENV, ADMITTED, ORG_KEY, REMOTE
+    global HUBENV, ADMITTED, ORG_KEY, REMOTE, HUB_ADDR
     a = sys.argv[1:]
     want = ""
     if "--area" in a:
@@ -723,6 +724,8 @@ def main():
             die("%s is here but its hub (%s) is not running here: this command runs where the hub runs" % (HUBENV, h()["FDF_IFACE"]))
     if not ORG_KEY and not REMOTE:
         ORG_KEY = os.path.join(os.path.dirname(HUBENV), "org-key")
+    if not REMOTE:                     # [HUB_ADDRESS_FROM_ITS_HOST_V1] this hub's address: its listeners, rules, answers
+        HUB_ADDR = fdf_regions.hub_addr(h())
     c = a[0]
     if c == "init": cmd_init()
     elif c == "level" and len(a) >= 2: cmd_level(a[1:])

@@ -63,8 +63,9 @@ def decode(line):
 
 def iface_up(name, priv, edge, peer_pub, endpoint, addr, metric=100):
     """A WireGuard interface: this key, this edge/32, one peer (allowed-ips 10.0.0.0/8, FrogNet's rule), and ONE route:
-    the RAM manager's address, at this tunnel's own metric ([RAM_ON_ITS_OWN_TUNNEL_V1]: every RAM host's hub is
-    10.253.253.254, so each manager's tunnel has its own route to it and a connection is bound to its tunnel).
+    the RAM manager's address, at this tunnel's own metric ([RAM_ON_ITS_OWN_TUNNEL_V1]: two hubs may share an address --
+    every hub on a machine with no FrogNet LAN is 10.253.253.254 -- so each manager's tunnel has its own route to it and a
+    connection is bound to its tunnel; a hub on a node is 10.253.A.B [HUB_ADDRESS_FROM_ITS_HOST_V1]).
     Nothing else on this machine is routed through it."""
     subprocess.run(["ip", "link", "del", name], capture_output=True)
     if WG_IMPL == "wireguard-go":
@@ -93,7 +94,7 @@ def iface_down(name):
 
 
 def exchange(addr, port, ask, device, timeout=8.0):
-    """One JSON line each way, through THIS tunnel ([RAM_ON_ITS_OWN_TUNNEL_V1]): every RAM host is 10.253.253.254, and
+    """One JSON line each way, through THIS tunnel ([RAM_ON_ITS_OWN_TUNNEL_V1]): two RAM hosts may share an address, and
     the main table's lowest metric would send a login meant for the standby through the primary's tunnel."""
     s = socket.socket()
     s.setsockopt(socket.SOL_SOCKET, socket.SO_BINDTODEVICE, device.encode())

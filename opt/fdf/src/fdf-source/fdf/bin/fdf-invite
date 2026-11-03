@@ -34,7 +34,7 @@ import fdf_regions  # noqa: E402  [REGIONS_PER_MACHINE_V1]
 HUBENV = os.environ.get("FDF_HUB_ENV", "")          # set: that region (its units, tests); else --area, or the one held here
 ADMITTED = os.environ.get("FDF_ADMITTED", "")
 SITE_KEYS = os.environ.get("FDF_SITE_KEYS", "/opt/fdf/var")
-HUB_ADDR = "10.253.253.254"
+HUB_ADDR = "10.253.253.254"           # [HUB_ADDRESS_FROM_ITS_HOST_V1] set in main from hub.env (FDF_HUB_ADDR)
 
 
 def die(msg, rc=1):
@@ -80,7 +80,7 @@ def write_admitted(name, rec):
 
 
 def main():
-    global HUBENV, ADMITTED
+    global HUBENV, ADMITTED, HUB_ADDR
     a = sys.argv[1:]
     want = ""
     if "--area" in a:
@@ -94,6 +94,7 @@ def main():
         if why:
             die(why)
     h = env(HUBENV)
+    HUB_ADDR = fdf_regions.hub_addr(h)          # [HUB_ADDRESS_FROM_ITS_HOST_V1] this region's hub, from its hub.env
     area = h.get("FDF_AREA", "")
     iface = h.get("FDF_IFACE") or "wg-" + area.replace(".", "-")
     if a[0] == "--list":

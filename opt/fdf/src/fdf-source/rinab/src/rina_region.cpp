@@ -1092,8 +1092,11 @@ static void publish_net_config() {
         if (!why.empty()) { fprintf(stderr, "rina-host: [NET_CONFIG_IS_A_TUPLE_V1] %s %s: NO network config published (outsiders' reaches fail)\n", path.c_str(), why.c_str()); return; }
     } else fprintf(stderr, "rina-host: [NET_CONFIG_IS_A_TUPLE_V1] no %s: reach none, map refused\n", path.c_str());
     const char* area = getenv("RINA_MAP_AREA");
+    // [HUB_ADDRESS_FROM_ITS_HOST_V1] this region's hub: FDF_HUB_ADDR (the RAM manager's unit sets it), else 10.253.253.254
+    const char* hubaddr = getenv("FDF_HUB_ADDR");
+    const std::string hub = (hubaddr && *hubaddr) ? hubaddr : "10.253.253.254";
     const std::string bag = std::string("{\"area\":") + Json::quote(area ? area : "") + ",\"reach\":" + Json::quote(reach) + ",\"map\":" + Json::quote(map) +
-        ",\"hub\":\"10.253.253.254\",\"edges\":\"10.253.0.0/16\",\"leaves\":\"10.252.0.0/16\"" + (ram.empty() ? "" : ",\"ram\":" + Json::quote(ram)) +
+        ",\"hub\":" + Json::quote(hub) + ",\"edges\":\"10.253.0.0/16\",\"leaves\":\"10.252.0.0/16\"" + (ram.empty() ? "" : ",\"ram\":" + Json::quote(ram)) +
         ",\"server\":\"" + FDF_BUILD_TAG + "\"}";
     try {
         frogram::MemoryApi& m = rina_resident_memory();

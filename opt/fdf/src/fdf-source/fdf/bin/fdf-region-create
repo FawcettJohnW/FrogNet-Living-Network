@@ -6,7 +6,8 @@
 #   PUBLIC_IP the IPv4 address the members reach this machine at: a public address for a droplet, a LAN address for a
 #             region with no internet at all. Members need to reach ONE thing: PUBLIC_IP:HUB_PORT/udp, the hub's
 #             WireGuard port, which answers nothing to a packet from a key it was not given ([RAM_IN_THE_TUNNEL_V1]:
-#             the RAM manager listens only on the hub's tunnel address, 10.253.253.254, reached through the tunnel)
+#             the RAM manager listens only on the hub's tunnel address -- 10.253.A.B on a node serving 10.A.B.0/24,
+#             10.253.253.254 elsewhere [HUB_ADDRESS_FROM_ITS_HOST_V1] -- reached through the tunnel)
 #   --ufw     also run the firewall lines (ufw: default deny incoming, the hub's UDP port, the tunnel); without it they
 #             are printed for the operator, and nothing is changed. ufw is not enabled and ssh is not touched here.
 #
@@ -74,7 +75,11 @@ done
 [[ "$AREA" =~ ^[A-Za-z0-9._-]{1,12}$ ]] || { echo "fdf-region-create: AREA '$AREA': letters, digits, . _ -, at most 12 (the hub's interface is wg-$AREA)" >&2; exit 2; }
 [[ "$ADDR" =~ ^[0-9]+\.[0-9]+\.[0-9]+\.[0-9]+$ ]] || { echo "fdf-region-create: PUBLIC_IP '$ADDR' is not an IPv4 address (members reach this machine at it)" >&2; exit 2; }
 [[ "$RAM_PORT" =~ ^[0-9]+$ && "$HUB_PORT" =~ ^[0-9]+$ ]] || usage
-HUB_ADDR=10.253.253.254; IFACE=wg-${AREA//./-}
+# [HUB_ADDRESS_FROM_ITS_HOST_V1] the hub's address: 10.253.A.B on a node serving 10.A.B.0/24, else 10.253.253.254
+HUB_ADDR_WHY=$(FDF_PY=/opt/fdf/lib/python python3 -c 'import sys; sys.path.insert(0, "/opt/fdf/lib/python"); import fdf_regions as r; a, w = r.own_hub_addr(); print(a + " " + w)') \
+  || { echo "fdf-region-create: could not work out the hub's address (fdf_regions.own_hub_addr)" >&2; exit 1; }
+HUB_ADDR=${HUB_ADDR_WHY%% *}; IFACE=wg-${AREA//./-}
+echo "== the hub's address: $HUB_ADDR (${HUB_ADDR_WHY#* })"
 echo "== fdf-region-create $AREA at $ADDR (hub udp $HUB_PORT; RAM manager tcp $RAM_PORT on $HUB_ADDR, inside the tunnel only); $(tr '\n' ' ' 2>/dev/null < /opt/fdf/BUILD)"
 for f in /opt/fdf/bin/rina-host /opt/fdf/bin/fdf-client /opt/fdf/bin/fdf-hub /opt/fdf/bin/fdf-events /opt/fdf/bin/fdf-wg-impl /opt/fdf/bin/fdf-invite; do
   [ -x "$f" ] || { echo "fdf-region-create: $f missing: install /opt/fdf first (cd / && tar xvzf - < /tmp/fdf-droplet.tgz)" >&2; exit 1; }; done
@@ -122,6 +127,7 @@ Wants=network-online.target
 
 [Service]
 Environment=RINA_REGION_FILE=$V/area-$AREA.perm
+Environment=FDF_HUB_ADDR=$HUB_ADDR
 Environment=RIBBIT_TEMPLATES=/opt/fdf/templates/fdf.prime
 Environment=FDF_PY=/opt/fdf/lib/python
 # [RAM_IN_THE_TUNNEL_V1] the region's interface (its key, its UDP port, the hub address) before the RAM manager, which
@@ -162,10 +168,10 @@ systemctl daemon-reload
 systemctl enable $RAMU.service && systemctl start $RAMU.service || { echo "fdf-region-create: $RAMU did not start: journalctl -u $RAMU" >&2; exit 1; }
 echo "== $RAMU started; waiting for it to answer on $HUB_ADDR:$RAM_PORT"
 call() {   # call JSON -> the RAM manager's answer
-  python3 - "$RAM_PORT" "$1" <<'PY'
+  python3 - "$HUB_ADDR" "$RAM_PORT" "$1" <<'PY'
 import json, sys, urllib.request
-req = urllib.request.Request("http://10.253.253.254:%s/FawcettInnovations.RINA.ram_interface.php?op=rina" % sys.argv[1],
-                             data=sys.argv[2].encode(), headers={"Content-Type": "application/json"})
+req = urllib.request.Request("http://%s:%s/FawcettInnovations.RINA.ram_interface.php?op=rina" % (sys.argv[1], sys.argv[2]),
+                             data=sys.argv[3].encode(), headers={"Content-Type": "application/json"})
 print(urllib.request.urlopen(req, timeout=5).read().decode())
 PY
 }
@@ -176,6 +182,7 @@ case "$R" in *'"ok":true'*) echo "== map_site $AREA: $R" ;; *) echo "fdf-region-
 cat > "$HUBENV.tmp" <<EOF
 # $HUBENV -- made by fdf-region-create $AREA $ADDR on $(date -u +%Y-%m-%dT%H:%MZ). fdf-hub@$AREA.service reads it.
 RINA_RAM=$HUB_ADDR:$RAM_PORT
+FDF_HUB_ADDR=$HUB_ADDR
 FDF_AREA=$AREA
 FDF_HUB_NAME=$NAME
 FDF_ENDPOINT=$ADDR:$HUB_PORT
