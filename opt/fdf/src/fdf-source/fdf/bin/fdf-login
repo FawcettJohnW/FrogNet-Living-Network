@@ -27,7 +27,7 @@ State: $FDF_LOGIN_STATE (default /opt/fdf/var/login.json, root-only): the key, t
 The generic credential is one WireGuard peer: two devices on it at the same instant collide, and the one that gets no
 answer asks again, here, by itself.
 """
-import base64, json, os, socket, subprocess, sys, tempfile, time
+import base64, json, os, socket, subprocess, sys, tempfile, threading, time
 
 STATE = os.environ.get("FDF_LOGIN_STATE", "/opt/fdf/var/login.json")
 WG_IMPL = os.environ.get("FDF_WG_IMPL", "")                      # "wireguard-go" where the kernel has no WireGuard
@@ -130,29 +130,21 @@ class Refused(Exception):
 def at_manager(line, m, i, st, cred, nick, kind):
     own = "wg-own%d" % i
     me = st.setdefault("managers", {}).setdefault(m["name"] or m["endpoint"], {})
-    if "privkey" not in st and kind == "node":
-        st["privkey"], st["pubkey"] = node_key()
-    if "privkey" not in st:
-        old = os.umask(0o077)
-        try:
-            st["privkey"] = run("wg", "genkey")
-        finally:
-            os.umask(old)
-        st["pubkey"] = run("wg", "pubkey", input=st["privkey"])
+    door = "wg-door%d" % i                                         # [LOGIN_AT_ALL_AT_ONCE_V1] each target its own
     # 1 the door, on the generic credential, for one exchange
     ans = None
     for t in range(1, TRIES + 1):
-        iface_up("wg-door", m.get("generic", line["generic"])["privkey"], m.get("generic", line["generic"])["edge"],
+        iface_up(door, m.get("generic", line["generic"])["privkey"], m.get("generic", line["generic"])["edge"],
                  m["pubkey"], m["endpoint"], m["addr"], 99)
         try:
             ans = exchange(m["addr"], m["door_port"], {"pubkey": st["pubkey"], "level": line["level"], "device": st["device"],
-                                                       "nick": nick, "kind": kind}, "wg-door")
+                                                       "nick": nick, "kind": kind}, door)
             break
         except (OSError, ValueError) as e:                         # another device on the generic credential, or slow
             log("door at %s, try %d: %s; asking again" % (m["endpoint"], t, e))
             time.sleep(1 + t)
         finally:
-            iface_down("wg-door")                                  # 2 the generic tunnel is gone after the one exchange
+            iface_down(door)                                       # 2 the generic tunnel is gone after the one exchange
     if not ans or not ans.get("ok"):
         raise Refused("the door at %s refused: %s" % (m["endpoint"], (ans or {}).get("why", "no answer after %d tries" % TRIES)))
     log("door at %s: I am %s, edge %s (%s)" % (m["endpoint"], ans["name"], ans["edge"], ans["state"]))
@@ -265,8 +257,22 @@ def main():
         if len(parts) != 2:
             die("level %s has a password: give \"user password\" on stdin" % line["level"])
         cred = {"user": parts[0], "password": parts[1]}
+    if "privkey" not in st and kind == "node":
+        st["privkey"], st["pubkey"] = node_key()
+    if "privkey" not in st:
+        old = os.umask(0o077)
+        try:
+            st["privkey"] = run("wg", "genkey")
+        finally:
+            os.umask(old)
+        st["pubkey"] = run("wg", "pubkey", input=st["privkey"])
+    for m in line["managers"]:                                    # each target's entry, made before the threads
+        st.setdefault("managers", {}).setdefault(m["name"] or m["endpoint"], {})
+    # [LOGIN_WHERE_IT_CAN_V1] a target that cannot be reached, or refuses, is said and left for the next run.
+    # [LOGIN_AT_ALL_AT_ONCE_V1] (John 2026-11-03: "Why are you trying to reach targets sequentially?") every target at
+    # once, each on its own interfaces: a dead one costs its own timeout, not every one's after it.
     missed = []
-    for i, m in enumerate(line["managers"]):                     # [LOGIN_WHERE_IT_CAN_V1]
+    def one(i, m):
         key = m["name"] or m["endpoint"]
         try:
             at_manager(line, m, i, st, cred, nick, kind)
@@ -274,9 +280,14 @@ def main():
             missed.append("%s: %s" % (m["endpoint"], e))
             log("NOT logged in at %s (%s): %s -- left for the next run" % (key, m["endpoint"], e))
             # (its own tunnel, when the door gave an edge, stays up as it was: restricted to the login port by the hub)
-            if not (st.get("managers", {}).get(key) or {}).get("ram"):
-                st.get("managers", {}).pop(key, None)            # no half-made entry: --up brings up only logins
-        save(st)
+    ts = [threading.Thread(target=one, args=(i, m), daemon=True) for i, m in enumerate(line["managers"])]
+    for t in ts: t.start()
+    for t in ts: t.join()
+    for m in line["managers"]:
+        key = m["name"] or m["endpoint"]
+        if not (st["managers"].get(key) or {}).get("ram"):
+            st["managers"].pop(key, None)                          # no half-made entry: --up brings up only logins
+    save(st)
     done = sorted((me for me in st.get("managers", {}).values() if me.get("ram")), key=lambda me: me["order"])
     if not done:
         die("logged in at none of the %d RAM manager(s) on the line: %s" % (len(line["managers"]), "; ".join(missed)))

@@ -69,13 +69,17 @@ class OrgLogin(private val bridge: Bridge, private val devicePub: String, privat
     fun loginAll(line: JoinLine, user: String = "", password: String = ""): List<ManagerLogin> {
         if (line.password && user.isEmpty()) throw LoginRefused("level ${line.level} has a password: give the user and the password")
         log(line.toString())
-        // [LOGIN_WHERE_IT_CAN_V1] a RAM manager that cannot be reached, or refuses, is said and left for the next run
-        val missed = mutableListOf<String>()
-        val done = line.managers.mapIndexedNotNull { i, m ->
-            try { atManager(line, m, i, user, password) }
-            catch (e: Exception) { if (e is InterruptedException) throw e
-                missed.add("${m.endpoint}: ${e.message}"); log("NOT logged in at ${m.name} (${m.endpoint}): ${e.message} -- left for the next run"); null }
-        }
+        // [LOGIN_WHERE_IT_CAN_V1] a RAM manager that cannot be reached, or refuses, is said and left for the next run.
+        // [LOGIN_AT_ALL_AT_ONCE_V1] (John 2026-11-03: "Why are you trying to reach targets sequentially?") every RAM
+        // manager at once, each on its own islands: a dead one costs its own timeout, not everyone's after it.
+        val missed = java.util.Collections.synchronizedList(mutableListOf<String>())
+        val pool = java.util.concurrent.Executors.newFixedThreadPool(maxOf(1, line.managers.size))
+        val done = try {
+            line.managers.mapIndexed { i, m -> pool.submit<ManagerLogin?> {
+                try { atManager(line, m, i, user, password) }
+                catch (e: Exception) { missed.add("${m.endpoint}: ${e.message}"); log("NOT logged in at ${m.name} (${m.endpoint}): ${e.message} -- left for the next run"); null }
+            } }.mapNotNull { it.get() }
+        } finally { pool.shutdown() }
         if (done.isEmpty()) throw LoginRefused("logged in at none of the ${line.managers.size} RAM manager(s) on the line: " + missed.joinToString("; "))
         log("logged in at ${done.size} of ${line.managers.size} RAM manager(s)" + (if (missed.isEmpty()) "" else "; not at: " + missed.joinToString("; ")))
         return done
@@ -109,17 +113,26 @@ class OrgLogin(private val bridge: Bridge, private val devicePub: String, privat
         log(line.toString())
         // [LOGIN_WHERE_IT_CAN_V1] (John 2026-11-02) the line is the admin's ordered list of RAM hosts: the first one on it
         // that admits this device is the invitation; one that cannot be reached, or refuses, is said and the next tried
-        val missed = mutableListOf<String>()
-        for ((i, m) in line.managers.withIndex()) {
-            val ml = try { atManager(line, m, i, user, password) }
-                     catch (e: Exception) { if (e is InterruptedException) throw e
-                         missed.add("${m.endpoint}: ${e.message}"); log("NOT admitted at ${m.name} (${m.endpoint}): ${e.message} -- trying the next"); null }
-                     finally { bridge.removeIsland(island(m), "the login is over: the forward tunnel carries this key now") }
-            if (ml == null) continue
-            if (ml.sessionPort <= 0) { missed.add("${m.endpoint}: no session port for level ${line.level}"); continue }
-            if (missed.isNotEmpty()) log("admitted at ${m.name}, number ${i + 1} on the line; not at: " + missed.joinToString("; "))
-            return Invite(line.line, line.org, "", m.addr, ml.sessionPort, m.hub(line.org), ml.me.ifEmpty { device }, ml.edge, kind, privkey)
+        // [LOGIN_AT_ALL_AT_ONCE_V1] (John 2026-11-03) every RAM host on the line at once; the first to admit this device is
+        // the invitation, and it stays (no flapping). The others are admitted as they answer: ready for a failover.
+        val missed = java.util.Collections.synchronizedList(mutableListOf<String>())
+        val pool = java.util.concurrent.Executors.newFixedThreadPool(maxOf(1, line.managers.size)) { r -> Thread(r, "admit").apply { isDaemon = true } }
+        val cs = java.util.concurrent.ExecutorCompletionService<Pair<Int, ManagerLogin>?>(pool)
+        for ((i, m) in line.managers.withIndex()) cs.submit {
+            try {
+                val ml = atManager(line, m, i, user, password)
+                if (ml.sessionPort <= 0) { missed.add("${m.endpoint}: no session port for level ${line.level}"); null } else Pair(i, ml)
+            } catch (e: Exception) { missed.add("${m.endpoint}: ${e.message}"); log("NOT admitted at ${m.name} (${m.endpoint}): ${e.message}"); null }
+            finally { bridge.removeIsland(island(m), "the login is over: the forward tunnel carries this key now") }
         }
+        try {
+            repeat(line.managers.size) {
+                val r = cs.take().get() ?: return@repeat
+                val (i, ml) = r; val m = line.managers[i]
+                log("admitted at ${m.name}, number ${i + 1} of ${line.managers.size} on the line, first to answer" + (if (missed.isEmpty()) "" else "; not at: " + missed.joinToString("; ")))
+                return Invite(line.line, line.org, "", m.addr, ml.sessionPort, m.hub(line.org), ml.me.ifEmpty { device }, ml.edge, kind, privkey)
+            }
+        } finally { pool.shutdown() }
         throw LoginRefused("admitted at none of the ${line.managers.size} RAM host(s) on the line: " + missed.joinToString("; "))
     }
 
