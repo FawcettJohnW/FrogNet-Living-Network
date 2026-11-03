@@ -7,7 +7,7 @@
 # on the hotspot reads the lead's card in it and connects to it; chat flows; the lead going takes the team's RAM with it.
 # Three AppCores (CoreDriver) against real RAMs: fdf-ram for the general RAM and team Alpha's fdf-app RAM (which the
 # lead's RAM replaces for its team), team-ram for the lead's, and a stand-in for the node's door (op=rams).
-#   usage: test_team_host.py RINA_HOST TEAM_RAM
+#   usage: test_team_host.py FDF_RAM TEAM_RAM
 import json, os, queue, socket, subprocess, sys, tempfile, threading, time, urllib.request
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from urllib.parse import parse_qs, urlparse

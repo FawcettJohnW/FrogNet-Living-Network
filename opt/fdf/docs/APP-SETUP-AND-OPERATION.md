@@ -101,6 +101,17 @@ recognize itself as primary.
 The capability query describes what is currently present. More services can appear as their owners attach and reassert
 themselves.
 
+### Updating a machine that ran rina-host ([FDF_RAM_ON_PLATFORM_V1], 2026-11-03)
+
+The RAM host is `fdf-ram` (build `fdf-2026-11-03-r39` and later), on the Ribbit platform; every C++ client (`fdf-client`,
+`fdf-events`, `fdf-participants`, `fdf-where`, `fdf-attention`, `ram`) is built on the same platform and only those
+speak its wire. A host and its clients are updated together, from the one tarball for the machine's type
+(`fdf-update-<date>-<n>-x86_64.tgz` or `-aarch64.tgz`). The update rewrites every unit whose `ExecStart` names
+`/opt/fdf/bin/rina-host` to `/opt/fdf/bin/fdf-ram`, removes `rina-host`, reloads systemd and restarts the `fdf-*`
+units. The region file (`RINA_REGION_FILE`) is the same file: its Permanent records are restored by `fdf-ram` at start
+(`[REGION_FILE_V1] N Permanent record(s) restored` in the unit's journal). A phone's team RAM (`libteamram.so`) is
+built on the same platform with the RangerTrak app.
+
 ## A Windows or Android device
 
 1. The device attaches through the fabric.

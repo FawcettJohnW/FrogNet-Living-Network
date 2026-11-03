@@ -3,7 +3,7 @@
 #  Copyright (C) 2016-2026 Fawcett Innovations LLC             #
 #  SPDX-License-Identifier: GPL-2.0-only                       #
 ################################################################
-# world.py RINA_HOST OUTFILE -- [RT_APP_TEST_V1] the test world on its own, for driving an app by hand or from a shell:
+# world.py FDF_RAM OUTFILE -- [RT_APP_TEST_V1] the test world on its own, for driving an app by hand or from a shell:
 # the general RAM and one per team (fdf-ram), the door stand-in (op=rams, op=login), rt-sim. Writes the door's
 # host:port to OUTFILE, then runs until killed.
 import json, os, socket, subprocess, sys, tempfile, threading, time
