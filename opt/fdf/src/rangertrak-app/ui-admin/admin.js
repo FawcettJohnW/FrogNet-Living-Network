@@ -45,14 +45,17 @@ function fromCurrent(c) {
   const users = {}
   for (const [u, x] of Object.entries(c.users || {})) users[u] = { role: (x || {}).role || '', lead: !!(x || {}).lead }
   const extra = [...rams].filter(r => r !== 'general' && !roles[r])
-  return { roles, cats, users, login: !!c.login, partition: c.partition === 'fail' ? 'fail' : 'relocate', extra: extra.join(', ') }
+  const sel = {}; for (const [r, s] of Object.entries(c.select || {})) sel[r] = { need: ((s || {}).need || []).join(', '), rank: ((s || {}).rank || []).join(', ') }   // [APP_SELECTION_V1]
+  return { roles, cats, users, login: !!c.login, partition: c.partition === 'fail' ? 'fail' : 'relocate', extra: extra.join(', '), sel }
 }
 function toConfig(e) {
   const rams = ['general', ...Object.entries(e.roles).filter(([, x]) => x.team).map(([r]) => r),
     ...e.extra.split(/[,\s]+/).map(s => s.trim().toLowerCase()).filter(Boolean)]
   const roles = {}; for (const [r, x] of Object.entries(e.roles)) roles[r] = { default: x.def, category: x.cat }
   const users = {}; for (const [u, x] of Object.entries(e.users)) users[u] = { role: x.role, lead: !!x.lead }
-  return { rams: [...new Set(rams)], partition: e.partition, login: e.login, roles, categories: [...e.cats], users }
+  const keys = (t) => t.split(/[,\s]+/).map(s => s.trim()).filter(Boolean)
+  const select = {}; for (const [r, s] of Object.entries(e.sel || {})) select[r] = { need: keys(s.need), rank: keys(s.rank) }
+  return { rams: [...new Set(rams)], partition: e.partition, login: e.login, roles, categories: [...e.cats], users, select }
 }
 const catOf = (e, role) => (e.roles[role] || {}).cat
 function state(m) {
@@ -84,6 +87,10 @@ function draw() {
     <td class="c"><button type="button" class="x" data-del-user="${esc(u)}" title="remove">✕</button></td></tr>`).join('') || `<tr><td colspan="6" class="mu">no users in ${esc(A.tab)}</td></tr>`
   $('#login').checked = e.login; $('#pRel').checked = e.partition === 'relocate'; $('#pFail').checked = e.partition === 'fail'
   $('#extraRams').value = e.extra
+  $('#sel').innerHTML = Object.entries(e.sel).map(([r, s]) => `<tr><td><b>${esc(r)}</b></td>
+    <td><input type="text" data-sel="${esc(r)}" data-k="need" value="${esc(s.need)}" placeholder="e.g. mysql_running"></td>
+    <td><input type="text" data-sel="${esc(r)}" data-k="rank" value="${esc(s.rank)}" placeholder="e.g. mem_total_kb, -disk_fsync_ms"></td>
+    <td class="c"><button type="button" class="x" data-del-sel="${esc(r)}" title="remove">✕</button></td></tr>`).join('') || '<tr><td colspan="4" class="mu">the default: the most memory, then the most cores</td></tr>'
   dirtyLine()
 }
 function changes() {
@@ -105,6 +112,8 @@ function changes() {
   for (const u of Object.keys(A.pw)) if (A.pw[u] && a.users[u]) out.push('new password for ' + u)
   if (a.login !== b.login) out.push(b.login ? 'login required' : 'login not required')
   if (a.partition !== b.partition) out.push('partition: ' + b.partition)
+  for (const r of new Set([...Object.keys(a.select), ...Object.keys(b.select)]))   // [APP_SELECTION_V1]
+    if (JSON.stringify(a.select[r] || null) !== JSON.stringify(b.select[r] || null)) out.push(b.select[r] ? 'selection of ' + r + ': need ' + (b.select[r].need.join(',') || 'none') + ', rank ' + (b.select[r].rank.join(',') || 'the default') : 'no selection of ' + r)
   return out
 }
 function missing() { return Object.keys(A.edit.users).filter(u => !(A.cur.users || {})[u] && !(A.restoredUsers || {})[u] && !A.pw[u]) }   // a restore brings its users' verifiers
@@ -123,6 +132,7 @@ document.addEventListener('change', (ev) => {
   else if (t.id === 'login') e.login = t.checked
   else if (t.name === 'part') e.partition = t.value
   else if (t.id === 'extraRams') e.extra = t.value
+  else if (t.dataset.sel) e.sel[t.dataset.sel][t.dataset.k] = t.value
   else return
   draw()
 })
@@ -134,7 +144,13 @@ document.addEventListener('click', (ev) => {
   else if (t.dataset.delRole) { delete e.roles[t.dataset.delRole]; draw() }
   else if (t.dataset.delUser) { delete e.users[t.dataset.delUser]; delete A.pw[t.dataset.delUser]; draw() }
   else if (t.dataset.qr) showQr(t.dataset.qr)
+  else if (t.dataset.delSel) { delete e.sel[t.dataset.delSel]; draw() }
 })
+$('#addSel').onclick = () => {
+  const r = $('#newSel').value.trim().toLowerCase()
+  if (r !== '*' && !/^[a-z0-9_-]{1,40}$/.test(r)) { $('#status').textContent = 'a RAM name (letters, digits, _ and -), or *'; return }
+  if (!A.edit.sel[r]) A.edit.sel[r] = { need: '', rank: '' }; $('#newSel').value = ''; draw()
+}
 $('#addRole').onclick = () => {
   const r = $('#newRole').value.trim().toLowerCase()
   if (!/^[a-z0-9_-]{1,40}$/.test(r) || r === 'general') { $('#status').textContent = 'a role is letters, digits, _ and - (not general)'; return }
@@ -164,7 +180,8 @@ $('#apply').onclick = () => {
 // ------------------------------------------------------------ the members
 // two members' configurations are the same when what clients see is the same (each install line has its own seq)
 function sig(c) { const u = {}; for (const [k, x] of Object.entries(c.users || {})) u[k] = [(x || {}).role, !!(x || {}).lead]  // (not the verifier: each install line salts its own)
-  return JSON.stringify([[...(c.rams || [])].sort(), c.partition, !!c.login, Object.entries(c.roles || {}).sort().map(([r, x]) => [r, !!(x || {}).default, (x || {}).category || DEF_CAT]), Object.entries(u).sort()]) }
+  return JSON.stringify([[...(c.rams || [])].sort(), c.partition, !!c.login, Object.entries(c.roles || {}).sort().map(([r, x]) => [r, !!(x || {}).default, (x || {}).category || DEF_CAT]), Object.entries(u).sort(),
+    Object.entries(c.select || {}).sort().map(([r, s]) => [r, (s || {}).need || [], (s || {}).rank || []])]) }
 function members(m) {
   const ap = {}; for (const a of m.applied || []) ap[a.guid] = a
   const sent = m.sent || 0, top = (m.current || {}).seq || 0

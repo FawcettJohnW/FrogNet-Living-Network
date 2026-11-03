@@ -51,7 +51,7 @@ import java.util.Map;
  */
 public final class AdminCore {
     public interface Ui { void deliver(String json); }
-    public static final String BUILD = "rt-admin-2026-11-03-r5";
+    public static final String BUILD = "rt-admin-2026-11-03-r6";
 
     private final Ui ui;
     private volatile String door = "", app = "", user = "";
@@ -200,7 +200,7 @@ public final class AdminCore {
     public void close() { stopWatch(); }
 
     // ------------------------------------------------------------------ [ASSIGNMENTS_SAVE_V1] save and restore, by hand
-    private static final String[] KEPT = { "rams", "partition", "login", "roles", "categories", "users" };
+    private static final String[] KEPT = { "rams", "partition", "login", "roles", "categories", "users", "select" };
     private void save() throws Exception {
         if (key == null) throw new Exception("not connected as the admin");
         if (!saves.isDirectory() && !saves.mkdirs()) throw new Exception("cannot make " + saves);
@@ -269,7 +269,17 @@ public final class AdminCore {
             users.put(u, Json.o("role", role, "verifier", v, "lead", Json.bool(Json.obj(e.getValue()).get("lead"))));   // [ENROLL_V1]
         }
         String part = Json.str(want.get("partition")); if (!part.equals("fail")) part = "relocate";
-        String text = Json.write(Json.o("rams", rams, "partition", part, "login", Json.bool(want.get("login")), "roles", roles, "categories", cats, "users", users));
+        // [APP_SELECTION_V1] the app's own selection of each RAM's member: need and rank keys of the capability tuples
+        Map<String, Object> sel = new LinkedHashMap<String, Object>();
+        for (Map.Entry<String, Object> e : Json.obj(want.get("select")).entrySet()) {
+            String r = e.getKey().trim();
+            if (!r.equals("*") && !rams.contains(r)) throw new Exception("selection of '" + r + "': not one of the app's RAMs (or *)");
+            List<Object> need = new ArrayList<Object>(), rank = new ArrayList<Object>();
+            for (Object k : Json.arr(Json.obj(e.getValue()).get("need"))) { String n = Json.str(k); if (!n.matches("[A-Za-z0-9_]{1,40}")) throw new Exception("selection of " + r + ": need '" + n + "': a capability key"); need.add(n); }
+            for (Object k : Json.arr(Json.obj(e.getValue()).get("rank"))) { String n = Json.str(k); if (!n.matches("-?[A-Za-z0-9_]{1,40}")) throw new Exception("selection of " + r + ": rank '" + n + "': a capability key, or -key"); rank.add(n); }
+            if (!need.isEmpty() || !rank.isEmpty()) sel.put(r, Json.o("need", need, "rank", rank));
+        }
+        String text = Json.write(Json.o("rams", rams, "partition", part, "login", Json.bool(want.get("login")), "roles", roles, "categories", cats, "users", users, "select", sel));
         long seq = Math.max(System.currentTimeMillis(), (long) Json.num(current.get("seq")) + 1);
         door("op=admin&app=" + URLEncoder.encode(app, "UTF-8"),
              Json.write(Json.o("config", text, "seq", seq, "user", user, "mac", hmac(key, text + "\n" + seq))), 10000);

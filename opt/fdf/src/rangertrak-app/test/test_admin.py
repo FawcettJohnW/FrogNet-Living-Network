@@ -24,6 +24,9 @@
 #     category Power, its group crew1 (own RAM) and its lead pat, and applies: the Power tab shows crew1 and pat, Teams
 #     does not; every member with the admin key adopts it; the door's op=roles says crew1 is in Power and the tabs'
 #     order (Teams, Power); pat logs in at the door as crew1
+#  10 [APP_SELECTION_V1] the admin's "Where each RAM is served": * ranked -mem_total_kb, applied: the general RAM moves to
+#     Vashon1 (the least memory; every member decides by the newest configuration, Vashon1 too, which cannot adopt it);
+#     the row removed and applied: back on Seattle5 (the most memory)
 #   9 [GROUP_PLACE_V1] kim, echo's lead, through the real AppCore (CoreDriver, as the lead's phone runs it): Host team
 #     places echo here, on kim's phone, at the door -- the members adopt it, none serves echo, op=rams has no echo and its
 #     places say here; Team on databasehost places it there -- a member serves echo again, and the core hears it from
@@ -191,6 +194,21 @@ try:
               and (ro8.get("roles", {}).get("echo") or {}).get("category") == "Teams" and lg8.get("role") == "crew1",
               "8 tabs before %s; '%s'; the Power tab: groups %s, users %s; Teams: %s; %d members adopted; op=roles crew1 %s, categories %s; pat logs in as %s"
               % (tabs0, chg8[:90], power_roles, power_users, teams_roles, len(adopted8 or []), ro8.get("roles", {}).get("crew1"), ro8.get("categories"), lg8.get("role") or lg8.get("why")))
+        # 10 the app's selection, from the admin's screen
+        pg.wait_for_function("document.querySelector('#changes').textContent.indexOf('No changes') >= 0 || document.querySelector('#changes').textContent.indexOf('adopted') >= 0", timeout=20000)
+        pg.fill("#newSel", "*"); pg.click("#addSel")
+        pg.fill("[data-sel='*'][data-k=rank]", "-mem_total_kb"); pg.press("[data-sel='*'][data-k=rank]", "Tab")
+        chg10 = pg.inner_text("#changes"); t0 = time.time(); pg.click("#apply")
+        def on(prefix):
+            return lambda: (lambda g: g if g.startswith(prefix) else None)(door("op=rams&app=rangertrak").get("rams", {}).get("general", ""))
+        low = wait_for(on("127.0.3.1:"), 30); dt10 = time.time() - t0
+        cfgsel = [c["bag"].get("select") for c in rm.read("fdf-app", "config") if c["bag"].get("admin", {}).get("check")]
+        pg.wait_for_function("document.querySelector('#changes').textContent.indexOf('No changes') >= 0 || document.querySelector('#changes').textContent.indexOf('adopted') >= 0", timeout=20000)
+        pg.click("[data-del-sel='*']"); chg10b = pg.inner_text("#changes"); t1 = time.time(); pg.click("#apply")
+        back = wait_for(on("127.0.2.1:"), 30); dt10b = time.time() - t1
+        check(bool(low) and bool(back) and all(x == {"*": {"need": [], "rank": ["-mem_total_kb"]}} for x in cfgsel) and len(cfgsel) == 2,
+              "10 '%s': general on Vashon1 %.1f s after (%s; the adopting members' select %s); '%s': back on Seattle5 %.1f s after (%s)"
+              % (chg10[:80], dt10, low, cfgsel[:1], chg10b[:60], dt10b, back))
         br.close()
     # 9 the lead says where its team lives
     import queue

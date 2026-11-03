@@ -94,6 +94,17 @@ footer #changes { flex: 1; color: var(--mu); min-width: 200px; } footer #changes
         <div class="add"><input type="text" id="extraRams" placeholder="e.g. hospitals, logistics"></div></div></div>
     </section>
     <section>
+      <h2>Where each RAM is served</h2>
+      <p class="why">[APP_SELECTION_V1] The app's own choice of the member that serves a RAM, from what each member's probe
+        measured (its capability: <code>mem_total_kb</code>, <code>cores</code>, <code>cpu_bench_total</code>,
+        <code>disk_fsync_ms</code>, <code>mysql_running</code> ...). <b>Need</b>: keys a member must have to serve it.
+        <b>Rank</b>: keys compared in order, higher first; <code>-key</code> lower first. RAM <code>*</code> is every RAM
+        not named. Nothing here: the most memory, then the most cores. A group its lead placed on its own device is served
+        there whatever this says.</p>
+      <table class="t"><thead><tr><th>RAM</th><th>Need</th><th>Rank</th><th></th></tr></thead><tbody id="sel"></tbody></table>
+      <div class="add"><input type="text" id="newSel" placeholder="RAM, or * for every RAM"><button type="button" id="addSel">Add</button></div>
+    </section>
+    <section>
       <h2>Saved assignments</h2>
       <p class="why">The teams, users and leads live on the network's nodes. If the node holding them goes, they are gone
         until you put them back. Save them here after a change; Restore loads a save as an edit you review and apply,
