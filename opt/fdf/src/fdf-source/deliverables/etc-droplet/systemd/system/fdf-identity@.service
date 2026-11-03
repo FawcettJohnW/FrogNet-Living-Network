@@ -11,7 +11,11 @@ EnvironmentFile=-/opt/fdf/hub/%i/hub.env
 Environment=FDF_PY=/opt/fdf/lib/python
 Environment=FDF_HUB_ENV=/opt/fdf/hub/%i/hub.env
 Environment=FDF_ADMITTED=/opt/fdf/hub/%i/admitted
-ExecStartPre=/bin/sh -c 'test -s /opt/fdf/hub/%i/hub.env || { echo "fdf-identity@%i: /opt/fdf/hub/%i/hub.env does not exist: this machine holds no region %i" >&2; exit 1; }'
+# [ONLY_THIS_MACHINES_REGION_V1] (found on Seattle7 2026-11-02: fdf-org@frognet restarted 9718 times on a copy of
+# StreamingFrog's hub.env) the unit runs only for a region this machine holds: hub.env exists and names this
+# machine. Otherwise it is skipped, said once, not failed, and not restarted; it is tried again when it is next
+# started (the hub's unit wants it).
+ExecCondition=/bin/sh -c 'f=/opt/fdf/hub/%i/hub.env; [ -s $$f ] || { echo "fdf-identity@%i: $$f does not exist: this machine holds no region %i (not started)" >&2; exit 1; }; w=$$(sed -n "s/^FDF_HUB_NAME=//p" $$f); [ "$$w" = "$$(hostname -s)" ] || { echo "fdf-identity@%i: $$f is $$w's (FDF_HUB_NAME=$$w), not this machine's ($$(hostname -s)): not started. Remove /opt/fdf/hub/%i if it is a stray copy" >&2; exit 1; }'
 ExecStart=/usr/bin/python3 /opt/fdf/bin/fdf-identity --serve
 Restart=always
 RestartSec=2
