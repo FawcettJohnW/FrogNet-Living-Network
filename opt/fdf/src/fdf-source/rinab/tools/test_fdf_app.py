@@ -26,6 +26,10 @@
 #  11 "need": hospitals needs gpu, which only b's capability has: hospitals on b, the rest stay on a
 #  12 the selection itself (fdf_select): a member that does not offer a RAM ("serve") is not a candidate; a member whose
 #     tuple lacks a ranked key ranks below every member that has it; the same tuples give the same answer in any order
+#  13 [GROUP_PLACE_V1] pat, hospitals' lead, places it "here" on c (the place cell as the door writes it): every member
+#     adopts it and hospitals is on c, whatever the selection says; a place written by a user who is not the lead changes nothing
+#  14 c's session ends: hospitals is served by nobody (the group went with its lead's device), general and alpha stay on a
+#  15 c is back, and pat places hospitals on databasehost: the app's selection again (need gpu: b)
 #   5 every member with the app has the same map of where each RAM is served (FDF_VAR/app-where.json), the one the pages use
 import json, os, shutil, socket, subprocess, sys, tempfile, time
 H = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
@@ -228,6 +232,33 @@ try:
     check(one == "g2" and two == "g1" and low == "g2" and same and len(bad) == 4,
           "12 the selection: hospitals (g1 offers only general) -> %s; general -> %s; lowest memory -> %s (absent and non-numeric rank last); "
           "the same in any order: %s; %d of 4 bad selections refused" % (one, two, low, same, len(bad)))
+
+    # [GROUP_PLACE_V1]
+    lead = dict(new, select=sel, users=dict(new["users"], pat=dict(new["users"]["pat"], lead=True)))
+    admin_send("adm-2026", lead, seq + 12)
+    wait_for(lambda: (lambda c: c if len(c) == 3 and all(x["bag"]["seq"] == seq + 12 for x in c) else None)(rm.read("fdf-app", "config")), 15)
+    def place(user, at, guid=""):
+        rm.write("fdf-app", "place", "rangertrak.hospitals", {"at": at, "guid": guid, "user": user, "role": "hospitals",
+                                                               "seq": int(time.time() * 1000), "from": "test"})
+    place("pat", "here", "guid-c")
+    want = {"general": "127.0.1.1", "alpha": "127.0.1.1", "hospitals": "127.0.3.1"}
+    ms, dt = wait_for(on(want, rs), 20)
+    cfp = [c["bag"].get("places", {}).get("hospitals", {}).get("guid") for c in rm.read("fdf-app", "config")]
+    place("kim", "here", "guid-a"); time.sleep(1.5)
+    still = (map_of("a") or {}).get("rangertrak.hospitals", "").startswith("127.0.3.1:")
+    notlead = any("by 'kim' is not its lead's" in l for l in open(T + "/a/app.log"))
+    check(ms is not None and cfp == ["guid-c"] * 3 and still and notlead,
+          "13 pat placed hospitals on c: there %.0f ms after (%s); every configuration tuple has it: %s; kim's place (not the lead) changed nothing: %s"
+          % (dt * 1000, (map_of("a") or {}).get("rangertrak.hospitals"), cfp, still and notlead))
+    client_stop("c")
+    gone, dt = wait_for(lambda: all("rangertrak.hospitals" not in (map_of(n) or {"rangertrak.hospitals": 1}) for n in "ab")
+                        and all((map_of(n) or {}).get("rangertrak.general", "").startswith("127.0.1.1:") for n in "ab"), 20)
+    check(bool(gone), "14 c gone: hospitals served by nobody %.0f ms after (a's map: %s)" % (dt * 1000, map_of("a")))
+    client("c")
+    wait_for(on(want, rs), 20)
+    place("pat", "databasehost")
+    ms, dt = wait_for(on({"general": "127.0.1.1", "alpha": "127.0.1.1", "hospitals": "127.0.2.1"}, rs), 20)
+    check(ms is not None, "15 pat placed hospitals on databasehost: the selection again, on b (need gpu) %.0f ms after: %s" % (dt * 1000, map_of("a")))
 finally:
     for n in list(up): up[n] = False
     for m in members.values():

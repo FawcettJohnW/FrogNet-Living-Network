@@ -19,6 +19,9 @@
 #   5  ann enrolls at kim's phone: role echo, not a lead, the door in the card; the region admitted rangertrak-echo-ann
 #   6  ann's phone joins the region with it: a second member, its own key and edge, no login of its own
 #   7  EOCAdmin (no team to lead) cannot ask the door for invitations
+#   9  [GROUP_PLACE_V1] kim (echo's lead) tells the door where echo lives, here on guid-a: the door writes the place,
+#      fdf-app serve adopts it and echo is served there; EOCAdmin (no group to lead) and a place that is neither here
+#      nor databasehost are refused
 #   8  the region does not answer: the door says so (where it asked, how long) before the phone gives up
 # Needs root, ip, wg, wireguard-go, python3, php, curl, java, the built fdf-member-kt, fdf-tun and frognet-ram-java.
 #   usage: tools/netns-enroll-test.sh [RINAB_DIR]
@@ -121,6 +124,15 @@ check $(grep -q "joined the region at" $T/q2/member.log && NS q2 wg show fdf-q2 
 # 7 a user who leads no team
 R7=$(NS q1 curl -s -m 30 -X POST -d '{"user":"EOCAdmin","password":"eoc-pw","name":"x"}' "http://$DOOR/dc/ram.php?op=identity&app=rangertrak")
 check $(echo "$R7" | grep -q "does not lead a team" && [ ! -f $T/A/admitted/rangertrak-eoc-x.json ] && echo 0 || echo 1) "7 EOCAdmin cannot ask for invitations: $R7"
+# 9 the lead places its group
+P0=$(NS q1 curl -s -m 10 -X POST -d '{"user":"EOCAdmin","password":"eoc-pw","at":"databasehost"}' "http://$DOOR/dc/ram.php?op=place&app=rangertrak")
+P1=$(NS q1 curl -s -m 10 -X POST -d '{"user":"kim","password":"kim-2026","at":"moon"}' "http://$DOOR/dc/ram.php?op=place&app=rangertrak")
+P2=$(NS q1 curl -s -m 10 -X POST -d '{"user":"kim","password":"kim-2026","at":"here","guid":"guid-a"}' "http://$DOOR/dc/ram.php?op=place&app=rangertrak")
+for i in $(seq 60); do grep -q "group echo placed here on guid-a by its lead kim (adopted)" $T/A/app.log && break; sleep 0.25; done
+check $(echo "$P0" | grep -q "does not lead a group" && echo "$P1" | grep -q '"ok":false' && echo "$P2" | grep -q '"ok":true' \
+        && grep -q "group echo placed here on guid-a by its lead kim (adopted)" $T/A/app.log && grep -q '"places": {"echo"' $T/A/apps/rangertrak.json \
+        && python3 -c "import json,sys; sys.exit(0 if json.load(open('$T/A/app-where.json')).get('rangertrak.echo','').startswith('198.18.0.1:') else 1)" && echo 0 || echo 1) \
+  "9 kim placed echo here on guid-a: $(echo "$P2" | cut -c1-110); adopted: $(grep -o 'group echo placed.*' $T/A/app.log | head -1); EOCAdmin: $(echo "$P0" | grep -o 'does not lead a group'); at moon: $(echo "$P1" | grep -o '"why":"[^"]*' | cut -c1-60)"
 # 8 [IDENTITY_ASK_IS_SAID_V1][IDENTITY_WAIT_IS_SAID_V1] the region does not answer (its fdf-identity stopped; seen on
 #   Seattle7 2026-11-02: the phone sat 60 s and said "timeout"): the door says so, in less time than the phone waits
 for p in $(pgrep -f "fdf-identity --serve"); do kill $(ps -o ppid= -p $p) $p 2>/dev/null; done; sleep 0.5

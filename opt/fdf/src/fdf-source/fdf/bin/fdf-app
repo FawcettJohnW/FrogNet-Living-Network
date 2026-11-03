@@ -178,16 +178,25 @@ def port_of(app, r):
 
 
 # ---------------------------------------------------------------- the selection
-def app_select(app, cfgs, alive):
-    """[APP_SELECTION_V1] the app's selection, the same for every member: the "select" of the newest configuration
-    (highest seq, then highest guid) among the alive members' configuration tuples. A member that has not adopted the
-    admin's newest yet does not make the others choose differently."""
+def newest(app, cfgs, alive):
+    """the newest configuration (highest seq, then highest guid) among the alive members' configuration tuples: what
+    every member decides by, so a member that has not adopted the newest yet does not make the others choose differently"""
     best = None
     for g, b in (cfgs.get(app) or {}).items():
         if g in alive and (best is None or (int(b.get("seq") or 0), g) > best[0]):
             best = ((int(b.get("seq") or 0), g), b)
+    return best[1] if best else {}
+
+
+def places_of(c):
+    """[GROUP_PLACE_V1] {group: {at, guid, seq, user}}: where each group's lead placed it, in a configuration"""
+    return {r: p for r, p in (c.get("places") or {}).items() if isinstance(p, dict) and p.get("at") in ("here", "databasehost")}
+
+
+def app_select(app, cfgs, alive):
+    """[APP_SELECTION_V1] the app's selection: the "select" of the newest configuration"""
     try:
-        return fdf_select.check((best[1] if best else {}).get("select"))
+        return fdf_select.check(newest(app, cfgs, alive).get("select"))
     except ValueError as e:
         log("%s: the newest configuration's selection is not usable (%s): the default" % (app, e))
         return {}
@@ -198,7 +207,13 @@ def choose(app, rams, parts, cans, cfgs=None):
     alive = {(p.get("facts") or {}).get("guid") for p in parts if p.get("alive")}
     cands = [(g, b) for g, b in cans.get(app, {}).items() if g in alive]
     sel = app_select(app, cfgs or {}, alive)
-    return {r: fdf_select.select(sel, r, cands) for r in rams}
+    # [GROUP_PLACE_V1] a group its lead placed "here" is served by that device: the lead chose it, so the app's selection
+    # (its needs and ranking) is not asked; nobody serves it while that device is gone or has not the app. "databasehost",
+    # or no place: the app's selection.
+    pl = places_of(newest(app, cfgs or {}, alive))
+    here = {g for g, _ in cands}
+    return {r: ((pl[r]["guid"] if pl[r]["guid"] in here else None) if pl.get(r, {}).get("at") == "here" else fdf_select.select(sel, r, cands))
+            for r in rams}
 
 
 # ---------------------------------------------------------------- reading the network RAM
@@ -274,7 +289,7 @@ class Server:
                            "login": bool(c.get("login")), "roles": categorize(c.get("roles"), c.get("categories"))[0],
                            "categories": categorize(c.get("roles"), c.get("categories"))[1], "users": c.get("users") or {},
                            "admin": admin_public(c), "seq": int(c.get("seq") or 0), "member": self.f.get("name") or "", "addr": dot1(self.f),
-                           "select": c.get("select") or {}})
+                           "select": c.get("select") or {}, "places": places_of(c)})
             # [APP_SELECTION_V1] the capability tuple: every scalar this member's probe measured (what an app's selection
             # ranks on; a field the probe did not measure is absent, never 0), and the RAMs this install offers
             can = {k: v for k, v in cap.items() if isinstance(v, (int, float, str, bool))}
@@ -336,6 +351,35 @@ class Server:
                                                                  "member": self.f.get("name") or "", "at": int(time.time())})
         return changed
 
+    def adopt_places(self):
+        """[GROUP_PLACE_V1] the leads' places, (fdf-app, place, <app>.<group>) as the door wrote them: the newest of each
+        group, from a user this configuration has as that group's lead, adopted into this member's own configuration"""
+        changed = False
+        cells = {}
+        for x in self.rm.read(SVC, "place"):
+            cells[x.get("instance", "")] = x.get("bag") or {}
+        for a, c in self.installed().items():
+            have = places_of(c)
+            new = dict(have)
+            for r in c.get("rams") or []:
+                b = cells.get("%s.%s" % (a, r))
+                if not b or int(b.get("seq") or 0) <= int((have.get(r) or {}).get("seq") or 0):
+                    continue
+                u = (c.get("users") or {}).get(b.get("user", "")) or {}
+                if not (u.get("lead") and u.get("role") == r and b.get("at") in ("here", "databasehost") and (b.get("at") != "here" or b.get("guid"))):
+                    log("%s: the place of group %s by %r is not its lead's: not adopted" % (a, r, b.get("user")))
+                    continue
+                new[r] = {"at": b["at"], "guid": b.get("guid", "") if b["at"] == "here" else "", "seq": int(b["seq"]), "user": b["user"]}
+                log("%s: group %s placed %s%s by its lead %s (adopted)" % (a, r, b["at"], " on " + new[r]["guid"] if new[r]["guid"] else "", b["user"]))
+            if new != have:
+                p = os.path.join(APPS, a + ".json")
+                with open(p + ".tmp", "w") as f:
+                    json.dump(dict(c, places=new), f)
+                os.chmod(p + ".tmp", 0o600)
+                os.replace(p + ".tmp", p)
+                changed = True
+        return changed
+
     def start(self, app, r):
         p = self.procs.get((app, r))
         if p is not None and p.poll() is None:
@@ -380,6 +424,8 @@ class Server:
             if why.startswith("again"):
                 self.say_own()
             if self.adopt():                         # [ADMIN_APP_V1] a newer configuration from the admin: this member's own now
+                self.say_own()
+            if self.adopt_places():                  # [GROUP_PLACE_V1] a lead's newer place for its group
                 self.say_own()
             parts = self.rm.participants()
             cfgs, cans, _ = read_family(self.rm)

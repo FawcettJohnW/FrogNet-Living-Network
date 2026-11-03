@@ -42,7 +42,7 @@
 // the network, typed by nobody. A device this node gave no lease has none here, and is told so.
 header('Content-Type: application/json');
 // [DOOR_SAYS_ITS_BUILD_V1] every answer says which door answered: the header, and "door" in the admin and roles answers
-const DOOR_BUILD = 'dc-door-2026-11-03-r6';
+const DOOR_BUILD = 'dc-door-2026-11-03-r7';
 header('X-FDF-Door: ' . DOOR_BUILD);
 set_time_limit(0);
 $env = '. ' . escapeshellarg(dirname(__DIR__, 2) . '/fdf.env') . ' && exec "$FDF_BIN"/ram ';
@@ -312,6 +312,27 @@ if ($op === 'read') {
         if (empty($cfg['roles'][$role]['default'])) fail(403, "role $role is activated at its user's login");
     } elseif (!empty($cfg['login'])) fail(403, 'this app requires login');
     echo json_encode(['ok' => true, 'role' => $role, 'user' => $user, 'station' => station_of($_SERVER['REMOTE_ADDR'] ?? '')]);
+} elseif ($op === 'place' && $_SERVER['REQUEST_METHOD'] === 'POST') {
+    // [GROUP_PLACE_V1] (John 2026-11-03: "The Lead should be able to say that the region lives on databasehost.frognet")
+    // the lead says where its group's RAM lives: "here", on the lead's own device (named by its guid: the group goes
+    // where the lead goes, and members who cannot reach it fail), or "databasehost", wherever the app's selection puts
+    // it (it stays when the lead leaves). Checked here against the verifier; every member with the app adopts the
+    // newest into its own configuration and writes it again with it (fdf-app serve), so the choice is owned, not held.
+    $in = json_decode(file_get_contents('php://input'), true);
+    $app = $_GET['app'] ?? '';
+    if (!is_array($in) || !preg_match('/^[A-Za-z0-9_-]{1,40}$/', $app)) fail(400, 'app and a JSON body needed');
+    $u = check_user($app, $in);
+    if (empty($u['lead'])) fail(403, 'user ' . $in['user'] . ' does not lead a group: only its lead says where it lives');
+    $role = (string)$u['role']; $cfg = app_cfg($app);
+    if (!in_array($role, $cfg['rams'] ?? [], true)) fail(400, "group $role has no RAM of its own (the app's RAMs: " . implode(',', $cfg['rams'] ?? []) . ')');
+    $at = (string)($in['at'] ?? ''); $guid = (string)($in['guid'] ?? '');
+    if ($at !== 'here' && $at !== 'databasehost') fail(400, "at: here (the lead's device, named by its guid) or databasehost");
+    if ($at === 'here' && !preg_match('/^[A-Za-z0-9._:-]{1,80}$/', $guid)) fail(400, "guid: the lead's device that serves the group");
+    $bag = ['at' => $at, 'guid' => $at === 'here' ? $guid : '', 'user' => (string)$in['user'], 'role' => $role,
+            'seq' => (int)(microtime(true) * 1000), 'from' => $_SERVER['REMOTE_ADDR'] ?? ''];
+    ram($env, ['write', 'fdf-app', 'place', $app . '.' . $role, json_encode($bag, JSON_UNESCAPED_SLASHES)]);
+    error_log('dc ram.php: [GROUP_PLACE_V1] ' . $app . ' group ' . $role . ' placed ' . $at . ($bag['guid'] !== '' ? ' (' . $bag['guid'] . ')' : '') . ' by its lead ' . $bag['user']);
+    echo json_encode(['ok' => true, 'place' => $bag, 'door' => DOOR_BUILD], JSON_UNESCAPED_SLASHES);
 } elseif ($op === 'device' && $_SERVER['REQUEST_METHOD'] === 'POST') {
     // [APP_ACCESS_V1] the device's own access record (its role, its user), written by the device after its login and
     // again after every RAM change, in the network RAM beside the app's configuration: (fdf-app, device, <app>.<dev>)
@@ -321,5 +342,5 @@ if ($op === 'read') {
     $bag = ['dev' => $dev, 'station' => preg_replace('/[^a-z0-9-]/', '', strtolower((string)($in['station'] ?? ''))), 'role' => (string)($in['role'] ?? ''), 'user' => (string)($in['user'] ?? ''), 'at' => time()];
     echo ram($env, ['write', 'fdf-app', 'device', $app . '.' . $dev, json_encode($bag, JSON_UNESCAPED_SLASHES)]);
 } else {
-    fail(400, 'op is read, write, watch, announce, rams, roles, admin, whoami, login, device, enroll or identity');
+    fail(400, 'op is read, write, watch, announce, rams, roles, admin, whoami, login, device, enroll, identity or place');
 }
