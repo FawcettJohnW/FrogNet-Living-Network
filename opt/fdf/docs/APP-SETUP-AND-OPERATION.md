@@ -195,12 +195,17 @@ target in use is the highest on the list that is reachable.
   the target that set the password unreachable and login at the other with it; both reachable; a wrong password
   refused at both).
 
-**Every hub at 10.253.253.254 collides once a device holds two tunnels** (the WAN's and the current EOC target's).
-**John:** "Why isn't the hub using the IP address of its host?" "Use RAM." A hub on a FrogNet host takes its host's own
-10.A.B.1 (unique: a region refuses a second owner of a /24) and publishes it in its hub row, `(fdf-org, hub, AREA)
-{..., addr}`; members take the hub's address from that row with a held read, not from a constant. A hub that is not a
-FrogNet node (StreamingFrog) needs one assigned private address; as the only such hub it can keep 10.253.253.254.
-**Not built**: `fdf-hub`'s inside address and `HUB_ADDR` in `fdf-org` and `fdf-login` are still the constant.
+**Every hub at 10.253.253.254 collided once a device held two tunnels** (the WAN's and the current EOC target's).
+**John:** "Why isn't the hub using the IP address of its host?" "Use RAM." The host's own 10.A.B.1 would loop on a
+Linux member, because on the hub's LAN that address is also the tunnel's endpoint; **John chose 10.253.A.B**
+([HUB_ADDRESS_FROM_ITS_HOST_V1], **built**). A hub on a node that serves 10.A.B.0/24 takes 10.253.A.B: unique (one
+owner per /24), derived from its host, never an endpoint. A hub on a machine serving no FrogNet LAN (StreamingFrog)
+keeps 10.253.253.254. `fdf-region-create` works it out and says it (`fdf_regions.own_hub_addr`); `hub.env` records it
+as `FDF_HUB_ADDR` (a `hub.env` without it is from before, when every hub was 10.253.253.254, and stays so); `fdf-hub`,
+`fdf-org` and `fdf-invite` use it; the hub says it in its row, `(fdf-org, hub, AREA) {..., addr}`, and in its facts,
+where members read it. The pool of edges never gives a hub's address. Gate: `rinab/tools/netns-hub-addr-test.sh` (a
+device holding both tunnels, one route to each hub, both sessions at once). The RAM manager's `(pond, config, net).hub`
+says it from the next binary build.
 
 **Still open in this design** (Claude, raised 2026-11-02, not yet answered):
 1. The EOC role needs standing access to every group's region, for the dashboard to chat with a mobile team.
