@@ -19,7 +19,10 @@
 """fdf-app -- [APP_DROPLET_V1] an app's RAMs, each served by a droplet on a member (opt/fdf/docs/APP-SETUP-AND-OPERATION.md).
 
   fdf-app config APP RAM[,RAM...] [--partition relocate|fail] [--login] [--category NAME]... [--role NAME[:default][@CATEGORY]]...
-                 [--user USER:PASSWORD=ROLE[+lead]]...
+                 [--user USER:PASSWORD=ROLE[+lead]]... [--serve RAM[,RAM]] [--select RAM=KEY[,-KEY]...]... [--need RAM=KEY[,KEY]...]...
+        [APP_SELECTION_V1] --serve: the RAMs this install offers to serve (default all); --select/--need: the app's own
+        selection of the member that serves a RAM (RAM * for every RAM), ranked on the capability tuples' keys
+        (fdf_select.py; default the most memory, then the most cores, then the highest guid).
         [CATEGORIES_V1] a role is a group in a category (the admin app's tabs: Teams, Power, Water ...); --category gives
         the tabs' order; a role with no @CATEGORY is in Teams.
         what the admin's install writes on each member it installs the app on: the droplet's configuration,
@@ -50,8 +53,9 @@
         so in this member's where cell; stop serving the ones it is not.
 
 The selection is the app's, deterministic, over the capability tuples: every member computes the same answer from the
-same tuples, so nothing is negotiated, claimed or held. The default (an app's manifest names no other): the alive member
-with the most installed memory, then the most cores, then the highest guid. A stronger member arriving takes the RAM;
+same tuples, so nothing is negotiated, claimed or held. The app's own ranking is the "select" of its newest configuration
+(fdf_select.py, [APP_SELECTION_V1]); with none, the alive member with the most installed memory, then the most cores,
+then the highest guid. A stronger member arriving takes the RAM;
 the app's owners write their own truth again to it (APP-SETUP-AND-OPERATION.md, "Why it works this way").
 
 Environment: RINA_RAM (the network RAM; else /opt/fdf/var/join.env), FDF_FACTS (this member's facts.json), FDF_APPS
@@ -60,10 +64,11 @@ default this member's .1).
 """
 import hashlib, hmac, json, os, queue, signal, subprocess, sys, threading, time, zlib
 
-BUILD_TAG = "fdf-app-2026-11-01-r4"
+BUILD_TAG = "fdf-app-2026-11-03-r6"
 LIB = os.environ.get("FDF_PY") or os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "lib", "python")
 sys.path.insert(0, LIB)
 import fdfram  # noqa: E402
+import fdf_select  # noqa: E402  [APP_SELECTION_V1]
 
 VAR = os.environ.get("FDF_VAR", "/opt/fdf/var")
 APPS = os.environ.get("FDF_APPS", "/opt/fdf/apps")
@@ -173,19 +178,27 @@ def port_of(app, r):
 
 
 # ---------------------------------------------------------------- the selection
-def select_default(cands):
-    """cands: [(guid, can-bag)] of the alive members that have the app. The app's default selection."""
-    def rank(c):
-        g, b = c
-        return (int(b.get("mem_total_kb") or 0), int(b.get("cores") or 0), g)
-    return max(cands, key=rank)[0] if cands else None
+def app_select(app, cfgs, alive):
+    """[APP_SELECTION_V1] the app's selection, the same for every member: the "select" of the newest configuration
+    (highest seq, then highest guid) among the alive members' configuration tuples. A member that has not adopted the
+    admin's newest yet does not make the others choose differently."""
+    best = None
+    for g, b in (cfgs.get(app) or {}).items():
+        if g in alive and (best is None or (int(b.get("seq") or 0), g) > best[0]):
+            best = ((int(b.get("seq") or 0), g), b)
+    try:
+        return fdf_select.check((best[1] if best else {}).get("select"))
+    except ValueError as e:
+        log("%s: the newest configuration's selection is not usable (%s): the default" % (app, e))
+        return {}
 
 
-def choose(app, rams, parts, cans):
-    """{ram: guid}: who serves each of APP's RAMs, from the alive members and the capability tuples."""
+def choose(app, rams, parts, cans, cfgs=None):
+    """{ram: guid}: who serves each of APP's RAMs, from the alive members, the capability tuples and the app's selection."""
     alive = {(p.get("facts") or {}).get("guid") for p in parts if p.get("alive")}
     cands = [(g, b) for g, b in cans.get(app, {}).items() if g in alive]
-    return {r: select_default(cands) for r in rams}
+    sel = app_select(app, cfgs or {}, alive)
+    return {r: fdf_select.select(sel, r, cands) for r in rams}
 
 
 # ---------------------------------------------------------------- reading the network RAM
@@ -237,6 +250,7 @@ class Server:
         self.rm = ram()
         self.said = set()                    # where keys this member has said
         self.answered = {}                   # [ADMIN_APP_V1] app -> the admin seq this member has answered
+        self.chosen = {}                     # [APP_SELECTION_V1] (app, ram) -> the guid chosen last, to say why when it changes
 
     def installed(self):
         """{app: its configuration} for every app installed here"""
@@ -259,9 +273,15 @@ class Server:
                           {"app": a, "rams": list(c.get("rams") or []), "partition": c.get("partition", ""), "guid": self.me,
                            "login": bool(c.get("login")), "roles": categorize(c.get("roles"), c.get("categories"))[0],
                            "categories": categorize(c.get("roles"), c.get("categories"))[1], "users": c.get("users") or {},
-                           "admin": admin_public(c), "seq": int(c.get("seq") or 0), "member": self.f.get("name") or "", "addr": dot1(self.f)})
-            self.rm.write(SVC, "can", "%s.%s" % (a, self.me),
-                          {"guid": self.me, "mem_total_kb": cap.get("mem_total_kb", 0), "cores": cap.get("cores", 0)})
+                           "admin": admin_public(c), "seq": int(c.get("seq") or 0), "member": self.f.get("name") or "", "addr": dot1(self.f),
+                           "select": c.get("select") or {}})
+            # [APP_SELECTION_V1] the capability tuple: every scalar this member's probe measured (what an app's selection
+            # ranks on; a field the probe did not measure is absent, never 0), and the RAMs this install offers
+            can = {k: v for k, v in cap.items() if isinstance(v, (int, float, str, bool))}
+            can["guid"] = self.me
+            if c.get("serve"):                         # only when the install named them; absent: every RAM of the app
+                can["serve"] = list(c["serve"])
+            self.rm.write(SVC, "can", "%s.%s" % (a, self.me), can)
             log("%s: configuration and capability tuples written (RAMs %s)" % (a, ",".join(c.get("rams") or []) or "none"))
 
     def adopt(self):
@@ -299,7 +319,8 @@ class Server:
                     part = n.get("partition", "relocate")
                     if "general" not in rams or part not in ("relocate", "fail"):
                         raise ValueError("the RAMs must include general; partition relocate or fail")
-                    new = dict(c, rams=rams, partition=part, login=bool(n.get("login")), roles=roles, categories=cats, users=users, seq=seq)
+                    sel = fdf_select.check(n["select"]) if "select" in n else (c.get("select") or {})   # [APP_SELECTION_V1]
+                    new = dict(c, rams=rams, partition=part, login=bool(n.get("login")), roles=roles, categories=cats, users=users, seq=seq, select=sel)
                     p = os.path.join(APPS, a + ".json")
                     with open(p + ".tmp", "w") as f:
                         json.dump(new, f)
@@ -361,7 +382,7 @@ class Server:
             if self.adopt():                         # [ADMIN_APP_V1] a newer configuration from the admin: this member's own now
                 self.say_own()
             parts = self.rm.participants()
-            _, cans, _ = read_family(self.rm)
+            cfgs, cans, _ = read_family(self.rm)
         except fdfram.RamError as e:
             log("the network RAM did not answer (%s); the next event decides again" % e)
             if why.startswith("again"):
@@ -369,7 +390,13 @@ class Server:
             return
         want, placed = set(), {}
         for app, c in self.installed().items():
-            for r, g in choose(app, list(c.get("rams") or []), parts, cans).items():
+            for r, g in choose(app, list(c.get("rams") or []), parts, cans, cfgs).items():
+                if self.chosen.get((app, r), "-") != g:          # [APP_SELECTION_V1] why, when the choice changes
+                    alive = {(p.get("facts") or {}).get("guid") for p in parts if p.get("alive")}
+                    sel = app_select(app, cfgs, alive)
+                    log("%s: %s's RAM %s -> %s; the selection %s ranks: %s" % (why, app, r, g or "nobody",
+                        json.dumps(fdf_select.spec(sel, r), sort_keys=True), fdf_select.explain(sel, r, [(x, b) for x, b in cans.get(app, {}).items() if x in alive]) or "no candidate"))
+                    self.chosen[(app, r)] = g
                 if g == self.me:
                     want.add((app, r))
                 h = resolve(parts, g) if g else ""
@@ -484,6 +511,20 @@ def main(argv):
             if not who or not pw or role not in roles:
                 print("fdf-app: --user USER:PASSWORD=ROLE[+lead], ROLE one of the --role names"); return 2
             users[who] = {"role": role, "verifier": verifier(pw), "lead": lead}   # [ENROLL_V1]
+        sel = {}                                      # [APP_SELECTION_V1] --select RAM=KEY,-KEY  --need RAM=KEY,KEY  (RAM * for all)
+        for flag, part_ in (("--select", "rank"), ("--need", "need")):
+            for t in opt(flag):
+                r, _, keys = t.partition("=")
+                sel.setdefault(r, {"need": [], "rank": []})[part_] = [k for k in keys.split(",") if k]
+        try:
+            sel = fdf_select.check(sel)
+        except ValueError as e:
+            print("fdf-app: %s (--select RAM=KEY[,-KEY]..., --need RAM=KEY[,KEY]..., RAM one of the app's or *)" % e); return 2
+        if any(r != "*" and r not in rams for r in sel):
+            print("fdf-app: --select/--need name a RAM the app does not have: %s" % ",".join(r for r in sel if r != "*" and r not in rams)); return 2
+        serve = [r for t in opt("--serve") for r in t.split(",") if r]
+        if any(r not in rams for r in serve):
+            print("fdf-app: --serve names a RAM the app does not have"); return 2
         admin = old.get("admin") or {}
         for u in opt("--admin")[-1:]:                 # [ADMIN_APP_V1] USER:PASSWORD
             who, _, pw = u.partition(":")
@@ -494,7 +535,7 @@ def main(argv):
         # seq: this line is newer than any configuration the admin app wrote before it (that one is not adopted again)
         with open(p + ".tmp", "w") as f:
             json.dump({"app": argv[2], "rams": rams, "partition": part, "login": "--login" in argv, "roles": roles, "categories": cats, "users": users,
-                       "admin": admin, "seq": int(time.time() * 1000)}, f)
+                       "admin": admin, "seq": int(time.time() * 1000), "select": sel, **({"serve": serve} if serve else {})}, f)   # no --serve: every RAM, those the admin adds too
         os.chmod(p + ".tmp", 0o600)
         os.replace(p + ".tmp", p)
         print("fdf-app: %s installed here with RAMs %s (%s), roles %s%s%s; serve writes it into the network RAM" % (argv[2], ",".join(rams), part, ",".join(roles) or "none",

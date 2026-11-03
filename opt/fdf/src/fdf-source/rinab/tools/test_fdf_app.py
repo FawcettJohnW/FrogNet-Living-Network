@@ -21,6 +21,11 @@
 #     adopts it (a new team role and its RAM, a new user), says so in (fdf-app, applied, ...), and serves the new RAM;
 #     the admin key is nowhere in the network RAM, its check value is
 #   9 a configuration with a mac from the wrong password: refused by every member, and nothing changes
+#  10 [APP_SELECTION_V1] the app's own selection, in the admin's configuration ("select" {"*": rank -mem_total_kb}):
+#     every RAM moves to a (the least memory), and a, b and c map them the same
+#  11 "need": hospitals needs gpu, which only b's capability has: hospitals on b, the rest stay on a
+#  12 the selection itself (fdf_select): a member that does not offer a RAM ("serve") is not a candidate; a member whose
+#     tuple lacks a ranked key ranks below every member that has it; the same tuples give the same answer in any order
 #   5 every member with the app has the same map of where each RAM is served (FDF_VAR/app-where.json), the one the pages use
 import json, os, shutil, socket, subprocess, sys, tempfile, time
 H = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
@@ -77,7 +82,7 @@ for i, n in enumerate("abcd", start=1):
     d = T + "/" + n; os.makedirs(d + "/apps")
     json.dump({"name": "node-" + n, "guid": "guid-" + n, "role": "node", "subnet": "127.0.%d.0/24" % i,
                "addrs": [{"ip": "127.0.%d.1" % i, "kind": "own"}],
-               "capability": {"mem_total_kb": MEM[n], "cores": 4}}, open(d + "/facts.json", "w"))
+               "capability": dict({"mem_total_kb": MEM[n], "cores": 4}, **({"gpu": 1} if n == "b" else {}))}, open(d + "/facts.json", "w"))
     client(n)
 time.sleep(1.5)
 for n in "abc":   # the admin's install on each member it names (d is not named: it has no app)
@@ -193,6 +198,36 @@ try:
     dt = time.monotonic() - t0
     gone, _ = wait_for(lambda: all(not answers(v) for v in want_b.values()), 10)
     check(bool(mb) and bool(gone), "6 b rejoined: b maps them to c again %.0f ms after, and stopped serving: %s" % (dt * 1000, map_of("b")))
+
+    # [APP_SELECTION_V1]
+    def on(host, rams):
+        return lambda: (lambda ms: ms if all(ms[n] and all(str(ms[n].get("rangertrak." + r, "")).startswith(host[r] + ":") for r in rams) for n in "abc")
+                        and all(answers(ms["a"]["rangertrak." + r]) for r in rams) else None)({n: map_of(n) for n in "abc"})
+    sel = {"*": {"rank": ["-mem_total_kb"]}}
+    t0 = time.monotonic()
+    admin_send("adm-2026", dict(new, select=sel), seq + 10)
+    rs = ("general", "hospitals", "alpha")
+    ms, dt = wait_for(on({r: "127.0.1.1" for r in rs}, rs), 20)
+    check(ms is not None, "10 the admin's selection %s: every RAM on a (the least memory) %.0f ms after, the same map on a, b and c: %s"
+          % (json.dumps(sel), dt * 1000, map_of("a")))
+    sel = {"*": {"rank": ["-mem_total_kb"]}, "hospitals": {"need": ["gpu"], "rank": ["mem_total_kb"]}}
+    admin_send("adm-2026", dict(new, select=sel), seq + 11)
+    ms, dt = wait_for(on({"general": "127.0.1.1", "alpha": "127.0.1.1", "hospitals": "127.0.2.1"}, rs), 20)
+    why = [l.strip() for l in open(T + "/a/app.log") if "RAM hospitals ->" in l][-1:]
+    check(ms is not None, "11 hospitals needs gpu: on b %.0f ms after, general and alpha stay on a: %s; a's log: %s" % (dt * 1000, map_of("a"), why))
+    import fdf_select, random
+    cands = [("g1", {"mem_total_kb": 9, "serve": ["general"]}), ("g2", {"mem_total_kb": 5}), ("g3", {}), ("g4", {"mem_total_kb": "x"})]
+    one = fdf_select.select({"*": {"rank": ["mem_total_kb"]}}, "hospitals", cands)
+    two = fdf_select.select({"*": {"rank": ["mem_total_kb"]}}, "general", cands)
+    low = fdf_select.select({"*": {"rank": ["-mem_total_kb"]}}, "hospitals", cands)
+    same = all(fdf_select.select({"*": {"rank": ["-mem_total_kb"]}}, "hospitals", random.sample(cands, len(cands))) == low for _ in range(20))
+    bad = []
+    for b in ({"*": {"rank": "mem"}}, {"*": {"order": []}}, {"*": {"need": ["-x"]}}, [1]):
+        try: fdf_select.check(b)
+        except ValueError: bad.append(b)
+    check(one == "g2" and two == "g1" and low == "g2" and same and len(bad) == 4,
+          "12 the selection: hospitals (g1 offers only general) -> %s; general -> %s; lowest memory -> %s (absent and non-numeric rank last); "
+          "the same in any order: %s; %d of 4 bad selections refused" % (one, two, low, same, len(bad)))
 finally:
     for n in list(up): up[n] = False
     for m in members.values():
