@@ -553,19 +553,27 @@ that is a network event, and each side derives its own answer, as on a LAN.
 
 ## 10. Apps follow the same invariants
 
-An app's RAM (its **AppRam**: the general one, or a Team's) is served by its **AppHost**. The general AppRam's AppHost
-is a Linux member with the app installed, picked by **the app's own deterministic selection** over the capability
-tuples and named `<app>Host.frognet`. A Team's AppHost is the one its lead designates: the lead's own device, or the
-app's selection (`[GROUP_PLACE_V1]`). That selection is separate from databasehost. The network's own RAM is the
-**SystemRam**: the RAM host on the node the databasehost election names (`databasehost.frognet`), with parked held
-reads. Capability tuples and the app's one configuration tuple live in databasehost-control
-(`databasehost_control.frognet`, the highest .1); an app's data is in its own AppRams. The design is in the doc
-"FrogNet SystemRam, FrogNetHost Admin and App Services — Design" (2026-11-04); its section 9 says where each tuple lives
-and who owns it: in databasehost-control only the Admin's one `(fdf-app, config, <app>)` (and `frognethost` config);
-in the SystemRam `fdf-app can` and `fdf-app applied`; app data in the AppRams. In the code today (fdf-app r12, door r12)
-that is not so: every installed machine writes its own copy of the configuration, and r12 put every fdf-app tuple, the
-where cells and a presence cell into databasehost-control. That is wrong and is being corrected; node code reaches the
-SystemRam through `api.php`.
+Every AppRam (the general one, each Team's) is a **service** served by its **AppHost**: its own name, its own one
+configuration tuple, its own capability tuples and its own **port**. Services that run the same program (team_alpha,
+team_bravo: both the Team RAM host), even on one machine, differ by port. The port is picked at random between 20000
+and 65535 when the service is created, kept in its configuration tuple, and used by every later instance wherever it
+runs; a port change updates the tuple and restarts the service. The general AppRam's AppHost is picked by **the app's
+own deterministic selection** over the capability tuples and every node writes it as `<app>Host.frognet`. A Team's
+AppHost is the one its lead designates: the lead's own device or `databasehost.frognet` (`[GROUP_PLACE_V1]`). The
+group's service writes its capability tuple, held by its session, and registers as a child of its parent. On a Pi
+with a router (a node, its own .1) it is in the election's pool and gets `<team>Host.frognet`; on a phone (no .1) the
+members' apps hold a read on the group's capability tuple, select its host, and connect or fail.
+Where things live (the doc "FrogNet SystemRam, FrogNetHost Admin and App Services — Design", 2026-11-04, sections 5, 7
+and 9): **databasehost-control** (`databasehost_control.frognet`, the highest .1) holds configuration tuples only --
+one per service, owned by the Admin for its scope, read by every installed machine, never copied by them; when it
+moves, **the merge** writes them into the new one. **The SystemRam** (`databasehost.frognet`'s RAM host, parked held
+reads) holds the capability tuples, each held by its service's session (a dead service is not a candidate), and each
+machine's answers (`fdf-app applied`, `frognethost state`); every election reads capability there. App data is in the
+AppRams. Every app carries its own PHP door alongside `api.php`. Every instance holds a read on its capability family:
+an install, a capability change or a configuration change is an event, and the selection runs again.
+In the code today (fdf-app r12, door r12) none of this is so: every installed machine writes its own copy of the
+configuration, r12 put every fdf-app tuple, the where cells and a presence cell into databasehost-control, and ports
+are hashed from the name. That is wrong and is being rebuilt.
 The app's access definition (its teams and their password verifiers; a team's members use the general RAM and their team's RAM, and the network's levels have nothing to do with it) is in its app configuration tuples, so a device's own edge checks a login by
 reading them: login is a read, with no login server and no check on each request after it. The device keeps its role
 and writes its access record again after every RAM change, so no user action is needed after a split or a merge. Every
