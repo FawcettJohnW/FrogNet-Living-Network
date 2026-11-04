@@ -18,6 +18,8 @@
  **************************************************************/
 require_once __DIR__ . '/config.php';
 header('Content-Type: application/json');
+const API_BUILD = 'frognet-api-2026-11-04-r1';     // [EVERY_COMPONENT_LOGS_ITS_BUILD_V1] [HELD_UNTIL_CHANGED_V1]
+header('X-FrogNet-Api: ' . API_BUILD);
 header('Access-Control-Allow-Origin: *');
 header("Access-Control-Allow-Methods: GET, POST, OPTIONS");
 header("Access-Control-Allow-Headers: Content-Type");
@@ -760,7 +762,7 @@ if ($entity === 'sensors' && $action === 'values') {
     $filters = $_GET;
     unset($filters['entity'],$filters['action'],$filters['order'],$filters['limit'],$filters['parse']);
     // [ASK_ONCE_AND_WAIT_V1 - John 2026-09-14] Not filter columns.
-    unset($filters['fresh_s'],$filters['wait_s'],$filters['min_rows']);
+    unset($filters['fresh_s'],$filters['wait_s'],$filters['min_rows'],$filters['changed_from']);
     [$where,$params,$types] = build_where_and_params($filters, $allow);
 
     // ORDER BY & LIMIT (sanity caps)
@@ -836,6 +838,21 @@ if ($entity === 'sensors' && $action === 'values') {
             $rows = fetch_all($stmt);
         }
     }
+    // [HELD_UNTIL_CHANGED_V1 - John 2026-11-04: "The FrogNetHost itself has held reads on its own config"] the other
+    // question a reader asks: "wake me when these cells are not what I have". &changed_from=<digest> holds the read
+    // (bounded the same way) until the digest of the matched rows differs from the one given; every answer carries
+    // "digest", which the reader gives back on its next read. The digest is over the rows' names and values only, so a
+    // rewrite of the same value is not a change.
+    $digest = function ($rs) { $t = ''; foreach ($rs as $r) $t .= ($r['SensorName'] ?? '') . "\x1f" . ($r['jsonData'] ?? '') . "\x1e"; return md5($t); };
+    if (isset($_GET['changed_from']) && $waitS > 0 && $digest($rows) === (string)$_GET['changed_from']) {
+        $deadline = microtime(true) + $waitS;
+        while ($digest($rows) === (string)$_GET['changed_from'] && microtime(true) < $deadline) {
+            usleep($WAIT_SLEEP_U);
+            $stmt = exec_stmt($sql, $types, $params);
+            $rows = fetch_all($stmt);
+        }
+    }
+    $rowsDigest = $digest($rows);
 
     // parse=1 → include parsed JSON as 'data'
     $parse = isset($_GET['parse']) && ($_GET['parse']==='1' || $_GET['parse']==='true');
@@ -853,7 +870,7 @@ if ($entity === 'sensors' && $action === 'values') {
         }
     }
 
-    echo json_encode(['ok'=>true,'rows'=>$rows]); exit;
+    echo json_encode(['ok'=>true,'rows'=>$rows,'digest'=>$rowsDigest]); exit;
 }
 
 
