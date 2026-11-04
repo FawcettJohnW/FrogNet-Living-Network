@@ -53,7 +53,8 @@ class Space(val name: String, private val managers: List<SpaceAt>, var onChange:
         /** [EVENTS_NOT_TIMERS_V1] a failure that comes at once (refused, unreachable, no route): that host is asked again
          *  on this space's next event, not on a timer. Any other failure: asked again at once (its connect waits in the
          *  transport, or in the backlog of the socket its RAM host keeps [LISTENING_SOCKET_OUTLIVES_THE_HOST_V1]). */
-        val AT_ONCE = listOf("refused", "unreachable", "no route", "network is down", "cannot assign", "no such device")
+        // (an HTTP refusal -- ESTALE among them: the host answered -- is not one: that host is asked again at once)
+        val AT_ONCE = listOf("connection refused", "unreachable", "no route", "network is down", "cannot assign", "no such device")
         /** [SPACES_V1] the space `name` from this device's logins */
         fun fromLogins(name: String, logins: List<ManagerLogin>, me: String = "", log: (String) -> Unit = {},
                        spec: SelectSpec = SelectSpec.DEFAULT): Space {

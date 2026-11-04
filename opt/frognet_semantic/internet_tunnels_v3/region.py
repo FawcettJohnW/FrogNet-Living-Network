@@ -26,6 +26,7 @@ import ipaddress
 import json
 import os
 import socket
+import sys
 import subprocess
 import urllib.error
 import urllib.request
@@ -695,13 +696,14 @@ def events():
     over HTTP. (Was fdf-events: the region's participant and mapping notices relayed as lines by a child process.)
     [WATCH_BEFORE_READ_V1] "ready" comes after the family's newest id is taken: the caller reads the world after it,
     so a change between the two is past that id and returns the next held read at once."""
-    import http.client
     global _events_conn, _events_end
     _events_end = False
     host, _, port = config.REGION_RAM.rpartition(":")
+    sys.path.insert(0, os.environ.get("FDF_PY", "/opt/fdf/lib/python"))
+    import fdfram                                        # its connection: TCP keepalive, a vanished RAM said in ~5 s
     def read(after, wait_s):
         global _events_conn
-        c = http.client.HTTPConnection(host, int(port), timeout=15 + wait_s)
+        c = fdfram._Bound(host, int(port), None, 15 + wait_s)   # [KEEPALIVE_5S_V1] not a 40 s HTTP timeout
         _events_conn = c
         try:
             q = "?op=read&service=pond&variable=member" + ("&after=%d&wait_s=%g" % (after, wait_s) if after >= 0 else "")

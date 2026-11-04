@@ -38,7 +38,8 @@ import fdf_select
 # while the RAM manager starts again [LISTENING_SOCKET_OUTLIVES_THE_HOST_V1]). One refused or unreachable at once (no
 # route, no interface, nothing listening) is asked again on this space's next event -- another host's session or
 # capability changing -- not on a timer.
-_AT_ONCE = ("refused", "unreachable", "no such device", "no route", "network is down", "cannot assign")
+# not an HTTP refusal (ESTALE among them: the host answered): that host is asked again at once
+_AT_ONCE = ("connection refused", "unreachable", "no such device", "no route", "network is down", "cannot assign")
 
 
 def _log(*a):

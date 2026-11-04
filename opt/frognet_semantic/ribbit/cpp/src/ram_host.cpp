@@ -482,13 +482,40 @@ public:
         started_.fetch_add(1, std::memory_order_relaxed);
         std::thread([this] { worker(); }).detach();
     }
-    // [WAIT_TIME_TRIGGER_V1] every millisecond while anything is queued: all workers may be parked, with no push coming
+    // [WAIT_TIME_TRIGGER_V1] all workers may be busy with no push coming: the monitor grows the pool when the oldest
+    // queued task has waited past the trigger. [DUE_NOT_TICK_V1] it sleeps on its own word while nothing is queued
+    // (a push that found no free worker bumps it), and otherwise until the oldest task is due -- never on a fixed tick
+    // (was: every 1 ms while anything was queued, every 10 ms otherwise, whether or not anything was due)
     void start_monitor() {
-        if (monitor_.exchange(true, std::memory_order_acq_rel)) return;
-        std::thread([this] { for (;;) {
-            if (backlog()) { if (starved()) maybe_grow(); std::this_thread::sleep_for(std::chrono::milliseconds(1)); }
-            else std::this_thread::sleep_for(std::chrono::milliseconds(10));   // its own sleep: a push's wake is for workers
-        } }).detach();
+        if (!monitor_.exchange(true, std::memory_order_acq_rel))
+            std::thread([this] { for (;;) {
+                mon_sleeping_.store(true, std::memory_order_seq_cst);
+                const uint32_t seen = mon_.load(std::memory_order_seq_cst);
+                if (!backlog()) { futex_wait(mon_, seen, -1); mon_sleeping_.store(false, std::memory_order_seq_cst); continue; }
+                mon_sleeping_.store(false, std::memory_order_seq_cst);
+                if (starved()) maybe_grow();
+                const size_t pos = head_.load(std::memory_order_acquire); const Cell& c = cell_[pos & (N - 1)];
+                const uint64_t t = c.t.load(std::memory_order_relaxed), now = now_ns();
+                const int64_t due = c.seq.load(std::memory_order_acquire) == pos + 1 ? int64_t(t + wait_ns()) - int64_t(now) : 0;
+                futex_wait(mon_, mon_.load(std::memory_order_seq_cst), due > 0 ? due : int64_t(wait_ns()));   // the oldest task due, or one trigger on
+            } }).detach();
+        mon_.fetch_add(1, std::memory_order_seq_cst);
+        if (mon_sleeping_.load(std::memory_order_seq_cst)) futex_wake(mon_);   // only a sleeping monitor is woken
+    }
+    static void futex_wait(std::atomic<uint32_t>& w, uint32_t seen, int64_t ns) {
+#ifdef _WIN32
+        WaitOnAddress(reinterpret_cast<volatile void*>(&w), &seen, sizeof seen, ns < 0 ? INFINITE : DWORD(ns / 1000000 + 1));
+#else
+        timespec ts{time_t(ns / 1000000000), long(ns % 1000000000)};
+        syscall(SYS_futex, reinterpret_cast<uint32_t*>(&w), FUTEX_WAIT_PRIVATE, seen, ns < 0 ? nullptr : &ts, nullptr, 0);
+#endif
+    }
+    static void futex_wake(std::atomic<uint32_t>& w) {
+#ifdef _WIN32
+        WakeByAddressAll(reinterpret_cast<void*>(&w));
+#else
+        syscall(SYS_futex, reinterpret_cast<uint32_t*>(&w), FUTEX_WAKE_PRIVATE, INT_MAX, nullptr, nullptr, 0);
+#endif
     }
     bool leave_sleep() {                                       // true: a wake was on its way and this sleeper took it
         uint64_t st = sleep_.load(std::memory_order_seq_cst);
@@ -536,6 +563,8 @@ private:
     struct Cell { std::atomic<size_t> seq; std::atomic<uint64_t> t{0}; std::function<void()> f; };   // t: when queued
     alignas(64) std::atomic<size_t> head_{0}; alignas(64) std::atomic<size_t> tail_{0};
     alignas(64) std::atomic<uint32_t> work_{0};
+    alignas(64) std::atomic<uint32_t> mon_{0};                 // the monitor's word: a push no free worker took
+    std::atomic<bool> mon_sleeping_{false};
     alignas(64) std::atomic<uint64_t> sleep_{0};               // sleepers << 32 | wakes on their way
     std::atomic<bool> starting_{false}, monitor_{false};       // a worker started and not yet running; the monitor is up
     std::atomic<uint32_t> threads_{0}, peak_{0}; std::atomic<uint64_t> started_{0}, retired_{0};
@@ -607,7 +636,7 @@ struct Session {
                      logline("[SESSION_HOLDERS_SAID_V1] session " + std::to_string(epoch) + " (" + who + ") freed " + std::to_string(int(wall() - e)) + " s after its end"
                              " (last holders: deferred " + std::to_string(h_deferred.load()) + ", parked reads " + std::to_string(h_parked.load()) + ", joined " + std::to_string(h_joined.load()) + ")");
                  for (auto* f = follows.load(); f;) { auto* n = f->next; delete f; f = n; } }   /* [SESSION_FREES_ITS_SOCKETS_V1] shut down at session end, closed when the last holder lets go */
-    std::mutex data_m; std::mutex ready_m; std::condition_variable ready_cv; bool ready = false;   // set-up only
+    std::mutex data_m; std::atomic<uint32_t> ready{0};   // ready: the return socket is paired (a futex word, set-up only)
     // [CELL_WRITE_V1] the families this session's writers have named: (writer slot, family number) -> service, variable.
     // Written once each, read by any job, no lock: an insert-only open-addressed table of pointers set by CAS.
     struct Fam { uint64_t slot, fam; std::string sv, var; int32_t linger = 0; cellwire::Chain chain;   // sv, var: set by the chain's write 1, read by its later ones (the chain's job only)
@@ -736,6 +765,19 @@ struct Session {
     }
 };
 std::mutex pend_m; std::map<std::string, std::shared_ptr<Session>> pending;
+// [PAIRING_IS_AN_EVENT_V1] a session's three sockets arrive on three connections, matched by their token: each one that
+// registers bumps this word, and one still looking for its partner sleeps on it -- woken by the arrival, not by a
+// 50 ms poll -- for at most 10 s
+std::atomic<uint32_t> g_arrivals{0};
+static void arrived() { g_arrivals.fetch_add(1, std::memory_order_seq_cst); WorkRing::futex_wake(g_arrivals); }
+template <class F> static auto await_partner(F find) -> decltype(find()) {
+    const auto end = std::chrono::steady_clock::now() + std::chrono::seconds(10);
+    for (;;) { const uint32_t seen = g_arrivals.load(std::memory_order_seq_cst);
+        if (auto s = find()) return s;
+        const int64_t left = std::chrono::duration_cast<std::chrono::nanoseconds>(end - std::chrono::steady_clock::now()).count();
+        if (left <= 0) return decltype(find())();
+        WorkRing::futex_wait(g_arrivals, seen, left); }
+}
 std::map<std::string, std::weak_ptr<Session>> live;      // sessions whose return socket is up, awaiting their data socket
 std::string engine_secret() { std::random_device rd; std::string k(32, '\0'); for (auto& c : k) c = char(rd()); return k; }
 
@@ -1048,22 +1090,23 @@ static void cell_diag_start() {
 }
 // [LINGER_BY_FAMILY_V1] The reaper: rows a session left to linger go when their time comes. A session's end pushes one
 // entry per linger its rows chose (lock-free); the reaper's one thread takes them, sleeps until the next is due, and
-// reaps it -- each row going as gone_with's do, in its family's write order. Its mutex is its own: it guards only its
-// sleep (a condition variable needs one), as a trigger's does in ram_memory.hpp.
+// reaps it -- each row going as gone_with's do, in its family's write order. [NO_LOCK_IN_THE_REAPER_V1] its sleep is a
+// futex on its own word, bumped by each add: no mutex, no condition variable.
 struct Reaper {
     struct Due { uint64_t writer; double ended, at; Due* next = nullptr; };
     std::atomic<Due*> incoming{nullptr};
-    std::mutex m; std::condition_variable cv; bool poked = false;
+    std::atomic<uint32_t> word{0};
     void add(uint64_t writer, double ended, int32_t linger) {
         Due* d = new Due{writer, ended, ended + linger};
         Due* h = incoming.load(std::memory_order_relaxed);
         do { d->next = h; } while (!incoming.compare_exchange_weak(h, d, std::memory_order_release, std::memory_order_relaxed));
-        { std::lock_guard<std::mutex> g(m); poked = true; } cv.notify_one();
+        word.fetch_add(1, std::memory_order_seq_cst); WorkRing::futex_wake(word);
         static std::once_flag started; std::call_once(started, [this] { std::thread([this] { run(); }).detach(); });
     }
     void run() {
         std::vector<Due*> due;
         for (;;) {
+            const uint32_t seen = word.load(std::memory_order_seq_cst);
             for (Due* d = incoming.exchange(nullptr, std::memory_order_acquire); d;) { Due* n = d->next; due.push_back(d); d = n; }
             const double now = wall();
             for (size_t k = 0; k < due.size();) {
@@ -1074,10 +1117,9 @@ struct Reaper {
                 } else ++k;
             }
             double next = 0; for (Due* d : due) if (!next || d->at < next) next = d->at;
-            std::unique_lock<std::mutex> l(m);
-            if (next) cv.wait_for(l, std::chrono::duration<double>(next - wall()), [&] { return poked; });
-            else cv.wait(l, [&] { return poked; });
-            poked = false;
+            const double left = next ? next - wall() : -1;
+            if (next && left <= 0) continue;                      // due now
+            WorkRing::futex_wait(word, seen, next ? int64_t(left * 1e9) + 1 : -1);
         }
     }
 };
@@ -1199,14 +1241,15 @@ void serve(int fd, std::string peer) {
     std::string f; if (!recv_frame(fd, f) || uint8_t(f[4]) != OP_HELLO || f.size() < 6) { FR_CLOSE(fd); return; }
     std::string token = f.substr(6, uint8_t(f[5]));
     if (!token.compare(0, 7, "RETURN:")) { token = token.substr(7); std::shared_ptr<Session> s;
-        for (int i = 0; i < 200 && !s; ++i) { { std::lock_guard<std::mutex> g(pend_m); auto it = pending.find(token); if (it != pending.end()) { s = it->second; pending.erase(it); } } if (!s) std::this_thread::sleep_for(std::chrono::milliseconds(50)); }
+        s = await_partner([&] { std::shared_ptr<Session> x; std::lock_guard<std::mutex> g(pend_m); auto it = pending.find(token);
+                                if (it != pending.end()) { x = it->second; pending.erase(it); } return x; });
         if (!s) { FR_CLOSE(fd); return; }
-        s->ret = fd; { std::lock_guard<std::mutex> g(pend_m); live[token] = s; }
+        s->ret = fd; { std::lock_guard<std::mutex> g(pend_m); live[token] = s; } arrived();
         send_frame(fd, std::string(MAGIC, 4) + char(OP_HELLO) + char(3) + "ram");
-        { std::lock_guard<std::mutex> g(s->ready_m); s->ready = true; } s->ready_cv.notify_all(); return; }
+        s->ready.store(1, std::memory_order_seq_cst); WorkRing::futex_wake(s->ready); return; }
     if (!token.compare(0, 5, "DATA:")) { token = token.substr(5); std::shared_ptr<Session> s;
-        for (int i = 0; i < 200 && !s; ++i) { { std::lock_guard<std::mutex> g(pend_m); auto it = live.find(token); if (it != live.end()) { s = it->second.lock(); live.erase(it); } }
-                                             if (!s) std::this_thread::sleep_for(std::chrono::milliseconds(50)); }
+        s = await_partner([&] { std::shared_ptr<Session> x; std::lock_guard<std::mutex> g(pend_m); auto it = live.find(token);
+                                if (it != live.end()) { x = it->second.lock(); live.erase(it); } return x; });
         if (!s) { FR_CLOSE(fd); return; }
         { int sb = 0; socklen_t sl = sizeof sb; getsockopt(s->ret, SOL_SOCKET, SO_SNDBUF, reinterpret_cast<fr_optval_t*>(&sb), &sl);
           s->ceil.set_hard(size_t(sb)); }
@@ -1229,8 +1272,12 @@ void serve(int fd, std::string peer) {
             if (done) s->landed.put(done->first, std::move(done->second)); }
         s->landed.close();
         return; }
-    auto s = std::make_shared<Session>(); s->req = fd; { std::lock_guard<std::mutex> g(pend_m); pending[token] = s; }
-    { std::unique_lock<std::mutex> l(s->ready_m); if (!s->ready_cv.wait_for(l, std::chrono::seconds(10), [&] { return s->ready; })) { std::lock_guard<std::mutex> g(pend_m); pending.erase(token); FR_CLOSE(fd); return; } }
+    auto s = std::make_shared<Session>(); s->req = fd; { std::lock_guard<std::mutex> g(pend_m); pending[token] = s; } arrived();
+    { const auto end = std::chrono::steady_clock::now() + std::chrono::seconds(10);      // [PAIRING_IS_AN_EVENT_V1]
+      while (!s->ready.load(std::memory_order_seq_cst)) {
+          const int64_t left = std::chrono::duration_cast<std::chrono::nanoseconds>(end - std::chrono::steady_clock::now()).count();
+          if (left <= 0) { std::lock_guard<std::mutex> g(pend_m); pending.erase(token); FR_CLOSE(fd); return; }
+          WorkRing::futex_wait(s->ready, 0, left); } }
     logline("session up   " + peer + " " + token); uint32_t seq = 0;
     HOST->session_up(s->epoch, peer);   // [SESSION_PEER_V1] the address the session arrives from
     s->outq.wake = MEM.wake_word();                             // [FAMILY_HOOKS_V1]

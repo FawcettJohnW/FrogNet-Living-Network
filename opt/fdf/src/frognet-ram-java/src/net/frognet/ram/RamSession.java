@@ -37,13 +37,18 @@ public final class RamSession {
     private final int port;
     private final Socket req, ret;
     private final OutputStream reqOut;
-    private final Object sendLock = new Object();
-    private final Map<Integer, Slot> waiting = new HashMap<Integer, Slot>();
-    private int seq = 0;
+    // [NO_LOCK_IN_THE_SESSION_V1] a request's number is its place among the frames on the request socket: one sender
+    // thread takes each request from a lock-free queue, numbers it, registers it and sends it, in that order. A caller
+    // enqueues, wakes the sender (park/unpark keeps a wake that comes first) and waits on its own slot's latch. No lock.
+    private final java.util.concurrent.ConcurrentHashMap<Integer, Slot> waiting = new java.util.concurrent.ConcurrentHashMap<Integer, Slot>();
+    private final java.util.concurrent.ConcurrentLinkedQueue<Object[]> outq = new java.util.concurrent.ConcurrentLinkedQueue<Object[]>();
+    private int seq = 0;                                       // the sender's own
+    private final java.util.concurrent.atomic.AtomicReference<String> deadWhy = new java.util.concurrent.atomic.AtomicReference<String>(null);
     private volatile String dead = null;
-    private final Thread reader;
+    private final Thread reader, sender;
 
-    private static final class Slot { int status; String body; String error; boolean done; }
+    private static final class Slot { volatile int status; volatile String body; volatile String error;
+                                      final java.util.concurrent.CountDownLatch done = new java.util.concurrent.CountDownLatch(1); }
 
     public RamSession(String host, int port, int connectTimeoutMs) throws Unreachable {
         this.host = host; this.port = port;
@@ -65,7 +70,23 @@ public final class RamSession {
         }
         reader = new Thread(new Runnable() { public void run() { readReplies(); } }, "ram-replies");
         reader.setDaemon(true);
+        sender = new Thread(new Runnable() { public void run() { sendLoop(); } }, "ram-send");
+        sender.setDaemon(true);
+        sender.start();
         reader.start();
+    }
+
+    private void sendLoop() {
+        while (dead == null) {
+            Object[] x = outq.poll();
+            if (x == null) { java.util.concurrent.locks.LockSupport.park(this); continue; }
+            int mine = seq++;
+            Slot slot = (Slot) x[0];
+            if (slot != null) waiting.put(mine, slot);            // before the bytes leave: the reply can beat us back
+            try { sendFrame(reqOut, (byte[]) x[1]); }
+            catch (IOException e) { fail("send: " + e.getMessage()); }
+        }
+        for (Object[] x; (x = outq.poll()) != null; ) if (x[0] != null) { ((Slot) x[0]).error = dead; ((Slot) x[0]).done.countDown(); }
     }
 
     public String host() { return host; }
@@ -153,10 +174,9 @@ public final class RamSession {
                 if (f.length < 9 || !magic(f, 4)) { why = "a reply that is not FNW1"; break; }
                 int s = (int) u32(f, 0);
                 int op = f[8] & 0xFF;
-                Slot slot;
-                synchronized (waiting) { slot = waiting.remove(s); }
-                if (slot == null) continue;                       // its caller gave up (timed out)
-                synchronized (slot) {
+                Slot slot = waiting.remove(s);
+                if (slot == null) continue;                       // a posted write, or its caller gave up (timed out)
+                {
                     if (op == RESP_RAW && f.length >= 9 + 16 + 4 + 4) {
                         int len = (int) u32(f, 25);
                         int p = 29;
@@ -175,8 +195,7 @@ public final class RamSession {
                     } else {
                         slot.error = "unknown reply op 0x" + Integer.toHexString(op);
                     }
-                    slot.done = true;
-                    slot.notifyAll();
+                    slot.done.countDown();
                 }
             }
         } catch (IOException e) {
@@ -186,11 +205,9 @@ public final class RamSession {
     }
 
     private void fail(String why) {
-        if (dead == null) dead = host + ":" + port + ": " + why;
-        synchronized (waiting) {
-            for (Slot sl : waiting.values()) synchronized (sl) { sl.error = dead; sl.done = true; sl.notifyAll(); }
-            waiting.clear();
-        }
+        if (deadWhy.compareAndSet(null, host + ":" + port + ": " + why)) dead = deadWhy.get();
+        java.util.concurrent.locks.LockSupport.unpark(sender);
+        for (Integer k : waiting.keySet()) { Slot sl = waiting.remove(k); if (sl != null) { sl.error = dead; sl.done.countDown(); } }
     }
 
     public boolean alive() { return dead == null; }
@@ -208,24 +225,13 @@ public final class RamSession {
         putU32(f, 21, r.length);
         System.arraycopy(r, 0, f, 25, r.length);
         Slot slot = new Slot();
-        int mine;
-        synchronized (sendLock) {
-            mine = seq++;
-            synchronized (waiting) { waiting.put(mine, slot); }
-            try { sendFrame(reqOut, f); }
-            catch (IOException e) { fail("send: " + e.getMessage()); throw new Unreachable(dead); }
-        }
-        long deadline = System.currentTimeMillis() + (long) (timeoutS * 1000);
-        synchronized (slot) {
-            while (!slot.done) {
-                long left = deadline - System.currentTimeMillis();
-                if (left <= 0) {
-                    synchronized (waiting) { waiting.remove(mine); }
-                    throw new Unreachable(host + ":" + port + ": no reply in " + timeoutS + " s to " + method + " " + path);
-                }
-                try { slot.wait(left); } catch (InterruptedException e) { Thread.currentThread().interrupt(); throw new Unreachable("interrupted"); }
+        outq.add(new Object[]{slot, f}); java.util.concurrent.locks.LockSupport.unpark(sender);
+        try {
+            if (!slot.done.await((long) (timeoutS * 1000), java.util.concurrent.TimeUnit.MILLISECONDS)) {
+                waiting.values().remove(slot);
+                throw new Unreachable(host + ":" + port + ": no reply in " + timeoutS + " s to " + method + " " + path);
             }
-        }
+        } catch (InterruptedException e) { Thread.currentThread().interrupt(); throw new Unreachable("interrupted"); }
         if (slot.error != null) {
             if (dead != null && slot.error.equals(dead)) throw new Unreachable(slot.error);
             throw new Refused(slot.error);
@@ -249,11 +255,7 @@ public final class RamSession {
         System.arraycopy(hash16(r), 0, f, 5, 16);
         putU32(f, 21, r.length);
         System.arraycopy(r, 0, f, 25, r.length);
-        synchronized (sendLock) {
-            seq++;
-            try { sendFrame(reqOut, f); }
-            catch (IOException e) { fail("send: " + e.getMessage()); throw new Unreachable(dead); }
-        }
+        outq.add(new Object[]{null, f}); java.util.concurrent.locks.LockSupport.unpark(sender);   // numbered by the sender too
     }
 
     /** Ends the session now: a held read in another thread returns at once ([A_HELD_READ_ENDS_AT_ONCE_V1]). */

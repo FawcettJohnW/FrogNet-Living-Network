@@ -32,6 +32,7 @@ env:   RINA_RAM=host:port (where the region is), FDF_BIN (fdf-events/fdf-partici
 import argparse, ipaddress, json, os, subprocess, sys, time, urllib.error, urllib.parse, urllib.request
 sys.path.insert(0, os.environ.get("FDF_PY", "/opt/fdf/lib/python"))   # fdf_graph: FD&F's statement of the structure
 import fdf_watch  # noqa: E402  [EVENTS_NOT_TIMERS_V1]
+import fdfram  # noqa: E402
 
 API = "/FawcettInnovations.RINA.ram_interface.php"
 BUILD_TAG = "fdf-2026-11-03-r41"      # [FDF_VERSION_V1] keep equal to src/fdf_version.hpp
@@ -65,9 +66,17 @@ class Region:
         q = {"op": "read", "service": "pond", "variable": "member"}
         if after >= 0:
             q.update(after=after, wait_s=wait_s)
-        url = self.url.split("?")[0] + "?" + urllib.parse.urlencode(q)
-        with urllib.request.urlopen(url, timeout=15 + wait_s) as r:
-            return json.loads(r.read().decode())["cells"]           # plain HTTP: the RAM names them cells (a session: rows)
+        # [KEEPALIVE_5S_V1] fdfram's connection: a RAM manager that vanished ends the held read in ~5 s, not at its timeout
+        h, p = self.url.split("/")[2].rsplit(":", 1)
+        c = fdfram._Bound(h, int(p), None, 15 + wait_s)
+        try:
+            c.request("GET", "/" + self.url.split("/", 3)[3].split("?")[0] + "?" + urllib.parse.urlencode(q))
+            r = c.getresponse(); body = r.read()
+        finally:
+            c.close()
+        if r.status != 200:
+            raise RuntimeError("the region at %s: HTTP %d %s" % (h + ":" + p, r.status, body.decode(errors="replace")[:160]))
+        return json.loads(body.decode())["cells"]                   # plain HTTP: the RAM names them cells (a session: rows)
     def world(self, site):
         """(participants, mappings): the members there now (their own cells: present is alive; the cell's id orders
         them, first claimant first) and the region's mappings"""

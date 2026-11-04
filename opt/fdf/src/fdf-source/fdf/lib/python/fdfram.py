@@ -42,11 +42,13 @@ class _Bound(http.client.HTTPConnection):
 
     def connect(self):
         s = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-        s.setsockopt(socket.SOL_SOCKET, socket.SO_BINDTODEVICE, self.device.encode())
+        if self.device:
+            s.setsockopt(socket.SOL_SOCKET, socket.SO_BINDTODEVICE, self.device.encode())
         s.setsockopt(socket.SOL_SOCKET, socket.SO_KEEPALIVE, 1)
         s.setsockopt(socket.IPPROTO_TCP, socket.TCP_KEEPIDLE, 2)
         s.setsockopt(socket.IPPROTO_TCP, socket.TCP_KEEPINTVL, 1)
         s.setsockopt(socket.IPPROTO_TCP, socket.TCP_KEEPCNT, 3)
+        s.setsockopt(socket.IPPROTO_TCP, getattr(socket, "TCP_USER_TIMEOUT", 18), 5000)   # unacknowledged data too
         s.settimeout(self.timeout)
         s.connect((self.host, self.port))
         self.sock = s
@@ -59,25 +61,9 @@ class Ram:
         self.base = "http://%s%s" % (self.hostport, API)
 
     def _do(self, method, query, body=None, timeout=10.0):
-        if self.device:
-            return self._do_bound(method, query, body, timeout)
-        url = self.base + "?" + urllib.parse.urlencode(query)
-        data = json.dumps(body).encode() if body is not None else None
-        req = urllib.request.Request(url, data=data, method=method,
-                                     headers={"Content-Type": "application/json"} if data else {})
-        try:
-            with urllib.request.urlopen(req, timeout=timeout) as r:
-                raw = r.read()
-        except urllib.error.HTTPError as e:
-            raw = e.read()
-        except OSError as e:
-            raise RamError("%s %s: %s" % (method, self.hostport, e))
-        if not raw:
-            raise RamError("%s %s op=%s: empty reply" % (method, self.hostport, query.get("op")))
-        j = json.loads(raw)
-        if not j.get("ok"):
-            raise RamError("%s op=%s refused: %s" % (method, query.get("op"), j.get("error")))
-        return j
+        # [KEEPALIVE_5S_V1] every connection keeps alive, bound to a device or not: a held read on a RAM manager that
+        # vanished ends in about 5 s, not when its HTTP timeout runs out (was: urllib, no keepalive -- 40 s)
+        return self._do_bound(method, query, body, timeout)
 
     def _do_bound(self, method, query, body, timeout):
         host, port = self.hostport.rsplit(":", 1)
@@ -88,7 +74,7 @@ class Ram:
                       headers={"Content-Type": "application/json"} if data else {})
             raw = c.getresponse().read()
         except OSError as e:
-            raise RamError("%s %s via %s: %s" % (method, self.hostport, self.device, e))
+            raise RamError("%s %s%s: %s" % (method, self.hostport, " via " + self.device if self.device else "", e))
         finally:
             c.close()
         if not raw:

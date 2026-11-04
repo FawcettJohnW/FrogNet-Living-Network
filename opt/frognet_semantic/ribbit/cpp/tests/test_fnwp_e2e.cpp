@@ -64,7 +64,7 @@ int main(int argc, char** argv) {
             fnwp::Answer w = via("POST", API + "?op=write", body);
             frogram::Json j = frogram::Json::parse(w.body); if (!j["ok"].b) { check(false, "write via the engine: " + w.body); break; }
             ids[a] = std::to_string((long long)j["id"].n);
-        } else { via("DELETE", API + "?op=remove&id=" + ids[a], ""); ids[a].clear(); }
+        } else { via("DELETE", API + "?op=remove&service=e2e&variable=" + var + "&id=" + ids[a], ""); ids[a].clear(); }   // [FAMILY_LOG_V1] an id is a place in one family
         for (auto& q : reads) {
             auto b4 = cli.stats(); fnwp::Answer x = via("GET", q, ""); auto af = cli.stats(); fnwp::Answer d = direct("GET", q, "");
             bool wr = (af.raw - b4.raw) + (af.rraw - b4.rraw) > 0, gen = genuine_shape_change(prev_answer, q, d.body);

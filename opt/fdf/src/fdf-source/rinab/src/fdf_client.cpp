@@ -25,7 +25,7 @@
 #include <string>
 #include <thread>
 #include <mutex>
-#include <condition_variable>
+
 #include <vector>
 #include <chrono>
 #include <cmath>
@@ -38,6 +38,9 @@
 #else
 #include <ifaddrs.h>
 #include <sys/inotify.h>
+#include <linux/futex.h>
+#include <sys/syscall.h>
+#include <climits>
 #include <sys/stat.h>
 #include <map>
 #include <openssl/evp.h>
@@ -94,6 +97,22 @@ static std::string capability() {                     // what this OS reports; t
            ",\"os\":\"" + os + "\",\"client\":\"fdf-client\"}";
 }
 
+static void gen_wait(std::atomic<uint32_t>& w, uint32_t seen, int secs) {   // until w moves past seen, or secs (<0: none)
+#ifdef _WIN32
+    WaitOnAddress(reinterpret_cast<volatile void*>(&w), &seen, sizeof seen, secs < 0 ? INFINITE : DWORD(secs) * 1000);
+#else
+    timespec ts{secs, 0};
+    syscall(SYS_futex, reinterpret_cast<uint32_t*>(&w), FUTEX_WAIT_PRIVATE, seen, secs < 0 ? nullptr : &ts, nullptr, 0);
+#endif
+}
+static void gen_bump(std::atomic<uint32_t>& w) {
+    w.fetch_add(1, std::memory_order_seq_cst);
+#ifdef _WIN32
+    WakeByAddressAll(reinterpret_cast<void*>(&w));
+#else
+    syscall(SYS_futex, reinterpret_cast<uint32_t*>(&w), FUTEX_WAKE_PRIVATE, INT_MAX, nullptr, nullptr, 0);
+#endif
+}
 #ifndef _WIN32
 static std::string facts_path() { const char* f = getenv("FDF_FACTS"); return f && *f ? f : "/opt/fdf/var/facts.json"; }
 static std::string file_text(const std::string& p) {
@@ -129,8 +148,11 @@ static std::string read_facts() {                       // the file's text, or "
 // next event runs it again), anything else = REFUSED: the reach is taken down and this session ends with it (exit 4,
 // which systemd's fdf-client@ does not restart). A reach that is not wanted (forward, or no FDF_REACH) is taken down.
 static bool reach_wanted() { const char* r = getenv("FDF_REACH"); return r && r[0] == '1' && !is_forward(); }
-static std::mutex reach_mu;
+// [NO_LOCK_IN_THE_CLIENT_V1] the reach is brought in line by ONE thread (reach_loop): every other thread only says so
+// (reach_want: a new address, if any, then a bump of reach_gen) -- no mutex. reach_addr and reach_up are that thread's.
 static std::string reach_addr;                           // the /32 this pond's region gave this machine (announce answer)
+static std::atomic<std::string*> reach_next{nullptr};    // a new address for the reach thread to take (it frees it)
+static std::atomic<uint32_t> reach_gen{0}, reach_done{0};
 static std::string reach_bin() { const char* b = getenv("FDF_BIN"); return std::string(b && *b ? b : "/opt/fdf/bin") + "/fdf-reach"; }
 // [REACH_V1] fdf-reach is run with an argv, never through a shell: the address comes from ANOTHER network's region
 // and the area from the environment, and neither may become a command (found by review 2026-10-10: popen with quotes).
@@ -151,9 +173,9 @@ static int reach_run(const std::string& verb, const std::string& addr, std::stri
     return WIFEXITED(st) ? WEXITSTATUS(st) : 128;
 }
 static char reach_term_msg[1024], reach_bin_c[512], reach_area_c[256], reach_refused_c[512];
-static bool reach_up = false;                            // guarded by reach_mu: a reach was applied and not taken down since
-static void reach_sync() {                              // the one place the reach is brought in line with the facts
-    std::lock_guard<std::mutex> lk(reach_mu); std::string out;
+static bool reach_up = false;                            // the reach thread's: a reach was applied and not taken down since
+static void reach_sync_now() {                          // the one place the reach is brought in line with the facts
+    std::string out;
     const char* a = getenv("RINA_AREA"); const std::string area = a ? a : "";
     if (!getenv("FDF_REACH")) return;
     if (!reach_wanted() || reach_addr.empty()) {           // not wanted here (forward), or no address here now: none stands
@@ -171,6 +193,27 @@ static void reach_sync() {                              // the one place the rea
     fprintf(stderr, "fdf-client: REACH REFUSED into %s: %s -- a failed reach closes this session\n", area.c_str(), out.c_str()); fflush(stderr);
     if (reach_refused_c[0]) { std::ofstream o(reach_refused_c); o << out << "\n"; }     // fdf-ponds says it
     _exit(4);
+}
+static void reach_want(const std::string* addr) {        // a new address (or none: nullptr), then the reach thread runs
+    if (addr) delete reach_next.exchange(new std::string(*addr), std::memory_order_acq_rel);
+    gen_bump(reach_gen);
+}
+static void reach_loop() {
+    uint32_t seen = 0;
+    for (;;) {
+        const uint32_t g = reach_gen.load(std::memory_order_seq_cst);
+        if (g == seen) { gen_wait(reach_gen, seen, -1); continue; }
+        seen = g;
+        if (std::string* n = reach_next.exchange(nullptr, std::memory_order_acq_rel)) { reach_addr = *n; delete n; }
+        reach_sync_now();
+        reach_done.store(g, std::memory_order_seq_cst); gen_bump(reach_done);
+    }
+}
+static void reach_sync() {                               // ask the reach thread to bring it in line, and wait until it has
+    static std::once_flag started; std::call_once(started, [] { std::thread(reach_loop).detach(); });
+    reach_want(nullptr);
+    const uint32_t want = reach_gen.load(std::memory_order_seq_cst);
+    for (uint32_t d; int32_t((d = reach_done.load(std::memory_order_seq_cst)) - want) < 0;) gen_wait(reach_done, d, -1);
 }
 // [REACH_V1] gone is gone: when this session ends the reach goes with it. SIGTERM (systemd stop, a test's kill, or
 // fdf-reach itself after a re-plan refused the reach) runs `fdf-reach down` before exiting -- fork/exec/waitpid, all
@@ -319,8 +362,9 @@ static std::string telem_moved(const Telem& a, const Telem* b) {
 // [SETTINGS_ARE_TUPLES_V1] this machine's settings are its tuple (pond, cap, <ns>), permanent: whoever writes it (a
 // settings page, fdf-monitor --set, any program) this client follows it -- telem_on, telem_period_s -- with a held read on
 // its own session. None yet: written once from what it has (FDF_TELEM_S, default 30), so every monitor shows it.
-static std::mutex telem_mu; static std::condition_variable telem_cv;
-static bool telem_on = true; static int telem_every = 30; static unsigned telem_gen = 0;
+// [NO_LOCK_IN_THE_CLIENT_V1] the settings are atomics; a change bumps telem_gen, the word the telemetry thread sleeps
+// on (a futex: no mutex, no condition variable)
+static std::atomic<bool> telem_on{true}; static std::atomic<int> telem_every{30}; static std::atomic<uint32_t> telem_gen{0};
 
 static void settings_loop(frogram::Session& s, const std::string& api, const std::string& ns, const std::string& name) {
     frogram::Memory mem(s, api); int64_t after = -1;
@@ -331,7 +375,7 @@ static void settings_loop(frogram::Session& s, const std::string& api, const std
         bool found = false; frogram::Json bag;
         for (auto& c : rows) { if (int64_t(c.id) > after) after = int64_t(c.id); if (c.instance == ns) { found = true; bag = c.bag; } }
         if (after < 0 && !found) {
-            bool on; int every; { std::lock_guard<std::mutex> lk(telem_mu); on = telem_on; every = telem_every; }
+            const bool on = telem_on.load(); const int every = telem_every.load();
             const std::string b = "{\"name\":" + frogram::Json::quote(name) + ",\"telem_on\":" + (on ? "true" : "false") + ",\"telem_period_s\":" + std::to_string(every) +
                                   ",\"at\":" + std::to_string(time(nullptr)) + ",\"by\":\"fdf-client, from what it had (FDF_TELEM_S)\"}";
             try { s.call("POST", api + "?op=write", "{\"service\":\"pond\",\"variable\":\"cap\",\"instance\":" + frogram::Json::quote(ns) + ",\"bag\":" + b + ",\"permanent\":true}");
@@ -341,34 +385,33 @@ static void settings_loop(frogram::Session& s, const std::string& api, const std
         }
         if (after < 0) after = 0;
         if (!found || bag.size() == 0) continue;
-        std::lock_guard<std::mutex> lk(telem_mu);
-        const bool was_on = telem_on; const int was_every = telem_every;
-        if (bag["telem_on"].type == frogram::Json::Bool) telem_on = bag["telem_on"].b;
-        if (bag["telem_period_s"].type == frogram::Json::Num && bag["telem_period_s"].n >= 1) telem_every = int(bag["telem_period_s"].n);
-        if (telem_on != was_on || telem_every != was_every) {
-            printf("fdf-client: [SETTINGS_ARE_TUPLES_V1] (pond, cap, %s): telemetry %s, every %d s (was %s, %d s)\n", ns.c_str(), telem_on ? "on" : "off", telem_every, was_on ? "on" : "off", was_every);
-            fflush(stdout); ++telem_gen; telem_cv.notify_all();
+        const bool was_on = telem_on.load(); const int was_every = telem_every.load();   // only this thread writes them
+        if (bag["telem_on"].type == frogram::Json::Bool) telem_on.store(bag["telem_on"].b);
+        if (bag["telem_period_s"].type == frogram::Json::Num && bag["telem_period_s"].n >= 1) telem_every.store(int(bag["telem_period_s"].n));
+        if (telem_on.load() != was_on || telem_every.load() != was_every) {
+            printf("fdf-client: [SETTINGS_ARE_TUPLES_V1] (pond, cap, %s): telemetry %s, every %d s (was %s, %d s)\n", ns.c_str(), telem_on.load() ? "on" : "off", telem_every.load(), was_on ? "on" : "off", was_every);
+            fflush(stdout); gen_bump(telem_gen);
         }
     }
 }
 
 static void telemetry_loop(frogram::Session& s, const std::string& api, const std::string& ns, const std::string& name) {
-    { const char* e = getenv("FDF_TELEM_S"); std::lock_guard<std::mutex> lk(telem_mu);
-      if (e) { telem_every = atoi(e) > 0 ? atoi(e) : 30; telem_on = atoi(e) > 0; } }
+    { const char* e = getenv("FDF_TELEM_S");
+      if (e) { telem_every.store(atoi(e) > 0 ? atoi(e) : 30); telem_on.store(atoi(e) > 0); } }
     std::thread([&s, api, ns, name] { settings_loop(s, api, ns, name); }).detach();
 #ifdef _WIN32
     telem_now();                                                                 // the first CPU sample: the next one has a delta
 #endif
     printf("fdf-client: [TELEMETRY_IS_A_TUPLE_V1] reporting (pond, telem, %s) on this session, written when it moved; what and how often: (pond, cap, %s)\n", ns.c_str(), ns.c_str()); fflush(stdout);
-    Telem last; bool have = false, reported = false; unsigned long long writes = 0; unsigned gen = 0;
+    Telem last; bool have = false, reported = false; unsigned long long writes = 0; uint32_t gen = 0;
     for (;;) {
-        bool on; int every;
-        { std::lock_guard<std::mutex> lk(telem_mu); on = telem_on; every = telem_every; if (gen != telem_gen) { gen = telem_gen; have = false; } }
+        const uint32_t g = telem_gen.load(std::memory_order_seq_cst); if (gen != g) { gen = g; have = false; }
+        const bool on = telem_on.load(); const int every = telem_every.load();
         if (!on) {                                                                   // off: taken back now, not at session end
             if (reported) try { s.call("POST", api + "?op=write", "{\"service\":\"pond\",\"variable\":\"telem\",\"instance\":" + frogram::Json::quote(ns) + ",\"bag\":{},\"own\":true}");
                                 printf("fdf-client: telemetry off: (pond, telem, %s) emptied\n", ns.c_str()); fflush(stdout); reported = false; }
                            catch (const std::exception& x) { fprintf(stderr, "fdf-client: telemetry off, emptying (pond, telem) failed: %s (it goes with the session)\n", x.what()); }
-            std::unique_lock<std::mutex> lk(telem_mu); telem_cv.wait(lk, [&] { return telem_gen != gen; }); continue;
+            gen_wait(telem_gen, gen, -1); continue;
         }
         Telem t = telem_now();
         const std::string why = telem_moved(t, have ? &last : nullptr);
@@ -393,8 +436,7 @@ static void telemetry_loop(frogram::Session& s, const std::string& api, const st
                 if (writes <= 2 || writes % 100 == 0) { printf("fdf-client: telemetry written (#%llu, %s): %s\n", writes, why.c_str(), bag.c_str()); fflush(stdout); }
             } catch (const std::exception& x) { fprintf(stderr, "fdf-client: telemetry write failed (%s): %s -- written again when it next moves\n", why.c_str(), x.what()); }
         }
-        std::unique_lock<std::mutex> lk(telem_mu);                                  // the period, or at once when the settings change
-        telem_cv.wait_for(lk, std::chrono::seconds(every), [&] { return telem_gen != gen; });
+        gen_wait(telem_gen, gen, every);                                             // the period, or at once when the settings change
     }
 }
 
@@ -461,7 +503,7 @@ int main(int argc, char** argv) {
             if (a["ok"].b) {   // [LEAF_ADDR_FROM_THE_REGION_V1] a leaf's /32 is the region's to give: said, never chosen here
                 if (!a["addr"].s.empty()) {
 #ifndef _WIN32
-                    if (reach_wanted()) { std::lock_guard<std::mutex> lk(reach_mu); reach_addr = a["addr"].s;
+                    if (reach_wanted()) { const std::string ad = a["addr"].s; reach_want(&ad);
                         printf("fdf-client: the region gave this machine %s here, to reach this network [REACH_V1]\n", a["addr"].s.c_str()); fflush(stdout); }
                     else
 #endif
@@ -517,7 +559,7 @@ int main(int argc, char** argv) {
                   was_fwd = f; }
                 try { frogram::Json a = announce(s, api, ns, name);
                       if (a["ok"].b) printf("fdf-client: facts changed, re-announced%s\n", a["addr"].s.empty() ? "" : (" (leaf " + a["addr"].s + ")").c_str()); else fprintf(stderr, "fdf-client: re-announcement refused: %s %s\n", a["error"].s.c_str(), a["why"].s.c_str());
-                      { std::lock_guard<std::mutex> lk(reach_mu); reach_addr = reach_wanted() ? a["addr"].s : std::string(); }   // [REACH_V1]
+                      { const std::string ad = reach_wanted() ? a["addr"].s : std::string(); reach_want(&ad); }   // [REACH_V1]
                       fflush(stdout); sync_maps(s, api, have_maps); write_member(s, api, ns, name, now); reach_sync(); }
                 catch (const std::exception& x) { fprintf(stderr, "fdf-client: re-announce failed: %s -- ending this session so a fresh one re-announces and re-registers\n", x.what()); session_over(1); }
             }
@@ -568,7 +610,7 @@ int main(int argc, char** argv) {
     } catch (const std::exception& x) {
         fprintf(stderr, "fdf-client: the session to %s ended: %s\n", where.c_str(), x.what());
 #ifndef _WIN32
-        if (getenv("FDF_REACH")) { std::string o; reach_run("down", "", o); if (!o.empty()) fprintf(stderr, "fdf-client: %s\n", o.c_str()); }   // gone is gone
+        if (getenv("FDF_REACH")) { const std::string none; reach_want(&none); reach_sync(); }   // gone is gone: the reach thread takes it down
 #endif
         return 1; }
 }
