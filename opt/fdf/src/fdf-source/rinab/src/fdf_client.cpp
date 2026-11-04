@@ -12,6 +12,7 @@
 //   maps      [MAP_FROM_FACTS_V1] facts.maps = [{"eid":"10.A.B.0/24","rlocs":"hub:prio:weight,..."}]: each is a LISP
 //             Map-Register through THIS session (own:true, so it goes with the session), signed with the DIF's site key
 //             (RINA_SITE_KEY) under the site RINA_AREA. Changed -> re-registered; dropped from the file -> withdrawn.
+#include "fdf_up.hpp"
 #include "frogram.hpp"
 #include "fdf_version.hpp"
 #include "fdf_crash.hpp"
@@ -466,6 +467,7 @@ int main(int argc, char** argv) {
           printf("fdf-client: build %s; region at %s is build %s\n", FDF_BUILD_TAG, where.c_str(), v["ok"].b ? v["server"].s.c_str() : "(no version op: older than fdf-2026-10-09-r2)"); }
         printf("fdf-client: %s joined the region at %s, announced %s%s%s\n", name.c_str(), where.c_str(), ipv4s().c_str(),
                read_facts().empty() ? "" : " with facts", is_forward() ? "" : " as a PARTICIPANT (not the forward pond)"); fflush(stdout);
+        fdf_say_up(where, "fdf-client " FDF_BUILD_TAG);                               // [EVENTS_NOT_TIMERS_V1] the region's RAM is there again
         std::thread([&s, api, ns, name] { telemetry_loop(s, api, ns, name); }).detach();     // [TELEMETRY_IS_A_TUPLE_V1]
 #ifndef _WIN32
         std::map<std::string, std::string> have_maps; sync_maps(s, api, have_maps);       // [MAP_FROM_FACTS_V1]

@@ -2,6 +2,7 @@
 // program, rlite-ctl or a machine's agent has with the region is ONE call (ONE-CALL-PER-CONVERSATION.md). A call that
 // waits is a held read on the memory itself, answered when its answer exists; nothing is ever re-asked.
 // [SESSION_IS_LIVENESS_V1] A participant is alive while its session is up; the server reports a session's end.
+#include "fdf_up.hpp"
 #include "fdf_region.h"
 #include "rina_memory.hpp"
 #include "fdf_region_client.hpp"
@@ -1117,6 +1118,7 @@ void rina_host_listening(const std::string& listen_on) {
         publish_net_config();
         std::thread(register_self, listen_on).detach();
     }
+    fdf_say_up(listen_on, "fdf-ram " FDF_BUILD_TAG);                  // [EVENTS_NOT_TIMERS_V1] its readers wait on this
 }
 
 // [SESSION_PEER_V1] the server tells the region where each session arrives from, once, at "session up"
