@@ -48,7 +48,7 @@
   fdf-app serve
         on a member: for every app installed here (FDF_APPS/<app>.json), write its configuration tuple and say so as a
         capability tuple, and write both again after the network RAM changes (a held read ends); on every event
-        (a held read on the fdf-app family, and fdf-events for who is alive) run each app RAM's selection over the alive
+        (a held read on the fdf-app family, and one on the members' own cells, (pond, member), for who is there) run each app RAM's selection over the alive
         members that have the app; serve the RAMs this member is chosen for (fdf-ram, a child of this process) and say
         so in this member's where cell; stop serving the ones it is not.
 
@@ -64,11 +64,12 @@ default this member's .1).
 """
 import hashlib, hmac, json, os, queue, signal, subprocess, sys, threading, time, zlib
 
-BUILD_TAG = "fdf-app-2026-11-03-r7"
+BUILD_TAG = "fdf-app-2026-11-03-r8"
 LIB = os.environ.get("FDF_PY") or os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "lib", "python")
 sys.path.insert(0, LIB)
 import fdfram  # noqa: E402
 import fdf_select  # noqa: E402  [APP_SELECTION_V1]
+import fdf_watch  # noqa: E402  [EVENTS_NOT_TIMERS_V1]
 
 VAR = os.environ.get("FDF_VAR", "/opt/fdf/var")
 APPS = os.environ.get("FDF_APPS", "/opt/fdf/apps")
@@ -232,6 +233,12 @@ def read_family(rm):
     return cfg, cans, last
 
 
+def members(rm):
+    """[MEMBER_IS_A_TUPLE_V1] the members there now: each one's own (pond, member, <ns>), written on its session (it goes
+    with the session). Shaped as the region's participants were, alive because present."""
+    return [dict(c["bag"], alive=True) for c in rm.read("pond", "member") if not c.get("gone") and isinstance(c.get("bag"), dict)]
+
+
 def resolve(parts, guid):
     for p in parts:
         f = p.get("facts") or {}
@@ -242,7 +249,7 @@ def resolve(parts, guid):
 
 def where(app, r, rm=None):
     rm = rm or ram()
-    parts = rm.participants()
+    parts = members(rm)
     k = where_key(app, r)
     for c in rm.read("pond", "where"):
         e = (c.get("bag") or {}).get(k)
@@ -427,7 +434,7 @@ class Server:
                 self.say_own()
             if self.adopt_places():                  # [GROUP_PLACE_V1] a lead's newer place for its group
                 self.say_own()
-            parts = self.rm.participants()
+            parts = members(self.rm)
             cfgs, cans, _ = read_family(self.rm)
         except fdfram.RamError as e:
             log("the network RAM did not answer (%s); the next event decides again" % e)
@@ -483,6 +490,8 @@ class Server:
             log("the map was not said in the network RAM (%s)" % e)
 
     def watch_family(self):
+        """[EVENTS_NOT_TIMERS_V1] a held read on the fdf-app family. The network RAM gone: said, and read again from the
+        start when it says it is up (fdf_watch.wait_up: its own file, or this machine's member's)."""
         last = -1
         while True:
             try:
@@ -493,21 +502,28 @@ class Server:
             except fdfram.RamError as e:
                 # [APP_REASSERT_V1] the network RAM may be another one now: write this droplet's own truth again there,
                 # then learn the world again (read the family from the start)
-                log("held read on %s ended (%s); again in 1 s, writing this droplet's own truth again" % (SVC, e))
-                time.sleep(1)
+                t = time.time()
+                log("held read on %s ended (%s); read again when the RAM says it is up, writing this droplet's own truth again" % (SVC, e))
+                fdf_watch.wait_up(self.rm.hostport, t)
                 last = -1
                 self.events.put("again: the held read ended")
 
     def watch_members(self):
+        """[MEMBER_IS_A_TUPLE_V1] a held read on the members' own cells, (pond, member, *): one joining, changing its
+        facts or gone (its session ended) is the event. (Was fdf-events: the region's notices relayed as lines.)"""
+        last = -1
         while True:
-            p = subprocess.Popen([os.path.join(BIN, "fdf-events")], stdout=subprocess.PIPE, text=True,
-                                 env=dict(os.environ, FDF_FACTS=FACTS))
-            for line in p.stdout:
-                self.events.put("member: " + line.strip()[:80])
-            p.wait()
-            log("fdf-events ended (rc %s); again in 1 s" % p.returncode)
-            self.events.put("events ended")
-            time.sleep(1)
+            try:
+                cs = self.rm.read("pond", "member", after=last, wait_s=25)
+                if cs:
+                    last = max(int(c.get("id", -1)) for c in cs)
+                    self.events.put("members: " + ", ".join(sorted({c.get("instance", "") for c in cs}))[:80])
+            except fdfram.RamError as e:
+                t = time.time()
+                log("held read on (pond, member) ended (%s); read again when the RAM says it is up" % e)
+                fdf_watch.wait_up(self.rm.hostport, t)
+                last = -1
+                self.events.put("again: the members' read ended")
 
     def run(self):
         log("build %s; member %s; droplets listen on %s; apps here: %s"

@@ -397,10 +397,23 @@ static void telemetry_loop(frogram::Session& s, const std::string& api, const st
     }
 }
 
+// [MEMBER_IS_A_TUPLE_V1] (John 2026-11-03: "no notifications ... not like a messaging thing") this member's own truth,
+// (pond, member, <its ns>) = {ns, name, ips, cap, facts}, written on THIS session with own:true: it is there while the
+// member is (it goes with the session), and whoever wants the members holds a read on the family -- no event pushed to
+// a watcher, no relay (fdf-events) turning the region's notices into lines.
+static void write_member(frogram::Session& s, const std::string& api, const std::string& ns, const std::string& name, const std::string& facts) {
+    std::string f = "null";
+    if (!facts.empty()) { try { frogram::Json::parse(facts); f = facts; } catch (...) {} }
+    s.call("POST", api + "?op=write", "{\"service\":\"pond\",\"variable\":\"member\",\"instance\":" + frogram::Json::quote(ns) + ",\"bag\":{\"ns\":" +
+           frogram::Json::quote(ns) + ",\"name\":" + frogram::Json::quote(name) + ",\"ips\":" + ipv4s() + ",\"cap\":" + frogram::Json::quote(capability()) +
+           ",\"facts\":" + f + ",\"build\":\"" FDF_BUILD_TAG "\"},\"own\":true}");
+}
 static frogram::Json announce(frogram::Session& s, const std::string& api, const std::string& ns, const std::string& name) {
     const std::string facts = read_facts();
-    return s.call("POST", api + "?op=rina", "{\"op\":\"announce\",\"ns\":" + frogram::Json::quote(ns) + ",\"name\":" + frogram::Json::quote(name) +
+    frogram::Json a = s.call("POST", api + "?op=rina", "{\"op\":\"announce\",\"ns\":" + frogram::Json::quote(ns) + ",\"name\":" + frogram::Json::quote(name) +
                   ",\"ips\":" + ipv4s() + ",\"cap\":" + frogram::Json::quote(capability()) + (facts.empty() ? "" : ",\"facts\":" + frogram::Json::quote(facts)) + "}");
+    if (a["ok"].b) write_member(s, api, ns, name, facts);
+    return a;
 }
 
 int main(int argc, char** argv) {
@@ -446,6 +459,7 @@ int main(int argc, char** argv) {
                   ",\"ips\":" + ipv4s() + ",\"cap\":" + frogram::Json::quote(capability()) + (facts.empty() ? "" : ",\"facts\":" + frogram::Json::quote(facts)) + "}");
             frogram::Json a; try { a = frogram::Json::parse(body); } catch (...) { fprintf(stderr, "fdf-client: unreadable answer to the announcement: %s\n", body.substr(0, 200).c_str()); return 1; }
             if (a["ok"].b) {   // [LEAF_ADDR_FROM_THE_REGION_V1] a leaf's /32 is the region's to give: said, never chosen here
+                write_member(s, api, ns, name, facts);                                    // [MEMBER_IS_A_TUPLE_V1]
                 if (!a["addr"].s.empty()) {
 #ifndef _WIN32
                     if (reach_wanted()) { std::lock_guard<std::mutex> lk(reach_mu); reach_addr = a["addr"].s;
