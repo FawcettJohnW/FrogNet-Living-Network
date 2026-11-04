@@ -60,7 +60,7 @@ test), FDF_FACTS, FDF_APPS (/opt/fdf/apps), FDF_VAR (/opt/fdf/var), FDF_BIN (/op
 """
 import hashlib, hmac, json, os, queue, random, signal, socket, subprocess, sys, threading, time
 
-BUILD_TAG = "fdf-app-2026-11-04-r13"
+BUILD_TAG = "fdf-app-2026-11-04-r14"
 LIB = os.environ.get("FDF_PY") or os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "lib", "python")
 sys.path.insert(0, LIB)
 import fdfram  # noqa: E402
@@ -645,7 +645,8 @@ def _questions(app, c):
     new_roles = {}
     for r in names:
         old = roles.get(r) or {}
-        cat = _ask("  %s: category (its tab)" % r, old.get("category") or DEFAULT_CATEGORY)
+        # a Team (its own RAM) is in Teams; any other role is its own category (its tab) unless the admin says otherwise
+        cat = _ask("  %s: category (its tab)" % r, old.get("category") or (DEFAULT_CATEGORY if r in rams else r))
         new_roles[r] = {"default": _yes("  %s: a client may take it with no login (its default screen)?" % r, bool(old.get("default", r in rams))), "category": cat}
     roles, cats = categorize(new_roles, c.get("categories"))
     users = {u: v for u, v in (c.get("users") or {}).items() if v.get("role") in roles}
@@ -757,7 +758,7 @@ def install(argv):
         return rc or restart_service()
     cfg0 = parse_text(bag.get("config")) or {}
     print("fdf-app: %s is set up on this network (its configuration, seq %s, in databasehost-control %s):" % (app, bag.get("seq"), rm.hostport))
-    _show(app, cfg0)
+    _show(app, dict(cfg0, admin=bag.get("admin") or {}))    # the admin is the tuple's (its salt and check value), not the text's
     mine = {}
     pub = bag.get("admin") or {}
     if pub.get("user"):
