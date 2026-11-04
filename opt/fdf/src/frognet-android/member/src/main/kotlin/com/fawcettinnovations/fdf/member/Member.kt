@@ -20,7 +20,7 @@ import javax.crypto.Mac
 import javax.crypto.spec.SecretKeySpec
 
 const val API = "/FawcettInnovations.RINA.ram_interface.php"
-const val MEMBER_BUILD = "fdf-kt-2026-11-03-a22"            // [FDF_VERSION_V1] on every log line that says what runs
+const val MEMBER_BUILD = "fdf-kt-2026-11-03-a23"            // [FDF_VERSION_V1] on every log line that says what runs
 
 class MemberConfig(
     val ramHost: String, val ramPort: Int,
@@ -43,7 +43,9 @@ class Member(private val c: MemberConfig) {
     val ns = "w:" + (if (c.guid.isNotEmpty()) c.guid else c.name)
     @Volatile private var s: Session? = null
     private val have = HashMap<String, String>()               // eid -> rlocs this session registered
-    private val mapsLock = Any()
+    // [NO_LOCK_IN_THE_SESSION_V1] one sync at a time without a lock: whoever finds none running does it, and does it
+    // again while others asked meanwhile (the count moved); the others return at once
+    private val syncing = java.util.concurrent.atomic.AtomicInteger(0)
     @Volatile var joinedAtMs = 0L; private set
     /** [LEAF_ADDR_FROM_THE_REGION_V1] the /32 the region gave this leaf with its announcement ("" = none: on a LAN, or not a leaf). */
     @Volatile var regionAddr = ""; private set
@@ -94,13 +96,12 @@ class Member(private val c: MemberConfig) {
     /** One membership, start to end. Returns why the session ended (the owner makes a new one: a new member). */
     fun runOnce(): String {
         val sess = try { Session(c.ramHost, c.ramPort, c.tuner, c.log) } catch (e: Exception) { return "connect: ${e.message}" }
-        s = sess; synchronized(mapsLock) { have.clear() }
+        s = sess; have.clear()
         try {
-            val after = rina("{\"op\":\"node\",\"ns\":" + Json.quote(ns) + ",\"devs\":\"\"}")["after"].num?.toLong() ?: 0L
+            rina("{\"op\":\"node\",\"ns\":" + Json.quote(ns) + ",\"devs\":\"\"}")                                             // alive: this session
             // [WATCH_BEFORE_READ_V1] the watch goes in BEFORE the first read of the region (prepare, onJoined): a change made
             // between a read and a later watch would never be delivered (seen: the hub's `peers` re-announcement fell in that
             // gap and the leaf's tunnel waited for an event that had already happened; the r17 daemon fix, here)
-            val proc = Json.quote("agent:$ns")
             // [MEMBER_IS_A_TUPLE_V1] the region changing = the members' family changing: its held read starts from where
             // this read ends, BEFORE the first look at the region (prepare)
             val membersAt = maxId(Json.parse(sess.call("GET", "$API?op=read&service=pond&variable=member", "", 15.0).body))
@@ -158,9 +159,9 @@ class Member(private val c: MemberConfig) {
                     } catch (e: Exception) { if (sess.dead == null) { c.log("members' read failed: ${e.message} -- ending this session for a fresh one"); sess.close() } }
                 }, "fdf-members").apply { isDaemon = true; start() }
             }
-            // the session's own hold: the region's word to this machine's agent (a terminate), and the session's end
-            var at = after
-            while (true) at = maxEvent(rinaText("rina_block", "{\"op\":\"wait\",\"proc\":$proc,\"after\":$at}", 3.0e8), at)
+            // [MEMBER_IS_A_TUPLE_V1] the session's own hold is its end: nothing is pushed to this machine (was: a wait on its
+            // agent input space, where the region sent a notice on every change); the members' family is read held above
+            throw RuntimeException(sess.awaitEnd())
         } catch (e: Exception) {
             val why = sess.dead ?: e.message ?: e.javaClass.simpleName
             c.log("the session to ${c.ramHost}:${c.ramPort} ended: $why"); sess.close(); return why
@@ -261,11 +262,15 @@ class Member(private val c: MemberConfig) {
     }
 
     // fdf_client.cpp sync_maps, line for line in behaviour
-    private fun syncMaps(assertRegion: Boolean) = synchronized(mapsLock) {
+    private fun syncMaps(assertRegion: Boolean) {
+        if (syncing.getAndIncrement() > 0) return
+        while (true) { val seen = syncing.get(); syncMapsNow(assertRegion); if (syncing.compareAndSet(seen, 0)) return }
+    }
+    private fun syncMapsNow(assertRegion: Boolean) = run {
         val want = LinkedHashMap<String, String>()
         val f = c.facts()
         if (f.isNotEmpty()) try { for (m in Json.parse(f)["maps"].a) if (m["eid"].str.isNotEmpty()) want[m["eid"].str] = m["rlocs"].str } catch (_: ProtocolError) {}
-        if (want.isEmpty() && have.isEmpty()) return@synchronized
+        if (want.isEmpty() && have.isEmpty()) return@run
         if (assertRegion && c.site.isNotEmpty() && want.isNotEmpty()) {
             val held = HashMap<String, String>()
             for (m in rina("{\"op\":\"map_list\",\"site\":" + Json.quote(c.site) + "}")["mappings"].a) held[m["eid"].str] = m["rloc"].str
@@ -274,7 +279,7 @@ class Member(private val c: MemberConfig) {
                 have.remove(eid)
             }
         }
-        if (c.site.isEmpty() || c.siteKey.isEmpty()) { c.log("facts.maps present but site / site key not set: nothing registered"); return@synchronized }
+        if (c.site.isEmpty() || c.siteKey.isEmpty()) { c.log("facts.maps present but site / site key not set: nothing registered"); return@run }
         val it = have.entries.iterator()
         while (it.hasNext()) { val (eid, _) = it.next(); if (want.containsKey(eid)) continue
             try { rina("{\"op\":\"map_remove\",\"name\":" + Json.quote(eid) + "}"); c.log("mapping $eid withdrawn") }

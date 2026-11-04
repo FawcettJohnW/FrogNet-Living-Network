@@ -490,7 +490,6 @@ int main(int argc, char** argv) {
         frogram::Session s(where.substr(0, c), atoi(where.c_str() + c + 1), api);
         auto rina = [&](const std::string& body) { return s.call("POST", api + "?op=rina", body); };
         frogram::Json r = rina("{\"op\":\"node\",\"ns\":" + frogram::Json::quote(ns) + ",\"devs\":\"\"}");                 // alive: this session
-        const unsigned long long after = (unsigned long long)r["after"].n;
         // [JOIN_REFUSED_WAITS_V1] a refused announcement (EEXIST: my served /24 is a live member's, PLAN-RAM-DISCOVERY §4)
         // is said at ERROR with the holder's name, and this process WAITS for the region to change (a member left or
         // re-announced) before trying again -- not exit 1 and a systemd restart every 2 s against the RAM manager.
@@ -598,15 +597,17 @@ int main(int argc, char** argv) {
 #ifndef _WIN32
         reach_sync();                                                            // [REACH_V1] after the join
 #endif
-        for (unsigned long long at = after;;) {                                    // hold: the session IS this machine's membership
-            const std::string t = s.call_text("POST", api + "?op=rina_block", "{\"op\":\"wait\",\"proc\":" + frogram::Json::quote("agent:" + ns) +
-                                              ",\"after\":" + std::to_string(at) + "}", 3.0e8);
-            for (size_t p = 2; p < t.size();) { const size_t tab = t.find('\t', p), nl = t.find('\n', p); if (tab == std::string::npos || nl == std::string::npos) break;
-                const unsigned long long n = std::stoull(t.substr(p, tab - p)); if (n > at) at = n; p = nl + 1; }
+        // [MEMBER_IS_A_TUPLE_V1] hold: the session IS this machine's membership, and the region changing is the members'
+        // family changing -- one held read on (pond, member) (was: a wait on this machine's input space, where the region
+        // pushed a notice to every agent on every change)
+        { frogram::Memory held(s, api); int64_t at = 0;
+          for (auto& c : held.read("pond", "member")) if (int64_t(c.id) > at) at = int64_t(c.id);
+          for (;;) {
+            for (auto& c : held.read("pond", "member", "", at, 600)) if (int64_t(c.id) > at) at = int64_t(c.id);
 #ifndef _WIN32
             reach_sync();                                                        // [REACH_V1] every region event
 #endif
-        }
+          } }
     } catch (const std::exception& x) {
         fprintf(stderr, "fdf-client: the session to %s ended: %s\n", where.c_str(), x.what());
 #ifndef _WIN32
