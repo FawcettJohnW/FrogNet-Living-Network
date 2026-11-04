@@ -1,6 +1,8 @@
 #!/bin/bash
 # fdf-install -- [FDF_INSTALL_V1] one file, one command: joins THIS FrogNet node to the FD&F region.
 #   usage:  sudo ./fdf-install-ARCH.run fdfinv1.<...> | fdfjoin1.<...>   ([ORG_NODE_JOIN_V1] an organization's line)
+#           sudo ./fdf-install-ARCH.run           [ONE_FILE_UPDATE_V1] a node already joined: the same file updates it in
+#                                                 place (backup, unpack, every unit enabled and restarted, versions said)
 # The one argument is this node's invitation: `fdf-invite NAME` on the region's machine printed it
 # ([ADMITTED_BY_INVITE_V1]). There is no built-in region. The FrogNet installer runs this file itself with --invite
 # (frognet_install.sh ... --invite fdfinv1.<...>).
@@ -13,8 +15,14 @@ set -u
 # umask (a shell with umask 0000 made /opt/fdf and its bin/ world-writable, in the T4a container).
 umask 022
 [ "$(id -u)" = 0 ] || { echo "fdf-install: run as root (sudo)"; exit 1; }
-[ $# -eq 1 ] || { echo "usage: $0 fdfinv1.<...> | fdfjoin1.<...>   (fdf-invite NAME, or the organization's line for this node's level)"; exit 2; }
-case "$1" in fdfinv1.*|fdfjoin1.*) INV=$1 ;; *) echo "fdf-install: '$1' is neither an invitation (fdfinv1.) nor an organization's join line (fdfjoin1.)"; exit 2 ;; esac
+# [ONE_FILE_UPDATE_V1] (John 2026-11-04: "How about one file so I can do the rest?") no argument on a node that is
+# joined already (its join.env): an update, the whole of it, from this one file
+INV=""
+if [ $# -eq 0 ] && [ -s /opt/fdf/var/join.env ]; then echo "== updating this node in place (joined: /opt/fdf/var/join.env)"
+else
+  [ $# -eq 1 ] || { echo "usage: $0 fdfinv1.<...> | fdfjoin1.<...>   (fdf-invite NAME, or the organization's line for this node's level); with no argument on a joined node: update it"; exit 2; }
+  case "$1" in fdfinv1.*|fdfjoin1.*) INV=$1 ;; *) echo "fdf-install: '$1' is neither an invitation (fdfinv1.) nor an organization's join line (fdfjoin1.)"; exit 2 ;; esac
+fi
 WANT_ARCH="__ARCH__"; M=$(uname -m)
 [ "$M" = "$WANT_ARCH" ] || { echo "fdf-install: this file is for $WANT_ARCH, this machine is $M"; exit 1; }
 # inotifywait (inotify-tools): the FrogNet merge watcher waits with it, and runs in region mode too since T4c (the
@@ -68,6 +76,7 @@ chmod 0440 /etc/sudoers.d/frognet-snapshot && visudo -cf /etc/sudoers.d/frognet-
 # the node's Apache. The vhost we install must be valid -- a bad one stops the install. But applying it to the running
 # Apache, and the web view itself, are independent of region membership: a node is a member whether or not its local
 # /fdf/ dashboard renders. So a failed apply is logged and the join goes ahead; the view catches up on the next restart.
+a2enconf -q fdf-dc    # [ONE_FILE_UPDATE_V1] the DisasterComm pages and their door (/dc/, /rt/) ship in this bundle
 apache2ctl configtest >/dev/null 2>&1 || { echo "fdf-install: apache2ctl configtest refuses the vhost:"; apache2ctl configtest; exit 1; }
 # restart, not reload: `apachectl graceful` builds a transient mount namespace that systemd refuses on a long-up box
 # (status=226/NAMESPACE); a restart recreates the service with a fresh namespace. One mechanism, applied once.
@@ -80,6 +89,18 @@ else
 fi
 # [WG_IMPL_RECORDED_V1 - T4b] the WireGuard implementation (the FrogNet installer recorded it; an older node records it here, once)
 /opt/fdf/bin/fdf-wg-impl --record || { echo "fdf-install: no usable WireGuard implementation (above)"; exit 1; }
+# [ONE_FILE_UPDATE_V1] the units this bundle ships, enabled; the DisasterComm pages' Apache conf enabled
+systemctl daemon-reload
+systemctl enable fdf-app.service frognet-host.service >/dev/null 2>&1
+if [ -z "$INV" ]; then
+  systemctl restart frognet-tunnel-daemon-v3
+  for u in fdf-facts.service fdf-client.service fdf-app.service frognet-host.service fdf-addin-dc.service; do
+    [ -e /etc/systemd/system/$u ] && { systemctl restart $u && echo "== $u restarted" || echo "fdf-install: $u did not restart: journalctl -u $u"; }
+  done
+  echo "== updated: $(sed -n 's/^build=//p' /opt/fdf/BUILD); fdf-app $(sed -n 's/^BUILD_TAG = "\(.*\)"/\1/p' /opt/fdf/bin/fdf-app); door $(sed -n "s/^const DOOR_BUILD = '\(.*\)';/\1/p" /opt/fdf/www/dc/ram.php 2>/dev/null)"
+  echo "== to undo: sudo bash $BK.restore"
+  exit 0
+fi
 echo "== joining the region ($( [ "${INV#fdfjoin1.}" != "$INV" ] && echo "the organization's line" || echo "the invitation"))"
 exec /opt/fdf/bin/fdf-region-join "$INV"
 __PAYLOAD_BELOW__

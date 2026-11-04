@@ -96,6 +96,11 @@ fdf_tree() {   # $1 = root, $2 = binary dir, $3.. = binary names (as installed: 
   cp -a "$TOP/fdf" "$R/opt/fdf"; rm -rf "$R/opt/fdf/var" "$R/opt/fdf/hub/hub.env" "$R/opt/fdf/www/dc" "$R/opt/fdf/www/rt"; find "$R" -name __pycache__ -prune -exec rm -rf {} +
   for b in "$@"; do cp "$BD/${b%%:*}" "$R/opt/fdf/bin/${b##*:}"; done
   chmod 755 "$R/opt/fdf/bin/"*; }      # every /opt/fdf/bin entry runs (the installer execs fdf-region-join)
+# [ONE_FILE_UPDATE_V1] a node bundle carries the DisasterComm pages and their door (/opt/fdf/www/dc, /opt/fdf/www/rt) and
+# their Apache conf: every node is a device's edge, so every node's door answers (one file, John 2026-11-04)
+node_pages() { local R=$1; cp -a "$TOP/fdf/www/dc" "$R/opt/fdf/www/dc"; cp -a "$TOP/fdf/www/rt" "$R/opt/fdf/www/rt"
+  rm -f "$R/opt/fdf/www/rt/"*.py "$R/opt/fdf/www/rt/"*.mjs; find "$R/opt/fdf/www" -name __pycache__ -prune -exec rm -rf {} +
+  mkdir -p "$R/etc/apache2/conf-available"; cp "$TOP/../bundles/addins/dc/fdf-dc.conf" "$R/etc/apache2/conf-available/"; }
 frognet_patch() { local R=$1 f; for f in "${FROGNET_FILES[@]}"; do mkdir -p "$R/$(dirname "$f")"; cp -p "$REPO/$f" "$R/$f"; done; }
 build_file() { printf 'package=%s\nbuild=%s\nbuilt=%s\nfor=%s\n' "$1" "$TAG" "$NOW" "$2" > "$3/opt/fdf/BUILD"; }
 # [FILES_ONLY_TAR_V1] files only, no directory entries: extracting at / must not reset the owner or mode of /etc, /usr,
@@ -103,11 +108,11 @@ build_file() { printf 'package=%s\nbuild=%s\nbuilt=%s\nfor=%s\n' "$1" "$TAG" "$N
 tarit() { (cd "$1" && find . \( -type f -o -type l \) | sed 's|^\./||' | sort | tar --owner=0 --group=0 --no-recursion -czf - -T -); }
 # ---- x86 node
 R=$W/node; fdf_tree "$R" "$H/build/static" fdf-client fdf-events fdf-participants fdf-attention fdf-where ram; cp "$H/build/bin/fdf-ram-static" "$R/opt/fdf/bin/fdf-ram"
-frognet_patch "$R"; build_file fdf-node.tgz "x86_64 FrogNet node or leaf" "$R"
+node_pages "$R"; frognet_patch "$R"; build_file fdf-node.tgz "x86_64 FrogNet node or leaf" "$R"
 tarit "$R" > "$W/fdf-node.tgz"; sed 's/__ARCH__/x86_64/' "$TOP/deliverables/header.sh" | cat - "$W/fdf-node.tgz" > "$OUT/fdf-install-x86_64-$TAG.run"
 # ---- arm64 node
 R=$W/arm; fdf_tree "$R" "$H/build/arm64" fdf-client fdf-events fdf-participants fdf-attention fdf-where ram fdf-ram
-frognet_patch "$R"; build_file fdf-node-arm64.tgz "aarch64 FrogNet node (Pi)" "$R"
+node_pages "$R"; frognet_patch "$R"; build_file fdf-node-arm64.tgz "aarch64 FrogNet node (Pi)" "$R"
 tarit "$R" > "$W/fdf-node-arm64.tgz"; sed 's/__ARCH__/aarch64/' "$TOP/deliverables/header.sh" | cat - "$W/fdf-node-arm64.tgz" > "$OUT/fdf-install-aarch64-$TAG.run"
 # ---- region holder, one per processor ([HOLDER_PER_ARCH_V1]: a Pi holds a LAN region as well as a droplet holds one)
 R=$W/drop; fdf_tree "$R" "$H/build/static" fdf-client fdf-events fdf-participants fdf-attention fdf-where ram; cp "$H/build/bin/fdf-ram-static" "$R/opt/fdf/bin/fdf-ram"
