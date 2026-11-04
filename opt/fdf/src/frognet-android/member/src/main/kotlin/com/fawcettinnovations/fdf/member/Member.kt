@@ -20,7 +20,7 @@ import javax.crypto.Mac
 import javax.crypto.spec.SecretKeySpec
 
 const val API = "/FawcettInnovations.RINA.ram_interface.php"
-const val MEMBER_BUILD = "fdf-kt-2026-11-04-a24"            // [FDF_VERSION_V1] on every log line that says what runs
+const val MEMBER_BUILD = "fdf-kt-2026-11-04-a25"            // [FDF_VERSION_V1] on every log line that says what runs
 
 class MemberConfig(
     val ramHost: String, val ramPort: Int,
@@ -70,10 +70,16 @@ class Member(private val c: MemberConfig) {
         if (f != "null" && regionAddr.isNotEmpty() && Json.parse(f)["addr"].type == Json.Type.NULL) {
             f = "{\"addr\":" + Json.quote(regionAddr) + (if (f.substring(1).trimStart().startsWith("}")) "" else ",") + f.substring(1)
         }
-        write("pond", "member", ns, "{\"ns\":" + Json.quote(ns) + ",\"name\":" + Json.quote(c.name) +
+        val bag = "{\"ns\":" + Json.quote(ns) + ",\"name\":" + Json.quote(c.name) +
             ",\"ips\":[" + c.ips().joinToString(",") { Json.quote(it) } + "],\"cap\":" + Json.quote(c.capability()) +
-            ",\"facts\":" + f + ",\"maps\":" + signedMaps() + ",\"build\":" + Json.quote(MEMBER_BUILD) + "}", own = true)
+            ",\"facts\":" + f + ",\"maps\":" + signedMaps() + ",\"build\":" + Json.quote(MEMBER_BUILD) + "}"
+        // [WRITTEN_WHEN_IT_CHANGES_V1] the same truth on the same session is not written again
+        if (s === lastSession && bag == lastBag) return
+        write("pond", "member", ns, bag, own = true); lastSession = s; lastBag = bag
     }
+    @Volatile private var lastSession: Session? = null
+    @Volatile private var lastBag = ""
+    private val signedAt = java.util.concurrent.ConcurrentHashMap<String, Pair<String, String>>()   // eid -> (rloc, ts)
 
     /** [ONE_OWNER_V1] this member's mappings, its own: signed with the site key (eid|rloc|ttl|ts) and written in its own
      *  (pond, member) cell; the region verifies them when they are read and writes nothing for them */
@@ -82,9 +88,13 @@ class Member(private val c: MemberConfig) {
         val maps = try { Json.parse(f)["maps"].a } catch (_: ProtocolError) { return "[]" }
         if (maps.isEmpty()) return "[]"
         if (c.site.isEmpty() || c.siteKey.isEmpty()) { c.log("facts.maps present but site / site key not set: no mapping said"); return "[]" }
-        val now = System.currentTimeMillis(); val ts = "%d.%09d".format(now / 1000, (now % 1000) * 1_000_000); val ttl = "86400"
+        val now = System.currentTimeMillis(); val nowTs = "%d.%09d".format(now / 1000, (now % 1000) * 1_000_000); val ttl = "86400"
         return maps.filter { it["eid"].str.isNotEmpty() }.joinToString(",", "[", "]") { m ->
             val eid = m["eid"].str; val rloc = m["rlocs"].str
+            // a mapping keeps its signature while it is the same (re-signed at half its ttl): the cell is the same text
+            val was = signedAt[eid]
+            val ts = if (was != null && was.first == rloc && now / 1000.0 - was.second.toDouble() < 43200) was.second
+                     else nowTs.also { signedAt[eid] = rloc to it }
             "{\"eid\":" + Json.quote(eid) + ",\"rloc\":" + Json.quote(rloc) + ",\"site\":" + Json.quote(c.site) + ",\"ttl\":\"$ttl\",\"ts\":\"$ts\",\"auth\":" +
                 Json.quote(hmacHex(c.siteKey, "$eid|$rloc|$ttl|$ts")) + "}"
         }

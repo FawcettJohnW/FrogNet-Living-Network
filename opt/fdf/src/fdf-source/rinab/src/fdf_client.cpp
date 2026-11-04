@@ -274,13 +274,19 @@ static std::string signed_maps() {
     frogram::Json fj; try { fj = frogram::Json::parse(facts); } catch (...) { return "[]"; }
     if (fj["maps"].a.empty()) return "[]";
     if (!site || !*site || !key || !*key) { fprintf(stderr, "fdf-client: facts.maps present but RINA_AREA / RINA_SITE_KEY not set: no mapping said\n"); return "[]"; }
-    struct timespec t; clock_gettime(CLOCK_REALTIME, &t); char ts[40]; snprintf(ts, sizeof ts, "%lld.%09ld", (long long)t.tv_sec, t.tv_nsec);
+    struct timespec t; clock_gettime(CLOCK_REALTIME, &t); char now_ts[40]; snprintf(now_ts, sizeof now_ts, "%lld.%09ld", (long long)t.tv_sec, t.tv_nsec);
     const std::string ttl = "86400";
+    // [WRITTEN_WHEN_IT_CHANGES_V1] a mapping keeps its signature while it is the same (re-signed at half its ttl): the
+    // cell is the same text, so a member whose truth did not change writes nothing (seen: BAMacBook's cell rewritten
+    // every 3 s, only maps[0].ts and auth different, every write a wake of every reader)
+    static std::map<std::string, std::pair<std::string, std::string>> signed_at;   // eid -> (rloc, ts); one thread writes the cell
     for (auto& m : fj["maps"].a) {
         const std::string eid = m["eid"].s, rloc = m["rlocs"].s; if (eid.empty()) continue;
+        auto& sa = signed_at[eid];
+        if (sa.first != rloc || sa.second.empty() || double(t.tv_sec) - strtod(sa.second.c_str(), nullptr) > 43200) sa = {rloc, now_ts};
+        const std::string ts = sa.second;
         out += (f ? "" : ",") + std::string("{\"eid\":") + frogram::Json::quote(eid) + ",\"rloc\":" + frogram::Json::quote(rloc) + ",\"site\":" + frogram::Json::quote(site) +
                ",\"ttl\":\"" + ttl + "\",\"ts\":\"" + ts + "\",\"auth\":" + frogram::Json::quote(hmac_hex(key, eid + "|" + rloc + "|" + ttl + "|" + ts)) + "}"; f = false;
-        printf("fdf-client: mapping %s -> %s said in this member's own cell (site %s)\n", eid.c_str(), rloc.c_str(), site);
     }
     fflush(stdout);
     return out + "]";
@@ -430,9 +436,15 @@ static void write_member(frogram::Session& s, const std::string& api, const std:
 #else
     const std::string maps = signed_maps();
 #endif
-    s.call("POST", api + "?op=write", "{\"service\":\"pond\",\"variable\":\"member\",\"instance\":" + frogram::Json::quote(ns) + ",\"bag\":{\"ns\":" +
+    const std::string body = "{\"service\":\"pond\",\"variable\":\"member\",\"instance\":" + frogram::Json::quote(ns) + ",\"bag\":{\"ns\":" +
            frogram::Json::quote(ns) + ",\"name\":" + frogram::Json::quote(name) + ",\"ips\":" + ipv4s() + ",\"cap\":" + frogram::Json::quote(capability()) +
-           ",\"facts\":" + f + ",\"maps\":" + maps + ",\"build\":\"" FDF_BUILD_TAG "\"},\"own\":true}");
+           ",\"facts\":" + f + ",\"maps\":" + maps + ",\"build\":\"" FDF_BUILD_TAG "\"},\"own\":true}";
+    // [WRITTEN_WHEN_IT_CHANGES_V1] the same truth on the same session is not written again
+    static const frogram::Session* last_s = nullptr; static std::string last_body;
+    if (&s == last_s && body == last_body) return;
+    s.call("POST", api + "?op=write", body);
+    last_s = &s; last_body = body;
+    printf("fdf-client: this member's own cell written (%s)%s\n", ns.c_str(), maps == "[]" ? "" : (", with its mappings " + maps.substr(0, 120)).c_str()); fflush(stdout);
 }
 static frogram::Json announce(frogram::Session& s, const std::string& api, const std::string& ns, const std::string& name) {
     const std::string facts = read_facts();
