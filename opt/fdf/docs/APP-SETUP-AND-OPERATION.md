@@ -396,24 +396,11 @@ deterministic selection over the same tuples and gets the same answer.
 
 ## Split
 
-**Where the app's tuples are** ([APP_TUPLES_IN_CONTROL_V1], John 2026-11-04: "There is only one configuration tuple,
-and it lives in databasehost-control"; "The WAN manager is not a RAM manager. It is a conduit"): in databasehost-control,
-the RAM host (port 8841) of the node `/etc/hosts` names `databasehost_control.frognet` -- the highest .1, written by
-every merge. `fdf-app` and the door read it from `/etc/hosts` (`RINA_CONTROL_RAM` overrides, for a test). Every app
-tuple is there, and each member's presence, `(pond, where, w:<guid>/fdf-app) {fdf-app: {addr}}`, held by its fdf-app's
-own session (`fdf-where --hold`, which needs no member session on that RAM host, [HOLD_NEEDS_NO_MEMBER_SESSION_V1]):
-gone the moment that fdf-app is gone or cannot reach it. The app's selection runs over the members present there, so
-the member's WAN session (`fdf-client`, on the conduit) has nothing to do with where an AppRam is served. A split or a
-merge is the election writing another `databasehost_control.frognet`: `fdf-app` follows at once (inotify on
-`/etc/hosts`; a read that fails waits for that RAM host to say it is up or for another to be named), writes this
-member's configuration, capability and presence there, and the selection runs over the members on this side: every
-AppRam is relocatable to the greater or lesser network (John: "if you cannot reach SystemRam and you have not
-designated your own machine as a databasehost, then you're dead in the water. That's not going to happen with
-SystemRam, but it may for other apps"). Install with no `databasehost_control.frognet` named: nothing installed.
-Gates: `rinab/tools/test_fdf_app_control.py` (tuples in databasehost-control and none on the conduit; control moves:
-everything there in ~70 ms; an fdf-app gone with its WAN session up: its presence gone, the RAMs move; the bootstrap
-refusal), `rinab/tools/netns-system-space-test.sh` (both WAN RAM managers failing over and back: the app's tuples stay
-in w's 10.4.4.1:8841 throughout, none on hubA).
+**Where the app's tuples are**: as the design's section 9 (the doc "FrogNet SystemRam, FrogNetHost Admin and App
+Services — Design", 2026-11-04) says, and nowhere else: the Admin's one configuration tuple in databasehost-control;
+each installed machine's `fdf-app can` and `fdf-app applied` in the SystemRam; app data in the AppRams; the general
+AppRam's AppHost named `<app>Host.frognet` by the election. The code does not do this yet (fdf-app r12 is wrong: it put
+every fdf-app tuple, the where cells and a presence cell into databasehost-control).
 
 1. Connectivity changes.
 2. The fabric re-forms on each reachable side.

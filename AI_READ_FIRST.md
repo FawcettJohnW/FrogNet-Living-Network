@@ -560,12 +560,12 @@ app's selection (`[GROUP_PLACE_V1]`). That selection is separate from databaseho
 **SystemRam**: the RAM host on the node the databasehost election names (`databasehost.frognet`), with parked held
 reads. Capability tuples and the app's one configuration tuple live in databasehost-control
 (`databasehost_control.frognet`, the highest .1); an app's data is in its own AppRams. The design is in the doc
-"FrogNet SystemRam, FrogNetHost Admin and App Services — Design" (2026-11-04). `fdf-app` (r12) and the door (r12) keep
-every app tuple in databasehost-control ([APP_TUPLES_IN_CONTROL_V1]): configuration, capability, the admin's, the
-answers, places, maps, where each AppRam is served, and each member's presence `(pond, where, w:<guid>/fdf-app)`, held
-by fdf-app's own session there, so liveness is the app's, not the WAN session's. Nothing of an app is on the conduit.
-Still different in the code: `<app>Host.frognet` is not written (the doors read `app-where.json`), and node code reaches
-the SystemRam through `api.php`.
+"FrogNet SystemRam, FrogNetHost Admin and App Services — Design" (2026-11-04); its section 9 says where each tuple lives
+and who owns it: in databasehost-control only the Admin's one `(fdf-app, config, <app>)` (and `frognethost` config);
+in the SystemRam `fdf-app can` and `fdf-app applied`; app data in the AppRams. In the code today (fdf-app r12, door r12)
+that is not so: every installed machine writes its own copy of the configuration, and r12 put every fdf-app tuple, the
+where cells and a presence cell into databasehost-control. That is wrong and is being corrected; node code reaches the
+SystemRam through `api.php`.
 The app's access definition (its teams and their password verifiers; a team's members use the general RAM and their team's RAM, and the network's levels have nothing to do with it) is in its app configuration tuples, so a device's own edge checks a login by
 reading them: login is a read, with no login server and no check on each request after it. The device keeps its role
 and writes its access record again after every RAM change, so no user action is needed after a split or a merge. Every
