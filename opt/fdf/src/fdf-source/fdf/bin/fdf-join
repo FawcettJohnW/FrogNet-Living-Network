@@ -63,10 +63,23 @@ RestartSec=5
 [Install]
 WantedBy=multi-user.target
 UNIT
-# [APP_DROPLET_V1] the apps installed here (/opt/fdf/apps/<app>.json): their configuration and capability tuples, the
-# app's own selection of which member serves each of its RAMs, the droplets this member is chosen for, and
-# /opt/fdf/var/app-where.json, where the pages' door (ram.php) finds each RAM. With no app installed it says nothing.
 cat > /etc/systemd/system/fdf-app.service <<UNIT
+# [APP_SERVICES_V1] the apps installed on this machine (/opt/fdf/apps/<app>.json): adopts each app's one configuration
+# tuple, holds this machine's capability tuples in the SystemRam, serves the AppRams /etc/hosts names this machine for.
+# Shipped with the node bundle (an update carries it); fdf-join writes the same unit.
+[Unit]
+Description=FD&F apps: hold this machine's capability, serve the AppRams it is the AppHost of
+After=network-online.target
+
+[Service]
+Environment=FDF_FACTS=/opt/fdf/var/facts.json
+ExecStart=/usr/bin/python3 /opt/fdf/bin/fdf-app serve
+Restart=always
+RestartSec=2
+
+[Install]
+WantedBy=multi-user.target
+UNIT
 [Unit]
 Description=FD&F apps: serve the app RAMs this member is chosen for, and say where each is
 After=fdf-client.service
