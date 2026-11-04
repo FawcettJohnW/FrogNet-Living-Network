@@ -32,6 +32,15 @@ WantedBy=sockets.target
 UNIT
   echo "fdf-ram-sockets: $sock (ListenStream=$listen)"; n=$((n+1))
 done
+# [RAM_MANAGER_IS_FDF_RAM_V1] a unit made before the rename runs /opt/fdf/bin/rina-host, which no update replaces:
+# the update ships fdf-ram, so the unit is pointed at it (StreamingFrog 2026-11-04: r44 shipped, r31 still running)
+for svc in fdf-ram-*.service; do
+  [ -f "$svc" ] || continue
+  if grep -q '^ExecStart=/opt/fdf/bin/rina-host ' "$svc"; then
+    sed -i 's#^ExecStart=/opt/fdf/bin/rina-host #ExecStart=/opt/fdf/bin/fdf-ram #' "$svc"
+    echo "fdf-ram-sockets: $svc ran /opt/fdf/bin/rina-host; now runs /opt/fdf/bin/fdf-ram"
+  fi
+done
 systemctl daemon-reload
 for svc in fdf-ram-*.service; do
   [ -f "$svc" ] || continue; sock=${svc%.service}.socket
