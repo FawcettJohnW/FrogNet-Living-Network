@@ -17,6 +17,9 @@ const KINDS = {
   hospital:  { label: 'Hospitals',  shape: 'sq',  size: 20, color: '#ffffff', views: ['eoc', 'public'], ch: 'H', fg: '#c62828' },
   fire:      { label: 'Fire',       shape: 'dia', size: 18, color: '#ff6d00', views: ['eoc', 'public'], ch: 'F' },
   power:     { label: 'Power',      shape: 'dia', size: 18, color: '#7e57c2', views: ['eoc', 'public'], ch: 'P' },
+  water:     { label: 'Water',      shape: 'dia', size: 18, color: '#0288d1', views: ['eoc', 'public'], ch: 'W' },     // [RT_SUITE_APPS_V1]
+  shelter:   { label: 'Shelters',   shape: 'sq',  size: 18, color: '#6d4c41', views: ['eoc', 'public'], ch: 'S' },
+  phone:     { label: 'Phone crews', shape: 'dia', size: 18, color: '#455a64', views: ['eoc'], ch: '☎' },
   help:      { label: 'Help requests', shape: '', size: 16, color: '#ff1744', views: ['eoc', 'public'], ch: '!' },
   platform:  { label: 'Sensor platforms', shape: 'dia', size: 16, color: '#00897b', views: ['eoc'], ch: 'S' },
   service:   { label: 'Service requests', shape: 'sq', size: 16, color: '#f9a825', views: ['eoc'], ch: 'R', fg: '#222' },
@@ -24,6 +27,9 @@ const KINDS = {
   search:    { label: 'Searched areas', shape: '', size: 14, color: '#546e7a', views: ['eoc'], ch: '✓' },
   host:      { label: 'Hosts',      shape: 'sq',  size: 16, color: '#263238', views: ['eoc'], ch: 'N' },   // a layer: on for the EOC
 }
+// [RT_SUITE_APPS_V1] the unit apps and what their unit field is called
+const UNIT_ROLES = ['hospital', 'ambulance', 'water', 'power', 'shelter', 'phone']
+const UNIT_LABEL = { hospital: 'Hospital', ambulance: 'Unit (e.g. Medic 12)', water: 'Water crew or site', power: 'Power crew', shelter: 'Shelter', phone: 'Phone crew' }
 const TEAM_COLOR = { alpha: '#d62728', bravo: '#1f77b4', charlie: '#2ca02c', delta: '#ff7f0e' }
 const LKP_MIN = 10            // a last known position is drawn this many minutes (the app's own choice)
 
@@ -36,7 +42,8 @@ window.rtInit = function (cfg) {
   const f = $('#connect')
   f.door.value = S.cfg.door || ''; f.name.value = S.cfg.name || ''
   // [RT_TEAM_APP_V1] [RT_PUBLIC_APP_V1] an app built for one view (the Team app, the Public app) opens as that view only
-  const LOCKED = { team: 'RangerTrak Team', public: 'RangerTrak Public' }
+  const LOCKED = { team: 'RangerTrak Team', public: 'RangerTrak Public', ambulance: 'RangerTrak Ambulance', hospital: 'RangerTrak Hospital',
+                   water: 'RangerTrak Water', power: 'RangerTrak Power', shelter: 'RangerTrak Shelter', phone: 'RangerTrak Phone' }   // [RT_SUITE_APPS_V1]
   if (LOCKED[S.cfg.lock]) {
     S.cfg.role = S.cfg.lock; $('#roleSet').hidden = true
     document.querySelector('#connect h1').textContent = LOCKED[S.cfg.lock]; document.title = LOCKED[S.cfg.lock]
@@ -62,8 +69,8 @@ function roleFields() {
   // [ENROLL_V1] any view: the frog QR the admin (or the team's lead) shows, then the password
   $('#scanTeam').hidden = !(S.cfg.platform === 'android' && window.rtNative && window.rtNative.scanTeam)
   document.querySelector('.for-team').hidden = r !== 'team'; document.querySelector('.for-eoc').hidden = r !== 'eoc'
-  document.querySelector('.for-unit').hidden = r !== 'hospital' && r !== 'ambulance'
-  document.querySelector('.unit-l').textContent = r === 'hospital' ? 'Hospital' : 'Unit (e.g. Medic 12)'
+  document.querySelector('.for-unit').hidden = !UNIT_ROLES.includes(r)
+  document.querySelector('.unit-l').textContent = UNIT_LABEL[r] || 'Unit'
 }
 document.querySelectorAll('[name=role]').forEach(e => e.onchange = roleFields)
 // [ADMIN_APP_V1] the teams are the admin's: asked of the node as soon as there is one (and when it changes)
@@ -71,7 +78,7 @@ function askRoles() { const d = $('#connect').door.value.trim(); if (d) send({ o
 $('#connect').door.addEventListener('change', askRoles)
 function teamsFrom(roles) {
   const sel = $('#connect').team, was = sel.value
-  const teams = Object.entries(roles).filter(([r, x]) => x.ram && !['eoc', 'hospital', 'hospitals', 'ambulance', 'public', 'command'].includes(r)).map(([r]) => r)
+  const teams = Object.entries(roles).filter(([r, x]) => x.ram && !['eoc', 'hospitals', 'public', 'command', ...UNIT_ROLES].includes(r.toLowerCase())).map(([r]) => r)
   if (!teams.length) return
   sel.innerHTML = teams.map(t => `<option value="${esc(cap(t))}">${esc(cap(t))}</option>`).join('')
   if (teams.some(t => cap(t) === was)) sel.value = was
@@ -104,7 +111,7 @@ function enrolled(m) {
   S.cfg.enrolled = { user: m.user, role: m.role, lead: m.lead, door: m.door }
   if (m.door) f.door.value = m.door
   f.name.value = m.user; f.user.value = m.user; f.password.value = S.enrollPw || ''; S.enrollPw = ''
-  const view = ['eoc', 'hospital', 'ambulance', 'public'].includes(m.role) ? m.role : 'team'
+  const rl = String(m.role || '').toLowerCase(), view = ['eoc', 'public', ...UNIT_ROLES].includes(rl) ? rl : 'team'   // the admin's role names are any case
   const rb = f.querySelector(`[name=role][value=${view}]`); if (rb && !$('#roleSet').hidden) rb.checked = true
   if (view === 'team') { const t = cap(m.role); if (![...f.team.options].some(o => o.value === t)) f.team.insertAdjacentHTML('beforeend', `<option>${esc(t)}</option>`); f.team.value = t }
   roleFields()
@@ -195,7 +202,7 @@ function status(t) { $('#status').textContent = t; $('#dot').classList.toggle('u
 function connected(m) {
   S.role = m.role; S.team = m.team || ''; S.connectedAt = Date.now()
   $('#connect').hidden = true; $('#main').hidden = false
-  $('#who').textContent = S.cfg.name + ' · ' + (S.role === 'eoc' ? 'EOC' : S.role === 'team' ? 'Team ' + S.team : S.role === 'hospital' ? S.team : S.role === 'ambulance' ? S.team : 'Public')
+  $('#who').textContent = S.cfg.name + ' · ' + (S.role === 'eoc' ? 'EOC' : S.role === 'team' ? 'Team ' + S.team : UNIT_ROLES.includes(S.role) ? S.team : 'Public')
   $('#dot').classList.add('up'); status('connected to the node at ' + (S.cfg.door || '') + ' (' + (m.build || '') + ')')
   if (!map) {
     map = L.map('map', { zoomControl: true, doubleClickZoom: false }).setView([47.55, -122.33], 10)
@@ -857,6 +864,9 @@ connected = function (m) {
   } else if (S.role === 'ambulance') {
     $('#actBtn').textContent = 'Unit'; $('#actBtn').onclick = unitPanel; $('#reqBtn').textContent = 'Hospitals'; $('#reqBtn').onclick = hospitalsPanel
     S.teamsOn = new Set(); for (const k in KINDS) S.on[k] = ['hospital', 'ambulance', 'help', 'hazard', 'service'].includes(k); layersPanel(); redraw()
+  } else if (UNIT_ROLES.includes(S.role)) {      // [RT_SUITE_APPS_V1] water, power, shelter, phone: their own kind, hazards, requests
+    $('#actBtn').textContent = 'Actions'; $('#actBtn').onclick = () => actionsPanel(); $('#reqBtn').textContent = 'Requests'; $('#reqBtn').onclick = () => requestsPanel()
+    S.teamsOn = new Set(); for (const k in KINDS) S.on[k] = [S.role, 'hazard', 'help', 'service'].includes(k); layersPanel(); redraw()
   } else {
     $('#actBtn').textContent = 'Actions'; $('#actBtn').onclick = () => actionsPanel(); $('#reqBtn').textContent = 'Requests'; $('#reqBtn').onclick = () => requestsPanel()
   }

@@ -7,4 +7,7 @@ include(":shared")     // [RT_ANDROID_SHARED_V1] the code the three apps share
 include(":app")
 include(":team")       // [RT_TEAM_APP_V1] RangerTrak Team
 include(":public")     // [RT_PUBLIC_APP_V1] RangerTrak Public
-include(":base")       // [BASE_APP_V1] Disaster Area, the device's hidden base: the FrogNet membership the apps share
+include(":base")
+// [RT_SUITE_APPS_V1] the suite's unit apps, one per unit; [ADMIN_PHONE_APP_V1] the admin app on the phone
+include(":ambulance", ":hospital", ":water", ":power", ":shelter", ":phone")
+include(":admin")       // [BASE_APP_V1] Disaster Area, the device's hidden base: the FrogNet membership the apps share

@@ -51,13 +51,29 @@ android {
 }
 dependencies { implementation("com.wireguard.android:tunnel:1.0.20250531") }
 KTS
+# [ADMIN_PHONE_APP_V1] the admin app's page as the admin module's own assets (in the repository: ../../ui-admin, copied at build)
+mkdir -p $P/admin/src/main/assets; cp -r $APP/ui-admin $P/admin/src/main/assets/ui-admin
+cat > $P/admin/build.gradle.kts <<'KTS'
+// [ADMIN_PHONE_APP_V1] RangerTrak Admin on the phone: the admin app's page (src/main/assets/ui-admin) and its core
+// (AdminCore, in the shared module's src/core) in a WebView -- the same page and core as the Windows admin app.
+plugins { id("com.android.application") }
+android {
+    namespace = "net.frognet.rangertrak.admin.android"
+    compileSdk = 34
+    defaultConfig { applicationId = "net.frognet.rangertrak.admin"; minSdk = 29; targetSdk = 34; versionCode = 8; versionName = "rt-admin-2026-11-04-r8" }
+    compileOptions { sourceCompatibility = JavaVersion.VERSION_17; targetCompatibility = JavaVersion.VERSION_17 }
+    buildTypes { release { isMinifyEnabled = false } }
+}
+dependencies { implementation(project(":shared")) }
+KTS
 printf '/build\n*/build\n.gradle\n.idea\nlocal.properties\n*.iml\n' > $P/.gitignore
 cat > $P/README.txt <<TXT
 RangerTrak for Android ($BUILD) -- an Android Studio project
 Open this folder in Android Studio (File > Open). Gradle syncs (it fetches Gradle 8.9 and the Android plugin 8.5.2;
-JDK 17 or newer, Android SDK 34). Run configurations: team (RangerTrak Team), public (RangerTrak Public), app (every view),
+JDK 17 or newer, Android SDK 34). Run configurations: team (RangerTrak Team), public (RangerTrak Public), the unit apps
+ambulance, hospital, water, power, shelter, phone (RangerTrak <Unit>), admin (RangerTrak Admin), app (every view),
 base (Disaster Area: the FrogNet membership every RangerTrak app uses; install it too -- it has no icon).
-Command line: ./gradlew :base:assembleDebug :team:assembleDebug :public:assembleDebug
+Command line: ./gradlew :base:assembleDebug :team:assembleDebug :public:assembleDebug :ambulance:assembleDebug ... :admin:assembleDebug
   -> base/build/outputs/apk/debug/base-debug.apk, team/build/outputs/apk/debug/team-debug.apk, public/...
 Modules: shared (the Android shell, the core in shared/src/core, the RAM library in shared/src/ram, the page in
 shared/src/main/assets/ui), and one module per app (its manifest: id, name, view).

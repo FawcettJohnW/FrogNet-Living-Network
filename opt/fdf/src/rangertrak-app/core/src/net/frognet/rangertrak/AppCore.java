@@ -49,7 +49,7 @@ public final class AppCore {
 
     public static final String APP = "rangertrak";
     public static final String API = "/FawcettInnovations.RINA.ram_interface.php";
-    public static final String BUILD = "rt-app-2026-11-04-r24";
+    public static final String BUILD = "rt-app-2026-11-04-r25";
 
     private final Ui ui;
     private String door = "", dev = "", name = "", role = "", team = "", user = "", mission = "";
@@ -220,7 +220,7 @@ public final class AppCore {
             if (!role.equals("eoc")) throw new Exception("user " + user + " has role '" + role + "', not the EOC's");
             team = "";
         } else if (want.equals("team")) { role = "team"; team = Json.str(m.get("team")); user = ""; }
-        else if (want.equals("hospital") || want.equals("ambulance")) { role = want; team = Json.str(m.get("unit")); user = ""; }
+        else if (UNIT_ROLES.contains(want)) { role = want; team = Json.str(m.get("unit")); user = ""; }   // [RT_SUITE_APPS_V1] a unit's app
         else { role = "public"; team = ""; user = ""; }
         teamRam = Json.str(m.get("teamRam")).trim();
         doorRams = servedRams(); rams = withTeamRams(doorRams);
@@ -515,7 +515,11 @@ public final class AppCore {
         out("ev", "help", "requests", new HashMap<String, Object>(helpF.family("request")), "actions", new HashMap<String, Object>(helpF.family("action")));
     }
 
-    private String kindOf() { return role.equals("eoc") ? "eoc" : role.equals("ambulance") ? "ambulance" : role.equals("hospital") ? "staff" : "team"; }
+    private String kindOf() { return role.equals("eoc") ? "eoc" : role.equals("hospital") ? "staff" : UNIT_ROLES.contains(role) ? role : "team"; }
+    /** [RT_SUITE_APPS_V1] the suite's unit apps (John 2026-11-04: Team, Ambulance, Hospital, Shelter, Power, Water and
+     *  others, separate because that is how people think of them): each connects as its unit (a hospital, Medic 12, the
+     *  Power crew), reads the general AppRam, and is restricted by what it is */
+    static final java.util.Set<String> UNIT_ROLES = new java.util.HashSet<String>(java.util.Arrays.asList("hospital", "ambulance", "water", "power", "shelter", "phone"));
 
     private void onLog() {
         Follower f = logF, mf = mis; if (f == null || mf == null) return;
