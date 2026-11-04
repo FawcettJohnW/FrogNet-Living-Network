@@ -466,15 +466,25 @@ was said on the radio, and stays in the log.
   there it writes its configuration tuple `(fdf-app, config, <app>.<guid>)` and its capability tuple
   `(fdf-app, can, <app>.<guid>)` into the network RAM. When its held read on the `fdf-app` family ends (the network RAM
   may be another one now), it writes both again and reads the family from the start.
-- On every event (that held read, and `fdf-events` for who is alive) it runs each RAM's selection over the alive members
-  that can serve the app (default: most memory, then cores, then guid). It starts `fdf-ram` for each RAM it is chosen
-  for, on its own `.1` at a port derived from `<app>.<ram>`, and stops the others. It writes its where cell
+- On every event (that held read, and a held read on the members' own cells `(pond, member)` for who is alive:
+  `[MEMBER_IS_A_TUPLE_V1]`) it runs each RAM's selection over the alive members that can serve the app (default: most
+  memory, then cores, then guid). It starts `fdf-ram` for each RAM it is chosen for, on its own `.1` at a port derived
+  from `<app>.<ram>`, and stops the others. It holds each droplet's listening socket and hands it to the droplet
+  (`RIBBIT_LISTEN_FD`), so a droplet that exits is started again on the same socket and refuses nothing
+  (`[LISTENING_SOCKET_OUTLIVES_THE_HOST_V1]`); the exit itself is the event that starts it again. It writes its where cell
   `(pond, where, w:<guid>)`.
 - It writes `/opt/fdf/var/app-where.json`, `{"<app>.<ram>": "host:port"}`, the same answer every member computes.
 - **The door on a node, `ram.php`**, maps each service to its app and RAM (`apps.json`: `"app"`, `"rams"`). For each
   request it reads `app-where.json`. A service whose RAM is not served yet is refused with 503: the client connects
   first. Every answer carries `"ram"`, the RAM that answered. A page that sees it change reads everything there and
   writes its own truth again: every family it owns, kept on the device (browser storage), not only those it watches.
+- **The door's held reads are events** (`[EVENTS_NOT_TIMERS_V1]`, door r11). `op=watch` is one child, `ram watch`: a
+  follow on every family the page shows, ended by the first rows. A family whose RAM does not answer is held until
+  that RAM says it is up, or the app's RAMs are placed again: the answer says `"again"` and the page reads that family
+  in full. ESTALE (the RAM started again) is answered the same way. `op=rams&not=<map>&up=<host:port,..>&wait_s=S`
+  holds a member until its RAMs are not that map (they moved) or one of those RAMs says it is up (`"up"`): RangerTrak's
+  `AppCore` waits there when a session fails, and its followers open their sessions again on that answer
+  (`Follower.again()`), never on a timer. `op=admin` with `after` holds the same way when the network RAM is down.
 - **One held request per page** (`ram.php?op=watch`): every family a page shows is held in one request, and each
   family's held read is a child of it. The answer comes when any family has newer cells or is on another RAM now. A
   page costs one web server worker and one browser connection, however many families it shows. With one request per

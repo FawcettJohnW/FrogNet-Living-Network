@@ -47,7 +47,7 @@ hostup() { local n=$1; NS $n env RINA_REGION_FILE=$T/$n/area.perm RINA_NET_CONFI
 ORG() { local n=$1; shift; NS $n sh -c "mount --bind $T/$n/run-wg /run/wireguard && exec env FDF_HUB_ENV=$T/$n/hub.env FDF_ADMITTED=$T/$n/admitted FDF_SITE_KEYS=$T/$n FDF_BIN=$T/bin python3 $T/bin/fdf-org \"\$@\"" sh "$@"; }
 for n in A B; do mkdir -p $T/$n/admitted $T/$n/run-wg; PUB=$(NS $n ip -4 -o addr show dev v-$n | awk '{print $4}' | cut -d/ -f1)
   KEY=$(head -c 16 /dev/urandom | od -An -tx1 | tr -d ' \n'); printf '%s\n' "$KEY" > $T/$n/site-key-D; chmod 600 $T/$n/site-key-D
-  printf 'RINA_RAM=%s\nFDF_AREA=D\nFDF_HUB_NAME=hub%s\nFDF_ENDPOINT=%s:51820\nFDF_LISTEN=51820\nFDF_IFACE=wg-D\n' $RAM $n $PUB > $T/$n/hub.env
+  printf 'RINA_RAM=%s\nFDF_AREA=D\nFDF_HUB_NAME=hub%s\nFDF_ENDPOINT=%s:51820\nFDF_LISTEN=51820\nFDF_IFACE=wg-D\n' $RAM $n $PUB > $T/$n/hub.env; echo "FDF_FACTS=$T/$n/facts.json" >> $T/$n/hub.env   # [HUB_SAYS_ITS_PEERS_V1] the door answers once the hub holds the peer
   NS $n sh -c "mount --bind $T/$n/run-wg /run/wireguard && exec env FDF_WG_IMPL=wireguard-go python3 $T/bin/fdf-hub --area D --iface wg-D --endpoint $PUB:51820 --listen 51820 --key $T/$n/wg.key --iface-only" > $T/$n/iface.log 2>&1
   hostup $n
   NS $n curl -s -X POST -d "{\"op\":\"map_site\",\"name\":\"D\",\"key\":\"$KEY\"}" "http://$RAM$API?op=rina" > /dev/null
@@ -85,11 +85,14 @@ baghas() { python3 -c 'import json,sys; c=json.load(sys.stdin).get("cells") or [
 cellin() { NS $1 curl -s -m 3 "http://$HA:$2$API?op=read&service=app&variable=pos&instance=q" | baghas space "$3" && echo yes || echo no; }
 read O1 S1 <<< "$(waiton hubA Responders)"; read O2 S2 <<< "$(waiton hubA Admin)"
 check $([ $O1 = 1 ] && [ $O2 = 1 ] && [ "$(cellin A $PA_RESP Responders)" = yes ] && [ "$(cellin A $PA_ADMIN Admin)" = yes ] && echo 0 || echo 1) "3 q's application in Responders and Admin on A, its truth in each ($S1 s, $S2 s)"
-# 4 Admin's RAM manager on A killed (its socket closes); fdf-org starts it again 2 s later
+# 4 Admin's RAM manager on A killed; fdf-org starts it again at once, on the listening socket it keeps
+# ([LISTENING_SOCKET_OUTLIVES_THE_HOST_V1]): q is told the memory it read is gone (ESTALE), moves to B, writes its truth
+# there, and is back on A as soon as A's capability is written again -- the move to B is looked for, not the state now
 T0=$(date +%s%3N); for p in $(ip netns pids A); do tr '\0' ' ' < /proc/$p/cmdline 2>/dev/null | grep -q "fdf-ram --listen $HA:$PA_ADMIN" && kill $p; done
-read OK S <<< "$(waiton hubB Admin)"
+for i in $(seq 160); do grep -q "CHANGE Admin hubA -> hubB" $T/q/app.log && break; sleep 0.25; done
+OK=$(grep -q "CHANGE Admin hubA -> hubB" $T/q/app.log && echo 1 || echo 0)
 MS=$(grep "CHANGE Admin hubA -> hubB" $T/q/app.log | tail -1 | awk '{print $1" "$2}'); MS=$(python3 -c "import sys,datetime as d; t=d.datetime.strptime(sys.argv[1], '%Y-%m-%d %H:%M:%S.%f').timestamp()*1000; print(int(t-int(sys.argv[2])))" "$MS" $T0 2>/dev/null)
-check $([ $OK = 1 ] && [ "$(on Responders)" = hubA ] && [ "$(cellin B $PB_ADMIN Admin)" = yes ] && echo 0 || echo 1) "4 Admin's RAM manager on A killed: q's Admin on B ${MS} ms after the kill, its truth there; Responders still on $(on Responders)"
+check $([ $OK = 1 ] && [ "$(on Responders)" = hubA ] && [ "$(cellin B $PB_ADMIN Admin)" = yes ] && echo 0 || echo 1) "4 Admin's RAM manager on A killed: q's Admin on B ${MS} ms after the kill, its truth written there; Responders still on $(on Responders)"
 for i in $(seq 80); do [ "$(grep -c "SPACE Admin: its RAM manager on" $T/A/org.log)" -ge 2 ] && break; sleep 0.25; done
 read OK S <<< "$(waiton hubA Admin)"
 check $([ $OK = 1 ] && [ "$(cellin A $PA_ADMIN Admin)" = yes ] && echo 0 || echo 1) "4 fdf-org started Admin's RAM manager again on A: q's Admin back on A ($S s), its truth there"

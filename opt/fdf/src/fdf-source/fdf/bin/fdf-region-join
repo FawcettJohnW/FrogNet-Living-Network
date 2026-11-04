@@ -97,10 +97,11 @@ if [ -e /etc/systemd/system/frognet-merge-watcher.service ] && ! systemctl is-en
 fi
 T0=$(date '+%Y-%m-%d %H:%M:%S')
 systemctl restart frognet-tunnel-daemon-v3
-for i in $(seq 1 20); do grep -q '"name"' /opt/fdf/var/facts.json 2>/dev/null && break; sleep 0.5; done
-grep -q '"name"' /opt/fdf/var/facts.json 2>/dev/null || echo "== warning: the daemon has not written facts.json yet; the member name may show as the hostname"
+# [EVENTS_NOT_TIMERS_V1] the daemon writing facts.json is the event (inotify), at most 10 s
+python3 /opt/fdf/lib/python/fdf_watch.py has /opt/fdf/var/facts.json '"name"' 10 || echo "== warning: the daemon has not written facts.json yet; the member name may show as the hostname"
 /opt/fdf/bin/fdf-join "$RAM" || exit 1
-echo "== waiting 15 s for the join, the mapping and the hub"; sleep 15
+echo "== waiting for the join and the mapping (fdf-client says so; at most 30 s)"
+timeout 30 journalctl -u fdf-client --since "$T0" -f -o cat 2>/dev/null | grep -q -m1 'mapping .* registered\|REFUSED' || echo "== warning: fdf-client has not said 'mapping ... registered' in 30 s (below)"
 echo "== fdf-client (want: 'joined the region', 'mapping ... registered'; 'REFUSED ... EPERM' = wrong key)"
 journalctl -u fdf-client --since "$T0" --no-pager -o cat | grep -v PRIMED | tail -8
 echo "== tunnel daemon (want: 'REGION switch', 'my-channels: hub=<hub> edge=<edge> channels=1', 'handshake OK', 'REGION: facts written')"

@@ -20,10 +20,11 @@ Environment: FDF_VAR (/opt/fdf/var), FDF_PY (the fdfram module's directory).
 """
 import calendar, csv, json, os, sys, time
 
-BUILD_TAG = "rt-post309-2026-11-03-r2"
+BUILD_TAG = "rt-post309-2026-11-03-r3"
 LIB = os.environ.get("FDF_PY") or os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "lib", "python")
 sys.path.insert(0, LIB)
 import fdfram  # noqa: E402
+import fdf_watch  # noqa: E402  [EVENTS_NOT_TIMERS_V1]
 
 VAR = os.environ.get("FDF_VAR", "/opt/fdf/var")
 OUT = os.path.join(VAR, "rt", "309")
@@ -126,10 +127,10 @@ def main():
     log("build %s; files in %s" % (BUILD_TAG, OUT))
     at, last = "", -1
     while True:
-        now = where()
-        if not now:
-            log("the app's general RAM is not served yet (%s); again in 1 s" % WHERE)
-            time.sleep(1); continue
+        t = time.time(); now = where()
+        if not now:                                     # [EVENTS_NOT_TIMERS_V1] its placement is the event
+            log("the app's general RAM is not served yet (%s); read again when it is written" % WHERE)
+            fdf_watch.wait_written(WHERE, t); continue
         try:
             rm = fdfram.Ram(now)
             if now != at:                               # another RAM: read everything there
@@ -142,9 +143,15 @@ def main():
                 last = max([last] + [int(c.get("id", -1)) for c in cells])
                 files.add(cells)
         except fdfram.RamError as e:
-            log("the read on %s ended (%s); where it is now is read again in 1 s" % (at or now, e))
-            at = ""
-            time.sleep(1)
+            # the RAM answered ESTALE (it started again: read it again now), or is gone: read again when it says it is
+            # up, or when the app's RAMs are placed again -- whichever is first
+            log("the read on %s ended (%s); read again when it is up or placed again" % (at or now, e))
+            bad, at = now, ""
+            if "ESTALE" not in str(e):
+                h, _, p = bad.rpartition(":")
+                d = os.path.join(fdf_watch.VAR, "ram")
+                while not fdf_watch.until(WHERE, lambda _p: where() != bad or any(fdf_watch._newer(os.path.join(d, n), t) for n in fdf_watch.up_names(bad)), 3600, also=(d,)):
+                    pass
 
 
 if __name__ == "__main__":

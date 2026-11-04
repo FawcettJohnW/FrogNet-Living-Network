@@ -52,7 +52,7 @@ GA=$(OWN A 2>$T/A/own.why); GB=$(OWN B 2>$T/B/own.why)
 for n in A B; do mkdir -p $T/$n/admitted $T/$n/run-wg; PUB=$(NS $n ip -4 -o addr show dev v-$n | awk '{print $4}' | cut -d/ -f1)
   HADDR=$([ $n = A ] && echo $GA || echo $GB); RAM=$HADDR:8840
   KEY=$(head -c 16 /dev/urandom | od -An -tx1 | tr -d ' \n'); printf '%s\n' "$KEY" > $T/$n/site-key-D; chmod 600 $T/$n/site-key-D
-  printf 'RINA_RAM=%s\nFDF_HUB_ADDR=%s\nFDF_AREA=D\nFDF_HUB_NAME=hub%s\nFDF_ENDPOINT=%s:51820\nFDF_LISTEN=51820\nFDF_IFACE=wg-D\n' $RAM $HADDR $n $PUB > $T/$n/hub.env
+  printf 'RINA_RAM=%s\nFDF_HUB_ADDR=%s\nFDF_AREA=D\nFDF_HUB_NAME=hub%s\nFDF_ENDPOINT=%s:51820\nFDF_LISTEN=51820\nFDF_IFACE=wg-D\n' $RAM $HADDR $n $PUB > $T/$n/hub.env; echo "FDF_FACTS=$T/$n/facts.json" >> $T/$n/hub.env   # [HUB_SAYS_ITS_PEERS_V1] the door answers once the hub holds the peer
   NS $n sh -c "mount --bind $T/$n/run-wg /run/wireguard && exec env FDF_HUB_ADDR=$HADDR FDF_WG_IMPL=wireguard-go python3 $T/bin/fdf-hub --area D --iface wg-D --endpoint $PUB:51820 --listen 51820 --key $T/$n/wg.key --iface-only" > $T/$n/iface.log 2>&1
   hostup $n $RAM
   NS $n curl -s -X POST -d "{\"op\":\"map_site\",\"name\":\"D\",\"key\":\"$KEY\"}" "http://$RAM$API?op=rina" > /dev/null

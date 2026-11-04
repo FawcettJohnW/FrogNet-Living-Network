@@ -34,7 +34,7 @@ sys.path.insert(0, os.environ.get("FDF_PY", "/opt/fdf/lib/python"))   # fdf_grap
 import fdf_watch  # noqa: E402  [EVENTS_NOT_TIMERS_V1]
 
 API = "/FawcettInnovations.RINA.ram_interface.php"
-BUILD_TAG = "fdf-2026-11-03-r40"      # [FDF_VERSION_V1] keep equal to src/fdf_version.hpp
+BUILD_TAG = "fdf-2026-11-03-r41"      # [FDF_VERSION_V1] keep equal to src/fdf_version.hpp
 # [HUB_ADDRESS_FROM_ITS_HOST_V1] this hub's address, from hub.env's FDF_HUB_ADDR (fdf-hub@'s EnvironmentFile; the RAM
 # manager's unit sets it for --iface-only): 10.253.A.B on a node serving 10.A.B.0/24, 10.253.253.254 on a machine that
 # serves no FrogNet LAN and in every hub.env made before r22. It is in this hub's facts (addr), where members read it.
@@ -67,7 +67,7 @@ class Region:
             q.update(after=after, wait_s=wait_s)
         url = self.url.split("?")[0] + "?" + urllib.parse.urlencode(q)
         with urllib.request.urlopen(url, timeout=15 + wait_s) as r:
-            return json.loads(r.read().decode()).get("rows", [])
+            return json.loads(r.read().decode())["cells"]           # plain HTTP: the RAM names them cells (a session: rows)
     def world(self, site):
         """(participants, mappings): the members there now (their own cells: present is alive; the cell's id orders
         them, first claimant first) and the region's mappings"""
@@ -452,7 +452,7 @@ def main():
                 rows = region.members(nonlocal_last[0], 25)
             except Exception as e:                        # the region's RAM gone: said; read again when it says it is up
                 t = time.time(); log("the members' read on %s ended (%s); read again when it says it is up" % (ram, e))
-                fdf_watch.wait_up(ram, t); nonlocal_last[0] = 0; q.put(("ev", "the region is back")); continue
+                fdf_watch.after_failure(ram, e, t); nonlocal_last[0] = 0; q.put(("ev", "the region is back")); continue
             if rows:
                 nonlocal_last[0] = max(int(c.get("id", 0)) for c in rows)
                 q.put(("ev", "members " + ",".join(sorted({c.get("instance", "") for c in rows}))[:80]))

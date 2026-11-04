@@ -4,9 +4,9 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>FD&amp;F chat</title>
-<!-- [FDF_CHAT_V1] (plan item 7) a chat page that talks only through the shared space: a message goes in as
-     chat.inbox.<you> (chat_send.php); the chat service moves it to the room; the room is read with a held read
-     (chat_wait.php). The page reads only its own server; no machine is reached directly. -->
+<!-- [FDF_CHAT_V1] (plan item 7) a chat page that talks only through the shared space: a message is its sender's own
+     cell, (chat, msg, <you>.<ms>) (chat_send.php); the room IS that family, read with a held read in its write order
+     (chat_wait.php) -- [ROOM_IS_THE_FAMILY_V1] no service moves anything. The page reads only its own server. -->
 <style>
   :root { --bg:#f6f7f9; --fg:#1c2330; --muted:#5d6878; --card:#fff; --line:#dde2ea; --bad:#b3261e; }
   @media (prefers-color-scheme: dark) { :root { --bg:#12161c; --fg:#e6e9ee; --muted:#98a2b3; --card:#1a2029; --line:#2a323e; --bad:#ff6b5e; } }
@@ -54,7 +54,7 @@ document.getElementById("f").addEventListener("submit", async e => {
       const j = await r.json();
       for (const c of j.rows.sort((a, b) => a.id - b.id)) {
         after = Math.max(after, c.id);
-        log.insertAdjacentHTML("beforeend", `<div class="m"><span class="n">#${esc(c.instance)}</span><span class="who">${esc(c.bag.from)}</span>${esc(c.bag.text)}</div>`);
+        log.insertAdjacentHTML("beforeend", `<div class="m"><span class="n">#${esc(c.id)}</span><span class="who">${esc(c.bag.from)}</span>${esc(c.bag.text)}</div>`);
         log.scrollTop = log.scrollHeight;
       }
     } catch (e) { err.textContent = "room: " + e.message; return; }

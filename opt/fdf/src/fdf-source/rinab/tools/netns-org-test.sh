@@ -65,6 +65,7 @@ FDF_HUB_NAME=hubA
 FDF_ENDPOINT=$PUB:51820
 FDF_LISTEN=51820
 FDF_IFACE=wg-D
+FDF_FACTS=$T/hub/facts.json
 EOF
 NS hub python3 $T/bin/fdf-hub --area $AREA --iface wg-D --endpoint $PUB:51820 --listen 51820 --key $T/hub/wg.key --iface-only > $T/hub/iface.log 2>&1
 check $? "hub: the region's interface (fdf-hub --iface-only)"

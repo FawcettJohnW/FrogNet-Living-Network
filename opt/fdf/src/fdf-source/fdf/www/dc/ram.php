@@ -7,8 +7,10 @@
 //   POST ?op=announce                                                     dc.apps.<this node> = this node's add-ins
 //   GET  ?op=watch&w=[{"s","v","after","team"?,"ram"?},..]&wait=W            [ONE_HELD_READ_PER_PAGE_V1] held reads on
 //        several families in one request: answered when any of them has newer cells (or one is on another RAM now),
-//        {"got": [{"k": index, "rows": [..], "ram": ..}, ..]}, else after W s with none
-//   GET  ?op=rams&app=APP                                                  {"rams": {ram: host:port}} served now
+//        {"got": [{"k": index, "rows": [..], "ram": .., "again"?: true}, ..], "down"?: [k..]}, else after W s with none;
+//        "again": read that family again in full (its RAM started again, or is up again); "down": its RAM is not up yet
+//   GET  ?op=rams&app=APP[&until=RAM|&not=JSON][&up=HOST:PORT,..]&wait_s=S  {"rams": {ram: host:port}} served now; held
+//        until RAM is served, or the RAMs are not JSON, or one of the up RAMs says it is up ("up"): file events
 //   POST ?op=login&app=APP {"user"?,"password"?,"role"?}                    {"role"}: checked here, a read of the access tuples
 //   POST ?op=device&app=APP {"dev","role","user"}                            the device's own access record, network RAM
 //   GET  ?op=roles&app=APP                                                 {"roles","rams","login","admin"}: what a client
@@ -42,7 +44,7 @@
 // the network, typed by nobody. A device this node gave no lease has none here, and is told so.
 header('Content-Type: application/json');
 // [DOOR_SAYS_ITS_BUILD_V1] every answer says which door answered: the header, and "door" in the admin and roles answers
-const DOOR_BUILD = 'dc-door-2026-11-03-r10';
+const DOOR_BUILD = 'dc-door-2026-11-03-r11';
 header('X-FDF-Door: ' . DOOR_BUILD);
 set_time_limit(0);
 $env = '. ' . escapeshellarg(dirname(__DIR__, 2) . '/fdf.env') . ' && exec "$FDF_BIN"/ram ';
@@ -78,7 +80,7 @@ function station_of($ip) {                                      // [STATION_IS_H
             return preg_match('/^([0-9a-f]{2}:){5}[0-9a-f]{2}$/i', $a['value']) ? '' : $a['value'];   // a lease with no name: fdf-facts wrote the MAC
     return '';
 }
-function for_service($s, $team = null) {                        // [APP_DROPLET_V1] the RAM this service is in, now
+function for_service($s, $team = null, $soft = false) {         // [APP_DROPLET_V1] the RAM this service is in, now
     global $in_ram, $where, $env, $fdf_var;
     if (!isset($in_ram[$s])) return;
     $key = $in_ram[$s];
@@ -88,9 +90,17 @@ function for_service($s, $team = null) {                        // [APP_DROPLET_
     }
     $map = json_decode((string)@file_get_contents($fdf_var . '/app-where.json'), true);
     $at = is_array($map) ? ($map[$key] ?? '') : '';
+    if ($soft && ($at === '' || !preg_match('/^[0-9.]+:[0-9]+$/', $at))) { $where = '-'; return; }   // op=watch: held until placed
     if ($at === '' || !preg_match('/^[0-9.]+:[0-9]+$/', $at)) fail(503, "the app's RAM " . $key . ' is not served yet: nothing works until it is');
     $where = $at;
     $env = '. ' . escapeshellarg(dirname(__DIR__, 2) . '/fdf.env') . ' && RINA_RAM=' . escapeshellarg($at) . ' exec "$FDF_BIN"/ram ';
+}
+function ram_try($env, $args) {                                // ram(), with its failure the caller's: [rc, stdout+stderr]
+    $cmd = $env; foreach ($args as $a) $cmd .= escapeshellarg((string)$a) . ' ';
+    $p = proc_open($cmd, [1 => ['pipe', 'w'], 2 => ['pipe', 'w']], $pipes);
+    if (!is_resource($p)) fail(502, 'could not run ram');
+    $text = stream_get_contents($pipes[1]); $err = stream_get_contents($pipes[2]); fclose($pipes[1]); fclose($pipes[2]);
+    return [proc_close($p), $text . $err];
 }
 // [ENROLL_V1] the app's newest configuration (each droplet writes its own; the admin's seq decides)
 function app_cfg($app) {
@@ -178,49 +188,42 @@ if ($op === 'read') {
     $list = []; foreach ($apps['apps'] as $a) $list[] = ['id' => $a['id'], 'title' => $a['title'], 'version' => $a['version'], 'page' => $a['page']];
     echo ram($env, ['write', 'dc', 'apps', $node, json_encode(['node' => $node, 'apps' => $list, 'at' => time()], JSON_UNESCAPED_SLASHES)]);
 } elseif ($op === 'watch') {
-    // [ONE_HELD_READ_PER_PAGE_V1] one web server worker per page, not one per family: a page's held reads are this one
-    // request, each family's `ram read ... after wait` a child, and the answer is whichever wake first
+    // [ONE_HELD_READ_PER_PAGE_V1][ONE_FOLLOW_PER_FAMILY_V1] one web server worker per page and ONE child: `ram watch`
+    // holds a follow on every family the page shows (one session per RAM) and answers with the first rows any is given.
+    // No tick: the hold is the page's W seconds, and nothing is asked again inside it. A family whose RAM did not
+    // answer is held until that RAM says it is up ("up": the page reads it again in full); ESTALE (another memory than
+    // the page read: the RAM started again) is answered as a move, so the page reads it again in full there.
     $w = json_decode((string)($_GET['w'] ?? ''), true);
     if (!is_array($w) || count($w) < 1 || count($w) > 16) fail(400, 'w: 1 to 16 families');
     $wait = max(0, min(25, intval($_GET['wait'] ?? 8)));
-    $where0 = $where; $env0 = $env; $kids = []; $got = [];
+    $where0 = $where; $env0 = $env; $got = []; $args = ['watch', $wait]; $at = [];
     foreach (array_values($w) as $k => $f) {
         $s = $f['s'] ?? ''; $v = $f['v'] ?? '';
         if (!isset($allowed[$s])) fail(403, "service '$s' is not an installed add-in's");
         if (!name_ok($v)) fail(400, 'variable needed');
-        $where = $where0; $env = $env0; for_service($s, $f['team'] ?? null);
-        if (isset($f['ram']) && $f['ram'] !== '' && $f['ram'] !== $where) { $got[] = ['k' => $k, 'rows' => [], 'ram' => $where]; continue; }
-        $cmd = $env; foreach (['read', $s, $v, '', intval($f['after'] ?? 0), $wait] as $a) $cmd .= escapeshellarg((string)$a) . ' ';
+        $where = $where0; $env = $env0; for_service($s, $f['team'] ?? null, true);   // '-': the app's RAM is not placed yet
+        if (isset($f['ram']) && $f['ram'] !== '' && $where !== '-' && $f['ram'] !== $where) { $got[] = ['k' => $k, 'rows' => [], 'ram' => $where]; continue; }
+        $at[count($at)] = ['k' => $k, 'ram' => $where];
+        array_push($args, $where, $s, $v, intval($f['after'] ?? 0));
+    }
+    if ($got === [] && $at !== []) {
+        $cmd = '. ' . escapeshellarg(dirname(__DIR__, 2) . '/fdf.env') . ' && exec "$FDF_BIN"/ram ';
+        foreach ($args as $a) $cmd .= escapeshellarg((string)$a) . ' ';
         $p = proc_open($cmd, [1 => ['pipe', 'w'], 2 => ['pipe', 'w']], $pipes);
         if (!is_resource($p)) fail(502, 'could not run ram');
-        stream_set_blocking($pipes[1], false);
-        $kids[$k] = ['p' => $p, 'out' => $pipes[1], 'err' => $pipes[2], 'text' => '', 'ram' => $where];
-    }
-    $done = []; $until = time() + $wait + 5;
-    ignore_user_abort(true);
-    while ($got === [] && count($done) < count($kids) && time() < $until) {
-        $r = []; foreach ($kids as $k => $c) if (!isset($done[$k])) $r[] = $c['out'];
-        $x = null; $e = null;
-        $n = stream_select($r, $x, $e, 1);
-        if ($n === false) break;
-        if ($n === 0) {                                         // nothing yet: is the page still there? (a page that
-            echo ' '; @ob_flush(); flush();                     // changed its set ended this request; free the worker)
-            if (connection_aborted()) { foreach ($kids as $c) { proc_terminate($c['p']); fclose($c['out']); fclose($c['err']); proc_close($c['p']); } exit; }
-            continue;
+        $text = stream_get_contents($pipes[1]); $err = stream_get_contents($pipes[2]); fclose($pipes[1]); fclose($pipes[2]); proc_close($p);
+        $j = json_decode($text, true);
+        if (!is_array($j)) fail(502, 'ram watch failed', trim($err . "\n" . $text));
+        if (empty($j['ok'])) {                                  // [NOT_THIS_MEMORY_V1] a follow that ended: read it again in full
+            $f = $at[intval($j['k'] ?? 0)];
+            if (strpos((string)($j['why'] ?? ''), 'ESTALE') === false) error_log('dc ram.php: ram watch: ' . ($j['why'] ?? '?'));
+            $got[] = ['k' => $f['k'], 'rows' => [], 'ram' => $f['ram'], 'again' => true];
         }
-        foreach ($kids as $k => &$c) {
-            if (isset($done[$k]) || !in_array($c['out'], $r, true)) continue;
-            $c['text'] .= (string)stream_get_contents($c['out']);
-            if (feof($c['out'])) {
-                $done[$k] = true;
-                $j = json_decode($c['text'], true);
-                if (!is_array($j)) { foreach ($kids as $q) proc_terminate($q['p']); fail(502, 'ram read failed', trim($c['text'] . stream_get_contents($c['err']))); }
-                if (!empty($j['rows'])) $got[] = ['k' => $k, 'rows' => $j['rows'], 'ram' => $c['ram']];
-            }
-        }
-        unset($c);
+        foreach ($j['got'] ?? [] as $g) { $f = $at[intval($g['k'])]; $o = ['k' => $f['k'], 'rows' => $g['rows'], 'ram' => $f['ram']]; if (!empty($g['up'])) $o['again'] = true; $got[] = $o; }
+        $down = []; foreach ($j['down'] ?? [] as $k) $down[] = $at[intval($k)]['k'];
+        echo json_encode(['ok' => true, 'got' => $got] + ($down ? ['down' => $down] : []), JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE);
+        exit;
     }
-    foreach ($kids as $k => $c) { if (!isset($done[$k])) proc_terminate($c['p']); fclose($c['out']); fclose($c['err']); proc_close($c['p']); }
     echo json_encode(['ok' => true, 'got' => $got], JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE);
 } elseif ($op === 'rams') {                                    // [TEAM_RAM_V1] the app's RAMs served now, and where
     // [GROUP_PLACE_V1] &until=RAM&wait_s=S: held until RAM is served (a member's where cell is the event), at most S s
@@ -233,21 +236,34 @@ if ($op === 'read') {
         $o = []; foreach ((is_array($map) ? $map : []) as $k => $v) if (strpos($k, $app . '.') === 0) $o[substr($k, strlen($app) + 1)] = $v;
         return $o;
     };
-    $out = $read();
+    // [EVENTS_NOT_TIMERS_V1] held (at most wait_s, 25) on the one event that changes the answer: this node's
+    // app-where.json written (fdf-app writes it on every placement), or -- &up=HOST:PORT,.. -- one of those RAMs saying
+    // it is up (FDF_VAR/ram/<host>_<port>.up). &until=RAM: until that RAM is served. &not=JSON: until the RAMs are not
+    // that map (a member whose sessions failed asks where they are now; the same answer means: not moved yet).
+    // "up": the RAM that said so -- the member opens its sessions to it again, nothing else changed.
     $until = (string)($_GET['until'] ?? ''); $wait = max(0, min(25, intval($_GET['wait_s'] ?? 0)));
-    if ($until !== '' && $wait > 0 && !isset($out[$until])) {
-        if (!preg_match('/^[A-Za-z0-9_-]{1,40}$/', $until)) fail(400, 'until: a RAM name');
-        $end = microtime(true) + $wait; $last = 0;
-        foreach ((json_decode(ram($env, ['read', 'pond', 'where']), true)['rows'] ?? []) as $c) $last = max($last, intval($c['id'] ?? 0));
-        while (!isset($out[$until]) && ($left = $end - microtime(true)) > 0.2) {
-            foreach ((json_decode(ram($env, ['read', 'pond', 'where', '', $last, sprintf('%.1f', $left)]), true)['rows'] ?? []) as $c) $last = max($last, intval($c['id'] ?? 0));
-            $out = $read();
+    $not = isset($_GET['not']) ? json_decode((string)$_GET['not'], true) : null;
+    if ($until !== '' && !preg_match('/^[A-Za-z0-9_-]{1,40}$/', $until)) fail(400, 'until: a RAM name');
+    $ups = []; foreach (array_filter(explode(',', (string)($_GET['up'] ?? ''))) as $u) {
+        if (!preg_match('/^([0-9.]+):([0-9]+)$/', $u, $mm)) fail(400, 'up: HOST:PORT,..');
+        $ups[$fdf_var . '/ram/' . $mm[1] . '_' . $mm[2] . '.up'] = $u; $ups[$fdf_var . '/ram/0.0.0.0_' . $mm[2] . '.up'] = $u;
+    }
+    $since = microtime(true); $out = $read(); $up = '';
+    $done = function ($o) use ($until, $not) { return ($until === '' || isset($o[$until])) && (!is_array($not) || $o != $not); };
+    if (($until !== '' || is_array($not)) && $wait > 0) {
+        $end = $since + $wait;
+        while (!$done($out) && ($left = $end - microtime(true)) > 0) {
+            $args = ['written', sprintf('%.3f', $left), sprintf('%.6f', $since), $fdf_var . '/app-where.json']; foreach ($ups as $f => $u) $args[] = $f;
+            $w = (string)(json_decode(ram($env, $args), true)['written'] ?? '');
+            if ($w === '') break;                               // the wait's bound: the same answer
+            if (isset($ups[$w])) { $up = $ups[$w]; break; }
+            $since = microtime(true); $out = $read();
         }
     }
     $places = []; $seq = -1;                                   // the newest configuration's (no configuration: none)
     foreach ((json_decode(ram($env, ['read', 'fdf-app', 'config']), true)['rows'] ?? []) as $c)
         if (strpos($c['instance'] ?? '', $app . '.') === 0 && intval($c['bag']['seq'] ?? 0) > $seq) { $seq = intval($c['bag']['seq'] ?? 0); $places = $c['bag']['places'] ?? []; }
-    echo json_encode(['ok' => true, 'rams' => $out, 'places' => (object)$places, 'door' => DOOR_BUILD]);
+    echo json_encode(['ok' => true, 'rams' => $out, 'places' => (object)$places, 'door' => DOOR_BUILD] + ($up !== '' ? ['up' => $up] : []));
 } elseif ($op === 'roles' || ($op === 'admin' && $_SERVER['REQUEST_METHOD'] === 'GET')) {
     $app = $_GET['app'] ?? '';
     if (!preg_match('/^[A-Za-z0-9_-]{1,40}$/', $app)) fail(400, 'app needed');
@@ -260,7 +276,14 @@ if ($op === 'read') {
         // [FAMILY_LOG_V1] one blocking read on the service fdf-app: `after` is a place in that family (the `last` this
         // answer gives), not in any one of its variables
         $wait = max(0, min(25, intval($_GET['wait'] ?? 20)));
-        ram($env, ['read', 'fdf-app', '', '', intval($_GET['after']), $wait]);
+        $t0 = microtime(true);
+        [$rc, $said] = ram_try($env, ['read', 'fdf-app', '', '', intval($_GET['after']), $wait]);
+        // [EVENTS_NOT_TIMERS_V1][NOT_THIS_MEMORY_V1] ESTALE: another memory than the admin read -- the full read below
+        // gives the new `last`, now. The RAM not answering: held until it says it is up (its own file, or this node's
+        // member's for the address it reached), within the same W s; then the full read below.
+        if ($rc !== 0 && strpos($said, 'ESTALE') === false && preg_match('/^([0-9.]+):([0-9]+)$/', $where, $mm))
+            ram($env, ['written', sprintf('%.3f', max(0.1, $wait - (microtime(true) - $t0))), sprintf('%.6f', $t0),
+                       $fdf_var . '/ram/' . $mm[1] . '_' . $mm[2] . '.up', $fdf_var . '/ram/0.0.0.0_' . $mm[2] . '.up']);
     }
     // the service fdf-app as it is now, read once: its configurations, the members' answers, the places, the
     // capabilities and the maps; `last` is the largest id there (no later than the service's log at the read's start)

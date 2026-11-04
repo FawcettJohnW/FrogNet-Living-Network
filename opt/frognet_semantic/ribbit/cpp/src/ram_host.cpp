@@ -173,13 +173,23 @@ std::map<std::string, std::string> query(const std::string& path) { std::map<std
 using Cell = ramm::Cell;
 ramm::Memory MEM;
 
+// [NOT_THIS_MEMORY_V1] a read past a place this family's log has not reached: the reader read another memory (this RAM
+// manager started again, or another one answers at the address). Said at once (409, ESTALE), so the reader knows the
+// memory it was reading is gone -- it reads again from the start and writes its own truth again -- instead of holding
+// a read that would never be answered, or answering with nothing as if nothing had changed.
+std::string stale(const std::string& sv, const std::string& vv, long long after) {
+    if (after <= 0) return "";
+    const uint64_t n = MEM.newest(sv, vv);
+    if (uint64_t(after) <= n) return "";
+    return "ESTALE: after " + std::to_string(after) + " is past this family's log (" + std::to_string(n) + "): this is not the memory that was read (the RAM manager started again)";
+}
 std::string ok_rows(const std::vector<Cell>& rows) { std::string o = "{\"ok\":true,\"rows\":[";
     for (size_t k = 0; k < rows.size(); ++k) { const Cell& c = rows[k]; char u[40]; snprintf(u, sizeof u, "%.3f", c.updated);
         o += (k ? "," : "") + std::string("{\"id\":") + std::to_string(c.id) + ",\"service\":" + Json::quote(c.service) + ",\"variable\":" + Json::quote(c.variable) +
              ",\"instance\":" + Json::quote(c.instance) + ",\"bag\":" + (c.gone ? std::string("null,\"gone\":true") : c.text()) + ",\"updated_epoch\":" + u + "}"; }
     return o + "]}"; }
 }  // (anonymous) -- the platform's public functions are outside it
-#define RIBBIT_PLATFORM_VERSION "ribbit-platform 0.70"   // 0.70: [FAMILY_LOG_V1] (no locks, no claimed ids: each family read by its own log; remove names service and variable); 0.69: [LINGER_BY_FAMILY_V1] (F_LINGER on a cell write); 0.68: [GONE_WITH_ITS_WRITER_V1] (a gone row on the wire); 0.67: [NUMBER_DELTA_V1] [ROW_REFERENCE_OF_K_V1] [ROW_RECORD_COMPACT_V1] [REPEAT_REPLAYS_VALUES_V1]; 0.66: [ROWS_ON_THE_SEMANTIC_WIRE_V1] [MOVING_WINDOW_REFERENCE_V1] [STRING_SPLICE_V1]; 0.65: [EVERY_WRITE_ON_THE_SEMANTIC_WIRE_V1] [JSON_SURROGATE_PAIRS_V1]; 0.64: [NO_WRITE_ACK_V1] [FOLLOW_STREAM_V1] -- every node at 0.69 together
+#define RIBBIT_PLATFORM_VERSION "ribbit-platform 0.71"   // 0.71: [LISTENING_SOCKET_OUTLIVES_THE_HOST_V1] [NOT_THIS_MEMORY_V1]; 0.70: [FAMILY_LOG_V1] (no locks, no claimed ids: each family read by its own log; remove names service and variable); 0.69: [LINGER_BY_FAMILY_V1] (F_LINGER on a cell write); 0.68: [GONE_WITH_ITS_WRITER_V1] (a gone row on the wire); 0.67: [NUMBER_DELTA_V1] [ROW_REFERENCE_OF_K_V1] [ROW_RECORD_COMPACT_V1] [REPEAT_REPLAYS_VALUES_V1]; 0.66: [ROWS_ON_THE_SEMANTIC_WIRE_V1] [MOVING_WINDOW_REFERENCE_V1] [STRING_SPLICE_V1]; 0.65: [EVERY_WRITE_ON_THE_SEMANTIC_WIRE_V1] [JSON_SURROGATE_PAIRS_V1]; 0.64: [NO_WRITE_ACK_V1] [FOLLOW_STREAM_V1] -- every node at 0.69 together
 namespace ribbit {
 Reply error_reply(int status, const std::string& msg) { return Reply{status, "{\"ok\":false,\"error\":" + Json::quote(msg) + "}"}; }
 const char* platform_version() { return RIBBIT_PLATFORM_VERSION; }
@@ -384,6 +394,7 @@ bool api(const std::string& method, const std::string& path, const std::string& 
         if (wait > WAIT_MAX_S) wait = WAIT_MAX_S;
         if (after >= 0 && min_rows == 0) min_rows = 1;                        // "something newer than what I hold"
         const std::string sv = q["service"], vv = q["variable"], iv = q["instance"];
+        if (const std::string st = stale(sv, vv, after); !st.empty()) { out = bad(409, st); return true; }   // [NOT_THIS_MEMORY_V1]
         auto eval = [&] { return MEM.match(sv, vv, iv, after, fresh, wall()); };
         std::vector<Cell> rows = eval();
         if (wait > 0 && min_rows > 0 && rows.size() < min_rows) {
@@ -952,6 +963,7 @@ void mem_read_frame(std::shared_ptr<Session> s, uint32_t seq, std::string f) {
         if (HOST->private_service(sv)) { s->reply(seq, std::string(MAGIC, 4) + char(OP_ERROR) + be16(403) + "service " + sv + " is not served"); return; }
         if (wait > WAIT_MAX_S) wait = WAIT_MAX_S;
         if (after >= 0 && min_rows == 0) min_rows = 1;
+        if (const std::string st = stale(sv, vv, after); !st.empty()) { s->reply(seq, std::string(MAGIC, 4) + char(OP_ERROR) + be16(409) + st); return; }   // [NOT_THIS_MEMORY_V1]
         auto eval = [&] { return MEM.match(sv, vv, iv, after, fresh, wall()); };
         std::vector<Cell> rows = eval();
         if (wait > 0 && min_rows > 0 && rows.size() < min_rows) {
@@ -1007,6 +1019,7 @@ void mem_follow_frame(std::shared_ptr<Session> s, uint32_t seq, std::string f) {
     const long long after = (long long)int64_t(num(8));
     if (!why.empty() || sv.empty()) { s->reply(seq, std::string(MAGIC, 4) + char(OP_ERROR) + be16(400) + "follow: " + (why.empty() ? "missing service" : why)); return; }
     if (HOST->private_service(sv)) { s->reply(seq, std::string(MAGIC, 4) + char(OP_ERROR) + be16(403) + "service " + sv + " is not served"); return; }
+    if (const std::string st = stale(sv, vv, after); !st.empty()) { s->reply(seq, std::string(MAGIC, 4) + char(OP_ERROR) + be16(409) + st); return; }   // [NOT_THIS_MEMORY_V1]
     g_followers.fetch_add(1);
     auto* n = new Session::Follow(seq, MEM.cursor(sv, vv, iv, after));   // after < 0: from now on; else every row past it
     n->hook = ramm::Memory::hook(n->c, s->outq.wake);
@@ -1283,13 +1296,26 @@ static int ram_server_start(const std::string& listen_on, bool quiet) {
 #else
     signal(SIGPIPE, SIG_IGN);
 #endif
-    int srv = int(::socket(AF_INET, SOCK_STREAM, 0)), one = 1; setsockopt(srv, SOL_SOCKET, SO_REUSEADDR, reinterpret_cast<const fr_optval_t*>(&one), sizeof one);
+    // [LISTENING_SOCKET_OUTLIVES_THE_HOST_V1] (John 2026-11-03: "no waiting ... not like a messaging thing") the listening
+    // socket may be handed in, already bound and listening: by systemd's socket activation (LISTEN_FDS, LISTEN_PID: fd 3)
+    // or by a parent that keeps it (RIBBIT_LISTEN_FD=N). A host started again on it loses nothing: a client's connect in
+    // between waits in the socket's backlog until this host accepts it -- no refusal, so nothing retries on a timer.
+    int srv = -1;
+#ifndef _WIN32
+    if (const char* lf = getenv("RIBBIT_LISTEN_FD"); lf && *lf) srv = atoi(lf);
+    else if (const char* n = getenv("LISTEN_FDS"); n && atoi(n) >= 1)
+        if (const char* lp = getenv("LISTEN_PID"); lp && atol(lp) == long(getpid())) srv = 3;
+#endif
+    const bool handed = srv >= 0;
+    int one = 1;
+    if (!handed) { srv = int(::socket(AF_INET, SOCK_STREAM, 0)); setsockopt(srv, SOL_SOCKET, SO_REUSEADDR, reinterpret_cast<const fr_optval_t*>(&one), sizeof one); }
     // [RECEIVE_WINDOW_NOT_CLAMPED_V1] The receive buffer is the kernel's to size. It was clamped to 32 KB ("the buffer is
     // the latency" -- true of the SEND side, where it still holds): with one wire carrying a whole box, the request
     // socket closed its window, the window update did not come, and the sender sat in TCP's persist timer -- measured
     // (ss -ti): rwnd_limited 92%, persist timer, the host getting a batch every ~208 ms, 4 s round trips at many-256.
     sockaddr_in a{}; a.sin_family = AF_INET; a.sin_port = htons(uint16_t(atoi(listen_on.c_str() + c + 1))); inet_pton(AF_INET, listen_on.substr(0, c).c_str(), &a.sin_addr);
-    if (::bind(srv, reinterpret_cast<sockaddr*>(&a), sizeof a) || ::listen(srv, 1024)) { int e = errno; FR_CLOSE(srv); return e ? e : EADDRINUSE; }
+    if (!handed && (::bind(srv, reinterpret_cast<sockaddr*>(&a), sizeof a) || ::listen(srv, 1024))) { int e = errno; FR_CLOSE(srv); return e ? e : EADDRINUSE; }
+    if (handed) logline("[LISTENING_SOCKET_OUTLIVES_THE_HOST_V1] listening on the socket handed in (fd " + std::to_string(srv) + ")");
     { sockaddr_in b{}; socklen_t bl = sizeof b;                       // [ANNOUNCE_PORT_V1] port 0: the one the system chose
       if (!::getsockname(srv, reinterpret_cast<sockaddr*>(&b), &bl)) LISTEN_PORT = ntohs(b.sin_port); }
     logline(HOST->vendor_id() + "-ram " + HOST->vendor_version() + " (" + RIBBIT_PLATFORM_VERSION + "): the memory and the "

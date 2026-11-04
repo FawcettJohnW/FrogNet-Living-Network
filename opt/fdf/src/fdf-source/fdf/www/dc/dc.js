@@ -17,12 +17,20 @@ const DC = (() => {
     const cells = new Map(); let after = 0; let stopped = false;
     const take = (rows) => { for (const r of rows) { after = Math.max(after, r.id); const o = cells.get(r.instance); if (!o || o.id < r.id) cells.set(r.instance, r); } };
     (async () => {
-      take(await read(s, v)); onChange(cells);
+      // [EVENTS_NOT_TIMERS_V1] one held request at a time (op=watch): rows, or "again" (the RAM started again, or is up
+      // again: read everything), or none in 25 s. A RAM that does not answer is held on its own event by the door.
+      let whole = true, down = false;
       while (!stopped) {
         try {
-          const rows = (await call('ram.php?' + q({ op: 'read', s, v, after, wait: 25 }))).rows || [];
-          if (rows.length) { take(rows); onChange(cells); }
-        } catch (e) { (onError || console.error)(e); await new Promise(r => setTimeout(r, 2000)); }   // the RAM is unreachable: try again on the next turn
+          if (whole) { cells.clear(); after = 0; take(await read(s, v)); onChange(cells); whole = false; }
+          const g = ((await call('ram.php?' + q({ op: 'watch', w: JSON.stringify([{ s, v, after }]), wait: 25 }))).got || [])[0];
+          if (g && (g.again || down)) { whole = true; down = false; } else if (g && g.rows.length) { take(g.rows); onChange(cells); }
+        } catch (e) {
+          (onError || console.error)(e);
+          if (whole) { whole = false; down = true; continue; }        // the read failed: hold on the RAM's event (the door's "again")
+          // the one timer: this page's own node's web server did not answer, and a browser is given no event for it
+          await new Promise(r => setTimeout(r, 2000)); whole = true;
+        }
       }
     })().catch(e => (onError || console.error)(e));
     return () => { stopped = true; };

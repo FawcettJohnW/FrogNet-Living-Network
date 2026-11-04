@@ -188,10 +188,26 @@ SITE_ENV      = Path("/opt/fdf/var/site.env")
 # Signal handling
 # ---------------------------------------------------------------------------
 
+# [STOP_IS_AN_EVENT_V1] a stop is an event, not a flag looked at every second: the handler writes one byte to this pipe,
+# and every wait that must end on a stop holds its read end with what it waits for (select); on_stop runs too (the
+# region's held read is ended: region.end_events)
+stop_r, stop_w = os.pipe()
+on_stop = []
+
+
 def _shutdown(sig, frame):
     global running
     log.info("Shutting down (signal %d)", sig)
     running = False
+    try:
+        os.write(stop_w, b"x")
+    except OSError:
+        pass
+    for f in list(on_stop):
+        try:
+            f()
+        except Exception:
+            pass
 
 signal.signal(signal.SIGTERM, _shutdown)
 signal.signal(signal.SIGINT, _shutdown)

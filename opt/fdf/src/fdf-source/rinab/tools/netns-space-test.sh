@@ -46,7 +46,12 @@ NS() { local n=$1; shift; ip netns exec $n "$@"; }
 svc() { local log=$1; shift; ( while :; do "$@" >> $log 2>&1; echo "[svc] $(date +%T) ended rc=$?; restart in 2 s" >> $log; sleep 2; done ) & echo $! >> $T/svc.pids; }
 mkdir -p /run/wireguard
 # ---- two RAM hosts, each a region of its own (as fdf-region-create makes one)
-hostup() { local n=$1; NS $n env RINA_REGION_FILE=$T/$n/area.perm RINA_NET_CONFIG=$T/$n/none $T/bin/fdf-ram --listen $RAM --api $API >> $T/$n/host.log 2>&1 &
+# [LISTENING_SOCKET_OUTLIVES_THE_HOST_V1] each host's RAM manager on a socket kept across its restarts, as its .socket
+# unit keeps it on a node (fdf-region-create): tools/sockhold.py holds it, hostup starts the RAM manager on it
+hostup() { local n=$1; [ -p $T/$n/ram.ctl ] || { mkfifo $T/$n/ram.ctl
+             NS $n env RINA_REGION_FILE=$T/$n/area.perm RINA_NET_CONFIG=$T/$n/none SOCKHOLD_EXE=$T/bin/fdf-ram python3 $H/tools/sockhold.py $RAM $T/$n/ram.ctl $T/$n/host.log &
+             echo $! >> $T/svc.pids; }
+           echo start > $T/$n/ram.ctl
            for i in $(seq 100); do NS $n curl -s -m 1 -X POST -d '{"op":"version"}' "http://$RAM$API?op=rina" > /dev/null && break; sleep 0.05; done; }
 hostdown() { local n=$1; for p in $(ip netns pids $n); do grep -q "fdf-ram" /proc/$p/cmdline 2>/dev/null && kill $p; done
              for i in $(seq 50); do ip netns pids $n | xargs -r -I{} grep -l fdf-ram /proc/{}/cmdline 2>/dev/null | grep -q . || break; sleep 0.1; done; }
@@ -54,7 +59,7 @@ hostdown() { local n=$1; for p in $(ip netns pids $n); do grep -q "fdf-ram" /pro
 ORG() { local n=$1; shift; NS $n sh -c "mount --bind $T/$n/run-wg /run/wireguard && exec env FDF_HUB_ENV=$T/$n/hub.env FDF_ADMITTED=$T/$n/admitted FDF_SITE_KEYS=$T/$n python3 $T/bin/fdf-org \"\$@\"" sh "$@"; }
 for n in A B; do mkdir -p $T/$n/admitted $T/$n/run-wg; PUB=$(NS $n ip -4 -o addr show dev v-$n | awk '{print $4}' | cut -d/ -f1)
   KEY=$(head -c 16 /dev/urandom | od -An -tx1 | tr -d ' \n'); printf '%s\n' "$KEY" > $T/$n/site-key-D; chmod 600 $T/$n/site-key-D
-  printf 'RINA_RAM=%s\nFDF_AREA=D\nFDF_HUB_NAME=hub%s\nFDF_ENDPOINT=%s:51820\nFDF_LISTEN=51820\nFDF_IFACE=wg-D\n' $RAM $n $PUB > $T/$n/hub.env
+  printf 'RINA_RAM=%s\nFDF_AREA=D\nFDF_HUB_NAME=hub%s\nFDF_ENDPOINT=%s:51820\nFDF_LISTEN=51820\nFDF_IFACE=wg-D\n' $RAM $n $PUB > $T/$n/hub.env; echo "FDF_FACTS=$T/$n/facts.json" >> $T/$n/hub.env   # [HUB_SAYS_ITS_PEERS_V1] the door answers once the hub holds the peer
   NS $n sh -c "mount --bind $T/$n/run-wg /run/wireguard && exec env FDF_WG_IMPL=wireguard-go python3 $T/bin/fdf-hub --area D --iface wg-D --endpoint $PUB:51820 --listen 51820 --key $T/$n/wg.key --iface-only" > $T/$n/iface.log 2>&1
   hostup $n
   NS $n curl -s -X POST -d "{\"op\":\"map_site\",\"name\":\"D\",\"key\":\"$KEY\"}" "http://$RAM$API?op=rina" > /dev/null

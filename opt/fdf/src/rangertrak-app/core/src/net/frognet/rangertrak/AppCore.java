@@ -109,9 +109,10 @@ public final class AppCore {
     }
 
     // ------------------------------------------------------------------ the door: the node this device is on
-    private static String http(String method, String url, String body) throws Exception {
+    private static String http(String method, String url, String body) throws Exception { return http(method, url, body, 10000); }
+    private static String http(String method, String url, String body, int readMs) throws Exception {
         HttpURLConnection c = (HttpURLConnection) new URL(url).openConnection();
-        c.setConnectTimeout(5000); c.setReadTimeout(10000); c.setRequestMethod(method);
+        c.setConnectTimeout(5000); c.setReadTimeout(readMs); c.setRequestMethod(method);
         if (body != null) {
             c.setDoOutput(true); c.setRequestProperty("Content-Type", "application/json");
             OutputStream o = c.getOutputStream(); o.write(body.getBytes(StandardCharsets.UTF_8)); o.close();
@@ -135,9 +136,10 @@ public final class AppCore {
         String hs = LAST_HEADERS.get() == null ? "" : LAST_HEADERS.get();
         return "HTTP " + LAST_STATUS.get() + " for ?" + q.replaceAll("&.*", "") + (hs.isEmpty() ? "" : " (" + hs + ")") + ": " + (t.length() > 200 ? t.substring(0, 200) + "…" : t);
     }
-    private Map<String, Object> doorCall(String q, String body) throws Exception {
+    private Map<String, Object> doorCall(String q, String body) throws Exception { return doorCall(q, body, 10000); }
+    private Map<String, Object> doorCall(String q, String body, int readMs) throws Exception {
         String r;
-        try { r = http(body == null ? "GET" : "POST", "http://" + door + "/dc/ram.php?" + q, body); }
+        try { r = http(body == null ? "GET" : "POST", "http://" + door + "/dc/ram.php?" + q, body, readMs); }
         catch (java.io.IOException e) {          // [DOOR_UNREACHABLE_SAYS_WHERE_FROM_V1] which addresses this device has
             throw new Exception("this device cannot reach the node at " + door + " (" + e.getMessage() + "); this device's addresses: " + myAddresses());
         }
@@ -200,7 +202,9 @@ public final class AppCore {
     private Map<String, String> servedRams() throws Exception { return servedRams("", 0); }
     /** [GROUP_PLACE_V1] with until: held at the door until that RAM is served (a member's where cell), at most waitS */
     private Map<String, String> servedRams(String until, int waitS) throws Exception {
-        Map<String, Object> o = doorCall("op=rams&app=" + APP + (until.isEmpty() ? "" : "&until=" + until + "&wait_s=" + waitS), null);
+        return ramsOf(doorCall("op=rams&app=" + APP + (until.isEmpty() ? "" : "&until=" + until + "&wait_s=" + waitS), null, waitS * 1000 + 10000));
+    }
+    private static Map<String, String> ramsOf(Map<String, Object> o) {
         Map<String, String> out = new HashMap<String, String>();
         for (Map.Entry<String, Object> e : Json.obj(o.get("rams")).entrySet()) out.put(e.getKey(), Json.str(e.getValue()));
         return out;
@@ -300,6 +304,7 @@ public final class AppCore {
      *  not there (its session began again, or it moved) */
     private void onHosts() {
         Follower h = hostF; if (h == null) return;
+        for (Follower t : teams.values()) t.again();     // [EVENTS_NOT_TIMERS_V1] a lead's cell written: its RAM is there (again)
         String mine = team.toLowerCase();
         if (!hosting.isEmpty()) {
             Map<String, Object> c = h.family("host").get(mine);
@@ -426,16 +431,18 @@ public final class AppCore {
     }
 
 
-    /** this device's own truth, written again after every new session (a RAM change, a reconnect) */
+    /** this device's own truth, written again after every new session (a RAM change, a reconnect): [EVENTS_NOT_TIMERS_V1]
+     *  each follower runs it when its session comes up (onUp), and a change of status or fix writes it now */
     private void writeOwn() {
-        if (general == null || role.equals("public")) return;
-        new Thread(new Runnable() { public void run() {
-            for (int i = 0; i < 100 && (general == null || !general.up() || positions == null || !positions.up()); i++) sleepMs(50);
-            if (general == null) return;
-            general.write(mission, dev, Json.o("name", name, "kind", kindOf(), "team", role.equals("team") ? team : "", "unit", team, "host", "", "station", dev, "via", door,
-                    "status", status, "app", BUILD), true);
-            if (fix != null && positions != null) positions.write(mission, dev, fix, true);
-        } }, "write-own").start();
+        Follower g = general, p = positions;
+        if (g == null || role.equals("public")) return;
+        g.onUp(new Runnable() { public void run() { writePresence(); } });
+        if (p != null) p.onUp(new Runnable() { public void run() { Map<String, Object> f = fix; if (f != null && positions != null) positions.write(mission, dev, f, true); } });
+    }
+    private void writePresence() {
+        Follower g = general; if (g == null) return;
+        g.write(mission, dev, Json.o("name", name, "kind", kindOf(), "team", role.equals("team") ? team : "", "unit", team, "host", "", "station", dev, "via", door,
+                "status", status, "app", BUILD), true);
     }
 
     private void position(Map<String, Object> m) {
@@ -588,7 +595,7 @@ public final class AppCore {
     /** this member's status (available, en route, on scene, needs assistance, out of service): part of its own presence */
     private void myStatus(String st) {
         status = st;
-        writeOwn();
+        writePresence();
         if (fix != null && positions != null) { fix.put("status", st); positions.write(mission, dev, fix, true); }
     }
 
@@ -774,30 +781,45 @@ public final class AppCore {
     }
 
     // ------------------------------------------------------------------ sessions: a lost one means look again
+    /** [EVENTS_NOT_TIMERS_V1] a follower FAILING: the door is asked where the app's RAMs are, held there on the event
+     *  that answers it -- the RAMs placed again (they moved: every follower starts again there) or a failing RAM saying
+     *  it is up (its followers open their sessions again: again()). Nothing retries on a timer; a door that does not
+     *  answer at all (this device's own node) is the one wait, 2 s, since nothing tells a phone it is back. */
     private void onSessionLine(String l) {
         say(l);
         if (!l.contains("FAILING") || resolving) return;
         resolving = true;
         new Thread(new Runnable() { public void run() {
             try {
-                for (int i = 0; ; i++) {
+                while (true) {
+                    List<Follower> all = followers(), down = new ArrayList<Follower>();
+                    for (Follower f : all) if (!f.up() || f.failing() != null) down.add(f);
+                    if (down.isEmpty()) return;
+                    StringBuilder up = new StringBuilder();
+                    for (Follower f : down) { String a = f.host + ":" + f.port; if (up.indexOf(a) < 0) up.append(up.length() > 0 ? "," : "").append(a); }
                     try {
-                        Map<String, String> door0 = servedRams(); Map<String, String> now = withTeamRams(door0);
+                        Map<String, Object> o = doorCall("op=rams&app=" + APP + "&not=" + net.frognet.ram.RamSession.urlenc(Json.write(new HashMap<String, Object>(doorRams)))
+                                + "&up=" + up + "&wait_s=25", null, 35000);
+                        Map<String, String> door0 = ramsOf(o), now = withTeamRams(door0);
                         if (!now.equals(rams)) {
                             say("the app's RAMs moved: " + now); doorRams = door0; rams = now; mission = "";
                             synchronized (AppCore.this) { start(); }
                             out("ev", "connected", "role", role, "team", team, "user", user, "rams", new HashMap<String, Object>(rams), "build", BUILD);
                             return;
                         }
-                        // [FAILOVER_ASKS_UNTIL_ANSWERED_V1] the same answer: the node may not know yet where the RAMs went.
-                        // Ask again until the answer changes or the old sessions come back (the RAM was only blipped).
-                        Follower g = general != null ? general : mis;
-                        if (g != null && g.up() && g.failing() == null) return;
-                        sleepMs(500);
+                        String u = Json.str(o.get("up"));
+                        if (!u.isEmpty()) { say("the RAM at " + u + " is up again: its sessions open again"); for (Follower f : down) if ((f.host + ":" + f.port).equals(u)) f.again(); }
                     } catch (Exception e) { say("the door at " + door + ": " + e.getMessage() + "; again in 2 s"); sleepMs(2000); }
                 }
             } finally { resolving = false; }
         } }, "re-resolve").start();
+    }
+
+    private List<Follower> followers() {
+        List<Follower> out = new ArrayList<Follower>();
+        for (Follower f : new Follower[]{general, mis, dm, positions, msgs, helpF, reports, fieldF, facF, trF, callF, logF, hostF}) if (f != null) out.add(f);
+        out.addAll(teams.values());
+        return out;
     }
 
     private static void sleepMs(long ms) { try { Thread.sleep(ms); } catch (InterruptedException e) { Thread.currentThread().interrupt(); } }

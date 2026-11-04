@@ -13,24 +13,28 @@ presented: reaching the region at all means this machine was invited, which is t
                                           it holds NAME's private key and the region's site key). --again replaces an
                                           identity NAME already has (its old key stops working); without it, an
                                           existing NAME is refused. --wait=S: how long to wait for
-                                          the region's answer (default 60; [IDENTITY_WAIT_IS_SAID_V1] the door
+                                          the region to admit it (default 60; [IDENTITY_WAIT_IS_SAID_V1] the door
                                           passes less than its callers wait, so its reason reaches them).
   fdf-identity --serve                    the region's side (fdf-identity.service, on the machine that holds the
-                                          region): answers each ask by running fdf-invite.
+                                          region): admits each wanted key by running fdf-invite --pubkey.
 
-Tuples, in the region's RAM (RINA_RAM, or /opt/fdf/var/join.env), each written only by its owner:
-  (fdf-identity, ask,    <ask id>)   bag {name, kind, again}          the asker's
-  (fdf-identity, answer, <ask id>)   bag {ok, line, edge, pubkey, why} the region's
-  (fdf-identity, got,    <ask id>)   bag {}                            the asker's: it has read the answer
-Each side holds a read on the service; nothing polls and nothing calls the other. On `got` the region removes its
-answer and the asker removes its ask and its `got`, so the secret is in the RAM only between the two.
+Tuples, in the region's RAM (RINA_RAM, or /opt/fdf/var/join.env), each written only by its owner -- owner-written
+truths, not a request and a reply ([IDENTITY_IS_OWNED_TRUTHS_V1], John 2026-11-03: "not like a messaging thing"):
+  (fdf-identity, want,     <id>)  bag {name, kind, again, pubkey}       the asker's: who it is and ITS OWN public key
+  (fdf-identity, admitted, <id>)  bag {ok, edge, inv, site_key_sealed, why}   the region's: that key is admitted
+The asker makes its own WireGuard key; the private key never leaves it. The region admits the public key
+(fdf-invite NAME --pubkey) and writes what the asker needs: the invitation without the private key, and the
+region's site key [SEALED_TO_ITS_KEY_V1] to the asker's public key (fdf_seal), so nothing in the RAM is a secret.
+The asker removes its want once it has the admitted row; the region removes its admitted row when the want goes
+(it reads the gone row). Each side holds one read; nothing polls and nothing is acknowledged.
 """
-import os, socket, subprocess, sys, time
+import base64, json, os, socket, subprocess, sys, time
 sys.path.insert(0, os.environ.get("FDF_PY", "/opt/fdf/lib/python"))
 import fdfram
+import fdf_seal
 
 SVC = "fdf-identity"
-BUILD_TAG = "fdf-identity-2026-11-03-r3"           # [APP_SAYS_ITS_BUILD_V1] in its first line, asking or serving
+BUILD_TAG = "fdf-identity-2026-11-03-r4"           # [APP_SAYS_ITS_BUILD_V1] in its first line, asking or serving
 ADMITTED = os.environ.get("FDF_ADMITTED", "/opt/fdf/hub/admitted")
 FDF_BIN = os.environ.get("FDF_BIN", "/opt/fdf/bin")
 
@@ -44,79 +48,84 @@ def ask(name, kind, again, line_only=False, wait=60.0):
         sys.exit("fdf-identity: NAME '%s': letters, digits, . _ -, at most 63" % name)
     ram = fdfram.Ram()
     me = "%s-%d-%s" % (socket.gethostname(), os.getpid(), os.urandom(4).hex())
-    mine = []
+    priv = base64.b64encode(fdf_seal.secrets.token_bytes(32)).decode()   # this asker's own key: it never leaves here
+    pub = fdf_seal.public(priv)
+    want = None
     try:
-        # the answer's read is held from BEFORE the ask: an answer written between the ask and the read is not missed
-        last = max([c["id"] for c in ram.read(SVC, "answer")] + [0])
-        mine.append(("ask", ram.write(SVC, "ask", me, {"name": name, "kind": kind, "again": again})))
-        sys.stderr.write("fdf-identity: %s: asked the region at %s for %s (%s)\n" % (BUILD_TAG, ram.hostport, name, kind))
+        # the region's read is held from BEFORE the want: an admitted row written between the two is not missed
+        last = max([c["id"] for c in ram.read(SVC, "admitted")] + [0])
+        want = ram.write(SVC, "want", me, {"name": name, "kind": kind, "again": again, "pubkey": pub})
+        sys.stderr.write("fdf-identity: %s: asked the region at %s for %s (%s), key %s\n" % (BUILD_TAG, ram.hostport, name, kind, pub[:12]))
         deadline = time.time() + wait
-        ans = None
-        while ans is None:
+        got = None
+        while got is None:
             left = deadline - time.time()
             if left <= 0:
-                sys.exit("fdf-identity: the region at %s did not answer in %g s: is fdf-identity running where the "
-                         "region's hub runs? (systemctl status 'fdf-identity@*' there)" % (ram.hostport, wait))
-            for c in ram.read(SVC, "answer", after=last, wait_s=min(fdfram.HOLD_S, max(1.0, left))):  # never past the deadline
+                sys.exit("fdf-identity: the region at %s did not answer in %g s (no admission of %s): is fdf-identity running "
+                         "where the region's hub runs? (systemctl status 'fdf-identity@*' there)" % (ram.hostport, wait, name))
+            for c in ram.read(SVC, "admitted", after=last, wait_s=min(fdfram.HOLD_S, max(1.0, left))):  # held; never past the deadline
                 last = max(last, c["id"])
-                if c["instance"] == me: ans = c["bag"]
-        mine.append(("got", ram.write(SVC, "got", me, {})))
+                if c["instance"] == me and not c.get("gone"): got = c["bag"]
     finally:
-        for v, i in mine:
-            try: ram.remove(SVC, v, i)
-            except fdfram.RamError as e: sys.stderr.write("fdf-identity: could not remove my row %s %d: %s\n" % (v, i, e))
-    if not ans.get("ok"):
-        sys.exit("fdf-identity: refused: %s" % ans.get("why", "?"))
+        if want is not None:
+            try: ram.remove(SVC, "want", want)           # the region removes its admitted row when it reads this gone
+            except fdfram.RamError as e: sys.stderr.write("fdf-identity: could not remove my want %d: %s\n" % (want, e))
+    if not got.get("ok"):
+        sys.exit("fdf-identity: refused: %s" % got.get("why", "?"))
+    inv = got["inv"]
+    try:
+        inv["site_key"] = fdf_seal.open_(priv, got["site_key_sealed"]).decode()
+    except (ValueError, KeyError) as e:
+        sys.exit("fdf-identity: the region's site key did not open with this asker's key: %s" % e)
+    inv["member"]["privkey"] = priv
+    line = "fdfinv1." + base64.urlsafe_b64encode(json.dumps(inv, separators=(",", ":")).encode()).decode().rstrip("=")
     if line_only:
-        sys.stderr.write("fdf-identity: %s: edge %s, key %s\n" % (name, ans.get("edge"), ans.get("pubkey")))
-        print(ans["line"])
+        sys.stderr.write("fdf-identity: %s: edge %s, key %s\n" % (name, got.get("edge"), pub))
+        print(line)
         return
-    print("fdf-identity: %s: edge %s, key %s" % (name, ans.get("edge"), ans.get("pubkey")))
-    print("fdf-identity: the invitation (a secret: %s's private key and the region's site key; shown once):" % name)
+    print("fdf-identity: %s: edge %s, key %s" % (name, got.get("edge"), pub))
+    print("fdf-identity: the invitation (a secret: %s's private key, made here, and the region's site key; shown once):" % name)
     print()
-    print(ans["line"])
+    print(line)
     print()
     print("on %s:  %s" % (name, "fdf-region-join <the line>" if kind == "node" else "fdf-member-kt leaf <the line>  (or paste it into the app)"))
 
 
 def serve():
     ram = fdfram.Ram()
-    log(BUILD_TAG + ": answering identity asks at", ram.hostport, "admitted:", ADMITTED)
-    answered = {}                                         # ask id -> my answer's row id
-    for c in ram.read(SVC, "answer"):                     # a previous run's answers: nobody will read them now
-        ram.remove(c); log("removed an earlier run's answer", c["instance"])
-    last = 0
+    log(BUILD_TAG + ": admitting identities wanted at", ram.hostport, "admitted:", ADMITTED)
+    mine = {}                                             # want instance -> my admitted row's id
+    for c in ram.read(SVC, "admitted"):                   # a previous run's rows: their askers read them, or are gone
+        ram.remove(c); log("removed an earlier run's admitted row", c["instance"])
+    last = 0                                              # wants already there are read first, then held
     while True:                                           # held: returns the moment an asker writes past `last`
-        for c in sorted(ram.read(SVC, after=last, wait_s=fdfram.HOLD_S), key=lambda c: c["id"]):
+        for c in sorted(ram.read(SVC, "want", after=last, wait_s=fdfram.HOLD_S), key=lambda c: c["id"]):
             last = max(last, c["id"])
-            if c.get("gone"):                             # [FAMILY_LOG_V1] a removed cell, in order: nothing to answer
+            inst = c["instance"]
+            if c.get("gone"):                             # [FAMILY_LOG_V1] the asker removed its want: it has my row
+                rid = mine.pop(inst, None)
+                if rid is not None: ram.remove(SVC, "admitted", rid); log("want", inst, "gone; my admitted row removed")
                 continue
-            var, inst, bag = c.get("variable", ""), c["instance"], c["bag"]
-            if var == "got":
-                rid = answered.pop(inst, None)
-                if rid is not None: ram.remove(SVC, "answer", rid); log("answer", inst, "read; removed")
+            if inst in mine:
                 continue
-            if var != "ask" or inst in answered:
-                continue
-            answered[inst] = ram.write(SVC, "answer", inst, answer(bag))
+            mine[inst] = ram.write(SVC, "admitted", inst, admit(c["bag"]))
 
 
-def answer(bag):
-    name, kind, again = str(bag.get("name", "")), bag.get("kind", "node"), bool(bag.get("again"))
+def admit(bag):
+    name, kind, again, pub = str(bag.get("name", "")), bag.get("kind", "node"), bool(bag.get("again")), str(bag.get("pubkey", ""))
     if os.path.exists(os.path.join(ADMITTED, name + ".json")) and not again:
-        log("ask for", name, "refused: already admitted")
+        log("want for", name, "refused: already admitted")
         return {"ok": False, "why": "%s is already admitted; --again gives it a new key (its old one stops working)" % name}
-    p = subprocess.run([sys.executable, os.path.join(FDF_BIN, "fdf-invite"), name] + (["--leaf"] if kind == "leaf" else []),
+    p = subprocess.run([sys.executable, os.path.join(FDF_BIN, "fdf-invite"), name, "--pubkey", pub] + (["--leaf"] if kind == "leaf" else []),
                        capture_output=True, text=True)
-    line = next((l.strip() for l in p.stdout.splitlines() if l.startswith("fdfinv1.")), "")
+    line = next((l.strip() for l in p.stdout.splitlines() if l.startswith("fdfadm1.")), "")
     if p.returncode != 0 or not line:
-        why = (p.stderr.strip() or p.stdout.strip()).splitlines()[-1:] or ["fdf-invite gave no invitation"]
-        log("ask for", name, "failed:", why[0])
+        why = (p.stderr.strip() or p.stdout.strip()).splitlines()[-1:] or ["fdf-invite gave no admission"]
+        log("want for", name, "failed:", why[0])
         return {"ok": False, "why": why[0]}
-    import json
-    rec = json.load(open(os.path.join(ADMITTED, name + ".json")))
-    log("identity for", name, "(%s): edge %s, key %s" % (kind, rec["edge"], rec["pubkey"][:12]))
-    return {"ok": True, "line": line, "edge": rec["edge"], "pubkey": rec["pubkey"]}
+    adm = json.loads(base64.urlsafe_b64decode(line[8:] + "=" * (-len(line[8:]) % 4)))
+    log("identity for", name, "(%s), its own key: edge %s, key %s" % (kind, adm["inv"]["member"]["edge"], pub[:12]))
+    return {"ok": True, "edge": adm["inv"]["member"]["edge"], "inv": adm["inv"], "site_key_sealed": adm["site_key_sealed"]}
 
 
 def main():

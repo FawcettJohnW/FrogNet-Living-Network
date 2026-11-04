@@ -1,0 +1,41 @@
+#!/bin/bash
+################################################################
+#  Copyright (C) 2016-2026 Fawcett Innovations LLC             #
+#  SPDX-License-Identifier: GPL-2.0-only                       #
+################################################################
+# fdf-ram-sockets -- [LISTENING_SOCKET_OUTLIVES_THE_HOST_V1] every region RAM manager on this machine gets the listening
+# socket systemd keeps across its restarts (as fdf-region-create now makes it): for each /etc/systemd/system/fdf-ram-*.service,
+# fdf-ram-*.socket with ListenStream= the address its ExecStart --listen names, enabled and started, then the RAM manager
+# started again on it. Run by the update; safe to run again (an existing socket unit is left as it is).
+set -u
+cd /etc/systemd/system || exit 1
+n=0
+for svc in fdf-ram-*.service; do
+  [ -f "$svc" ] || continue
+  sock=${svc%.service}.socket
+  if [ -f "$sock" ]; then echo "fdf-ram-sockets: $sock is there"; continue; fi
+  listen=$(sed -n 's/^ExecStart=.* --listen \([^ ]*\).*/\1/p' "$svc" | head -1)
+  if [ -z "$listen" ]; then echo "fdf-ram-sockets: $svc names no --listen: left as it is" >&2; continue; fi
+  cat > "$sock" <<UNIT
+# made by fdf-ram-sockets from $svc: the listening socket of that RAM manager, kept across its restarts
+[Unit]
+Description=FD&F RAM manager socket, TCP $listen
+
+[Socket]
+ListenStream=$listen
+FreeBind=yes
+Backlog=1024
+NoDelay=yes
+
+[Install]
+WantedBy=sockets.target
+UNIT
+  echo "fdf-ram-sockets: $sock (ListenStream=$listen)"; n=$((n+1))
+done
+systemctl daemon-reload
+for svc in fdf-ram-*.service; do
+  [ -f "$svc" ] || continue; sock=${svc%.service}.socket
+  systemctl stop "$svc"; systemctl enable "$sock" >/dev/null 2>&1; systemctl start "$sock" && systemctl start "$svc" \
+    || echo "fdf-ram-sockets: $sock / $svc did not start: journalctl -u $sock -u $svc" >&2
+done
+echo "fdf-ram-sockets: $n socket unit(s) made"

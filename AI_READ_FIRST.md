@@ -384,6 +384,16 @@ semantics. Topology is the fabric's business, so the fabric reports it. What a
 value means, and when a change to it matters, is the application's business, so
 the fabric does not interpret it.
 
+**How the FD&F code keeps this** (`[EVENTS_NOT_TIMERS_V1]`, `[MEMBER_IS_A_TUPLE_V1]`, 2026-11-03; details in
+`opt/fdf/docs/FDF-TECHNICAL-DESIGN.md` §G.5a). Each member writes its own truth, `(pond, member, <ns>)`, and every
+program that needs the members holds a read on that family: no relay turns the region's notices into lines (that was
+`fdf-events`), no service copies one writer's cells into another's (that was the chat service), no id is claimed from a
+shared counter (each family's ids are its own log's). A secret is never a cell: what one member gives another is
+sealed to the reader's own key. When a read fails, the program waits for the thing that ends the wait -- the RAM
+manager's own "up" file, the app's placement file, a 409 ESTALE that says the memory is another one -- not for a
+timer. If you find a sleep, a retry loop or a tick standing in for one of those, it is a defect: name the event that
+should end it.
+
 ---
 
 # THE INVARIANTS

@@ -1068,6 +1068,8 @@ LISP's mapping semantics run in a region over the session ("no control messages 
 - On the GUID path, `/` plus the inode of the network namespace is appended, so that in the one-machine suite each namespace stands for a machine.
 - The data-plane node number is FNV-1a of the identity (`rinab/src/rmt.hpp:35-38`).
 
+**An identity asked from any member** (`[IDENTITY_IS_OWNED_TRUTHS_V1]`, `fdf-identity` r4). The asker makes its own WireGuard key and writes `(fdf-identity, want, <id>)` = `{name, kind, again, pubkey}`. The region admits that public key (`fdf-invite NAME --pubkey`) and writes `(fdf-identity, admitted, <id>)`: the invitation without a private key, and the site key sealed to the asker's key (`[SEALED_TO_ITS_KEY_V1]`, `fdf_seal.py`: X25519, HKDF-SHA256, an HMAC-SHA256 stream and tag). The asker removes its want on that row; the region removes its row when it reads the want gone. Nothing in the RAM is a secret, and nothing is acknowledged.
+
 **The region member identity (`fdf-client`).**
 - The record key is `w:` plus `facts.guid`, else `w:` plus the name.
 - The name is `FDF_NAME`, else `facts.name`, else the hostname (`rinab/src/fdf_client.cpp:282-294`).
@@ -1145,9 +1147,26 @@ These come back by re-assertion and re-announcement, not by copying.
 
 FrogNet's daemon, outside FD&F, cited for completeness (`opt/frognet_semantic/internet_tunnels_v3/poll.py`):
 - Region loss is one transition (`[REGION_LOSS_IS_A_TRANSITION_V1]`): the phase is recalculated, every region route and name is withdrawn, and every kernel WireGuard interface is torn down. No merge takes their place (`[GONE_IS_GONE_V1]`) (`poll.py:1593, 1629-1639`).
-- Rejoin is tried every 5 s, one call per try (`[REJOIN_EVERY_5S_V1]`, `poll.py:1643-1653`). On return the daemon sets its watch, then reads (`[WATCH_BEFORE_READ_V1]`, `poll.py:1599-1610`).
+- When nothing on the system space's list answers, the next walk is on an event, not every 5 s (`[EVENTS_NOT_TIMERS_V1]`, `poll.py` `_wait_rejoin`): one of the list's RAM managers saying it is up (`$FDF_VAR/ram/<host>_<port>.up`), `lan-rams.json` changing, a forward switch, or the daemon's stop. On return the daemon takes the family's newest id, then reads (`[WATCH_BEFORE_READ_V1]`).
+- The daemon's region events are one held read on `(pond, member)` (`region.events()`), not `fdf-events`.
+- A stop is an event too (`[STOP_IS_AN_EVENT_V1]`, `config.py`): the signal handler writes to a pipe that every wait holds, and ends the held read.
 - `fdf-client` exits when its session ends, and systemd restarts it 2 s later. The fresh session re-announces and re-registers (`fdf-source/fdf/bin/fdf-join:38-40`; `fdf_client.cpp:403-408`).
 - **Measured, r20 containers.** With the region host off the network for 49–52 s, traffic returned 15–40 s after reconnect with no manual step. With the RAM manager stopped for 40 s, `fdf-client` waited and re-joined (`docs/cleanup-2026-10/FINAL-GATES.md:78`; `T4a.md:181-182`; `T4b.md:231`).
+
+### G.5a Events, not timers `[EVENTS_NOT_TIMERS_V1]` (John 2026-11-03: "There should be no walks, no locks, no notifications, and no waiting.")
+
+What a program waits for is an event, never a timer:
+
+- **A RAM manager saying it is up.** `fdf-ram` writes `$FDF_VAR/ram/<host>_<port>.up` when it listens (`fdf_up.hpp`). This machine's `fdf-client` writes the same name for the address it reached, when its session comes up. A program whose read failed waits on that file (`fdf_watch.wait_up`, inotify), not on a sleep. The door's `ram watch` and `ram written` wait on it the same way.
+- **The memory saying it is another one.** A held read past the family's newest id is refused at once with 409 `ESTALE` (`[NOT_THIS_MEMORY_V1]`, platform 0.71). The reader reads again from the start, now. A read that fails any other way waits for the up file (`fdf_watch.after_failure`).
+- **The listening socket outlives its host.** `fdf-ram` takes its socket from systemd (`fdf-ram-<area>.socket`, `LISTEN_FDS`) or from its parent (`RIBBIT_LISTEN_FD`: fdf-org's spaces, fdf-app's droplets). A restart refuses nothing; a connect waits in the backlog (`[LISTENING_SOCKET_OUTLIVES_THE_HOST_V1]`). `fdf-ram-sockets` makes the socket units for an existing install. So a client whose open session ended opens a new one at once, and only a connect that fails waits for an event.
+- **The members are a family.** `(pond, member, <ns>)`, read held by fdf-hub, fdf-app, the FrogNet daemon and the Kotlin member (`[MEMBER_IS_A_TUPLE_V1]`).
+- **The door holds one child per page.** `ram watch` is a follow on every family the page shows, one session per RAM, ended by the first rows. A family whose RAM does not answer is held until that RAM says it is up (`"again"`) or the app's RAMs are placed again (`app-where.json`). `op=rams&not=..&up=..` holds a member until its RAMs moved or one says it is up (`ram written`). There is no 1 s tick.
+- **The chat room is a family** (`[ROOM_IS_THE_FAMILY_V1]`): each message is its sender's own `(chat, msg, <sender>.<ms>)` cell, and the room is that family in its write order. `chat-service.py` and `fdf-chat@.service` are removed.
+- **Periodic work is due at a time** (`[DUE_NOT_TICK_V1]`): a DAF periodic subscription or script, not yet due, says when, and one thread sleeps until the earliest such moment. The 20 ms tick is removed. The wait word's writer and reader use one total order (seq_cst), so the watermark wait needs no 10 ms timeout (`[WAIT_WORD_SEQ_CST_V1]`).
+- **Installers wait on the thing itself**: a file written (`fdf_watch.py has|written`), or a unit's own journal line (`journalctl -f | grep -m1`), bounded, never a sleep.
+
+The waits that remain on time are listed in §N.3.
 
 ### G.6 Elections
 
@@ -1323,8 +1342,9 @@ Source: `fdf-source/fdf/bin/fdf-hub`.
 - **One owner per /24:** the alive claimant with the lowest announce id. Later claimants are refused and logged with both GUIDs. Owned beats transit (`:16-18, 206-233`).
 - **AllowedIPs.** WireGuard silently moves an overlapping AllowedIP to the last peer set, so the hub keeps its own prefix-to-peer table and applies it (`:18-19`).
 - **Addressing:** a member's 10.A.B.0/24 gets edge 10.253.A.B/32; the hub is 10.253.253.254/16 (`:20, 150-155`).
-- **Events.**
-  - Each `p` or `m` line from `fdf-events` is one reconcile, and the first line must be `ready` (`[WATCH_BEFORE_READ_V1]`, `:287-292, 319-327`).
+- **Events.** `[MEMBER_IS_A_TUPLE_V1]` (r40-r41)
+  - Each member writes its own truth `(pond, member, <ns>)` = `{ns, name, ips, cap, facts, build}`, `own:true`, on its session, after its mappings. It goes with the session, and its mappings go with it.
+  - The hub holds one read on that family (plain HTTP: the answer's key is `cells`; a session's is `rows`). Each answer is one reconcile. The start read gives the id the held read begins after (`[WATCH_BEFORE_READ_V1]`). `fdf-events` is no longer used by the hub.
   - On start the hub adopts the kernel's state and never tears down first (`:236-254`).
   - It has no memory of former members: a non-member's peer is deleted on the next event (`[HUB_HAS_NO_MEMORY_V1]`, `:238-244`).
 - **Advertising peers.** The hub writes its peer list into its own facts, so a member raises its tunnel only once its key is present. This fixed a first-handshake race of 5,129 ms that occurred one run in three (`[HUB_SAYS_ITS_PEERS_V1]`, `:302-310`).
@@ -1666,9 +1686,9 @@ These are in tension with R-F1 and R-F2. They are recorded here, not ruled on.
 
 | Where | What |
 |---|---|
-| `fdf_client.cpp:384-389` | `[MAPS_ASSERTED_V1]`: mappings re-asserted every `FDF_ASSERT_SEC` (default 30 s). `mapown_oracle` depends on it. |
+| `fdf_client.cpp` | Removed in r40: `[MAPS_ASSERTED_V1]` (the 30 s re-assertion). The member's own `(pond, member)` cell is written after its mappings instead. |
 | `rlite_ctl.cpp:98-104` | The address claim spins with `yield` until its own claim is visible. The comment says "no wait". |
-| FrogNet daemon | Region rejoin every 5 s; capability re-probed every 600 s; graph hold-down of 60 s before removing a vanished row (`opt/frognet_semantic/internet_tunnels_v3/poll.py:1652, 1355`; `graph_apply.py:42`). |
+| FrogNet daemon | Region rejoin: an event since r41 (`_wait_rejoin`). Still on time: capability re-probed every 600 s (a measurement); graph hold-down of 60 s before removing a vanished row (`graph_apply.py:42`); the WireGuard handshake is polled every 100 ms during bring-up (`poll.py`), and a standing session to another system-space entry is opened again 2 s after it closes (`region.py`). The kernel gives no handshake event, and nothing local says a remote machine is back. |
 | `fdf_region.cpp:235-239` | `notify_agents()` pushes a topology event to every agent on every node change. The 2026-10-08 fix `[NO_TOPOLOGY_BROADCAST_V1]` was lost with that workspace. |
 | `fdf-ram-manager.sh:13-15` | When the mapping is local, the manager's address is the default route's source, else the first global address: two steps. |
 | `fdfram.where()`, `fdf-reach ram_of` | `fdfram.where()`: the environment, else `join.env`. `fdf-reach ram_of`: the pond's `ponds/<area>.env`, else the environment when `RINA_AREA` is that pond. Both allowed in `static-no-fallback.sh:101`, with a stated reason. |

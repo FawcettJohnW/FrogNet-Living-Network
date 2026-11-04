@@ -69,7 +69,7 @@ NFT = os.environ.get("FDF_NFT", "nft")
 HUB_ADDR = "10.253.253.254"           # [HUB_ADDRESS_FROM_ITS_HOST_V1] set in main from hub.env (FDF_HUB_ADDR)
 GENERIC_NAME = "_generic"
 SVC = "fdf-org"
-BUILD_TAG = "fdf-org-2026-11-03-r25"                # [APP_SAYS_ITS_BUILD_V1] said when serve starts
+BUILD_TAG = "fdf-org-2026-11-03-r26"                # [APP_SAYS_ITS_BUILD_V1] said when serve starts
 sys.path.insert(0, os.environ.get("FDF_PY", "/opt/fdf/lib/python"))
 import fdfram
 import fdf_watch  # noqa: E402  [EVENTS_NOT_TIMERS_V1]
@@ -350,11 +350,29 @@ def door_ask(src, ask):
     rec.setdefault("invited", time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()))
     write_admitted(name, rec)
     apply_reach("door: %s at %s" % (name, level))
-    log("DOOR: %s (%s, nick %r) at level %s: edge %s, %s" % (name, rec["device"], rec["nick"], level, edge, rec["state"]))
+    held_by_hub = hub_holds(pub)                                  # [EVENTS_NOT_TIMERS_V1] before the answer, not after it
+    log("DOOR: %s (%s, nick %r) at level %s: edge %s, %s%s" % (name, rec["device"], rec["nick"], level, edge, rec["state"],
+        "" if held_by_hub else "; the hub has not said it holds its peer (FDF_FACTS %s)" % (h().get("FDF_FACTS") or "not set")))
     out = {"ok": True, "name": name, "edge": edge, "state": rec["state"], "login_port": levels[rec["level"]]["login_port"]}
     if keep:
         out["held"] = held
     return out
+
+
+def hub_holds(pub):
+    """[HUB_SAYS_ITS_PEERS_V1] [EVENTS_NOT_TIMERS_V1] the hub writes the peers it holds into its facts AFTER the kernel has
+    them; the door answers once the device's key is there -- the event of the hub's facts file being written (inotify),
+    bounded at 10 s -- so the device's login, on its own tunnel, finds its peer at the hub the first time: nothing on the
+    device asks again on a timer. No FDF_FACTS in hub.env: said in the door's line, and answered at once."""
+    f = h().get("FDF_FACTS", "")
+    if not f:
+        return False
+    def has(p):
+        try:
+            return pub in (json.load(open(p)).get("peers") or [])
+        except (OSError, ValueError):
+            return False
+    return fdf_watch.until(f, has, 10.0)
 
 
 def login(src, port, ask):
@@ -396,6 +414,7 @@ def space_list(lv):
 
 
 _space_proc = {}          # space -> its RAM manager (a child of this process)
+_space_sock = {}          # space -> (port, its listening socket): kept across its RAM manager's restarts
 _space_failed = {}        # space -> its cell when its RAM manager exited without ever listening: started again when the cell changes
 EV = queue.Queue()        # [EVENTS_NOT_TIMERS_V1] every event serve acts on, from the threads that block on them; one consumer
 
@@ -406,9 +425,8 @@ def spaces_up():
     is the event its capability is written on, and its exit the event it is started again on."""
     exe = os.path.join(os.environ.get("FDF_BIN", "/opt/fdf/bin"), "fdf-ram")
     for n, sp in cells("space").items():
-        p = _space_proc.get(n)
-        if p is not None and p.poll() is None:
-            continue
+        if n in _space_proc:
+            continue                                          # running, or its exit not yet acted on (the event does)
         if n in _space_failed:
             if _space_failed[n] == sp:
                 continue                                      # it never listened: not again until its cell changes
@@ -416,9 +434,17 @@ def spaces_up():
         e = dict(os.environ, RINA_REGION_FILE=os.path.join(VAR, "space-%s.perm" % sp["file"]))
         e.pop("RINA_MAP_AREA", None)
         try:
+            # [LISTENING_SOCKET_OUTLIVES_THE_HOST_V1] the space's listening socket is this process's, made once and handed
+            # to each RAM manager it starts: a device's connect while it starts again waits in the backlog, not refused
+            ps = _space_sock.get(n)
+            if ps is None or ps[0] != sp["port"]:
+                ls = socket.socket(); ls.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+                ls.bind((HUB_ADDR, sp["port"])); ls.listen(1024)
+                ps = _space_sock[n] = (sp["port"], ls)
+            e["RIBBIT_LISTEN_FD"] = str(ps[1].fileno())
             t0 = time.time()
             p = subprocess.Popen([exe, "--listen", "%s:%d" % (HUB_ADDR, sp["port"]), "--api", fdfram.API],
-                                 env=e, stdout=subprocess.DEVNULL,
+                                 env=e, stdout=subprocess.DEVNULL, pass_fds=(ps[1].fileno(),),
                                  stderr=open(os.path.join(VAR, "space-%s.log" % sp["file"]), "a"))
             _space_proc[n] = p
             log("SPACE %s: its RAM manager on %s:%d (pid %d)" % (n, HUB_ADDR, sp["port"], p.pid))
@@ -575,6 +601,7 @@ def handle_event(kind, x, net):
         if _space_proc.get(n) is p:
             log("SPACE %s: its RAM manager exited (rc %s)%s" % (n, p.returncode,
                 "; starting it again" if was_up else " without ever listening; started again when its cell changes"))
+            del _space_proc[n]                                    # (serve's next spaces_up starts it again)
             if not was_up:
                 _space_failed[n] = sp
 
@@ -590,7 +617,7 @@ def _region_reader():
         except (fdfram.RamError, OSError) as e:
             t = time.time()
             log("the region's RAM %s: %s; read again when it says it is up" % (h().get("RINA_RAM", ""), e))
-            fdf_watch.wait_up(h().get("RINA_RAM", ""), t)
+            fdf_watch.after_failure(h().get("RINA_RAM", ""), e, t)
             last, back = 0, True
             continue                                              # (read from the start: its first rows are the event)
         if rows:
@@ -813,7 +840,7 @@ def _net_reader():
         except (fdfram.RamError, OSError) as e:
             t = time.time()
             log("ORG: the network RAM %s: %s; read again when it says it is up" % (net.hostport, e))
-            fdf_watch.wait_up(net.hostport, t)
+            fdf_watch.after_failure(net.hostport, e, t)
 
 
 def decode_line(tok):

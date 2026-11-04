@@ -904,7 +904,7 @@ std::string wait(const Json& in) {
         if (period > 0) { vars = {"tick", "sub|" + D};
             answer = [D, key, s, after, period](bool always) { const uint64_t t = now_ms(); std::string b;
                 if (!dmem::get("sub|" + D, key, b)) return std::string("{\"ok\":false,\"error\":\"ENOENT\",\"why\":\"the subscription ended\"}");
-                if (!always && t < after + uint64_t(period * 1000)) return std::string();
+                if (!always && t < after + uint64_t(period * 1000)) { dmem::due_at(after + uint64_t(period * 1000)); return std::string(); }
                 return one_row(key, t, "{\"t\":" + nows() + ",\"data\":" + sub_data(D, s) + "}"); }; }
         else { vars = {"sub|" + D}; for (auto& n : s["names"].a) for (auto& v : name_vars(D, n.s)) vars.push_back(v);   // [NAME_REV_COVERS_ANSWER_V1]
             answer = [D, key, s, after](bool always) { std::string b;
@@ -918,7 +918,7 @@ std::string wait(const Json& in) {
         if (j["every_s"].n > 0) vars.push_back("tick");
         const std::string from = j["from"].s; const double every = j["every_s"].n;
         answer = [D, key, from, every, after](bool always) { const uint64_t r = every > 0 ? now_ms() : std::max(names_rev(D, Json::parse("[" + Json::quote(from) + "]")), dmem::newest("outs|" + D));
-            if (!always && (every > 0 ? r < after + uint64_t(every * 1000) : r <= after)) return std::string();
+            if (!always && (every > 0 ? r < after + uint64_t(every * 1000) : r <= after)) { if (every > 0) dmem::due_at(after + uint64_t(every * 1000)); return std::string(); }
             const std::string v = out_value(D, key); return v.empty() ? std::string() : one_row(key, r, v); }; }
     else if (what == "box" || what == "in" || what == "req") { must(D, w, "wait_" + what, w.apn);
         const std::string v = what + "|" + D + "|" + w.apn; vars = {v};
@@ -984,13 +984,16 @@ std::string dispatch(const std::string& fn, const Json& in) {
     if (fn == "version") return std::string("{\"ok\":true,\"daf_model\":\"DAF_MODEL_V1\",\"memory\":\"DAF_FROG_V1\",\"server\":\"") + FDF_BUILD_TAG + "\"}";
     refuse("ENOSYS", "no DAF operation " + fn);
 }
-// the region exists from the host's start; its clock answers the periodic waits (the only work time drives)
+// the region exists from the host's start; its clock answers the periodic waits when they are due (the only work time drives)
 const bool g_daf_at_start = [] { dfile().open_and_replay();
     // [TERM_REACHES_EXIT_V1] this thread starts before main (static init), so it does not inherit main's blocked
     // SIGTERM/SIGINT: blocked here too, or the kernel delivers them to it and the process dies without exit() (no
     // atexit reports, no coverage data) -- end_on_term_signals' sigwait thread is then the only one that takes them
     std::thread([] { sigset_t s; sigemptyset(&s); sigaddset(&s, SIGTERM); sigaddset(&s, SIGINT); pthread_sigmask(SIG_BLOCK, &s, nullptr);
-                     for (;;) { std::this_thread::sleep_for(std::chrono::milliseconds(20)); dmem::wake("tick"); } }).detach(); return true; }();
+                     for (;;) { const uint32_t seen = dmem::due_word().gen.load(std::memory_order_seq_cst);   // [DUE_NOT_TICK_V1]
+                                uint64_t d = dmem::due().load(std::memory_order_acquire); const uint64_t t = now_ms();
+                                if (d <= t) { if (dmem::due().compare_exchange_strong(d, UINT64_MAX)) dmem::wake("tick"); continue; }
+                                rmem::sleep_on(dmem::due_word(), seen, d == UINT64_MAX ? 1e9 : double(d - t) / 1000.0); } }).detach(); return true; }();
 }  // namespace
 
 static const double g_diag_ms = [] { const char* e = getenv("DAF_DIAG"); return e && *e ? atof(e) : -1.0; }();

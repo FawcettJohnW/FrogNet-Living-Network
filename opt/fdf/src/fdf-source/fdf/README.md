@@ -157,8 +157,8 @@ On a FrogNet node in a region the node's Apache serves /opt/fdf/www/fdf at /fdf/
 fdf_dashboard.html); its PHP runs as www-data under /opt/fdf/fdf.env, read on each request. On a machine that is not a
 FrogNet node, serve the same directory with
 `. /opt/fdf/fdf.env && PHP_CLI_SERVER_WORKERS=4 php -S 0.0.0.0:8090 -t /opt/fdf/www` and open
-`http://<that machine>:8090/fdf/`. `/fdf/chat.html` needs `. /opt/fdf/fdf.env && python3 /opt/fdf/bin/chat-service.py`
-on the same machine.
+`http://<that machine>:8090/fdf/`. `/fdf/chat.html` needs nothing else: each message is its sender's own
+`(chat, msg, <sender>.<ms>)` cell and the room is that family, read held in its write order ([ROOM_IS_THE_FAMILY_V1]).
 
 ### Join a network, list it, and log in from a browser ([FDF_JOIN_V1] [FDF_LS_V1] [FDF_TERM_V1] [FDF_BROWSER_V1])
 

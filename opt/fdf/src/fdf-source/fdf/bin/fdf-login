@@ -28,12 +28,13 @@ The generic credential is one WireGuard peer: two devices on it at the same inst
 answer asks again, here, by itself.
 """
 import base64, json, os, socket, subprocess, sys, tempfile, threading, time
+sys.path.insert(0, os.environ.get("FDF_PY", "/opt/fdf/lib/python"))
+import fdf_watch  # noqa: E402  [EVENTS_NOT_TIMERS_V1]
 
 STATE = os.environ.get("FDF_LOGIN_STATE", "/opt/fdf/var/login.json")
 WG_IMPL = os.environ.get("FDF_WG_IMPL", "")                      # "wireguard-go" where the kernel has no WireGuard
-TRIES = 6
 UNREACHABLE_S = 10.0   # [UNREACHABLE_IN_10S_V1] (John 2026-11-03: "Change the 76s to 10") a door that does not answer in this is given up
-BUILD_TAG = "fdf-login-2026-11-03-r4"              # [APP_SAYS_ITS_BUILD_V1] said when a login starts
+BUILD_TAG = "fdf-login-2026-11-03-r5"              # [APP_SAYS_ITS_BUILD_V1] said when a login starts
 
 
 def log(*a):
@@ -71,10 +72,8 @@ def iface_up(name, priv, edge, peer_pub, endpoint, addr, metric=100):
     subprocess.run(["ip", "link", "del", name], capture_output=True)
     if WG_IMPL == "wireguard-go":
         run("wireguard-go", name)
-        for _ in range(100):
-            if subprocess.run(["wg", "show", name], capture_output=True).returncode == 0:
-                break
-            time.sleep(0.05)
+        # [EVENTS_NOT_TIMERS_V1] its control socket appearing is the event (inotify), not `wg show` asked every 50 ms
+        fdf_watch.until("/var/run/wireguard/%s.sock" % name, os.path.exists, 5.0)
     else:
         run("ip", "link", "add", name, "type", "wireguard")
     fd, kf = tempfile.mkstemp(prefix="fdf-login-", suffix=".key")   # 0600, and this process's own
@@ -140,12 +139,16 @@ def at_manager(line, m, i, st, cred, nick, kind):
         t += 1
         iface_up(door, m.get("generic", line["generic"])["privkey"], m.get("generic", line["generic"])["edge"],
                  m["pubkey"], m["endpoint"], m["addr"], 99)
+        t0 = time.monotonic()
         try:
             ans = exchange(m["addr"], m["door_port"], {"pubkey": st["pubkey"], "level": line["level"], "device": st["device"],
                                                        "nick": nick, "kind": kind}, door, timeout=min(8.0, max(0.2, end - time.monotonic())))
-        except (OSError, ValueError) as e:                         # another device on the generic credential, or slow
-            log("door at %s, try %d: %s; asking again" % (m["endpoint"], t, e))
-            time.sleep(min(1.0, max(0.0, end - time.monotonic())))
+        except (OSError, ValueError) as e:
+            if time.monotonic() - t0 < 0.1:                        # refused or unreachable at once: nothing answers there
+                iface_down(door)
+                raise Refused("the door at %s: %s (at once: nothing answers there)" % (m["endpoint"], e))
+            log("door at %s, try %d: %s; asking again" % (m["endpoint"], t, e))   # another device on the generic credential
+            # at the same instant: asked again now (no sleep), in the time left
         finally:
             iface_down(door)                                       # 2 the generic tunnel is gone after the one exchange
     if not ans or not ans.get("ok"):
@@ -159,16 +162,14 @@ def at_manager(line, m, i, st, cred, nick, kind):
               order=i, metric=100 + i)
     iface_up(own, st["privkey"], ans["edge"], m["pubkey"], m["endpoint"], m["addr"], 100 + i)
     # 3 login on its own tunnel
-    out = None
-    for t in range(1, TRIES + 1):
-        try:
-            out = exchange(m["addr"], int(ans.get("login_port") or m["login_port"]), cred, own)   # the level it holds
-            break
-        except (OSError, ValueError) as e:                         # the hub adds the peer on its admitted-file event
-            log("login at %s, try %d: %s; asking again" % (m["endpoint"], t, e))
-            time.sleep(1 + t)
+    # [HUB_SAYS_ITS_PEERS_V1] [EVENTS_NOT_TIMERS_V1] the door answered once the hub held this device's peer, so the login
+    # on its own tunnel is one exchange: no try-and-sleep against the hub's peer add (the transport carries its retries)
+    try:
+        out = exchange(m["addr"], int(ans.get("login_port") or m["login_port"]), cred, own, timeout=UNREACHABLE_S)   # the level it holds
+    except (OSError, ValueError) as e:
+        raise Refused("login at %s: no answer (%s)" % (m["endpoint"], e))
     if not out or not out.get("ok"):
-        raise Refused("login at %s refused: %s" % (m["endpoint"], (out or {}).get("why", "no answer after %d tries" % TRIES)))
+        raise Refused("login at %s refused: %s" % (m["endpoint"], (out or {}).get("why", "no answer")))
     me.update(level=out["level"], ram=out["ram"], session_port=out["session_port"], spaces=out.get("spaces", []),
               area=out.get("area", ""))
     if out.get("site_key"):

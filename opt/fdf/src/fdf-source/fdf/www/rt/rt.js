@@ -120,18 +120,17 @@ async function full(f) {
     if (f.failed) { f.failed = false; note('') }                  // it answers again: the page's "did not answer" goes
     f.onChange(f.cells)
     f.cells.ram = f.ram; await again(f.s, f.v, f.cells); againAll(fam(f.s).team || 'general', f.ram)
-  } catch (e) { f.failed = true; (f.onError || console.error)(e); f.retry = Date.now() + 2000 }
-}
+  } catch (e) { f.failed = true; (f.onError || console.error)(e); f.full = false; f.down = true }   // [EVENTS_NOT_TIMERS_V1]
+}                                                                  // held: the door answers "again" when its RAM says it is up
 async function loop() {
   if (looping) return
   looping = true
   try {
     while (fams.size) {
       let pending                                                    // every family read in full before holding: a family
-      while ((pending = [...fams.values()].filter(f => f.full && !(f.retry > Date.now()))).length)   // added meanwhile too
+      while ((pending = [...fams.values()].filter(f => f.full)).length)   // added meanwhile too
         for (const f of pending) await full(f)
-      const held = [...fams.values()].filter(f => !f.full)
-      if (!held.length) { await new Promise(r => setTimeout(r, 500)); continue }
+      const held = [...fams.values()]
       const w = held.map(f => { const { svc, team } = fam(f.s), o = { s: svc, v: f.v, after: f.after, ram: f.ram || '' }; if (team) o.team = team; return o })
       const ac = new AbortController(); holding = ac
       const n = ++seq, t0 = performance.now(); diag('watch#' + n, 'ask', held.map(f => f.s + ' ' + f.v + ' after ' + f.after).join('; '))
@@ -139,12 +138,14 @@ async function loop() {
         const j = await call(RAM + '?' + q({ op: 'watch', w: JSON.stringify(w), wait: HOLD_S }), { signal: ac.signal })
         diag('watch#' + n, 'answer', Math.round(performance.now() - t0) + 'ms', (j.got || []).map(g => held[g.k].s + ' rows=' + g.rows.length + ' ids=' + g.rows.map(r => r.id).join(',') + ' ram=' + g.ram).join('; ') || 'none')
         for (const g of j.got || []) { const f = held[g.k]; if (!fams.has(f.id)) continue
-          if (g.ram && f.ram && g.ram !== f.ram) { f.full = true; continue }          // on another RAM now: read everything there
+          if (g.again || f.down || (g.ram && f.ram && g.ram !== f.ram)) { f.full = true; f.down = false; continue }   // another RAM, or the same one again: read everything there
           if (g.rows.length) { take(f, g.rows); f.onChange(f.cells) } }
       } catch (e) {
         if (ac.signal.aborted) { diag('watch#' + n, 'ended: the set of families changed'); continue }
         diag('watch#' + n, 'failed', Math.round(performance.now() - t0) + 'ms', e.message)
         for (const f of held) { f.failed = true; (f.onError || console.error)(e); f.full = true }
+        // the one wait on a timer left: this page's own node's web server did not answer -- a browser is given no event
+        // for a server coming back, so it asks again after 2 s (every RAM, by contrast, is held on its own event)
         await new Promise(r => setTimeout(r, 2000))
       } finally { if (holding === ac) holding = null }
     }

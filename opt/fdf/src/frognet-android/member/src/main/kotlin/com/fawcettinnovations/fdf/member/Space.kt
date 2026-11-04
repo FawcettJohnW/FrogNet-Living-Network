@@ -50,7 +50,10 @@ class Ram(val hostport: String) {
 class Space(val name: String, private val managers: List<SpaceAt>, var onChange: ((String?, String) -> Unit)? = null,
             private val me: String = "", private val log: (String) -> Unit = {}, private val spec: SelectSpec = SelectSpec.DEFAULT) {
     companion object {
-        const val RECONNECT_MS = 2000L
+        /** [EVENTS_NOT_TIMERS_V1] a failure that comes at once (refused, unreachable, no route): that host is asked again
+         *  on this space's next event, not on a timer. Any other failure: asked again at once (its connect waits in the
+         *  transport, or in the backlog of the socket its RAM host keeps [LISTENING_SOCKET_OUTLIVES_THE_HOST_V1]). */
+        val AT_ONCE = listOf("refused", "unreachable", "no route", "network is down", "cannot assign", "no such device")
         /** [SPACES_V1] the space `name` from this device's logins */
         fun fromLogins(name: String, logins: List<ManagerLogin>, me: String = "", log: (String) -> Unit = {},
                        spec: SelectSpec = SelectSpec.DEFAULT): Space {
@@ -66,17 +69,18 @@ class Space(val name: String, private val managers: List<SpaceAt>, var onChange:
     @Volatile var current: Int? = null; private set
     @Volatile var ram: Ram? = null; private set
     private val events = LinkedBlockingQueue<Pair<String, Int>>()
+    private val allTried = java.util.concurrent.CountDownLatch(1)              // every host answered or failed
+    private val chosen = java.util.concurrent.CountDownLatch(1)                // the first choice (a host, or nothing)
+    private val kick = Array(cands.size) { java.util.concurrent.Semaphore(0) }  // this space's next event, for a refused host
 
     private fun say(m: String) = log("[SPACE] $name: $m")
 
     fun start(): Space {
         Thread({ mergeLoop() }, "space-merge-$name").apply { isDaemon = true; start() }
         for (i in cands.indices) Thread({ standing(i) }, "space-stand-$name-$i").apply { isDaemon = true; start() }
-        val t0 = System.currentTimeMillis()
-        while (System.currentTimeMillis() - t0 < 3000 && !tried.all { it }) Thread.sleep(20)
+        allTried.await(3, java.util.concurrent.TimeUnit.SECONDS)   // the first choice once each host has answered or failed
         events.put("start" to -1)
-        for (i in 0 until 200) { if (ram != null) return this; Thread.sleep(50) }
-        say("no RAM host answered yet; the space is on nothing until one does")
+        chosen.await()                                              // the merge loop's first decision
         return this
     }
 
@@ -87,8 +91,8 @@ class Space(val name: String, private val managers: List<SpaceAt>, var onChange:
             try {
                 var rows = r.read("fdf-space", "can")
                 cap[i] = rows.lastOrNull()?.get("bag") ?: Json.parse("{}")
-                var last = rows.mapNotNull { it["id"].num?.toLong() }.maxOrNull() ?: -1L
-                alive[i] = true; tried[i] = true; events.put("up" to i)
+                var last = rows.mapNotNull { it["id"].num?.toLong() }.maxOrNull() ?: 0L   // (0, not -1: a read past 0 is held)
+                alive[i] = true; triedOne(i); events.put("up" to i)
                 while (true) {
                     rows = r.read("fdf-space", "can", "", last, 30.0)
                     if (rows.isNotEmpty()) {
@@ -97,12 +101,15 @@ class Space(val name: String, private val managers: List<SpaceAt>, var onChange:
                     }
                 }
             } catch (e: Exception) {
-                val was = alive[i]; alive[i] = false; tried[i] = true
+                val was = alive[i]; alive[i] = false; triedOne(i)
                 if (was) { say("$n closed: ${e.message}"); events.put("down" to i) }
+                val m = (e.message ?: e.toString()).lowercase()
+                if (AT_ONCE.any { it in m }) { kick[i].drainPermits(); kick[i].acquire() }   // this space's next event
             }
-            Thread.sleep(RECONNECT_MS)
         }
     }
+
+    private fun triedOne(i: Int) { tried[i] = true; if (tried.all { it }) allTried.countDown() }
 
     private fun aliveCands() = cands.indices.filter { alive[it] }.map { j -> Triple(cap[j]["guid"].str.ifEmpty { cands[j].first }, cap[j], j) }
 
@@ -110,6 +117,7 @@ class Space(val name: String, private val managers: List<SpaceAt>, var onChange:
         var started = false
         while (true) {
             val (ev, _) = events.take()
+            for (k in kick) k.release()                                  // a host refused at once asks again on this event
             if (ev == "start") started = true
             if (!started) continue
             val ac = aliveCands()
@@ -118,12 +126,13 @@ class Space(val name: String, private val managers: List<SpaceAt>, var onChange:
             if (pick == null) {
                 if (current != null) { say("lost ${cands[current!!].first} and no other RAM host is alive: on nothing"); current = null; ram = null }
                 else if (ev == "start") say("no RAM host answers: on nothing")
+                if (ev == "start") chosen.countDown()
                 continue
             }
             if (pick == current) continue
             val old = current?.let { cands[it].first }
             val (n, r) = cands[pick]
-            current = pick; ram = r
+            current = pick; ram = r; chosen.countDown()
             say("$ev: on $n (${r.hostport}), the best alive by capability (${Select.explain(spec, name, ac.map { it.first to it.second })})" + (old?.let { ", was $it" } ?: ""))
             try { onChange?.invoke(old, n) } catch (e: Exception) { say("the application's change handler failed: ${e.message}") }
         }

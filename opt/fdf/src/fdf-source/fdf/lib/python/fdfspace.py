@@ -33,7 +33,12 @@ import queue, threading, time
 import fdfram
 import fdf_select
 
-RECONNECT_S = 2                               # a candidate that does not answer is asked again this often
+# [EVENTS_NOT_TIMERS_V1] a host whose session failed is asked again at once: its connect waits in the transport (TCP's own
+# retransmissions to a host that cannot be reached; the backlog of a space's listening socket, which its RAM host keeps
+# while the RAM manager starts again [LISTENING_SOCKET_OUTLIVES_THE_HOST_V1]). One refused or unreachable at once (no
+# route, no interface, nothing listening) is asked again on this space's next event -- another host's session or
+# capability changing -- not on a timer.
+_AT_ONCE = ("refused", "unreachable", "no such device", "no route", "network is down", "cannot assign")
 
 
 def _log(*a):
@@ -52,6 +57,9 @@ class Space:
         self.events = queue.Queue()
         self.switched_at = None                   # time.monotonic() of the last switch
         self._tried = [False] * len(self.cands)   # each host has had its first answer or its first failure
+        self._all_tried = threading.Event()       # [EVENTS_NOT_TIMERS_V1] set when every host has answered or failed
+        self._chosen = threading.Event()          # set by the first choice (a host, or nothing)
+        self._kick = [threading.Event() for _ in self.cands]   # set on every event of this space: a refused host asks again
 
     def candidates(self):
         return self.cands
@@ -60,28 +68,22 @@ class Space:
         threading.Thread(target=self._merge_loop, name="space-merge-" + self.name, daemon=True).start()
         for i in range(len(self.cands)):
             threading.Thread(target=self._standing, args=(i,), name="space-stand-%s-%d" % (self.name, i), daemon=True).start()
-        t0 = time.monotonic()                     # the first choice once each host has answered or failed (3 s at most)
-        while time.monotonic() - t0 < 3 and not all(self._tried):
-            time.sleep(0.02)
+        self._all_tried.wait(3)                   # the first choice once each host has answered or failed (3 s at most)
         self.events.put(("start", None))
-        for _ in range(200):
-            if self.ram is not None:
-                return self
-            time.sleep(0.05)
-        _log(self.name, ": no RAM host answered yet; the space is on nothing until one does")
+        self._chosen.wait()                       # the merge loop's first decision: a host, or nothing (said)
         return self
 
     def _standing(self, i):
-        """this host's standing session: a held read on its capability tuple, for as long as it answers. A host that
-        does not answer is asked again every RECONNECT_S."""
+        """this host's standing session: a held read on its capability tuple, for as long as it answers; asked again at
+        once when it ends (the transport waits), or on this space's next event when it is refused at once."""
         name, ram = self.cands[i]
         while True:
             last = -1
             try:
                 rows = ram.read("fdf-space", "can")
                 self.cap[i] = (rows[-1].get("bag") or {}) if rows else {}
-                last = max([r["id"] for r in rows] or [-1])
-                self.alive[i] = True; self._tried[i] = True
+                last = max([r["id"] for r in rows] or [0])    # (0, not -1: a read past 0 is held; past -1 is not)
+                self.alive[i] = True; self._tried_one(i)
                 self.events.put(("up", i))
                 while True:
                     rows = ram.read("fdf-space", "can", after=last, wait_s=fdfram.HOLD_S)
@@ -91,13 +93,20 @@ class Space:
                         self.events.put(("capability", i))
             except Exception as e:                # any failure of this session: a thread that died here would leave
                 was = self.alive[i]               # the host never asked again
-                self.alive[i] = False; self._tried[i] = True
+                self.alive[i] = False; self._tried_one(i)
                 if was:
                     _log(self.name, ": %s closed: %s" % (name, e))
                     self.events.put(("down", i))
                 elif not isinstance(e, (fdfram.RamError, OSError)):
-                    _log(self.name, ": %s: %s %s (asked again in %d s)" % (name, type(e).__name__, e, RECONNECT_S))
-            time.sleep(RECONNECT_S)
+                    _log(self.name, ": %s: %s %s" % (name, type(e).__name__, e))
+                if any(w in str(e).lower() for w in _AT_ONCE):
+                    self._kick[i].clear()
+                    self._kick[i].wait()          # this space's next event
+
+    def _tried_one(self, i):
+        self._tried[i] = True
+        if all(self._tried):
+            self._all_tried.set()
 
     def best(self):
         """the alive host the space is on: the best by capability (fdf_select), the guid (else the host's name) last"""
@@ -109,11 +118,15 @@ class Space:
         started = False
         while True:
             ev, i = self.events.get()
+            for k in self._kick:                  # a host refused at once asks again on this event
+                k.set()
             if ev == "start":
                 started = True
             if not started:
                 continue                          # before the first choice: start makes it, once all have answered
             pick = self.best()
+            if ev == "start" and pick is None:
+                self._chosen.set()                # on nothing, said below
             if pick is None:
                 if self.current is not None:
                     _log(self.name, ": lost %s and no other RAM host is alive: on nothing" % self.cands[self.current][0])
@@ -126,6 +139,7 @@ class Space:
             old = None if self.current is None else self.cands[self.current][0]
             name, ram = self.cands[pick]
             self.current, self.ram = pick, ram
+            self._chosen.set()
             self.switched_at = time.monotonic()
             _log(self.name, ": %s: on %s (%s), the best alive by capability (%s)%s" % (ev, name, ram.hostport,
                  fdf_select.explain(self.select, self.name, [((self.cap[j].get("guid") or self.cands[j][0]), self.cap[j]) for j in range(len(self.cands)) if self.alive[j]]),

@@ -65,7 +65,7 @@ parts() { NS $1 curl -s -m 3 -X POST -d '{"op":"participants"}' "http://$2$API?o
 ORG() { local n=$1; shift; NS $n sh -c "mount --bind $T/$n/run-wg /run/wireguard && exec env FDF_HUB_ENV=$T/$n/hub.env FDF_ADMITTED=$T/$n/admitted FDF_SITE_KEYS=$T/$n FDF_PY=$FDFPY python3 $T/bin/fdf-org \"\$@\"" sh "$@"; }
 for n in A B; do mkdir -p $T/$n/run-wg; PUB=$(NS $n ip -4 -o addr show dev v-$n | awk '{print $4}' | cut -d/ -f1)
   printf '%s\n' "$KEY" > $T/$n/site-key-$SITE; chmod 600 $T/$n/site-key-$SITE
-  printf 'RINA_RAM=%s\nFDF_AREA=%s\nFDF_HUB_NAME=hub%s\nFDF_ENDPOINT=%s:51820\nFDF_LISTEN=51820\nFDF_IFACE=wg-hub\n' $RAM $SITE $n $PUB > $T/$n/hub.env
+  printf 'RINA_RAM=%s\nFDF_AREA=%s\nFDF_HUB_NAME=hub%s\nFDF_ENDPOINT=%s:51820\nFDF_LISTEN=51820\nFDF_IFACE=wg-hub\n' $RAM $SITE $n $PUB > $T/$n/hub.env; echo "FDF_FACTS=$T/$n/facts.json" >> $T/$n/hub.env   # [HUB_SAYS_ITS_PEERS_V1] the door answers once the hub holds the peer
   NS $n sh -c "mount --bind $T/$n/run-wg /run/wireguard && exec env FDF_BIN=$B python3 $T/bin/fdf-hub --area $SITE --iface wg-hub --endpoint $PUB:51820 --listen 51820 --key $T/$n/wg.key --iface-only" > $T/$n/iface.log 2>&1
   hostup $n
   NS $n sysctl -q -w net.ipv4.ip_forward=1

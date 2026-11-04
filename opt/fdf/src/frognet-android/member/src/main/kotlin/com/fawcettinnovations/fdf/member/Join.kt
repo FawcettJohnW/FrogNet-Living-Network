@@ -94,13 +94,10 @@ class OrgLogin(private val bridge: Bridge, private val devicePub: String, privat
             Json.parse(s.getInputStream().bufferedReader().readLine() ?: "{}")
         }
 
-    private fun <T> tried(what: String, f: () -> T): T {
-        var last: Exception? = null
-        for (t in 1..tries) {
-            try { return f() } catch (e: java.io.IOException) { last = e; log("$what, try $t: ${e.message}; asking again"); Thread.sleep(1000L + 1000L * t) }
-        }
-        throw LoginRefused("$what: no answer after $tries tries (${last?.message})")
-    }
+    /** [HUB_SAYS_ITS_PEERS_V1] [EVENTS_NOT_TIMERS_V1] the door answered once the hub held this device's peer, so the
+     *  login is one exchange (its transport carries its own retries), not tries with sleeps against the hub's peer add */
+    private fun <T> tried(what: String, f: () -> T): T =
+        try { f() } catch (e: java.io.IOException) { throw LoginRefused("$what: no answer (${e.message})") }
 
     /** [UNREACHABLE_IN_10S_V1] (John 2026-11-03: "Change the 76s to 10") the door's one exchange: a target that does not
      *  answer it within UNREACHABLE_MS is given up, each try bounded by what is left (it was 6 tries of 8 s and their
@@ -112,9 +109,13 @@ class OrgLogin(private val bridge: Bridge, private val devicePub: String, privat
             val left = (end - System.currentTimeMillis()).toInt()
             if (left < 200) throw LoginRefused("$what: no answer in ${UNREACHABLE_MS / 1000} s after $t tries (${last?.message})")
             t++
+            val t0 = System.currentTimeMillis()
             try { return f(left) } catch (e: java.io.IOException) {
-                last = e; log("$what, try $t: ${e.message}; asking again")
-                Thread.sleep(minOf(1000L, maxOf(0L, end - System.currentTimeMillis())))
+                last = e
+                // refused or unreachable at once: nothing answers there now -- given up, said (gone is gone); a try that
+                // timed out (another device on the generic credential at the same instant) is asked again now
+                if (System.currentTimeMillis() - t0 < 100) throw LoginRefused("$what: ${e.message} (at once: nothing answers there)")
+                log("$what, try $t: ${e.message}; asking again")
             }
         }
     }

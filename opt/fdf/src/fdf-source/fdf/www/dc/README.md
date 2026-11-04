@@ -18,7 +18,7 @@ the cells it watches. The instance names the owner.
 | `resp.unit.<unit>` | the team, ambulance, equipment holder or consenting individual | `{kind, caps[], available, crew, location, contact, at}` |
 | `hosp.status.<facility>` | the hospital | `{receiving, caps[], beds{er,icu,general,peds}, location, contact, note, at}` — receiving `open` / `limited` / `diversion` / `closed` |
 | `dc.apps.<node>` | each node, at start | `{node, apps:[{id, title, version, page}], at}` — what that node serves |
-| `chat.inbox.<sender>`, `chat.room.<n>` | the existing FD&F chat (`../fdf/chat.html`, `chat-service.py`) | unchanged |
+| `chat.msg.<sender>.<ms>` | the FD&F chat (`../fdf/chat.html`): each message its sender's own cell; the room is the family | unchanged |
 
 `location` is `{lat, lon, text}`; either part may be empty (a typed place is enough).
 `at` is the writer's clock in epoch seconds; readers show it as age.

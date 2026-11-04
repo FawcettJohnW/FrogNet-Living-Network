@@ -9,8 +9,12 @@ import java.util.Map;
 /**
  * One service of one memory, followed -- [RAM_FOLLOWER_V1] abstracted from the kart app (its Region) into this library, for every app.
  * One session; the whole service is read once, then held (after=last, wait_s=30): the memory answers when something is
- * written, and every tuple written comes back once ({} = gone, its writer's session ended). A broken session is said and
- * a new one opened a second later (gen changes, so the owner writes its truths again). Writes are posted on the current
+ * written, and every tuple written comes back once ({} = gone, its writer's session ended). A broken session is said
+ * (FAILING) and a new one opened at once; a session that cannot be opened waits until the owner says the RAM is
+ * there again: again() -- [EVENTS_NOT_TIMERS_V1] the
+ * owner holds the event (its door says the RAM is up, or where the RAMs are now), the follower does not retry on a
+ * timer. A 409 ESTALE ([NOT_THIS_MEMORY_V1]: the RAM started again) is the RAM answering: a new session at once.
+ * onUp runs on every new session, before onChange: the owner writes its own truths there again. Writes are posted on the current
  * session and never waited for [KART_ON_THE_SESSION_V1]; with own=true they go with this session [OWNED_CELL_GOES_WITH_THE_SESSION_V1].
  */
 public final class Follower {
@@ -30,6 +34,8 @@ public final class Follower {
     private volatile long writes = 0;
     private String bad = null;
     private final Thread follower;
+    private final java.util.concurrent.Semaphore kick = new java.util.concurrent.Semaphore(0);   // again(): the owner's event
+    private volatile Runnable onUp = null;
 
     public Follower(String name, String host, int port, String api, String service, Log log, Ends ends, Runnable onChange) {
         this(name, host, port, api, service, "", log, ends, onChange);
@@ -48,6 +54,10 @@ public final class Follower {
     public long writes() { return writes; }
     public boolean up() { return mem != null; }
     public String failing() { return bad; }
+    /** [EVENTS_NOT_TIMERS_V1] the RAM is there again (the owner's event): a failed follower opens its session now */
+    public void again() { if (mem == null) kick.release(); }
+    /** runs on every new session of this follower (and now, if it is up): the owner's own truths are written there */
+    public Follower onUp(Runnable r) { onUp = r; if (up()) r.run(); return this; }
 
     private void failing(String e) {
         if (bad == null || !bad.equals(e)) { log.say(name + " FAILING: " + e); bad = e; }
@@ -99,7 +109,7 @@ public final class Follower {
         while (!stopped) {
             RamSession m;
             try { m = new RamSession(host, port, 5000); }
-            catch (RamSession.Unreachable e) { failing("cannot open the session: " + e.getMessage()); sleep(1000); continue; }
+            catch (RamSession.Unreachable e) { failing("cannot open the session: " + e.getMessage()); held(); continue; }
             boolean first = true;
             long last = 0;
             try {
@@ -121,28 +131,34 @@ public final class Follower {
                     }
                     if (ends != null && ends.ended(snapshot())) { stop(); break; }
                     if (first) {
-                        mem = m; gen++; first = false;
+                        mem = m; gen++; first = false; kick.drainPermits();
                         if (bad != null) { log.say(name + " working again (a new session)"); bad = null; }
+                        Runnable u = onUp; if (u != null) u.run();
                     }
                     if (onChange != null) onChange.run();
                 }
             } catch (RamSession.Unreachable e) {
                 if (!stopped) failing(e.getMessage());
+                // a session that was open and ended: the RAM's listening socket outlives its host
+                // ([LISTENING_SOCKET_OUTLIVES_THE_HOST_V1]), so a new session now waits in its backlog; a connect that
+                // fails is what waits for the owner's event (held)
+                if (!first) { if (mem == m) mem = null; m.close(); continue; }
             } catch (RamSession.Refused e) {
                 if (!stopped) failing("refused: " + e.getMessage());
+                if (String.valueOf(e.getMessage()).contains("ESTALE")) { if (mem == m) mem = null; m.close(); continue; }   // up: at once
             }
             if (mem == m) mem = null;
             m.close();
-            if (!stopped) sleep(1000);
+            if (!stopped) held();
         }
     }
 
     /** Ends this follower and its session: everything written with own=true goes with it. */
     public void stop() {
-        stopped = true;
+        stopped = true; kick.release();
         RamSession m = mem; mem = null;
         if (m != null) m.close();
     }
 
-    private static void sleep(long ms) { try { Thread.sleep(ms); } catch (InterruptedException e) { Thread.currentThread().interrupt(); } }
+    private void held() { try { kick.acquire(); kick.drainPermits(); } catch (InterruptedException e) { Thread.currentThread().interrupt(); stopped = true; } }
 }

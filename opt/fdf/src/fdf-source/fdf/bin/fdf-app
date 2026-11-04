@@ -62,7 +62,7 @@ Environment: RINA_RAM (the network RAM; else /opt/fdf/var/join.env), FDF_FACTS (
 (/opt/fdf/apps), FDF_VAR (/opt/fdf/var), FDF_BIN (/opt/fdf/bin), FDF_APP_LISTEN (the address the droplets listen on;
 default this member's .1).
 """
-import hashlib, hmac, json, os, queue, signal, subprocess, sys, threading, time, zlib
+import hashlib, hmac, json, os, queue, signal, socket, subprocess, sys, threading, time, zlib
 
 BUILD_TAG = "fdf-app-2026-11-03-r8"
 LIB = os.environ.get("FDF_PY") or os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "lib", "python")
@@ -268,6 +268,7 @@ class Server:
         self.me = self.f.get("guid")
         self.listen = os.environ.get("FDF_APP_LISTEN") or dot1(self.f)
         self.procs = {}                      # (app, r) -> Popen
+        self.socks = {}                      # (app, r) -> its listening socket, kept while served here
         self.events = queue.Queue()
         self.rm = ram()
         self.said = set()                    # where keys this member has said
@@ -394,12 +395,27 @@ class Server:
         port = port_of(app, r)
         env = dict(os.environ, RINA_REGION_FILE=os.path.join(VAR, "app-%s-%s.perm" % (app, r)))
         env.pop("RINA_MAP_AREA", None)
-        self.procs[(app, r)] = subprocess.Popen(
+        # [LISTENING_SOCKET_OUTLIVES_THE_HOST_V1] the RAM's listening socket is this droplet's for as long as it serves
+        # the RAM: a RAM manager started again on it loses no connect (they wait in the backlog)
+        ls = self.socks.get((app, r))
+        if ls is None:
+            ls = socket.socket(); ls.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+            ls.bind((self.listen, port)); ls.listen(1024)
+            self.socks[(app, r)] = ls
+        env["RIBBIT_LISTEN_FD"] = str(ls.fileno())
+        p = self.procs[(app, r)] = subprocess.Popen(
             [os.path.join(BIN, "fdf-ram"), "--listen", "%s:%d" % (self.listen, port), "--api", fdfram.API],
-            env=env, stdout=subprocess.DEVNULL, stderr=open(os.path.join(VAR, "app-%s-%s.log" % (app, r)), "a"))
-        log("serving %s's RAM %s on %s:%d (pid %d)" % (app, r, self.listen, port, self.procs[(app, r)].pid))
+            env=env, stdout=subprocess.DEVNULL, pass_fds=(ls.fileno(),), stderr=open(os.path.join(VAR, "app-%s-%s.log" % (app, r)), "a"))
+        log("serving %s's RAM %s on %s:%d (pid %d)" % (app, r, self.listen, port, p.pid))
+        def exited():                              # [EVENTS_NOT_TIMERS_V1] its exit is the event it is started again on
+            p.wait()
+            self.events.put("again: %s's RAM %s exited (rc %s)" % (app, r, p.returncode))
+        threading.Thread(target=exited, daemon=True).start()
 
     def stop(self, app, r):
+        ls = self.socks.pop((app, r), None)
+        if ls is not None:
+            ls.close()                             # no longer served here: a connect is refused, the client moves on
         p = self.procs.pop((app, r), None)
         if p is not None and p.poll() is None:
             p.terminate()
@@ -504,7 +520,7 @@ class Server:
                 # then learn the world again (read the family from the start)
                 t = time.time()
                 log("held read on %s ended (%s); read again when the RAM says it is up, writing this droplet's own truth again" % (SVC, e))
-                fdf_watch.wait_up(self.rm.hostport, t)
+                fdf_watch.after_failure(self.rm.hostport, e, t)
                 last = -1
                 self.events.put("again: the held read ended")
 
@@ -521,7 +537,7 @@ class Server:
             except fdfram.RamError as e:
                 t = time.time()
                 log("held read on (pond, member) ended (%s); read again when the RAM says it is up" % e)
-                fdf_watch.wait_up(self.rm.hostport, t)
+                fdf_watch.after_failure(self.rm.hostport, e, t)
                 last = -1
                 self.events.put("again: the members' read ended")
 

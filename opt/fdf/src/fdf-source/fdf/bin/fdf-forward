@@ -13,7 +13,7 @@ V=${FDF_VAR:-/opt/fdf/var}
 T0=$(date '+%Y-%m-%d %H:%M:%S')
 if systemctl is-active -q frognet-tunnel-daemon-v3 2>/dev/null; then
   printf '%s\n' "$AREA" > "$V/forward.want.tmp" && mv "$V/forward.want.tmp" "$V/forward.want"
-  for i in $(seq 1 100); do [ "$(cat "$V/forward" 2>/dev/null)" = "$AREA" ] && break; sleep 0.1; done
+  python3 ${FDF_PY:-/opt/fdf/lib/python}/fdf_watch.py has "$V/forward" "$AREA" 10    # the daemon writing `forward` is the event
   journalctl -u frognet-tunnel-daemon-v3 --since "$T0" --no-pager -o cat | grep "REGION: forward" | tail -2
   [ "$(cat "$V/forward" 2>/dev/null)" = "$AREA" ] || { echo "fdf-forward: the daemon has not switched to $AREA in 10 s (its log says why)" >&2; exit 1; }
 else

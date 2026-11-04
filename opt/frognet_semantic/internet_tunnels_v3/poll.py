@@ -1379,10 +1379,9 @@ def run_region_loop():
                     config.log.info("REGION: capability unchanged (load/free space not announced)")
             except Exception as e:
                 config.log.error("REGION: capability probe FAILED: %s (again in %ds)", e, int(every))
-            for _ in range(int(every)):
-                if not config.running:
-                    return
-                time.sleep(1)
+            import select as _sel                    # the measurement's period, ended at once by a stop
+            if _sel.select([config.stop_r], [], [], every)[0] or not config.running:
+                return
     import threading as _thr0
     _thr0.Thread(target=_capability_publisher, name="capability", daemon=True).start()
 
@@ -1580,6 +1579,7 @@ def run_region_loop():
             switch["to"] = (want, env)
             config.log.warning("REGION: forward %s -> %s requested; ending the session to %s", config.REGION_AREA, want, config.REGION_RAM)
             region.end_events()
+            os.write(_rejoin_wake[1], b"s")              # and a rejoin wait ends now
     _thr.Thread(target=_forward_watch, name="region-forward", daemon=True).start()
 
     def _do_switch():
@@ -1609,7 +1609,6 @@ def run_region_loop():
         "REGION: 10.253.0.0/16 is unreachable except through the hub channel%s [REGION_NEVER_ON_THE_UNDERLAY_V1]",
         "" if r.returncode == 0 else (": could not install the route: " + r.stderr.strip()))
     was_up = False                      # [REGION_LOSS_IS_A_TRANSITION_V1] "lost" is said and acted on once per loss
-    backoff = 5
     returned = {"name": None}
     prefer = {"name": None, "lost": None}        # [NO_FLAP_V1] the entry the standing sessions say to take next; the one lost
     def _on_up(e):                               # an entry came back: taken only off the LAN (the node's last resort)
@@ -1619,9 +1618,11 @@ def run_region_loop():
             config.log.warning("REGION: system space: %s is alive and this node is on the LAN: moving to it [NO_FLAP_V1]", e["name"])
             region.end_events()
     region.standing.on_up = _on_up
+    config.on_stop.append(region.end_events)         # [STOP_IS_AN_EVENT_V1] a stop ends the held read too
     while config.running:
         up = False
         evs = None
+        t_walk = time.time()                         # an up said after this starts the next walk
         # [SYSTEM_SPACE_V1] (ORGANIZATIONS.md section 4) the system space's list: the configured RAM managers, then the
         # LAN's from the highest IP down to this node's own (always running, so the walk always ends somewhere).
         # [NO_FLAP_V1] after a loss the entry the standing sessions found alive is taken first, asked nothing; the one
@@ -1668,10 +1669,9 @@ def run_region_loop():
         if not up:
             config.log.warning("REGION: not reachable: nothing on the system space's list answered (%s); %s",
                                ", ".join(e["name"] for e in order),
-                               "will keep trying every %ds, quietly" % backoff if not was_up else "was up: treating as lost")
+                               "waiting for one to say it is up" if not was_up else "was up: treating as lost")
         if up:
             was_up = True
-            backoff = 5
             took = prefer.pop("t", None)
             config.log.warning("REGION: system space on %s (%s), %d of %d on the list%s [SYSTEM_SPACE_V1]",
                                order[at]["name"], order[at]["ram"], at + 1, len(order),
@@ -1723,17 +1723,59 @@ def run_region_loop():
         if switch["to"]:                # [FORWARD_SWITCH_IN_PLACE_V1] a switch: no wait, the new pond now
             _do_switch()
             continue
-        for _ in range(backoff):
-            if not config.running or switch["to"]:
-                break
-            time.sleep(1)
+        _wait_rejoin(region, order, t_walk)
         if not config.running:
             return
         if switch["to"]:
             _do_switch()
             continue
-        backoff = 5                     # [REJOIN_EVERY_5S_V1] one HTTP call per try; the doubling to 60 s made a region restart cost up to a minute
         _write_view("steady", "rejoin:attempt")
+
+
+_rejoin_wake = os.pipe()
+
+
+def _wait_rejoin(region, order, since):
+    """[EVENTS_NOT_TIMERS_V1] nothing on the system space's list answered: the next walk is on an event, not a 5 s timer
+    -- one of the list's RAM managers saying it is up (FDF_VAR/ram/<host>_<port>.up: written by the fdf-ram on this
+    machine when it listens, or by this machine's fdf-client for the address it reached), the LAN's list of RAM managers
+    changing (lan-rams.json), a forward switch, or the daemon's stop. One select on all of them."""
+    import ctypes, ctypes.util, select, struct
+    libc = ctypes.CDLL(ctypes.util.find_library("c"), use_errno=True)
+    ifd = libc.inotify_init1(0o2000000)
+    d_up = os.path.join(region.FDF_VAR, "ram"); os.makedirs(d_up, exist_ok=True)
+    d_lan = os.path.dirname(region.LAN_RAMS) or "."
+    for d in (d_up, d_lan):
+        if ifd < 0 or libc.inotify_add_watch(ifd, d.encode(), 0x8 | 0x80 | 0x100) < 0:   # CLOSE_WRITE MOVED_TO CREATE
+            raise OSError(ctypes.get_errno(), "inotify on " + d)
+    ups = set()
+    for e in order:
+        h, _, p = str(e.get("ram", "")).rpartition(":")
+        ups.update({"%s_%s.up" % (h, p), "0.0.0.0_%s.up" % p})
+    def newer(n):
+        try:
+            return os.stat(os.path.join(d_up, n)).st_mtime >= since
+        except OSError:
+            return False
+    try:
+        if any(newer(n) for n in ups):
+            return
+        config.log.warning("REGION: waiting for a RAM manager on the list to say it is up (%s), the LAN's list to change, or a switch [EVENTS_NOT_TIMERS_V1]",
+                           ", ".join(e["name"] for e in order))
+        while config.running:
+            r, _, _ = select.select([ifd, _rejoin_wake[0], config.stop_r], [], [])
+            if _rejoin_wake[0] in r:
+                os.read(_rejoin_wake[0], 64); return
+            if config.stop_r in r:
+                return
+            buf = os.read(ifd, 8192); off = 0
+            while off < len(buf):
+                _wd, _mask, _ck, ln = struct.unpack_from("iIII", buf, off); name = buf[off + 16: off + 16 + ln].rstrip(b"\0").decode(errors="replace"); off += 16 + ln
+                if (name in ups and newer(name)) or name == os.path.basename(region.LAN_RAMS):
+                    config.log.warning("REGION: %s: walking the list again", name)
+                    return
+    finally:
+        os.close(ifd)
 
 
 def run_lan_only_loop():
@@ -1745,8 +1787,9 @@ def run_lan_only_loop():
     n = _tear_down_all_kernel_wg_ifaces("lan_only: no region, no authority to hold tunnels")
     config.log.warning("LAN-only loop started: no region (RINA_RAM unset), %d wg iface(s) taken down; discovery and the "
                        "elections are runMerge's, this daemon has nothing else to do [LAN_ONLY_NO_REGION_V1]", n)
-    while config.running:
-        time.sleep(1)
+    import select
+    while config.running:                       # [STOP_IS_AN_EVENT_V1] held on the stop itself
+        select.select([config.stop_r], [], [])
 
 
 def run_daemon_loop():

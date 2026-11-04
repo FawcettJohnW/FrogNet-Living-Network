@@ -14,8 +14,8 @@
   publish_plan_maps(prefixes)   -> facts.maps = the plan's prefixes with the locator set of every hub whose tunnel
                                    handshook, prio from the measured handshake RTT (lower first); fdf-client registers
                                    them, signed and session-bound ([MAP_FROM_FACTS_V1]).
-  events()                      -> lines from fdf-events (one held FNWP session): "p" participants changed, "m" a
-                                   mapping changed, "gone" the region is gone. No timer.
+  events()                      -> "ready", then "p" per change of the members' own cells (pond, member) -- one held
+                                   read; a member's mappings change with them -- and "gone": the region is gone. No timer.
 
 Config: RINA_RAM=host:8840 (region mode on) from /opt/fdf/var/join.env and RINA_AREA=<area name> from site.env, one
 file each [REGION_SWITCH_ONE_FILE_V1] (config.load_config). Facts file: FDF_FACTS (default /opt/fdf/var/facts.json). Tools: FDF_BIN (default
@@ -25,6 +25,7 @@ import hashlib
 import ipaddress
 import json
 import os
+import socket
 import subprocess
 import urllib.error
 import urllib.request
@@ -32,7 +33,7 @@ import urllib.request
 from . import config
 
 API = "/FawcettInnovations.RINA.ram_interface.php"
-BUILD_TAG = "fdf-2026-11-01-r38"      # [FDF_VERSION_V1] keep equal to src/fdf_version.hpp
+BUILD_TAG = "fdf-2026-11-03-r41"      # [FDF_VERSION_V1] keep equal to src/fdf_version.hpp
 HUB_MASK = 16
 ALLOWED = "10.0.0.0/8"
 
@@ -640,7 +641,8 @@ def publish_plan_maps(prefixes: list) -> None:
 # applies; `fdf-forward` writes `forward.want` and this daemon makes the switch, in an order that leaves nothing behind:
 # its maps cleared, the old pond withdrawn, THEN `forward` written (each fdf-client@<area> follows it), then the new pond.
 FDF_VAR = os.environ.get("FDF_VAR", "/opt/fdf/var")
-_events_proc = None
+_events_conn = None
+_events_end = False
 
 
 def pond_env(area: str) -> dict:
@@ -672,37 +674,62 @@ def write_word(name: str, word: str) -> None:
 
 
 def end_events() -> None:
-    """End the held fdf-events session: the loop's events() returns and the loss path runs."""
-    p = _events_proc
-    if p is not None:
+    """End the held read on the members' family: the loop's events() returns "gone" and the loss path runs."""
+    global _events_end
+    _events_end = True
+    c = _events_conn
+    if c is not None and c.sock is not None:
         try:
-            p.kill()
+            c.sock.shutdown(socket.SHUT_RDWR)
         except OSError:
             pass
 
 
-# ---------------------------------------------------------------- change notification
+# ---------------------------------------------------------------- change: the members' own cells
 def events():
-    """Yields "ready" once fdf-events has registered its watches, then "p", "m" or "gone" as the region reports them.
-    Runs fdf-events; its exit = the region is gone.
-    [WATCH_BEFORE_READ_V1] "ready" is yielded, not swallowed: the caller reads the world only AFTER it, so a change
-    between the read and the watch cannot be missed (it arrives as an event, queued in the pipe while the read runs)."""
-    fdf_bin = os.environ.get("FDF_BIN", "/opt/fdf/bin")
-    env = dict(os.environ, RINA_RAM=config.REGION_RAM)
-    p = subprocess.Popen([os.path.join(fdf_bin, "fdf-events")], stdout=subprocess.PIPE, text=True, bufsize=1, env=env)
-    global _events_proc
-    _events_proc = p                    # [FORWARD_SWITCH_IN_PLACE_V1] end_events() ends this session
-    try:
-        for line in p.stdout:
-            # [EVENT_KIND_FIRST_FIELD_V1] fdf-events says "<ready|p>\t<ms>\t<snapshot>" since r32; the kind is yielded
-            # (the callers compare it to "ready", "p", "m", "gone" and read the world themselves)
-            line = line.strip().split("\t", 1)[0]
-            yield line
-            if line == "gone":
-                return
-    finally:
+    """Yields "ready" once the members' family is read (its newest id known), then "p" each time a held read on it
+    returns rows -- a member joining, its facts changing (fdf-client writes them AFTER its mappings), or gone (its
+    session ended, and its mappings with it) -- and "gone" when the read fails: the region is gone.
+    [MEMBER_IS_A_TUPLE_V1][EVENTS_NOT_TIMERS_V1] (John 2026-11-03: "no notifications ... not like a messaging thing")
+    each member's own truth is (pond, member, <its ns>), written on its session; this is one held read on that family,
+    over HTTP. (Was fdf-events: the region's participant and mapping notices relayed as lines by a child process.)
+    [WATCH_BEFORE_READ_V1] "ready" comes after the family's newest id is taken: the caller reads the world after it,
+    so a change between the two is past that id and returns the next held read at once."""
+    import http.client
+    global _events_conn, _events_end
+    _events_end = False
+    host, _, port = config.REGION_RAM.rpartition(":")
+    def read(after, wait_s):
+        global _events_conn
+        c = http.client.HTTPConnection(host, int(port), timeout=15 + wait_s)
+        _events_conn = c
         try:
-            p.kill()
-        except OSError:
-            pass
+            q = "?op=read&service=pond&variable=member" + ("&after=%d&wait_s=%g" % (after, wait_s) if after >= 0 else "")
+            c.request("GET", API + q)
+            r = c.getresponse(); body = r.read()
+            if r.status != 200:
+                raise RuntimeError("HTTP %d: %s" % (r.status, body.decode(errors="replace")[:160]))
+            return json.loads(body.decode())["cells"]        # plain HTTP: the RAM names them cells
+        finally:
+            _events_conn = None
+            c.close()
+    try:
+        last = max([int(c.get("id", 0)) for c in read(-1, 0)] + [0])
+    except Exception as e:
+        config.log.warning("REGION: the members' family at %s: %s", config.REGION_RAM, e)
+        yield "gone"
+        return
+    yield "ready"
+    while not _events_end:
+        try:
+            rows = read(last, 25)
+        except Exception as e:
+            if not _events_end:
+                config.log.warning("REGION: the held read on the members' family at %s ended: %s", config.REGION_RAM, e)
+            break
+        if _events_end:
+            break
+        if rows:
+            last = max([last] + [int(c.get("id", 0)) for c in rows])
+            yield "p"
     yield "gone"

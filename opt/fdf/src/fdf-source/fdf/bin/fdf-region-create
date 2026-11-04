@@ -92,7 +92,7 @@ HUBDIR=$HUBROOT/$AREA; HUBENV=$HUBDIR/hub.env; HUBKEY=$HUBDIR/hub.key
 # stay). A member whose join line named an earlier RAM manager address needs a new invitation.
 if [ -e "$HUBENV" ] && [ "$REPLACE" = 1 ]; then
   echo "== --replace: stopping region $AREA (fdf-hub@$AREA, fdf-ram-$AREA, fdf-client-$AREA); its site key, records and members stay"
-  systemctl disable --now "fdf-hub@$AREA.service" "fdf-ram-$AREA.service" "fdf-client-$AREA.service" 2>&1 | grep -v "^Removed" | sed "s/^/   /"
+  systemctl disable --now "fdf-hub@$AREA.service" "fdf-ram-$AREA.service" "fdf-ram-$AREA.socket" "fdf-client-$AREA.service" 2>&1 | grep -v "^Removed" | sed "s/^/   /"
   ip link show "$IFACE" >/dev/null 2>&1 && ip link del "$IFACE" && echo "   $IFACE removed (made again below)"
   rm -f "$HUBENV"
 fi
@@ -142,6 +142,23 @@ RestartSec=1
 [Install]
 WantedBy=multi-user.target
 EOF
+# [LISTENING_SOCKET_OUTLIVES_THE_HOST_V1] the RAM manager's listening socket is systemd's, kept across its restarts: a
+# member's connect while it starts again waits in the backlog -- nothing is refused, so nothing retries on a timer.
+# FreeBind: the hub address is on the region's interface, which ExecStartPre makes.
+cat > /etc/systemd/system/$RAMU.socket <<EOF
+# made by fdf-region-create $AREA $ADDR: the listening socket of the region's RAM manager
+[Unit]
+Description=FD&F RAM manager socket for the $AREA region, TCP $RAM_PORT on $HUB_ADDR
+
+[Socket]
+ListenStream=$HUB_ADDR:$RAM_PORT
+FreeBind=yes
+Backlog=1024
+NoDelay=yes
+
+[Install]
+WantedBy=sockets.target
+EOF
 cat > /etc/systemd/system/$CLIU.service <<EOF
 # made by fdf-region-create $AREA $ADDR: the hub's own membership of the region, named after this machine ($NAME)
 [Unit]
@@ -165,18 +182,19 @@ EOF
 systemctl daemon-reload
 # [START_FAILURE_IS_SEEN_V1 - final gates] `systemctl enable --now` exits 0 when the start job fails (systemd 255, seen
 # on the region host); `systemctl start` exits 1. So: enable, then start, and the start's status is the check.
-systemctl enable $RAMU.service && systemctl start $RAMU.service || { echo "fdf-region-create: $RAMU did not start: journalctl -u $RAMU" >&2; exit 1; }
+systemctl enable $RAMU.socket && systemctl start $RAMU.socket && systemctl enable $RAMU.service && systemctl start $RAMU.service || { echo "fdf-region-create: $RAMU did not start: journalctl -u $RAMU" >&2; exit 1; }
 echo "== $RAMU started; waiting for it to answer on $HUB_ADDR:$RAM_PORT"
-call() {   # call JSON -> the RAM manager's answer
-  python3 - "$HUB_ADDR" "$RAM_PORT" "$1" <<'PY'
+call() {   # call JSON [TIMEOUT_S] -> the RAM manager's answer
+  python3 - "$HUB_ADDR" "$RAM_PORT" "$1" "${2:-5}" <<'PY'
 import json, sys, urllib.request
 req = urllib.request.Request("http://%s:%s/FawcettInnovations.RINA.ram_interface.php?op=rina" % (sys.argv[1], sys.argv[2]),
                              data=sys.argv[3].encode(), headers={"Content-Type": "application/json"})
-print(urllib.request.urlopen(req, timeout=5).read().decode())
+print(urllib.request.urlopen(req, timeout=float(sys.argv[4])).read().decode())
 PY
 }
-for i in $(seq 1 40); do call '{"op":"version"}' >/dev/null 2>&1 && break; sleep 0.5; done
-call '{"op":"version"}' 2>/dev/null | sed 's/^/   RAM manager: /' || { echo "fdf-region-create: the RAM manager does not answer on $HUB_ADDR:$RAM_PORT: journalctl -u $RAMU" >&2; exit 1; }
+# [LISTENING_SOCKET_OUTLIVES_THE_HOST_V1] the socket unit listens before the service starts: one call waits in its backlog
+# until fdf-ram accepts it -- no retry loop
+call '{"op":"version"}' 20 2>/dev/null | sed 's/^/   RAM manager: /' || { echo "fdf-region-create: the RAM manager does not answer on $HUB_ADDR:$RAM_PORT: journalctl -u $RAMU" >&2; exit 1; }
 R=$(call "{\"op\":\"map_site\",\"name\":\"$AREA\",\"key\":\"$KEY\"}" 2>&1)
 case "$R" in *'"ok":true'*) echo "== map_site $AREA: $R" ;; *) echo "fdf-region-create: map_site $AREA was refused: $R" >&2; exit 1 ;; esac
 cat > "$HUBENV.tmp" <<EOF
@@ -206,9 +224,11 @@ systemctl enable $IDU.service && systemctl start $IDU.service || { echo "fdf-reg
 # credential and door, and says where the hub is; levels and join lines are then made on any machine in the region
 [ -f /etc/systemd/system/fdf-org@.service ] || { echo "fdf-region-create: /etc/systemd/system/fdf-org@.service missing: it ships in the region-holder bundle" >&2; exit 1; }
 systemctl enable fdf-org@$AREA.service && systemctl start fdf-org@$AREA.service || { echo "fdf-region-create: fdf-org@$AREA did not start: journalctl -u fdf-org@$AREA" >&2; exit 1; }
-# [FDF_CHAT_SERVICE_UNIT_V1] the area's one chat service, beside its RAM manager (fdf-chat@.service ships in this bundle)
-systemctl enable fdf-chat@$RAM_PORT.service && systemctl start fdf-chat@$RAM_PORT.service || { echo "fdf-region-create: fdf-chat@$RAM_PORT did not start: journalctl -u fdf-chat@$RAM_PORT" >&2; exit 1; }
-ADOPT=0; for i in $(seq 1 30); do journalctl -u $HUBU --since "$T0" --no-pager -o cat 2>/dev/null | grep -q 'start (adopt)' && { ADOPT=1; break; }; sleep 0.5; done
+# [ROOM_IS_THE_FAMILY_V1] no chat service: a message is its sender's own (chat, msg) cell and the room is that family.
+# A unit an earlier build enabled is stopped and removed.
+systemctl disable --now "fdf-chat@$RAM_PORT.service" >/dev/null 2>&1; rm -f /etc/systemd/system/fdf-chat@.service
+# [EVENTS_NOT_TIMERS_V1] the hub's own line is the event: its journal followed until it says so (at most 15 s)
+ADOPT=0; timeout 15 journalctl -u $HUBU --since "$T0" -f -o cat 2>/dev/null | grep -q -m1 'start (adopt)' && ADOPT=1
 echo "== $HUBU (want: 'hub $NAME on $IFACE', 'start (adopt)')"
 journalctl -u $HUBU --since "$T0" --no-pager -o cat | tail -4 | sed 's/^/   /'
 [ "$ADOPT" = 1 ] || { echo "fdf-region-create: $HUBU did not say 'start (adopt)' within 15 s: journalctl -u $HUBU" >&2; exit 1; }
