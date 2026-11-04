@@ -62,8 +62,8 @@ The admin performs setup at the primary.
 network is the trust; nothing else is asked for it. It asks the SystemRam for the app's configuration tuple,
 `(fdf-app, config, <app>.*)`, and takes the one the read returns (no choosing between members' tuples, no search:
 every member holds a read on that family already).
-- **Found**: the app is set up. It is shown filled in; the user confirms it (or edits it: the same questions, its
-  values as the answers). The admin key is never in the SystemRam, so the admin's
+- **Found**: the app is set up. It is shown and adopted as it is; changes are made in the admin app, never at install
+  (John: "There is no --clone"). The admin key is never in the SystemRam, so the admin's
   password is asked once (or `--admin USER:PASSWORD`), checked against the check value there, and the key kept here:
   this member can then verify the admin app's changes. This member saves it as its own copy, the one it writes again
   after a failover.
