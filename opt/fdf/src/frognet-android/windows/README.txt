@@ -9,9 +9,7 @@ tunnel (stop both before starting this: the same key must not be in two tunnels)
 
 Once:
   1. Unzip to C:\fdf (any folder).
-  2. Get wintun-0.14.1.zip from https://www.wintun.net and copy bin\amd64\wintun.dll into C:\fdf.
-     (The only file not included: it carries Wintun's signed driver and comes only from its authors.)
-  3. Get this computer's invitation: on any machine already in the region, `fdf-identity NAME --leaf` prints one line,
+  2. Get this computer's invitation: on any machine already in the region, `fdf-identity NAME --leaf` prints one line,
      fdfinv1.<...> (a secret: it holds this computer's key). Then, in a terminal opened as Administrator:
        cd C:\fdf
        setup.cmd fdfinv1.<...>
@@ -41,5 +39,5 @@ From another terminal (no Administrator needed):
 
 The Communicator: comms-app.exe --name John <the --ram/--media that "ask comms" printed> --camera ... --mic N
 
-Layout: fdf-bridge.cmd, fdf-tun.exe, wintun.dll (yours), runtime\ (OpenJDK 21, only what the member uses), lib\ (the member), etc\ponds.txt,
+Layout: fdf-bridge.cmd, fdf-tun.exe, wintun.dll (Wintun 0.14.1, signed by WireGuard LLC; LICENSE-wintun.txt), runtime\ (OpenJDK 21, only what the member uses), lib\ (the member), etc\ponds.txt,
 var\ (this computer's key, facts, forward pond, alias ledger -- made here, never shipped).

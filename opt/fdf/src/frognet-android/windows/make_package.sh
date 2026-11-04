@@ -24,10 +24,15 @@ mkdir -p $R/legal; for m in java.base jdk.net jdk.crypto.ec; do cp -a $S/legal/$
    rmi.dll jsound.dll jaas.dll sspi_bridge.dll javaaccessbridge.dll *.exe.tmp jabswitch.exe jfr.exe jcmd.exe jrunscript.exe rmiregistry.exe \
    kinit.exe klist.exe ktab.exe jinfo.exe jmap.exe jps.exe jstack.exe jstat.exe jwebserver.exe keytool.exe)
 cp "$A/windows/fdf-bridge.cmd" "$A/windows/setup.cmd" "$A/windows/README.txt" $W/; cp "$A/windows/etc/ponds.txt" $W/etc/; cp "$A/tun/out/fdf-tun.exe" $W/
+# [WINTUN_SHIPPED_V1] the signed wintun.dll ships beside fdf-tun.exe (its license 3.d allows it alongside software using its API)
+cp "$A/tun/wintun/wintun.dll" $W/wintun.dll; cp "$A/tun/wintun/LICENSE.txt" $W/LICENSE-wintun.txt
 cp "$A"/member-cli/build/install/fdf-member-kt/lib/*.jar $W/lib/
 B=$(sed -n 's/.*MEMBER_BUILD = "\(.*\)".*/\1/p' "$A/member/src/main/kotlin/com/fawcettinnovations/fdf/member/Member.kt")
 F=$(sed -n 's/^const build = "\(.*\)"/\1/p' "$A/tun/main.go")
 echo "$B + $F, Java $(sed -n 's/JAVA_VERSION="\(.*\)"/\1/p' $R/release) (java.base, jdk.net, jdk.crypto.ec)" > $W/BUILD.txt
-for f in $W/fdf-bridge.cmd $W/setup.cmd $W/README.txt $W/etc/ponds.txt $W/BUILD.txt; do sed -i 's/\r$//; s/$/\r/' $f; done
-Z="$O/fdf-windows-$B.zip"
+for f in $W/fdf-bridge.cmd $W/setup.cmd $W/README.txt $W/etc/ponds.txt $W/BUILD.txt $W/LICENSE-wintun.txt; do sed -i 's/\r$//; s/$/\r/' $f; done
+# [PACKAGE_REVISION_V1] a change to the package alone (not the member) still gets a new name: PKG
+PKG=w1
+sed -i "1s/^/package $PKG: /" $W/BUILD.txt
+Z="$O/fdf-windows-$B-$PKG.zip"
 (cd $T/pkg && rm -f "$Z" && zip -qr9 "$Z" fdf-windows); ls -la "$Z"; cat $W/BUILD.txt

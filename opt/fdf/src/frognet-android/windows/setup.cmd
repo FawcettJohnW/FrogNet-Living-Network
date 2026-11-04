@@ -18,7 +18,7 @@ if /i not "%PROCESSOR_ARCHITECTURE%"=="AMD64" if /i not "%PROCESSOR_ARCHITEW6432
   exit /b 2
 )
 if not exist "%D%wintun.dll" (
-  echo setup: wintun.dll is missing: get wintun-0.14.1.zip from https://www.wintun.net and copy bin\amd64\wintun.dll into %D%
+  echo setup: wintun.dll is missing from %D% ^(it ships in fdf-windows.zip: unzip it again^)
   exit /b 2
 )
 if not exist "%D%var" mkdir "%D%var"

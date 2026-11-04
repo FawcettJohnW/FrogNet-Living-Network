@@ -23,7 +23,7 @@ if errorlevel 1 (
   exit /b 2
 )
 if not exist "%D%wintun.dll" (
-  echo fdf-bridge: wintun.dll is missing: get wintun-0.14.1.zip from https://www.wintun.net and copy bin\amd64\wintun.dll into %D%
+  echo fdf-bridge: wintun.dll is missing from %D% ^(it ships in fdf-windows.zip: unzip it again^)
   exit /b 2
 )
 set "FDF_INVITE=%D%var\invite"
