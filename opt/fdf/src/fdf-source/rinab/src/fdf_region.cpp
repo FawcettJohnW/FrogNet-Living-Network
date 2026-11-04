@@ -236,8 +236,11 @@ void answer_parked_wait(frogram::MemoryApi& m, rmem::InputSpace* sp);
 void push_event(const std::string& proc, const std::string& bag);
 // [RMT_OVER_DIF_LINKS_V1] the topology may have changed (a machine's devices, an enrollment, a lower flow, a shim's
 // device, a machine gone): every agent is told, through its own input space, and re-derives its routes from the records
+// [NO_NOTICE_NOBODY_READS_V1] only to an agent that holds a wait on its space (awatch, as pwatch for the participants'
+// watchers): an FD&F member's session (fdf-client, the Kotlin member) holds the members' family instead and is never
+// pushed anything -- was: every node record, read or not, so the unread spaces of every FD&F member grew with each event
 void notify_agents(frogram::MemoryApi& m) {
-    for (auto& r : scan(m, "node", "")) push_event("agent:" + r.rest, "{\"k\":\"t\"}");
+    for (auto& r : scan(m, "awatch", "")) if (!r.value.empty()) push_event("agent:" + r.rest, "{\"k\":\"t\"}");
 }
 // [FDF_PARTICIPANTS_CHANGE_V1] (transport CHANGE) every process watching the participant set hears of each change (an
 // announcement, a machine's session up or down) as one event in its input space; its held wait returns, it re-reads
@@ -355,6 +358,8 @@ std::string wait_answer(frogram::MemoryApi& m, const std::string& me_p, rmem::In
 std::string wait_op(const std::string& me_p, uint64_t after) {
     frogram::MemoryApi& m = region_memory();
     rmem::InputSpace* sp = rmem::spaces().get(me_p, true);
+    if (me_p.compare(0, 6, "agent:") == 0 && get(m, "awatch", me_p.substr(6)) != sess_key(rina_session_id()))
+        put(m, "awatch", me_p.substr(6), sess_key(rina_session_id()));        // [NO_NOTICE_NOBODY_READS_V1] it reads its space
     if (sp->any_after(after) || sp->gone()) return wait_answer(m, me_p, sp, after);
     void* h = rina_defer();
     if (!h) throw std::runtime_error("wait: no continuation to park (not inside a request)");
@@ -1002,6 +1007,7 @@ void rina_session_down(uint64_t sid) {
     put(m, "sess", sess_key(sid), "");
     put(m, "speer", sess_key(sid), "");                              // [SESSION_PEER_V1]
     for (auto& r : scan(m, "pwatch", "")) if (r.value == sess_key(sid)) put(m, "pwatch", r.rest, "");
+    for (auto& r : scan(m, "awatch", "")) if (r.value == sess_key(sid)) put(m, "awatch", r.rest, "");   // [NO_NOTICE_NOBODY_READS_V1]
     for (auto& r : scan(m, "mwatch", "")) if (r.value == sess_key(sid)) put(m, "mwatch", r.rest, "");   // [MAP_WATCH_V1] a watcher gone   // [FDF_PARTICIPANTS_CHANGE_V1] a watcher gone
     for (auto& r : scan(m, "laddr", "")) if (r.value == sess_key(sid)) put(m, "laddr", r.rest, "");       // [LEAF_ADDR_FROM_THE_REGION_V1] its /32 is free
     for (auto& r : scan(m, "mown", "")) if (r.value == sess_key(sid)) {                                   // [MAP_PREFIX_LOCATOR_SET_V1] its mappings go with it
