@@ -553,13 +553,21 @@ that is a network event, and each side derives its own answer, as on a LAN.
 
 ## 10. Apps follow the same invariants
 
-An app's RAM server is a **droplet**: RAM server code that runs on any Linux member, never on a Windows or Android
-device. Which droplet serves an app is decided by **the app's own deterministic selection** over the capability tuples.
-That selection is separate from databasehost, which locates the network RAM where the capability tuples and the app configuration tuples live (an app's data is in its own RAMs).
+An app's RAM (its **AppRam**: the general one, or a Team's) is served by its **AppHost**. The general AppRam's AppHost
+is a Linux member with the app installed, picked by **the app's own deterministic selection** over the capability
+tuples and named `<app>Host.frognet`. A Team's AppHost is the one its lead designates: the lead's own device, or the
+app's selection (`[GROUP_PLACE_V1]`). That selection is separate from databasehost. The network's own RAM is the
+**SystemRam**: the RAM host on the node the databasehost election names (`databasehost.frognet`), with parked held
+reads. Capability tuples and the app's one configuration tuple live in databasehost-control
+(`databasehost_control.frognet`, the highest .1); an app's data is in its own AppRams. The design is in the doc
+"FrogNet SystemRam, FrogNetHost Admin and App Services — Design" (2026-11-04); in the code today `fdf-app` and the
+door still use the droplet's RAM manager (`join.env`) for these tuples, and node code reaches the SystemRam through
+`api.php`.
 The app's access definition (its teams and their password verifiers; a team's members use the general RAM and their team's RAM, and the network's levels have nothing to do with it) is in its app configuration tuples, so a device's own edge checks a login by
 reading them: login is a read, with no login server and no check on each request after it. The device keeps its role
-and writes its access record again after every RAM change, so no user action is needed after a split or a merge. After a split the app does what it was configured to do: **fail**
-(stop unless the primary is visible) or **relocate** (its selection activates a droplet already installed on that side).
+and writes its access record again after every RAM change, so no user action is needed after a split or a merge. Every
+AppRam is relocatable to the greater or lesser network (John, 2026-11-04): after a split its selection activates an
+installed AppHost on that side (the code still offers a "fail" setting, which the design drops).
 At a merge the same selection, run over the merged tuples, gives one answer. Owners reassert; nothing is moved or
 reconciled. The procedure is in `opt/fdf/docs/APP-SETUP-AND-OPERATION.md`.
 

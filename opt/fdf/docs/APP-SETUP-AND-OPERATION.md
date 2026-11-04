@@ -12,8 +12,8 @@ informed as that world changes.
 | --- | --- | --- |
 | Fabric | The Linux nodes, their tunnels and their plans. It does all routing and re-forms as connectivity changes. | Anything a server does. Every server is blind to it. |
 | Member | A Linux machine with a bare-bones install. It is a full network member and can read the tuples. | A Windows or Android machine. |
-| Device | A Windows or Android machine. It attaches through the fabric and uses apps. | A member. It never runs a droplet and is never a candidate for anything. |
-| databasehost | The existing, deterministic selection that locates the current **network** RAM, where members read and write. | The app's RAM server. That is a separate selection. |
+| Device | A Windows or Android machine. It attaches through the fabric and uses apps. | A member. It never serves the general AppRam; a Team's AppRam may be on its lead's device (`[GROUP_PLACE_V1]`). |
+| databasehost (the SystemRam) | The existing, deterministic selection that locates the current **network** RAM, the RAM host where members read and write. Capability and configuration tuples are in databasehost-control (the highest .1). | The app's RAM server. That is a separate selection. |
 | Droplet | An app's RAM server code, installable on any Linux member. | A DigitalOcean machine, or anything on the internet. |
 | Primary | The droplet install the admin designated. Its placement defines the app's scope. | Something the server knows. The server does not know it is primary and knows nothing about network state. |
 | App RAM server selection | The app's own deterministic criteria and algorithm, run over the capability tuples, that pick which droplet serves the app. | databasehost. |
