@@ -43,6 +43,10 @@
         the salt and a check value, never the key. The admin app writes the configuration it wants as
         (fdf-app, admin, <app>) {config, seq, mac}: every member that has the app and the key checks the mac, adopts a
         newer seq as its own configuration (this file) and says so, (fdf-app, applied, <app>.<guid>) {seq, ok, why}.
+  fdf-app install APP [fdf-app config's arguments] [--clone] [--admin USER:PASSWORD]
+        [APP_INSTALL_V1] the one command on a member's console: the app as the SystemRam has it, shown filled in to
+        confirm (or edit), or --clone to take it as it is; the first install of the app on the network asks its
+        questions (or takes config's arguments). Saves this member's own copy and restarts fdf-app.service.
   fdf-app where APP RAM
         print host:port of the droplet serving APP's RAM now (its where cell, resolved to the member's .1), or nothing
   fdf-app serve
@@ -64,7 +68,7 @@ default this member's .1).
 """
 import hashlib, hmac, json, os, queue, signal, socket, subprocess, sys, threading, time, zlib
 
-BUILD_TAG = "fdf-app-2026-11-03-r8"
+BUILD_TAG = "fdf-app-2026-11-04-r9"
 LIB = os.environ.get("FDF_PY") or os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "lib", "python")
 sys.path.insert(0, LIB)
 import fdfram  # noqa: E402
@@ -570,6 +574,182 @@ class Server:
         sys.exit(0)
 
 
+def save_installed(app, cfg):
+    """this member's own copy of APP's configuration, FDF_APPS/<app>.json (0600: it holds the admin key)"""
+    os.makedirs(APPS, exist_ok=True)
+    p = os.path.join(APPS, app + ".json")
+    with open(p + ".tmp", "w") as f:
+        json.dump(cfg, f)
+    os.chmod(p + ".tmp", 0o600)
+    os.replace(p + ".tmp", p)
+
+
+# ---------------------------------------------------------------- [APP_INSTALL_V1] one command on a member's console
+# (John 2026-11-04: "They log into the Linux console of a machine joined to the network. They run one command that looks
+# at the args, if present, or runs an interactive session asking the questions it needs to know.") The install asks the
+# SystemRam for the app's configuration tuple: (fdf-app, config, <app>.*). The one the read returns is the app as it is
+# set up -- no choosing between members' tuples and no search: every member holds a read on that family already ("Just
+# the one you have"). Found: it is shown filled in, the user confirms it (or edits it), or --clone takes it as it is;
+# this member saves it as its own, the copy it writes again after a failover. Not found: this is the app's first
+# install -- the args, or the questions. The admin key is never in the SystemRam (only its salt and check value): a
+# cloned member asks the admin password once, checks it against the check value, and keeps the key, so it can verify
+# the admin app's later changes. Being on the network is the trust: nothing else is asked.
+def _ask(q, default=""):
+    a = input("%s%s: " % (q, " [%s]" % default if default != "" else "")).strip()
+    return a if a else default
+
+
+def _yes(q, default=True):
+    while True:
+        a = input("%s [%s]: " % (q, "Y/n" if default else "y/N")).strip().lower()
+        if not a:
+            return default
+        if a in ("y", "yes", "n", "no"):
+            return a[0] == "y"
+
+
+def _new_password(q):
+    import getpass
+    while True:
+        a = getpass.getpass("%s: " % q)
+        if not a:
+            print("  (a password is needed)"); continue
+        if getpass.getpass("%s again: " % q) == a:
+            return a
+        print("  (they differ; again)")
+
+
+def _admin_for(app, pub, given):
+    """the admin key for the admin PUB names: from --admin USER:PASSWORD or asked, checked against PUB's check value"""
+    import getpass
+    user = pub.get("user", "")
+    for t in range(3):
+        if given:
+            who, _, pw = given.partition(":")
+            if who != user:
+                print("fdf-app: --admin names %s; %s's admin is %s" % (who, app, user)); return None
+        else:
+            pw = getpass.getpass("%s's admin password (%s): " % (app, user))
+        k = admin_key(app, user, pw)
+        if hmac.compare_digest(admin_check(k), pub.get("check", "")):
+            return {"user": user, "salt": admin_salt(app, user).hex(), "n": ADMIN_N, "key": k.hex(), "check": admin_check(k)}
+        print("fdf-app: that is not %s's admin password (its check value does not match)" % user)
+        if given:
+            return None
+    return None
+
+
+def _show(app, c):
+    roles = c.get("roles") or {}
+    print("  RAMs:      %s" % ", ".join(c.get("rams") or []))
+    for cat in c.get("categories") or [DEFAULT_CATEGORY]:
+        rs = ["%s%s" % (r, " (default)" if v.get("default") else "") for r, v in roles.items() if v.get("category", DEFAULT_CATEGORY) == cat]
+        if rs:
+            print("  %-10s %s" % (cat + ":", ", ".join(rs)))
+    us = c.get("users") or {}
+    print("  users:     %s" % (", ".join("%s=%s%s" % (u, v.get("role"), " (lead)" if v.get("lead") else "") for u, v in sorted(us.items())) or "none"))
+    print("  login:     %s; when the primary is unreachable: %s" % ("required" if c.get("login") else "not required", c.get("partition") or "relocate"))
+    print("  admin:     %s" % ((c.get("admin") or {}).get("user") or "none (the admin app cannot change it)"))
+
+
+def _questions(app, c):
+    """the app's configuration asked for, C's values (if any) offered as the answers"""
+    roles = c.get("roles") or {}
+    rams = [r for r in _ask("Teams, each with its own RAM (comma-separated)", ",".join(r for r in (c.get("rams") or []) if r != "general")).split(",") if r.strip()]
+    rams = ["general"] + [r.strip() for r in rams if r.strip() != "general"]
+    others = _ask("Other roles, no RAM of their own (comma-separated, e.g. eoc)", ",".join(r for r in roles if r not in rams))
+    names = rams[1:] + [r.strip() for r in others.split(",") if r.strip()]
+    new_roles = {}
+    for r in names:
+        old = roles.get(r) or {}
+        cat = _ask("  %s: category (its tab)" % r, old.get("category") or DEFAULT_CATEGORY)
+        new_roles[r] = {"default": _yes("  %s: a client may take it with no login (its default screen)?" % r, bool(old.get("default", r in rams))), "category": cat}
+    roles, cats = categorize(new_roles, c.get("categories"))
+    users = {u: v for u, v in (c.get("users") or {}).items() if v.get("role") in roles}
+    if users:
+        print("Users kept (their passwords as verifiers): %s" % ", ".join(sorted(users)))
+    while True:
+        u = _ask("Add a user (empty: done)")
+        if not u:
+            break
+        role = ""
+        while role not in roles:
+            role = _ask("  %s's role (%s)" % (u, ", ".join(roles)))
+        users[u] = {"role": role, "verifier": verifier(_new_password("  %s's password" % u)), "lead": _yes("  %s leads %s?" % (u, role), False)}
+    login = _yes("Login required?", bool(c.get("login")))
+    part = ""
+    while part not in ("relocate", "fail"):
+        part = _ask("When the primary is unreachable: relocate or fail", c.get("partition") or "relocate")
+    return {"rams": rams, "roles": roles, "categories": cats, "users": users, "login": login, "partition": part}
+
+
+def install(argv):
+    app = argv[2]
+    if not (app and all(ch.isalnum() or ch in "_-" for ch in app)):
+        print("fdf-app: APP: letters, digits, _ and -"); return 2
+    args = argv[3:]
+    clone = "--clone" in args
+    given_admin = ([args[i + 1] for i, a in enumerate(args[:-1]) if a == "--admin"] or [None])[-1]
+    rest = [a for a in args if a != "--clone"]
+    if os.path.exists(os.path.join(APPS, app + ".json")) and not rest and not clone:
+        print("fdf-app: %s is installed on this member already (%s): fdf-app install %s --clone takes the SystemRam's again"
+              % (app, os.path.join(APPS, app + ".json"), app)); return 0
+    try:
+        rm = ram()
+        found = next((c.get("bag") for c in rm.read(SVC, "config") if str(c.get("instance", "")).startswith(app + ".")
+                      and isinstance(c.get("bag"), dict)), None)
+    except fdfram.RamError as e:
+        print("fdf-app: the SystemRam is not reachable from here (%s): nothing installed" % e); return 1
+    tty = sys.stdin.isatty()
+    if found is None:
+        if clone:
+            print("fdf-app: --clone: %s has no configuration in the SystemRam yet: this would be its first install" % app); return 2
+        if rest and not rest[0].startswith("--"):
+            print("fdf-app: %s: its first install, from the arguments" % app)
+            rc = main([argv[0], "config", app] + rest)
+            if rc:
+                return rc
+            r = subprocess.run((os.environ.get("FDF_APP_RESTART") or "systemctl restart fdf-app").split())
+            print("fdf-app: fdf-app.service %s" % ("restarted: it writes this configuration into the SystemRam" if r.returncode == 0 else "did NOT restart (systemctl %d)" % r.returncode))
+            return 0 if r.returncode == 0 else 1
+        if not tty:
+            print("fdf-app: %s: its first install, and no terminal to ask in: give the arguments (fdf-app config's)" % app); return 2
+        print("fdf-app: %s is not set up anywhere on this network yet: this is its first install." % app)
+        c = _questions(app, {})
+        user = _ask("The app's administrator (for the admin app)", "admin")
+        k = admin_key(app, user, _new_password("%s's password" % user))
+        admin = {"user": user, "salt": admin_salt(app, user).hex(), "n": ADMIN_N, "key": k.hex(), "check": admin_check(k)}
+        c.update({"app": app, "admin": admin, "seq": int(time.time() * 1000), "select": {}})
+    else:
+        print("fdf-app: %s is set up on this network (the configuration %s wrote, seq %s):" % (app, found.get("member") or found.get("guid") or "?", found.get("seq")))
+        _show(app, found)
+        c = {"app": app, "rams": list(found.get("rams") or []), "roles": found.get("roles") or {}, "categories": found.get("categories") or [],
+             "users": found.get("users") or {}, "login": bool(found.get("login")), "partition": found.get("partition") or "relocate",
+             "seq": int(found.get("seq") or 0), "select": found.get("select") or {}, "places": found.get("places") or {}}
+        if not clone:
+            if not tty:
+                print("fdf-app: no terminal to confirm in: fdf-app install %s --clone takes it as it is" % app); return 2
+            if not _yes("Install it here as it is?", True):
+                c.update(_questions(app, c)); c["seq"] = int(time.time() * 1000)
+        pub = found.get("admin") or {}
+        if pub.get("user"):
+            if not given_admin and not tty:
+                print("fdf-app: %s has an admin (%s): give --admin %s:PASSWORD (its key is kept here, never in the SystemRam)" % (app, pub["user"], pub["user"])); return 2
+            a = _admin_for(app, pub, given_admin)
+            if a is None:
+                print("fdf-app: nothing installed"); return 2
+            c["admin"] = a
+        else:
+            c["admin"] = {}
+    save_installed(app, c)
+    print("fdf-app: %s installed on this member (%s); its RAMs %s" % (app, os.path.join(APPS, app + ".json"), ", ".join(c["rams"])))
+    _show(app, c)
+    r = subprocess.run((os.environ.get("FDF_APP_RESTART") or "systemctl restart fdf-app").split())
+    print("fdf-app: fdf-app.service %s: it writes this configuration into the SystemRam and serves what its selection gives it"
+          % ("restarted" if r.returncode == 0 else "did NOT restart (systemctl %d): journalctl -u fdf-app" % r.returncode))
+    return 0 if r.returncode == 0 else 1
+
+
 def main(argv):
     if len(argv) >= 3 and argv[1] == "config":
         rams = [r for r in argv[3].split(",") if r] if len(argv) > 3 else []
@@ -625,14 +805,13 @@ def main(argv):
             k = admin_key(argv[2], who, pw)
             admin = {"user": who, "salt": admin_salt(argv[2], who).hex(), "n": ADMIN_N, "key": k.hex(), "check": admin_check(k)}
         # seq: this line is newer than any configuration the admin app wrote before it (that one is not adopted again)
-        with open(p + ".tmp", "w") as f:
-            json.dump({"app": argv[2], "rams": rams, "partition": part, "login": "--login" in argv, "roles": roles, "categories": cats, "users": users,
-                       "admin": admin, "seq": int(time.time() * 1000), "select": sel, **({"serve": serve} if serve else {})}, f)   # no --serve: every RAM, those the admin adds too
-        os.chmod(p + ".tmp", 0o600)
-        os.replace(p + ".tmp", p)
+        save_installed(argv[2], {"app": argv[2], "rams": rams, "partition": part, "login": "--login" in argv, "roles": roles, "categories": cats, "users": users,
+                                 "admin": admin, "seq": int(time.time() * 1000), "select": sel, **({"serve": serve} if serve else {})})   # no --serve: every RAM, those the admin adds too
         print("fdf-app: %s installed here with RAMs %s (%s), roles %s%s%s; serve writes it into the network RAM" % (argv[2], ",".join(rams), part, ",".join(roles) or "none",
                                                                   ", login required" if "--login" in argv else "",
                                                                   ", admin " + admin["user"] if admin.get("user") else ", no admin (the admin app cannot change it)")); return 0
+    if len(argv) >= 3 and argv[1] == "install":
+        return install(argv)
     if len(argv) == 4 and argv[1] == "where":
         print(where(argv[2], argv[3])); return 0
     if len(argv) == 2 and argv[1] == "serve":

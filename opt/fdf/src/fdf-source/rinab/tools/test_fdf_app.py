@@ -259,6 +259,21 @@ try:
     place("pat", "databasehost")
     ms, dt = wait_for(on({"general": "127.0.1.1", "alpha": "127.0.1.1", "hospitals": "127.0.2.1"}, rs), 20)
     check(ms is not None, "15 pat placed hospitals on databasehost: the selection again, on b (need gpu) %.0f ms after: %s" % (dt * 1000, map_of("a")))
+    # [APP_INSTALL_V1] d installs the app from the SystemRam's configuration tuple: a wrong admin password installs
+    # nothing; the right one clones the configuration as it is there, with the admin key kept on d
+    envd = dict(member_env("d"), FDF_APP_RESTART="true")
+    bad = subprocess.run([os.path.join(F, "bin", "fdf-app"), "install", "rangertrak", "--clone", "--admin", "boss:wrong"], env=envd,
+                         stdin=subprocess.DEVNULL, capture_output=True, text=True)
+    nofile = not os.path.exists(T + "/d/apps/rangertrak.json")
+    ok = subprocess.run([os.path.join(F, "bin", "fdf-app"), "install", "rangertrak", "--clone", "--admin", "boss:adm-2026"], env=envd,
+                        stdin=subprocess.DEVNULL, capture_output=True, text=True)
+    mine = json.load(open(T + "/d/apps/rangertrak.json")) if os.path.exists(T + "/d/apps/rangertrak.json") else {}
+    theirs = [c["bag"] for c in rm.read("fdf-app", "config") if c["instance"].startswith("rangertrak.")]
+    same = any(all(mine.get(k) == t.get(k) for k in ("rams", "roles", "categories", "users", "login", "partition", "seq")) for t in theirs)
+    keyok = bool(mine.get("admin", {}).get("key")) and mine["admin"]["check"] == theirs[0]["admin"]["check"]
+    check(bad.returncode != 0 and nofile and ok.returncode == 0 and same and keyok and "adm-2026" not in ok.stdout,
+          "16 install --clone on d: a wrong admin password refused, nothing saved (%s); the right one: the SystemRam's configuration "
+          "as it is (rams %s, users %s), the admin key kept on d and checked: %s" % (bad.stdout.strip().splitlines()[-1:], mine.get("rams"), sorted(mine.get("users") or {}), keyok))
 finally:
     for n in list(up): up[n] = False
     for m in members.values():

@@ -58,6 +58,23 @@ they can do anything."
 
 The admin performs setup at the primary.
 
+**One command on the member's console** ([APP_INSTALL_V1], John 2026-11-04): `fdf-app install APP`. Being on the
+network is the trust; nothing else is asked for it. It asks the SystemRam for the app's configuration tuple,
+`(fdf-app, config, <app>.*)`, and takes the one the read returns (no choosing between members' tuples, no search:
+every member holds a read on that family already).
+- **Found**: the app is set up. It is shown filled in; the user confirms it (or edits it: the same questions, its
+  values as the answers), or `--clone` takes it as it is. The admin key is never in the SystemRam, so the admin's
+  password is asked once (or `--admin USER:PASSWORD`), checked against the check value there, and the key kept here:
+  this member can then verify the admin app's changes. This member saves it as its own copy, the one it writes again
+  after a failover.
+- **Not found**: the app's first install. The arguments (`fdf-app config`'s) if given; otherwise the questions: the
+  teams (each with its own RAM), the other roles, each role's category and whether a client may take it with no login,
+  users (password asked twice, kept as a verifier), login required, relocate or fail, and the app's administrator.
+- Either way it restarts `fdf-app.service`, which writes the configuration into the SystemRam and serves what the
+  app's selection gives it. Gate: `rinab/tools/test_fdf_app.py` 16.
+
+What the install sets, step by step:
+
 1. The admin installs the droplet.
 2. The admin defines the app's reach and access. **John, 2026-11-01:** "When the admin sets things up, he is setting up a
    role. He may assign that role to a specific individual so that it is activated at login, or it may be assigned
