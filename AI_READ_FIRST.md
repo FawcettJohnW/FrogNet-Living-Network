@@ -561,7 +561,7 @@ runs; a port change updates the tuple and restarts the service. The general AppR
 own deterministic selection** over the capability tuples and every node writes it as `<app>Host.frognet`. A Team's
 AppHost is the one its lead designates: the lead's own device or `databasehost.frognet` (`[GROUP_PLACE_V1]`). The
 group's service writes its capability tuple, held by its session, and registers as a child of its parent. On a Pi
-with a router (a node, its own .1) it is in the election's pool and gets `<team>Host.frognet`; on a phone (no .1) the
+with a router (a node, its own .1) it is in the election's pool and gets `<team>Host.<app>`; on a phone (no .1) the
 members' apps hold a read on the group's capability tuple, select its host, and connect or fail.
 Where things live (the doc "FrogNet SystemRam, FrogNetHost Admin and App Services — Design", 2026-11-04, sections 5, 7
 and 9): **databasehost-control** (`databasehost_control.frognet`, the highest .1) holds configuration tuples only --
@@ -574,7 +574,7 @@ an install, a capability change or a configuration change is an event, and the s
 Built (r47: fdf-app r13, door r13, `core/app_hosts.py`, `ram hold`): the first install writes the one signed tuple;
 `fdf-app serve` adopts it, holds its capability in the SystemRam and serves what `/etc/hosts` names it for; every
 node's election (`discovery/elect.py`, `discovery/live.py`, the daemon's held reads on the `fdf-app` families) writes
-`<service>Host.frognet`; the merge writes the configuration tuples into a new databasehost-control. Not built: a
+`<app>Host.frognet` and `<team>Host.<app>`; the merge writes the configuration tuples into a new databasehost-control. Not built: a
 Team on a phone (its members' apps selecting it from its capability tuple), the parent's children registry, and the
 databasehost election itself still reads capability from the region's facts, not the SystemRam.
 The app's access definition (its teams and their password verifiers; a team's members use the general RAM and their team's RAM, and the network's levels have nothing to do with it) is in its app configuration tuples, so a device's own edge checks a login by

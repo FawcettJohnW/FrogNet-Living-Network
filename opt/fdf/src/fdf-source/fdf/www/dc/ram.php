@@ -36,7 +36,7 @@
 // [APP_SERVICES_V1] (the doc "FrogNet SystemRam, FrogNetHost Admin and App Services -- Design", sections 5, 7 and 9)
 // an app's services are in its AppRams: apps.json names, per service, the app and the RAM ("app", "rams": {service: ram}).
 // Each AppRam is a service whose AppHost the election writes into /etc/hosts -- <app>Host.frognet for the general one,
-// <team>Host.frognet for a Team's -- and whose port is in the app's one configuration tuple. A service of an app whose
+// <team>Host.<app> for a Team's -- and whose port is in the app's one configuration tuple. A service of an app whose
 // AppRam has no AppHost now is refused: the client connects first. [TEAM_RAM_V1] a service whose RAM is "team" is in
 // the team's own AppRam, named by the request (read: &team=, write: "team" in the body). ?op=rams lists them.
 // The app's one configuration tuple, (fdf-app, config, <app>), and each Team's, (fdf-app, config, <app>.<team>), are in
@@ -48,7 +48,7 @@
 // the network, typed by nobody. A device this node gave no lease has none here, and is told so.
 header('Content-Type: application/json');
 // [DOOR_SAYS_ITS_BUILD_V1] every answer says which door answered: the header, and "door" in the admin and roles answers
-const DOOR_BUILD = 'dc-door-2026-11-04-r13';
+const DOOR_BUILD = 'dc-door-2026-11-04-r14';
 header('X-FDF-Door: ' . DOOR_BUILD);
 set_time_limit(0);
 $env = '. ' . escapeshellarg(dirname(__DIR__, 2) . '/fdf.env') . ' && exec "$FDF_BIN"/ram ';
@@ -95,7 +95,7 @@ function role_env($name, $over, $what) {                         // the ram CLI 
 function ctl_env() { return role_env('databasehost_control.frognet', 2, 'databasehost-control')[1]; }
 function sys_env() { return role_env('databasehost.frognet', 3, 'the SystemRam')[1]; }
 function sys_at() { return role_env('databasehost.frognet', 3, 'the SystemRam')[0]; }
-function svc_host($app, $ram) { return ($ram === 'general' ? $app : $ram) . 'Host.frognet'; }
+function svc_host($app, $ram) { return $ram === 'general' ? $app . 'Host.frognet' : $ram . 'Host.' . $app; }   // a Team's scoped to its app
 $fdf_var = trim((string)shell_exec('. ' . escapeshellarg(dirname(__DIR__, 2) . '/fdf.env') . ' && printf %s "${FDF_VAR:-/opt/fdf/var}"'));
 function station_of($ip) {                                      // [STATION_IS_HOSTNAME_V1] the lease this node gave $ip
     global $fdf_var;

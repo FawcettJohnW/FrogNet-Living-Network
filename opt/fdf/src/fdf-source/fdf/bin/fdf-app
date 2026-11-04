@@ -33,7 +33,7 @@ Where things are [APP_SERVICES_V1]:
                                         program's own session (`ram hold`): gone the moment this service is gone
       (fdf-app, applied, <app>.<guid>)  this machine's answer to the configuration's seq: adopted, or why not
   /etc/hosts -- every AppRam is a service; its AppHost is elected (core/app_hosts.py, [APP_HOST_ELECTION_V1]) and
-      every node writes it: <app>Host.frognet for the general AppRam, <team>Host.frognet for a Team's.
+      every node writes it: <app>Host.frognet for the general AppRam, <team>Host.<app> for a Team's.
   the port -- each AppRam's own, picked at random between 20000 and 65535 when the service is created, kept in the
       configuration tuple ("ports"), used by every later instance wherever it runs; a new port in the tuple restarts
       the service on it.
@@ -60,7 +60,7 @@ test), FDF_FACTS, FDF_APPS (/opt/fdf/apps), FDF_VAR (/opt/fdf/var), FDF_BIN (/op
 """
 import hashlib, hmac, json, os, queue, random, signal, socket, subprocess, sys, threading, time
 
-BUILD_TAG = "fdf-app-2026-11-04-r14"
+BUILD_TAG = "fdf-app-2026-11-04-r15"
 LIB = os.environ.get("FDF_PY") or os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "lib", "python")
 sys.path.insert(0, LIB)
 import fdfram  # noqa: E402
@@ -179,7 +179,7 @@ def service_name(app, ram):
 
 
 def host_name(app, ram):
-    return "%sHost.frognet" % service_name(app, ram)
+    return "%sHost.frognet" % app if ram == "general" else "%sHost.%s" % (ram, app)   # a Team's scoped to its app
 
 
 def host_of(name):

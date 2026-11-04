@@ -136,10 +136,10 @@ check $(echo "$R7" | grep -q "does not lead a team" && [ ! -f $T/A/admitted/rang
 P0=$(NS q1 curl -s -m 10 -X POST -d '{"user":"EOCAdmin","password":"eoc-pw","at":"databasehost"}' "http://$DOOR/dc/ram.php?op=place&app=rangertrak")
 P1=$(NS q1 curl -s -m 10 -X POST -d '{"user":"kim","password":"kim-2026","at":"moon"}' "http://$DOOR/dc/ram.php?op=place&app=rangertrak")
 P2=$(NS q1 curl -s -m 10 -X POST -d '{"user":"kim","password":"kim-2026","at":"here","guid":"guid-a"}' "http://$DOOR/dc/ram.php?op=place&app=rangertrak")
-for i in $(seq 60); do grep -q "Team echo placed here on guid-a by its lead kim (adopted)" $T/A/app.log && grep -q "^198.18.0.1 echoHost.frognet" $T/A/hosts && break; sleep 0.25; done
+for i in $(seq 60); do grep -q "Team echo placed here on guid-a by its lead kim (adopted)" $T/A/app.log && grep -q "^198.18.0.1 echoHost.rangertrak" $T/A/hosts && break; sleep 0.25; done
 check $(echo "$P0" | grep -q "does not lead a group" && echo "$P1" | grep -q '"ok":false' && echo "$P2" | grep -q '"ok":true' \
         && grep -q "Team echo placed here on guid-a by its lead kim (adopted)" $T/A/app.log && grep -q '"places": {"echo"' $T/A/apps/rangertrak.json \
-        && grep -q "^198.18.0.1 echoHost.frognet" $T/A/hosts && echo 0 || echo 1) \
+        && grep -q "^198.18.0.1 echoHost.rangertrak" $T/A/hosts && echo 0 || echo 1) \
   "9 kim placed echo here on guid-a: $(echo "$P2" | cut -c1-110); adopted: $(grep -o 'Team echo placed.*' $T/A/app.log | head -1); $(grep echoHost $T/A/hosts); EOCAdmin: $(echo "$P0" | grep -o 'does not lead a group'); at moon: $(echo "$P1" | grep -o '"why":"[^"]*' | cut -c1-60)"
 # 8 [IDENTITY_ASK_IS_SAID_V1][IDENTITY_WAIT_IS_SAID_V1] the region does not answer (its fdf-identity stopped; seen on
 #   Seattle7 2026-11-02: the phone sat 60 s and said "timeout"): the door says so, in less time than the phone waits

@@ -4,7 +4,7 @@
 ################################################################
 """fdf_appram -- [APP_SERVICES_V1] where an app's AppRam is served now, for the programs on a node (rt-post309, rt-sim):
 its AppHost, the line the election writes into /etc/hosts (FDF_HOSTS) -- <app>Host.frognet for the general AppRam,
-<team>Host.frognet for a Team's -- and its port, in the app's one configuration tuple (this machine's copy in FDF_APPS,
+<team>Host.<app> for a Team's -- and its port, in the app's one configuration tuple (this machine's copy in FDF_APPS,
 or the tuple in databasehost-control when the app is not installed here). HOSTS is the file whose writing is the event."""
 import json
 import os
@@ -16,7 +16,7 @@ APPS = os.environ.get("FDF_APPS", "/opt/fdf/apps")
 
 
 def host_name(app, ram):
-    return "%sHost.frognet" % (app if ram == "general" else ram)
+    return "%sHost.frognet" % app if ram == "general" else "%sHost.%s" % (ram, app)
 
 
 def host_of(name):

@@ -46,7 +46,7 @@ Then one invitation per node (on the holder):
 
 The join installs `fdf-client`, `fdf-facts` and `fdf-app` (`fdf-app.service`: `fdf-app serve`). `fdf-app serve`
 adopts the app's one configuration tuple from databasehost-control, holds this node's capability tuples in the
-SystemRam, and starts `fdf-ram` for each AppRam whose AppHost (`<app>Host.frognet`, `<team>Host.frognet`, written by the
+SystemRam, and starts `fdf-ram` for each AppRam whose AppHost (`<app>Host.frognet`, `<team>Host.<app>`, written by the
 election into `/etc/hosts`) is this node, on that AppRam's port. Nothing else is
 started by hand.
 

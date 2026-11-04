@@ -5,7 +5,7 @@
 """core/app_hosts.py -- [APP_HOST_ELECTION_V1] the AppHost of every AppRam, written into /etc/hosts by the election
 (the doc "FrogNet SystemRam, FrogNetHost Admin and App Services -- Design", 2026-11-04, sections 5, 7 and 9).
 
-Every AppRam is a service: the general one is `<app>Host.frognet`, a Team's is `<team>Host.frognet`. Its AppHost is
+Every AppRam is a service: the general one is `<app>Host.frognet`, a Team's is `<team>Host.<app>` (John 2026-11-04: scoped to its app, so two apps' Teams of one name never share one). Its AppHost is
 one handler's pick per service (AppHostHandler), a pure function of the tuples, so every node writes the same line:
 
   * the configuration tuples, in databasehost-control (databasehost_control.frognet's RAM host): the app's one
@@ -26,6 +26,7 @@ new one holds none or an older one.
 """
 import json
 import os
+import re
 import sys
 
 PORT = int(os.environ.get("FDF_LAN_RAM_PORT", "8841"))
@@ -48,12 +49,17 @@ def service_name(app, ram):
 
 
 def host_name(app, ram):
-    return "%sHost.frognet" % service_name(app, ram)
+    """the general AppRam's <app>Host.frognet; a Team's <team>Host.<app>"""
+    return "%sHost.frognet" % app if ram == "general" else "%sHost.%s" % (ram, app)
+
+
+_APP_HOST = re.compile(r"^[A-Za-z0-9_-]+Host\.[A-Za-z0-9_-]+$")
 
 
 def is_app_host_line(line):
+    """a line the AppHost election writes: <app>Host.frognet or <team>Host.<app> (never a FrogNetHost.<node> line)"""
     p = line.split("#", 1)[0].split()
-    return len(p) >= 2 and any(t.endswith("Host.frognet") for t in p[1:])
+    return len(p) >= 2 and any(_APP_HOST.match(t) and not t.startswith("FrogNetHost.") for t in p[1:])
 
 
 def ip_of(etc_hosts, name):
@@ -143,7 +149,7 @@ def app_host_lines(etc_hosts, logger=None):
     try:
         world, cans = read_world(etc_hosts)
     except fdfram.RamError as e:
-        log("APP_HOST_ELECT decision=ABSTAIN reason=read_failed err=%s -- the standing <service>Host.frognet lines are kept" % e)
+        log("APP_HOST_ELECT decision=ABSTAIN reason=read_failed err=%s -- the standing AppHost lines are kept" % e)
         return None
     live = set(alive_ones(etc_hosts))
     lines = []

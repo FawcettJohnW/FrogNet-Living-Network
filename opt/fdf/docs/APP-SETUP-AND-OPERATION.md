@@ -503,7 +503,7 @@ was said on the radio, and stays in the log.
     (`[LISTENING_SOCKET_OUTLIVES_THE_HOST_V1]`).
 - **The election writes the AppHosts** (`opt/frognet_semantic/core/app_hosts.py`, `[APP_HOST_ELECTION_V1]`): every
   node's election (`discovery/elect.py`, `discovery/live.py`) writes `<app>Host.frognet` for each app's general AppRam and
-  `<team>Host.frognet` for each Team's, one handler per service: a Team its lead placed "here" on a node, that node; else
+  `<team>Host.<app>` for each Team's, one handler per service: a Team its lead placed "here" on a node, that node; else
   the app's selection over the live capability tuples. The tunnel daemon holds a read on the `fdf-app` family in
   databasehost-control and in the SystemRam, so a capability or configuration written or gone is an event. When
   databasehost-control moves, the merge writes the configuration tuples into it again, as signed, from the installed

@@ -16,7 +16,7 @@ least, d the most and no app.
   2  b and c install it from that tuple (the admin password checked against its check value); d never offers it.
      databasehost-control still holds exactly the one tuple: no machine writes a copy of its own
   3  each machine's capability tuple per AppRam in the SystemRam; the password nowhere in a tuple
-  4  the election: rangertrakHost.frognet and hospitalsHost.frognet name c; c serves each on its configured port
+  4  the election: rangertrakHost.frognet and hospitalsHost.rangertrak name c; c serves each on its configured port
   5  c's service gone (its machine still there): its capability tuples gone with its session; both on b
   6  c back: both on c again
   7  the Admin's configuration (a new Team RAM alpha with its own port, a new user): adopted by a, b and c (their
@@ -24,7 +24,7 @@ least, d the most and no app.
   8  a configuration under the wrong admin password: refused by every machine; nothing changes
   9  the port of general changed in the configuration: its AppHost restarts it on the new port; the old one closed
  10  the app's selection (-mem_total_kb): every AppRam on a
- 11  hospitals' lead places it here on b (its own configuration tuple): hospitalsHost.frognet names b; a place by a
+ 11  hospitals' lead places it here on b (its own configuration tuple): hospitalsHost.rangertrak names b; a place by a
      user who is not its lead is no place; placed on databasehost: the selection again
  12  databasehost-control and the SystemRam move (the hosts file names the other RAM host): the merge writes the
      configuration tuples into the new databasehost-control as signed; the capability tuples are held there; the
@@ -181,7 +181,7 @@ try:
           "3 the capability tuples in the SystemRam, one per machine per AppRam: %s; no password in any tuple" % cans)
     m, dt = wait_for(on({"general": "c", "hospitals": "c"}))
     check(m is not None and not [l for l in open(T + "/d/app.log") if "serving" in l],
-          "4 the election: rangertrakHost.frognet and hospitalsHost.frognet on c, served on their ports (%.0f ms): %s" % (dt * 1000, m))
+          "4 the election: rangertrakHost.frognet and hospitalsHost.rangertrak on c, served on their ports (%.0f ms): %s" % (dt * 1000, m))
 
     stop("c"); t0 = time.monotonic()
     m, dt = wait_for(on({"general": "b", "hospitals": "b"}))
@@ -232,7 +232,7 @@ try:
     place("pat", "databasehost")
     m2, dt2 = wait_for(on({"general": "a", "hospitals": "a"}), 15)
     check(m is not None and m1 is not None and m2 is not None,
-          "11 pat placed hospitals here on b: hospitalsHost.frognet on b %.0f ms after; a place by kim (not its lead) is no place: the selection (a), not c: %s; "
+          "11 pat placed hospitals here on b: hospitalsHost.rangertrak on b %.0f ms after; a place by kim (not its lead) is no place: the selection (a), not c: %s; "
           "pat placed it on databasehost: the selection again (a) %.0f ms after" % (dt * 1000, bool(m1), dt2 * 1000))
 
     _, before = cfg_now()

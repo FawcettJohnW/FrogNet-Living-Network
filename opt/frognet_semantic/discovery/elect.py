@@ -139,7 +139,7 @@ def elect_now(region_hosts_path="/var/lib/frognet/region_hosts", logger=print, a
             app_hosts.write_configs_again(now_ctl, logger=logger)
     except Exception as e:
         logger("ELECT: configuration tuples not written again: %s (the next merge does)" % e)
-    # [APP_HOST_ELECTION_V1] every AppRam's <service>Host.frognet, one handler per service
+    # [APP_HOST_ELECTION_V1] every AppRam's AppHost (<app>Host.frognet, <team>Host.<app>), one handler per service
     try:
         etc = app_hosts.commit(etc, hosts_path=hosts_path, logger=logger)
     except Exception as e:
