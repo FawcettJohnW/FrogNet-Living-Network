@@ -159,9 +159,10 @@ switch ($action) {
         if ($node === '' || !in_array($op, ['setup', 'clear', 'dump', 'backup', 'reboot'], true)) fail('node and op (setup, clear, dump, backup, reboot) required');
         $args = [$op, '--node', $node, '--no-wait'];
         if ($op === 'setup') {
-            $name = trim($input['name'] ?? ''); $ip = trim($input['ip'] ?? '');
+            $name = trim($input['name'] ?? ''); $ip = trim($input['ip'] ?? ''); $port = trim((string)($input['port'] ?? ''));
             if ($name === '' || $ip === '') fail('name and ip required');
-            $args[] = $name; $args[] = $ip;
+            if ($port !== '' && (!ctype_digit($port) || (int)$port < 1024 || (int)$port > 65535)) fail('port: 1024..65535');   // [RAM_PORT_CONFIGURABLE_V1]
+            $args[] = $name; $args[] = $ip; if ($port !== '') $args[] = $port;
         }
         frognet_host($args);
 

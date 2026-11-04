@@ -34,7 +34,7 @@ import urllib.request
 from . import config
 
 API = "/FawcettInnovations.RINA.ram_interface.php"
-BUILD_TAG = "fdf-2026-11-04-r48"      # [FDF_VERSION_V1] keep equal to src/fdf_version.hpp
+BUILD_TAG = "fdf-2026-11-04-r49"      # [FDF_VERSION_V1] keep equal to src/fdf_version.hpp
 HUB_MASK = 16
 ALLOWED = "10.0.0.0/8"
 
@@ -252,7 +252,20 @@ def invitation() -> dict:
 # a LAN entry has no hub channel.
 SYSTEM_SPACE = os.environ.get("FDF_SYSTEM_SPACE", "/opt/fdf/var/system-space.json")
 LAN_RAMS = os.environ.get("FDF_LAN_RAMS", "/opt/fdf/var/lan-rams.json")
-LAN_RAM_PORT = int(os.environ.get("FDF_LAN_RAM_PORT", "8841"))
+def _ram_port() -> int:
+    """[RAM_PORT_CONFIGURABLE_V1] the RAM host port: FDF_LAN_RAM_PORT, else /etc/frognet/ram_port (the FrogNetHost
+    install and its Admin set it), else 8841 (fdfram.ram_port, the same rule)"""
+    e = os.environ.get("FDF_LAN_RAM_PORT", "")
+    if e:
+        return int(e)
+    try:
+        v = open(os.environ.get("FDF_RAM_PORT_FILE", "/etc/frognet/ram_port")).read().strip()
+        return int(v) if v else 8841
+    except (OSError, ValueError):
+        return 8841
+
+
+LAN_RAM_PORT = _ram_port()
 _cur = {"entry": None}
 
 

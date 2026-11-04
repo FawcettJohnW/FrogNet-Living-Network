@@ -48,7 +48,7 @@
 // the network, typed by nobody. A device this node gave no lease has none here, and is told so.
 header('Content-Type: application/json');
 // [DOOR_SAYS_ITS_BUILD_V1] every answer says which door answered: the header, and "door" in the admin and roles answers
-const DOOR_BUILD = 'dc-door-2026-11-04-r14';
+const DOOR_BUILD = 'dc-door-2026-11-04-r15';
 header('X-FDF-Door: ' . DOOR_BUILD);
 set_time_limit(0);
 $env = '. ' . escapeshellarg(dirname(__DIR__, 2) . '/fdf.env') . ' && exec "$FDF_BIN"/ram ';
@@ -76,7 +76,7 @@ function ram($env, $args) {
 
 $where = trim((string)shell_exec('. ' . escapeshellarg(dirname(__DIR__, 2) . '/fdf.env') . ' && printf %s "$RINA_RAM"'));
 // [APP_SERVICES_V1] /etc/hosts (FDF_HOSTS), read at each request: the election rewrites it
-$hostenv = explode("\n", (string)shell_exec('. ' . escapeshellarg(dirname(__DIR__, 2) . '/fdf.env') . ' && printf "%s\n%s\n%s\n%s" "${FDF_HOSTS:-/etc/hosts}" "${FDF_LAN_RAM_PORT:-8841}" "${RINA_CONTROL_RAM:-}" "${RINA_SYSTEM_RAM:-}"'));
+$hostenv = explode("\n", (string)shell_exec('. ' . escapeshellarg(dirname(__DIR__, 2) . '/fdf.env') . ' && printf "%s\n%s\n%s\n%s" "${FDF_HOSTS:-/etc/hosts}" "${FDF_LAN_RAM_PORT:-$(cat ${FDF_RAM_PORT_FILE:-/etc/frognet/ram_port} 2>/dev/null)}" "${RINA_CONTROL_RAM:-}" "${RINA_SYSTEM_RAM:-}"'));
 function host_ip($name) {
     global $hostenv;
     foreach ((array)@file(trim($hostenv[0] ?? '/etc/hosts')) as $l) {
@@ -88,7 +88,8 @@ function host_ip($name) {
 function role_env($name, $over, $what) {                         // the ram CLI on the RAM host of databasehost-control or the SystemRam
     global $hostenv;
     $at = trim($hostenv[$over] ?? '');
-    if ($at === '') { $ip = host_ip($name); $at = $ip === '' ? '' : $ip . ':' . trim($hostenv[1] ?? '8841'); }
+    $port = trim($hostenv[1] ?? ''); if ($port === '') $port = '8841';     // [RAM_PORT_CONFIGURABLE_V1] /etc/frognet/ram_port, else 8841
+    if ($at === '') { $ip = host_ip($name); $at = $ip === '' ? '' : $ip . ':' . $port; }
     if (!preg_match('/^[0-9.]+:[0-9]+$/', $at)) fail(503, "this node names no $name yet (/etc/hosts): the election has not run here ($what)");
     return [$at, '. ' . escapeshellarg(dirname(__DIR__, 2) . '/fdf.env') . ' && RINA_RAM=' . escapeshellarg($at) . ' exec "$FDF_BIN"/ram '];
 }

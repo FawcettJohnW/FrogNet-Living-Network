@@ -16,7 +16,7 @@ Both are cells in a RAM host (fdfram): databasehost_control.frognet and database
 now, port FDF_LAN_RAM_PORT (8841). Every FrogNetHost runs one ([LAN_RAM_ALWAYS_V1]); held reads are parked in it.
 
   frognet-host status                         every FrogNetHost's state, as the SystemRam has it
-  frognet-host setup [NAME GATEWAYIP]         this node's name and gateway (setup_lillypad); asks for what is missing
+  frognet-host setup [NAME GATEWAYIP [PORT]]  this node's name, gateway (setup_lillypad) and RAM host port; asks for what is missing
   frognet-host clear | dump | backup | reboot one numbered request, then waits for the node's answer
       --node NAME|GUID                        another FrogNetHost (default: this one)
       --no-wait                               write the request and print it as JSON (the Admin UI)
@@ -24,7 +24,9 @@ now, port FDF_LAN_RAM_PORT (8841). Every FrogNetHost runs one ([LAN_RAM_ALWAYS_V
   frognet-host serve                          the node's service (frognet-host.service)
 
 What each request does on the node (the node setup page's helpers and the tools already on it):
-  setup   setup_lillypad_v4.bash NAME GATEWAYIP (only when either differs from what is in place)
+  setup   setup_lillypad_v4.bash NAME GATEWAYIP (only when either differs from what is in place); and PORT, this node's
+          RAM host port ([RAM_PORT_CONFIGURABLE_V1], /etc/frognet/ram_port), when it differs: written, the tunnel daemon
+          (its RAM host), fdf-app and this service started again on it. Every FrogNetHost of a network uses one port.
   clear   frognet-proxy and frognet-daemon stopped; in one transaction on the node's MySQL FrogNet database (its
           semantic compression store and old sensor tables, not the SystemRam) the seven deletes; both started again
   dump    those seven tables and SensorData to one SQL file under FROGNET_HOST_DIR (/var/backups/frognet)
@@ -36,7 +38,7 @@ for it, so a clear that wiped the tuple, or a SystemRam that moved, never makes 
 """
 import json, os, queue, socket, subprocess, sys, threading, time
 
-BUILD_TAG = "frognet-host-2026-11-04-r1"
+BUILD_TAG = "frognet-host-2026-11-04-r2"
 LIB = os.environ.get("FDF_PY") or os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "lib", "python")
 sys.path.insert(0, LIB)
 import fdfram      # noqa: E402
@@ -99,7 +101,7 @@ def save_record(r):
 
 def state_bag(r):
     name, gw = in_place()
-    return {"guid": guid(), "name": name, "gateway": gw, "host": socket.gethostname(), "build": BUILD_TAG,
+    return {"guid": guid(), "name": name, "gateway": gw, "ram_port": fdfram.ram_port(), "host": socket.gethostname(), "build": BUILD_TAG,
             "done": r.get("done", {}), "last": r.get("last", {}), "at": int(time.time())}
 
 
@@ -142,6 +144,17 @@ def cmd(op):
 
 def do_setup(name, gw):
     return run(cmd("setup") + [name, gw] if cmd("setup") else [LILLYPAD, name, gw], "setup")
+
+
+def do_port(port):
+    """[RAM_PORT_CONFIGURABLE_V1] this node's RAM host port: written; the tunnel daemon (it runs the RAM host) and fdf-app
+    started again on it (this service starts itself again after its answer)"""
+    t = time.time()
+    try:
+        fdfram.set_ram_port(port)
+    except (OSError, ValueError) as e:
+        return False, "the port was not written: %s" % e, time.time() - t
+    return run(cmd("port") or ["systemctl", "restart", "frognet-tunnel-daemon-v3", "fdf-app"], "port")
 
 
 def do_clear():
@@ -202,7 +215,14 @@ class Serve:
                 ok, why, t = do_setup(wn, wg)
             else:
                 ok, why, t = True, "", 0.0
+            wp, again = int(want.get("ram_port") or fdfram.ram_port()), False
+            if ok and wp != fdfram.ram_port():
+                log("setup %d: RAM host port %d (was %d)" % (seq, wp, fdfram.ram_port()))
+                ok, why, t2 = do_port(wp); t += t2; again = ok
             self.answer("setup", seq, ok, why, t)
+            if again:                                     # the port is read at start: this service on the new one
+                log("RAM host port %d: frognet-host started again on it" % wp)
+                os.execv(sys.executable, [sys.executable] + sys.argv)
         for op in OPS:
             seq = int(want.get(op) or 0)
             if seq <= int(done.get(op) or 0):
@@ -390,7 +410,7 @@ def status():
     print("SystemRam %s; databasehost-control %s" % (s.hostport, _quiet(fdfram.control_ram) or "not named"))
     for b in sorted(rows, key=lambda b: b.get("name") or ""):
         lt = b.get("last") or {}
-        print("  %-16s %-15s %s  last: %s" % (b.get("name") or "?", b.get("gateway") or "?", b.get("build") or "?",
+        print("  %-16s %-15s port %-5s %s  last: %s" % (b.get("name") or "?", b.get("gateway") or "?", b.get("ram_port") or "?", b.get("build") or "?",
                                              ("%s %s %s" % (lt.get("op"), lt.get("seq"), "ok" if lt.get("ok") else "FAILED " + str(lt.get("why")))) if lt else "none"))
     return 0
 
@@ -423,15 +443,22 @@ def main(argv):
             st = read_one(system(), "state", g)
             name = args[1] if len(args) > 1 else ""
             gw = args[2] if len(args) > 2 else ""
+            port = args[3] if len(args) > 3 else ""
             if not (name and gw):
                 if not sys.stdin.isatty():
-                    print("frognet-host: setup NAME GATEWAYIP (no terminal to ask in)"); return 2
+                    print("frognet-host: setup NAME GATEWAYIP [PORT] (no terminal to ask in)"); return 2
                 name = name or ask("Name", st.get("name", ""))
                 gw = gw or ask("Gateway IP (10.x.x.1)", st.get("gateway", ""))
+                port = port or ask("RAM host port (the same on every FrogNetHost)", str(st.get("ram_port") or fdfram.ram_port()))
             p = gw.split(".")
             if not (len(p) == 4 and p[0] == "10" and p[3] == "1" and all(x.isdigit() and 0 <= int(x) <= 255 for x in p)):
                 print("frognet-host: the gateway IP must be 10.x.x.1 (got %s)" % gw); return 2
-            return request(g, "setup", {"name": name, "gateway": gw})
+            extra = {"name": name, "gateway": gw}
+            if port:
+                if not (port.isdigit() and 1024 <= int(port) <= 65535):
+                    print("frognet-host: the RAM host port must be 1024..65535 (got %s)" % port); return 2
+                extra["ram_port"] = int(port)
+            return request(g, "setup", extra)
         if op in OPS:
             return request(g, op)
         if op == "wait" and len(args) == 3 and args[2].isdigit():    # wait OP SEQ: the Admin UI's held read on the answer

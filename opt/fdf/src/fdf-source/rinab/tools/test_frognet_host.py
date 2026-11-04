@@ -17,6 +17,8 @@ and backup write their file, clear and reboot record that they ran); the console
   7  status lists the node from the new SystemRam
   8  databasehost-control moves too: the Admin's tuple written in the new one is applied (clear 4)
   9  the Admin UI's page API: hosts, host-request, host-wait (the held read on the answer)
+ 10  [RAM_PORT_CONFIGURABLE_V1] setup with a new RAM host port: written to the node's ram_port file, the services started
+     again (stood in for), and the node on the new port: its state, with the port, in the SystemRam on that port
 usage: tools/test_frognet_host.py [BUILD_DIR_WITH_fdf-ram]
 """
 import json, os, shutil, socket, subprocess, sys, tempfile, time
@@ -66,7 +68,9 @@ dump = stub("dump", 'echo "-- dump" > "$1"')
 backup = stub("backup", 'echo tgz > "$1"')
 reboot = stub("reboot", 'echo x >> %s/reboots' % T)
 
-env = dict(os.environ, FDF_HOSTS=hosts, FDF_LAN_RAM_PORT=str(PORT), FROGNET_GUID_FILE=T + "/fnid", FROGNET_GATEWAYS_CONF=gw,
+open(T + "/ram_port", "w").write("%d\n" % PORT)
+os.environ.pop("FDF_LAN_RAM_PORT", None)
+env = dict(os.environ, FDF_HOSTS=hosts, FDF_RAM_PORT_FILE=T + "/ram_port", FROGNET_HOST_CMD_PORT=stub("port", 'echo x >> %s/ports' % T), FROGNET_GUID_FILE=T + "/fnid", FROGNET_GATEWAYS_CONF=gw,
            FROGNET_HOST_RECORD=T + "/record.json", FROGNET_HOST_DIR=T + "/out", FDF_VAR=T + "/var",
            FDF_PY=os.path.join(F, "lib", "python"), FROGNET_HOST_WAIT_S="20",
            FROGNET_HOST_CMD_SETUP=setup, FROGNET_HOST_CMD_CLEAR=clear, FROGNET_HOST_CMD_DUMP=dump,
@@ -144,6 +148,24 @@ try:
     wt = json.loads(urllib.request.urlopen(api + "host-wait&node=guid-node-one&op=dump&seq=%d" % rq.get("seq", 0), timeout=30).read())
     check(hl.get("ok") and [h.get("name") for h in hl.get("hosts", [])] == ["NewName"] and rq.get("seq") == 2 and (wt.get("last") or {}).get("ok"),
           "9 the page API: hosts %s; host-request dump -> seq %s; host-wait -> %s" % ([h.get("name") for h in hl.get("hosts", [])], rq.get("seq"), wt.get("last")))
+    # 10 a new RAM host port
+    P2 = free()
+    for ip, nm in (("127.0.0.3", "c"),):
+        procs.append(subprocess.Popen([os.path.join(B, "fdf-ram"), "--listen", "%s:%d" % (ip, P2), "--api", fdfram.API],
+                                      env=dict(os.environ, RINA_REGION_FILE=T + "/%s.perm" % nm, RINA_NET_CONFIG=T + "/none", FDF_VAR=T + "/var"),
+                                      stdout=subprocess.DEVNULL, stderr=open(T + "/%s.log" % nm, "w")))
+    time.sleep(0.5)
+    rc, out = console("setup", "NewName", "10.42.42.1", str(P2))
+    def on_p2():
+        try:
+            cs = [c for c in fdfram.Ram("127.0.0.3:%d" % P2).read("frognethost", "state", "guid-node-one") if not c.get("gone")]
+            return cs[-1]["bag"] if cs and cs[-1]["bag"].get("ram_port") == P2 else None
+        except fdfram.RamError:
+            return None
+    s, dt = wait_for(on_p2, 15)
+    check(rc == 0 and open(T + "/ram_port").read().strip() == str(P2) and os.path.exists(T + "/ports") and bool(s),
+          "10 setup with RAM host port %d: the file says %s, the services started again, and the node's state on the new port %.0f ms after: %s"
+          % (P2, open(T + "/ram_port").read().strip(), dt * 1000, out.splitlines()[-1:]))
 finally:
     for p in procs:
         if p.poll() is None: p.terminate()

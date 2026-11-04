@@ -32,7 +32,36 @@ def system_now_file():
     return os.path.join(os.environ.get("FDF_VAR", "/opt/fdf/var"), "system-ram.env")
 
 
-SYSTEM_RAM_PORT = int(os.environ.get("FDF_LAN_RAM_PORT", "8841"))
+# [RAM_PORT_CONFIGURABLE_V1] (John 2026-11-04: "That should be configurable by the user") the port every FrogNetHost's
+# RAM host listens on: /etc/frognet/ram_port, set at the FrogNetHost install and by the FrogNetHost Admin (frognet-host
+# setup ... PORT); 8841 when it was never set. FDF_LAN_RAM_PORT overrides it (a test). Every node of a network uses one.
+RAM_PORT_FILE = os.environ.get("FDF_RAM_PORT_FILE", "/etc/frognet/ram_port")
+DEFAULT_RAM_PORT = 8841
+
+
+def ram_port():
+    e = os.environ.get("FDF_LAN_RAM_PORT", "")
+    if e:
+        return int(e)
+    try:
+        v = open(RAM_PORT_FILE).read().strip()
+        return int(v) if v else DEFAULT_RAM_PORT
+    except (OSError, ValueError):
+        return DEFAULT_RAM_PORT
+
+
+def set_ram_port(port):
+    """write this node's RAM host port (the services that use it are started again by the caller)"""
+    port = int(port)
+    if not 1024 <= port <= 65535:
+        raise ValueError("the RAM host port must be 1024..65535 (got %d)" % port)
+    os.makedirs(os.path.dirname(RAM_PORT_FILE), exist_ok=True)
+    with open(RAM_PORT_FILE + ".tmp", "w") as f:
+        f.write("%d\n" % port)
+    os.replace(RAM_PORT_FILE + ".tmp", RAM_PORT_FILE)
+
+
+SYSTEM_RAM_PORT = ram_port()
 
 
 def role_ram(name, env_var):

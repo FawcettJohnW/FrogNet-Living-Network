@@ -29,7 +29,19 @@ import os
 import re
 import sys
 
-PORT = int(os.environ.get("FDF_LAN_RAM_PORT", "8841"))
+def _ram_port():
+    """[RAM_PORT_CONFIGURABLE_V1] FDF_LAN_RAM_PORT, else /etc/frognet/ram_port, else 8841 (fdfram.ram_port)"""
+    e = os.environ.get("FDF_LAN_RAM_PORT", "")
+    if e:
+        return int(e)
+    try:
+        v = open(os.environ.get("FDF_RAM_PORT_FILE", "/etc/frognet/ram_port")).read().strip()
+        return int(v) if v else 8841
+    except (OSError, ValueError):
+        return 8841
+
+
+PORT = _ram_port()
 APPS = os.environ.get("FDF_APPS", "/opt/fdf/apps")
 CONTROL = "databasehost_control.frognet"
 SYSTEM = "databasehost.frognet"
