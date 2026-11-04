@@ -62,13 +62,13 @@ same tuples, so nothing is negotiated, claimed or held. The app's own ranking is
 then the highest guid. A stronger member arriving takes the RAM;
 the app's owners write their own truth again to it (APP-SETUP-AND-OPERATION.md, "Why it works this way").
 
-Environment: RINA_RAM (the network RAM; else /opt/fdf/var/join.env), FDF_FACTS (this member's facts.json), FDF_APPS
+Environment: RINA_RAM (the network RAM; else where the SystemRam is now, system-ram.env; else /opt/fdf/var/join.env), FDF_FACTS (this member's facts.json), FDF_APPS
 (/opt/fdf/apps), FDF_VAR (/opt/fdf/var), FDF_BIN (/opt/fdf/bin), FDF_APP_LISTEN (the address the droplets listen on;
 default this member's .1).
 """
 import hashlib, hmac, json, os, queue, signal, socket, subprocess, sys, threading, time, zlib
 
-BUILD_TAG = "fdf-app-2026-11-04-r9"
+BUILD_TAG = "fdf-app-2026-11-04-r10"
 LIB = os.environ.get("FDF_PY") or os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "lib", "python")
 sys.path.insert(0, LIB)
 import fdfram  # noqa: E402
@@ -83,6 +83,7 @@ SVC = "fdf-app"                                   # the family in the network RA
 # [CHILDREN_KNOW_THE_RAM_V1] fdf-events and fdf-where, which this runs, find the network RAM only in RINA_RAM; join.env
 # is read here (fdfram.where) and handed to them. Found on Seattle7 2026-11-01: fdf-app.service sets no RINA_RAM, so its
 # own reads found join.env and every fdf-events it started ended at once ("no RINA_RAM, no RINA_AREA").
+PINNED = bool(os.environ.get("RINA_RAM"))         # a RAM named in the environment is the one used, never another
 try:
     os.environ["RINA_RAM"] = fdfram.where()
 except fdfram.RamError:
@@ -514,13 +515,42 @@ class Server:
         except fdfram.RamError as e:
             log("the map was not said in the network RAM (%s)" % e)
 
+    def follow(self, err, since):
+        """[SYSTEM_RAM_FOLLOWED_V1] a read on the SystemRam failed: wait until it says it is up again, or until the
+        SystemRam is another one (system-ram.env, written by the tunnel daemon on a split or a merge), and use that one
+        from then on -- this member's configuration and capability are written again there (the "again" event), and the
+        droplets' where holders, started again, are there too"""
+        old = self.rm.hostport
+        at = old if "ESTALE" in str(err) else fdf_watch.up_or_moved(old, since, lambda: fdfram.where(env=False) if not PINNED else old)
+        if at != old and self.rm.hostport == old:
+            self.rm = fdfram.Ram(at); os.environ["RINA_RAM"] = at
+            log("the SystemRam is %s now (was %s): this member's own truth is written there again" % (at, old))
+
+    def watch_system(self):
+        """[SYSTEM_RAM_FOLLOWED_V1] the tunnel daemon moving the system space (system-ram.env written: a merge back onto
+        the WAN RAM manager, or a split onto the LAN's) is an event even while the one this member is on still answers:
+        the move is followed at once, and this member's own truth written there"""
+        if PINNED:
+            return
+        w = fdf_watch.Inotify(VAR)
+        while True:
+            at = fdfram.where(env=False)
+            old = self.rm.hostport
+            if at and at != old:
+                self.rm = fdfram.Ram(at); os.environ["RINA_RAM"] = at
+                log("the SystemRam moved to %s (was %s): this member's own truth is written there again" % (at, old))
+                self.events.put("again: the SystemRam moved")
+            w.read()
+
     def watch_family(self):
         """[EVENTS_NOT_TIMERS_V1] a held read on the fdf-app family. The network RAM gone: said, and read again from the
         start when it says it is up (fdf_watch.wait_up: its own file, or this machine's member's)."""
-        last = -1
+        last, on = -1, self.rm
         while True:
+            if on is not self.rm:                     # [SYSTEM_RAM_FOLLOWED_V1] another SystemRam: its ids are its own
+                last, on = -1, self.rm
             try:
-                cs = self.rm.read(SVC, after=last, wait_s=25)
+                cs = on.read(SVC, after=last, wait_s=25)
                 if cs:
                     last = max(int(c.get("id", -1)) for c in cs)
                     self.events.put("tuples")
@@ -529,24 +559,26 @@ class Server:
                 # then learn the world again (read the family from the start)
                 t = time.time()
                 log("held read on %s ended (%s); read again when the RAM says it is up, writing this droplet's own truth again" % (SVC, e))
-                fdf_watch.after_failure(self.rm.hostport, e, t)
+                self.follow(e, t)
                 last = -1
                 self.events.put("again: the held read ended")
 
     def watch_members(self):
         """[MEMBER_IS_A_TUPLE_V1] a held read on the members' own cells, (pond, member, *): one joining, changing its
         facts or gone (its session ended) is the event. (Was fdf-events: the region's notices relayed as lines.)"""
-        last = -1
+        last, on = -1, self.rm
         while True:
+            if on is not self.rm:
+                last, on = -1, self.rm
             try:
-                cs = self.rm.read("pond", "member", after=last, wait_s=25)
+                cs = on.read("pond", "member", after=last, wait_s=25)
                 if cs:
                     last = max(int(c.get("id", -1)) for c in cs)
                     self.events.put("members: " + ", ".join(sorted({c.get("instance", "") for c in cs}))[:80])
             except fdfram.RamError as e:
                 t = time.time()
                 log("held read on (pond, member) ended (%s); read again when the RAM says it is up" % e)
-                fdf_watch.after_failure(self.rm.hostport, e, t)
+                self.follow(e, t)
                 last = -1
                 self.events.put("again: the members' read ended")
 
@@ -558,6 +590,7 @@ class Server:
                 if not c.get("gone"): self.rm.remove(c); log("removed this member's earlier where cell (now one held cell per RAM)")
         except fdfram.RamError as e:
             log("this member's earlier where cell: %s" % e)
+        threading.Thread(target=self.watch_system, daemon=True).start()
         threading.Thread(target=self.watch_family, daemon=True).start()
         threading.Thread(target=self.watch_members, daemon=True).start()
         self.decide("again: start")

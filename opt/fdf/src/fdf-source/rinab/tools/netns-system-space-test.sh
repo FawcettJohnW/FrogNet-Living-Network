@@ -142,19 +142,27 @@ daemon() { local n=$1
   # fdf-client as its unit runs it: RINA_RAM configured, then system-ram.env (where the system space is now) after it
   svc $T/$n/client.log NSF $n env FDF_NAME=$n $(cat $T/$n/fs/opt-fdf-var/site.env) sh -c \
     'R=$(sed -n "s/^export RINA_RAM=//p" /opt/fdf/var/join.env); [ -f /opt/fdf/var/system-ram.env ] && R=$(sed -n "s/^RINA_RAM=//p" /opt/fdf/var/system-ram.env); echo $$ > /opt/fdf/var/client.pid; exec fdf-client $R'
-  NSF $n env FDF_NAME=$n python3 $T/bin/fdf-facts --watch > $T/$n/facts.log 2>&1 & }
+  NSF $n env FDF_NAME=$n python3 $T/bin/fdf-facts --watch > $T/$n/facts.log 2>&1 &
+  # [SYSTEM_RAM_FOLLOWED_V1] an app on the node, as fdf-app.service runs it (no RINA_RAM: it follows the SystemRam)
+  NSF $n env FDF_APPS=/opt/fdf/var/apps python3 $PK/bin/fdf-app config rangertrak general --role eoc:default > $T/$n/app-config.log 2>&1
+  svc $T/$n/app.log NSF $n env FDF_NAME=$n FDF_APPS=/opt/fdf/var/apps python3 $PK/bin/fdf-app serve; }
 daemon z; daemon w
 on() { grep "system space on" $T/$1/daemon.log | tail -1 | sed 's/.*system space on \([^(]*\) (.*/\1/' | sed 's/ *$//'; }
 # wait until both daemons' last "system space on" names $1, and the RAM manager they are on lists both; prints seconds
 both_on() { local want=$1 t0=$(ms) ok=1; for i in $(seq ${3:-240}); do
     [ "$(on z)" = "$want" ] && [ "$(on w)" = "$want" ] && [ "$(eval "$2")" = "w z" ] && { ok=0; break; }; sleep 0.25; done
   echo "$ok $(( ($(ms) - t0) / 100 ))"; }
+# the app configuration tuples in the RAM manager at $2, read from namespace $1: how many members' (expected: z and w)
+appcfg() { NS $1 curl -s -m 3 "http://$2$API?op=read&service=fdf-app&variable=config" | python3 -c 'import sys,json; print(len([c for c in json.load(sys.stdin).get("cells",[]) if c.get("instance","").startswith("rangertrak.") and not c.get("gone")]))' 2>/dev/null; }
+appwhere() { NS $1 curl -s -m 3 "http://$2$API?op=read&service=pond&variable=where" | python3 -c 'import sys,json; print(" ".join(sorted(k for c in json.load(sys.stdin).get("cells",[]) if not c.get("gone") for k in (c.get("bag") or {}) if k.startswith("rangertrak."))))' 2>/dev/null; }
+app_on() { local t0=$(ms); for i in $(seq 160); do [ "$(appcfg $1 $2)" = 2 ] && { echo "0 $(( ($(ms) - t0) / 100 ))"; return; }; sleep 0.25; done; echo "1 $(( ($(ms) - t0) / 100 ))"; }
 secs() { echo "$(( $1 / 10 )).$(( $1 % 10 ))"; }
 dump() { for n in z w; do echo "--- $n: system space lines"; grep -E "system space|SPACE_|LAN RAM|follows|lost" $T/$n/daemon.log | tail -12 | cut -c1-260 | sed 's/^/    /'
          echo "--- $n client.log (last 6)"; tail -6 $T/$n/client.log | sed 's/^/    /'; echo "--- $n routes"; ip netns exec $n ip -4 route | sed 's/^/    /'; done; }
 r=($(both_on hubA "parts A $RAM")); check ${r[0]} "both on hubA, the first on the list; hubA's RAM manager lists both ($(secs ${r[1]}) s)"; [ ${r[0]} = 0 ] || dump
 ok=1; for i in $(seq 120); do ip netns exec z ip -4 route | grep -q '^10.4.4.0/24 via 10.3.3.20' && { ok=0; break; }; sleep 0.5; done
 check $ok "z routes w's 10.4.4.0/24 over the LAN (via its lease 10.3.3.20)"
+a=($(app_on A $RAM)); check ${a[0]} "the app on z and w: both configuration tuples in the SystemRam on hubA ($(secs ${a[1]}) s)"
 check $(NSF w wg show interfaces 2>/dev/null | grep -q wg && echo 0 || echo 1) "w has its own tunnel to hubA, through z: $(NSF w wg show all latest-handshakes 2>/dev/null | awk '{print $1}' | tr '\n' ' ')"
 sleep 4
 # ---- failover: hubA's RAM manager dies
@@ -171,9 +179,13 @@ r=($(both_on "lan 10.4.4.1" "parts w 10.4.4.1:8841")); check ${r[0]} "both WAN R
 check $( (NSF z wg show interfaces; NSF w wg show interfaces) 2>/dev/null | tr ' ' '\n' | grep -q '^wg' && echo 1 || echo 0) "on the LAN: no hub channel on z or w; only the standing sessions' probe tunnels, routing nothing ($( (NSF z wg show interfaces; NSF w wg show interfaces) 2>/dev/null | tr '\n' ' '))"
 check $(ip netns exec z ip -4 route | grep -q '^10.4.4.0/24 via 10.3.3.20' && echo 0 || echo 1) "on the LAN: z still routes w's /24"
 check $(ip netns exec w ping -c 1 -W 2 -I 10.4.4.1 10.3.3.1 > /dev/null 2>&1 && echo 0 || echo 1) "on the LAN: w's .1 -> z's .1"
+ok=1; for i in $(seq 120); do [ "$(appwhere w 10.4.4.1:8841)" = rangertrak.general ] && { ok=0; break; }; sleep 0.25; done
+check $ok "on the LAN: the app's RAM general is served on this side, its where cell in w's 10.4.4.1:8841"
+a=($(app_on w 10.4.4.1:8841)); check ${a[0]} "on the LAN: the app followed the SystemRam: both configuration tuples on w's 10.4.4.1:8841 ($(secs ${a[1]}) s; z: $(grep -o 'the SystemRam is [^ ]* now' $T/z/app.log | tail -1))"
 # ---- the primary returns: both on hubA
 hostup A
 r=($(both_on hubA "parts A $RAM")); check ${r[0]} "hubA back: both on hubA from the LAN ($(secs ${r[1]}) s)"; [ ${r[0]} = 0 ] || dump
 check $(NSF z wg show interfaces 2>/dev/null | grep -q wg && echo 0 || echo 1) "z's hub channel is back up"
+a=($(app_on A $RAM)); check ${a[0]} "hubA back: the app's configuration tuples written again there ($(secs ${a[1]}) s)"
 echo "RESULT $([ $FAILS = 0 ] && echo PASS || echo "FAIL: $FAILS")"
 [ -n "${PAUSE:-}" ] && { echo "PAUSE: holding the namespaces ${PAUSE}s (T=$T)"; sleep $PAUSE; }

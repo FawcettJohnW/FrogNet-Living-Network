@@ -15,17 +15,30 @@ class RamError(Exception):
     pass
 
 
-def where():
-    """RINA_RAM (host:port) from the environment, else from /opt/fdf/var/join.env (written by fdf-join)."""
-    w = os.environ.get("RINA_RAM", "")
-    if not w:
-        try:
-            for line in open("/opt/fdf/var/join.env"):
-                line = line.strip()
-                if line.startswith("export RINA_RAM="):
-                    w = line.split("=", 1)[1]
-        except FileNotFoundError:
-            pass
+def _env_ram(path):
+    try:
+        for line in open(path):
+            line = line.strip()
+            if line.startswith("export "):
+                line = line[7:]
+            if line.startswith("RINA_RAM="):
+                return line.split("=", 1)[1].strip().strip('"')
+    except FileNotFoundError:
+        pass
+    return ""
+
+
+def system_now_file():
+    return os.path.join(os.environ.get("FDF_VAR", "/opt/fdf/var"), "system-ram.env")
+
+
+def where(env=True):
+    """RINA_RAM (host:port) from the environment, else where the SystemRam is NOW, else /opt/fdf/var/join.env (written by
+    fdf-join). [SYSTEM_RAM_FOLLOWED_V1] the tunnel daemon walks the system space's list (the WAN RAM manager first, then
+    the LAN's, highest first: [SYSTEM_SPACE_V1]) and writes where it is now in system-ram.env; join.env is what was
+    configured. After a split the SystemRam is the LAN's, and whoever reads this follows it there. env=False: the files
+    only (a process that put RINA_RAM in its own environment for its children asks where the SystemRam is now)."""
+    w = (os.environ.get("RINA_RAM", "") if env else "") or _env_ram(system_now_file()) or _env_ram(os.path.join(os.environ.get("FDF_VAR", "/opt/fdf/var"), "join.env"))
     if not w:
         raise RamError("no RAM manager: run fdf-join HOST:PORT, or set RINA_RAM=host:port")
     return w

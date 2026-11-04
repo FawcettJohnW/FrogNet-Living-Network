@@ -396,6 +396,20 @@ deterministic selection over the same tuples and gets the same answer.
 
 ## Split
 
+**Where the SystemRam is** ([SYSTEM_SPACE_V1], [LAN_RAM_ALWAYS_V1], [SYSTEM_RAM_FOLLOWED_V1], John 2026-11-04): the
+SystemRam may be the droplet's RAM manager, or the LAN's, and it is always one of them. Each node's tunnel daemon walks
+the system space's list (the WAN RAM managers in order, then the LAN's machines from the highest .1 down to its own)
+and writes where it is now in `/opt/fdf/var/system-ram.env`; every node runs its own LAN RAM manager (its .1, port
+8841), so a node is never without one. Everything on the node follows that file: `fdf-client` (its unit reads it),
+the door (`fdf.env`), and `fdf-app` (`fdfram.where()` reads it before `join.env`; a read that fails waits for that RAM
+to come back or for the file to name another; the file changing while the old one still answers is an event too). On
+the new SystemRam `fdf-app` writes this member's configuration and capability again, and the app's own selection runs
+over the members on this side: every app RAM is relocatable to the greater or lesser network (John: "if you cannot
+reach SystemRam and you have not designated your own machine as a databasehost, then you're dead in the water. That's
+not going to happen with SystemRam, but it may for other apps"). Gate: `rinab/tools/netns-system-space-test.sh` (the
+app's tuples on hubA; both WAN RAM managers gone: its RAM served on the LAN side and its tuples on the LAN's SystemRam;
+hubA back: written there again).
+
 1. Connectivity changes.
 2. The fabric re-forms on each reachable side.
 3. Each participant locates the current RAM available through databasehost.
