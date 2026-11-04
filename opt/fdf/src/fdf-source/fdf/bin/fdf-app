@@ -43,10 +43,10 @@
         the salt and a check value, never the key. The admin app writes the configuration it wants as
         (fdf-app, admin, <app>) {config, seq, mac}: every member that has the app and the key checks the mac, adopts a
         newer seq as its own configuration (this file) and says so, (fdf-app, applied, <app>.<guid>) {seq, ok, why}.
-  fdf-app install APP [fdf-app config's arguments] [--clone] [--admin USER:PASSWORD]
-        [APP_INSTALL_V1] the one command on a member's console: the app as the SystemRam has it, shown filled in to
-        confirm (or edit), or --clone to take it as it is; the first install of the app on the network asks its
-        questions (or takes config's arguments). Saves this member's own copy and restarts fdf-app.service.
+  fdf-app install APP [fdf-app config's arguments] [--admin USER:PASSWORD]
+        [APP_INSTALL_V1] the one command on a member's console: the app's one configuration, as it is, shown and
+        adopted (it is changed in the admin app, never at install); the first install of the app on the network asks
+        its questions (or takes config's arguments). Keeps a local copy for failover and restarts fdf-app.service.
   fdf-app where APP RAM
         print host:port of the droplet serving APP's RAM now (its where cell, resolved to the member's .1), or nothing
   fdf-app serve
@@ -68,7 +68,7 @@ default this member's .1).
 """
 import hashlib, hmac, json, os, queue, signal, socket, subprocess, sys, threading, time, zlib
 
-BUILD_TAG = "fdf-app-2026-11-04-r10"
+BUILD_TAG = "fdf-app-2026-11-04-r11"
 LIB = os.environ.get("FDF_PY") or os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "lib", "python")
 sys.path.insert(0, LIB)
 import fdfram  # noqa: E402
@@ -622,10 +622,10 @@ def save_installed(app, cfg):
 # at the args, if present, or runs an interactive session asking the questions it needs to know.") The install asks the
 # SystemRam for the app's configuration tuple: (fdf-app, config, <app>.*). The one the read returns is the app as it is
 # set up -- no choosing between members' tuples and no search: every member holds a read on that family already ("Just
-# the one you have"). Found: it is shown filled in, the user confirms it (or edits it), or --clone takes it as it is;
-# this member saves it as its own, the copy it writes again after a failover. Not found: this is the app's first
-# install -- the args, or the questions. The admin key is never in the SystemRam (only its salt and check value): a
-# cloned member asks the admin password once, checks it against the check value, and keeps the key, so it can verify
+# the one you have"). Found: it is shown and adopted as it is (John 2026-11-04: "There is no --clone": changes are
+# the admin app's); this member keeps a local copy for failover. Not found: this is the app's first
+# install -- the args, or the questions. The admin key is never in the SystemRam (only its salt and check value): the
+# installing member asks the admin password once, checks it against the check value, and keeps the key, so it can verify
 # the admin app's later changes. Being on the network is the trust: nothing else is asked.
 def _ask(q, default=""):
     a = input("%s%s: " % (q, " [%s]" % default if default != "" else "")).strip()
@@ -721,12 +721,11 @@ def install(argv):
     if not (app and all(ch.isalnum() or ch in "_-" for ch in app)):
         print("fdf-app: APP: letters, digits, _ and -"); return 2
     args = argv[3:]
-    clone = "--clone" in args
     given_admin = ([args[i + 1] for i, a in enumerate(args[:-1]) if a == "--admin"] or [None])[-1]
-    rest = [a for a in args if a != "--clone"]
-    if os.path.exists(os.path.join(APPS, app + ".json")) and not rest and not clone:
-        print("fdf-app: %s is installed on this member already (%s): fdf-app install %s --clone takes the SystemRam's again"
-              % (app, os.path.join(APPS, app + ".json"), app)); return 0
+    rest = args
+    if os.path.exists(os.path.join(APPS, app + ".json")) and not rest:
+        print("fdf-app: %s is installed on this member already (%s); its configuration is changed in the admin app"
+              % (app, os.path.join(APPS, app + ".json"))); return 0
     try:
         rm = ram()
         found = next((c.get("bag") for c in rm.read(SVC, "config") if str(c.get("instance", "")).startswith(app + ".")
@@ -735,8 +734,6 @@ def install(argv):
         print("fdf-app: the SystemRam is not reachable from here (%s): nothing installed" % e); return 1
     tty = sys.stdin.isatty()
     if found is None:
-        if clone:
-            print("fdf-app: --clone: %s has no configuration in the SystemRam yet: this would be its first install" % app); return 2
         if rest and not rest[0].startswith("--"):
             print("fdf-app: %s: its first install, from the arguments" % app)
             rc = main([argv[0], "config", app] + rest)
@@ -759,11 +756,6 @@ def install(argv):
         c = {"app": app, "rams": list(found.get("rams") or []), "roles": found.get("roles") or {}, "categories": found.get("categories") or [],
              "users": found.get("users") or {}, "login": bool(found.get("login")), "partition": found.get("partition") or "relocate",
              "seq": int(found.get("seq") or 0), "select": found.get("select") or {}, "places": found.get("places") or {}}
-        if not clone:
-            if not tty:
-                print("fdf-app: no terminal to confirm in: fdf-app install %s --clone takes it as it is" % app); return 2
-            if not _yes("Install it here as it is?", True):
-                c.update(_questions(app, c)); c["seq"] = int(time.time() * 1000)
         pub = found.get("admin") or {}
         if pub.get("user"):
             if not given_admin and not tty:
