@@ -1785,8 +1785,13 @@ def run_lan_only_loop():
     region (fdf-join / fdf-region-join) restarts it into run_region_loop; nothing is polled here."""
     _ensure_frognet0()
     n = _tear_down_all_kernel_wg_ifaces("lan_only: no region, no authority to hold tunnels")
-    config.log.warning("LAN-only loop started: no region (RINA_RAM unset), %d wg iface(s) taken down; discovery and the "
-                       "elections are runMerge's, this daemon has nothing else to do [LAN_ONLY_NO_REGION_V1]", n)
+    # [SYSTEM_RAM_ON_EVERY_FROGNETHOST_V1] (John 2026-11-04: the SystemRam manager is installed with the FrogNetHost
+    # role, on every node) this node's RAM host runs with or without a region: the SystemRam and databasehost-control
+    # are whichever node's RAM host the elections name, so every node must have one to be named
+    from . import region as _region
+    ram = _region.ensure_lan_ram()
+    config.log.warning("LAN-only loop started: no region (RINA_RAM unset), %d wg iface(s) taken down; this node's RAM "
+                       "host %s; discovery and the elections are runMerge's [LAN_ONLY_NO_REGION_V1]", n, ram or "NOT running")
     import select
     while config.running:                       # [STOP_IS_AN_EVENT_V1] held on the stop itself
         select.select([config.stop_r], [], [])

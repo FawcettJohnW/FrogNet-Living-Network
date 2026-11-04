@@ -99,7 +99,7 @@ def wait_up(hostport, since):
         w.close()
 
 
-def up_or_moved(hostport, since, now):
+def up_or_moved(hostport, since, now, dirs=None):
     """[SYSTEM_RAM_FOLLOWED_V1] block until the RAM manager at hostport says it is up after `since`, or now() -- where
     the RAM is now (fdfram.where) -- is another one: the tunnel daemon moved the system space (a split, a merge).
     One wait on both directories. Returns now()'s answer."""
@@ -107,7 +107,8 @@ def up_or_moved(hostport, since, now):
     os.makedirs(d, exist_ok=True)
     names = up_names(hostport)
     w = Inotify(d)
-    w.add(VAR)
+    for x in (dirs if dirs is not None else [VAR]):
+        w.add(x)
     try:
         while True:
             at = now()

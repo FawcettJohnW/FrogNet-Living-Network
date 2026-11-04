@@ -32,12 +32,44 @@ def system_now_file():
     return os.path.join(os.environ.get("FDF_VAR", "/opt/fdf/var"), "system-ram.env")
 
 
+SYSTEM_RAM_PORT = int(os.environ.get("FDF_LAN_RAM_PORT", "8841"))
+
+
+def role_ram(name, env_var):
+    """the RAM host of the node /etc/hosts names for `name` now (its address, port FDF_LAN_RAM_PORT): every FrogNetHost runs
+    one ([LAN_RAM_ALWAYS_V1], [SYSTEM_RAM_ON_EVERY_FROGNETHOST_V1]) and the elections say whose is which.
+    `env_var` (host:port) overrides, for a test."""
+    w = os.environ.get(env_var, "")
+    if w:
+        return w
+    hosts = os.environ.get("FDF_HOSTS", "/etc/hosts")
+    try:
+        for line in open(hosts):
+            p = line.split("#", 1)[0].split()
+            if len(p) >= 2 and name in p[1:]:
+                return "%s:%d" % (p[0], SYSTEM_RAM_PORT)
+    except FileNotFoundError:
+        pass
+    raise RamError("%s names no %s yet (the election has not run on this node)" % (hosts, name))
+
+
+def system_ram():
+    """[SYSTEM_RAM_IS_DATABASEHOST_V1] the SystemRam (John 2026-11-04: "SystemRam IS the RAM host"): the RAM host of the
+    node the databasehost election names, databasehost.frognet. The WAN hub is a conduit, never the SystemRam."""
+    return role_ram("databasehost.frognet", "RINA_SYSTEM_RAM")
+
+
+def control_ram():
+    """databasehost-control: the RAM host of the highest .1 in the current view (databasehost_control.frognet), where
+    capability tuples and configuration tuples live and every election reads."""
+    return role_ram("databasehost_control.frognet", "RINA_CONTROL_RAM")
+
+
 def where(env=True):
-    """RINA_RAM (host:port) from the environment, else where the SystemRam is NOW, else /opt/fdf/var/join.env (written by
-    fdf-join). [SYSTEM_RAM_FOLLOWED_V1] the tunnel daemon walks the system space's list (the WAN RAM manager first, then
-    the LAN's, highest first: [SYSTEM_SPACE_V1]) and writes where it is now in system-ram.env; join.env is what was
-    configured. After a split the SystemRam is the LAN's, and whoever reads this follows it there. env=False: the files
-    only (a process that put RINA_RAM in its own environment for its children asks where the SystemRam is now)."""
+    """the RAM manager this machine's member session is on: RINA_RAM from the environment, else where the session is
+    NOW (system-ram.env: the tunnel daemon walks the system space's list, the WAN conduit's RAM manager first, then
+    the LAN's [SYSTEM_SPACE_V1]), else /opt/fdf/var/join.env (written by fdf-join). The members' own cells are there.
+    App configuration is not: that is the SystemRam (system_ram()). env=False: the files only."""
     w = (os.environ.get("RINA_RAM", "") if env else "") or _env_ram(system_now_file()) or _env_ram(os.path.join(os.environ.get("FDF_VAR", "/opt/fdf/var"), "join.env"))
     if not w:
         raise RamError("no RAM manager: run fdf-join HOST:PORT, or set RINA_RAM=host:port")

@@ -58,6 +58,21 @@ function helper(string $script, string $sub, array $args = []): void {
     exit;
 }
 
+/** [FROGNETHOST_ADMIN_V1] the FrogNetHost Admin: every FrogNetHost, and a request to one of them, through the console
+ *  program (it writes the SystemRam admin's tuple in databasehost-control; the node applies it). No sudo: it only
+ *  reads and writes the RAM hosts. */
+define('FROGNET_HOST', getenv('FROGNET_HOST_BIN') ?: '/opt/fdf/bin/frognet-host');   // (a test names another)
+function frognet_host(array $args): void {
+    $cmd = '/usr/bin/python3 ' . escapeshellarg(FROGNET_HOST);
+    foreach ($args as $a) $cmd .= ' ' . escapeshellarg((string)$a);
+    $out = shell_exec($cmd . ' 2>&1');
+    if ($out === null) fail('frognet-host did not run', 500);
+    $j = json_decode(trim((string)$out), true);
+    if (!is_array($j)) fail(trim((string)$out), 502);
+    echo json_encode($j);
+    exit;
+}
+
 function read_input(): array {
     $raw = file_get_contents('php://input');
     if ($raw === '' || $raw === false) return [];
@@ -132,9 +147,33 @@ switch ($action) {
         $target = $enabled ? 'on' : 'off';
         helper(HELPER_V4, 'ssid_projection_set', [$target]);
 
+    // -------- FrogNetHost Admin: every FrogNetHost, through the tuples [FROGNETHOST_ADMIN_V1] ----------------
+
+    case 'hosts':
+        frognet_host(['status', '--json']);
+
+    case 'host-request':
+        if ($method !== 'POST') fail('POST required', 405);
+        $node = trim($input['node'] ?? '');
+        $op   = trim($input['op']   ?? '');
+        if ($node === '' || !in_array($op, ['setup', 'clear', 'dump', 'backup', 'reboot'], true)) fail('node and op (setup, clear, dump, backup, reboot) required');
+        $args = [$op, '--node', $node, '--no-wait'];
+        if ($op === 'setup') {
+            $name = trim($input['name'] ?? ''); $ip = trim($input['ip'] ?? '');
+            if ($name === '' || $ip === '') fail('name and ip required');
+            $args[] = $name; $args[] = $ip;
+        }
+        frognet_host($args);
+
+    case 'host-wait':           // a held read on the node's answer to that request (the node writes it when done)
+        $node = trim($_GET['node'] ?? ''); $op = trim($_GET['op'] ?? ''); $seq = (int)($_GET['seq'] ?? 0);
+        if ($node === '' || $op === '' || $seq < 1) fail('node, op and seq required');
+        set_time_limit(0);
+        frognet_host(['wait', $op, (string)$seq, '--node', $node, '--json']);
+
     default:
         fail("unknown action: " . json_encode($action) . ". Available: " .
              "state, scan-wifi, auto-ip, apply-identity, connect-wifi, " .
              "disconnect, reboot, qr, ssid-projection-state, " .
-             "apply-ssid-projection");
+             "apply-ssid-projection, hosts, host-request, host-wait");
 }

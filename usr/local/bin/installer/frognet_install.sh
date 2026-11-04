@@ -2049,7 +2049,7 @@ CORE_SERVICES=(frognet-proxy frognet-daemon frognet-merge-watcher
 # caller was propagateNotification.php, itself a superseded generation of an
 # endpoint nothing calls.
 
-OPT_SERVICES=(frognet-gps frognet-transit-boot)
+OPT_SERVICES=(frognet-gps frognet-transit-boot frognet-host)   # [FROGNETHOST_ADMIN_V1] (its program ships in /opt/fdf/bin)
 # [NO_TRANSIT_WATCH_V1 - T6a fixes] frognet-transit-watch is gone: its script was a disabled copy of the old bash
 # discovery (sync_interfaces.sh, `exit 0` at the top) under Restart=always, so systemd started it every 5 s for ever and
 # it did nothing. Discovery is opt/frognet_semantic/discovery, run by the merge; transit links are frognet-transit-boot.

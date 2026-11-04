@@ -53,7 +53,9 @@ FROGNET_FILES=(
   opt/frognet_semantic/internet_tunnels_v3/tests/__init__.py
   opt/frognet_semantic/internet_tunnels_v3/tests/graph_apply_oracle.py
   opt/frognet_semantic/internet_tunnels_v3/wg.py
+  etc/systemd/system/frognet-host.service
   usr/local/bin/frognet-merge-watcher.sh
+  usr/local/bin/frognet_setup_helper.bash
   usr/local/bin/frognet_dbhost_elector.py
   usr/local/bin/frognet_monitor
   usr/local/bin/frognet_monitor_py/__main__.py
@@ -71,9 +73,11 @@ FROGNET_FILES=(
   var/www/html/fln_dashboard32.html
   var/www/html/frognet_echo.php
   var/www/html/frognet_node.inc.php
+  var/www/html/frognet_setup_v4_api.php
   var/www/html/getHosts.php
   var/www/html/getSnapshot.php
   var/www/html/index.php
+  var/www/html/setup_frognet.html
 )
 for f in "${FROGNET_FILES[@]}"; do [ -f "$REPO/$f" ] || { echo "make_deliverables: $REPO/$f missing" >&2; exit 1; }; done
 TAG=$(sed -n 's/^#define FDF_BUILD_TAG "\(.*\)"/\1/p' "$H/src/fdf_version.hpp"); NOW=$(date -u +%Y-%m-%dT%H:%MZ)
