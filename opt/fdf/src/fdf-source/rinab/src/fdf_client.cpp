@@ -217,11 +217,12 @@ static std::string hmac_hex(const std::string& key, const std::string& msg) {
 // session registered (eid -> rlocs). Says what it did; a refusal is said with the region's reason, never retried.
 // [MAPS_ASSERTED_V1] with assert=true the region is READ first (map_list): every mapping of mine it lacks, or holds with
 // other locators, is forgotten from `have` so it is registered again below. The client keeps no belief about what the
-// region holds; it asserts the truth every ASSERT_SEC. (Seattle7 16:22: registered at :35, gone from the region by
-// 16:24 with the session up -- the manager's late cleanup of the PREVIOUS session, whose id this one reused, erased it;
-// `have` still said "registered", so it stayed gone until a restart.)
+// region holds. (Seattle7 16:22: registered at :35, gone from the region by 16:24 with the session up -- the manager's
+// late cleanup of the PREVIOUS session, whose id this one reused, erased it. The timer that asserted every 30 s is gone
+// [EVENTS_NOT_TIMERS_V1]: on the platform a session's id is its epoch, never reused [SESSION_EPOCH_V1]; sync_maps runs
+// at the session's start and on every change of the facts.)
 static void sync_maps(frogram::Session& s, const std::string& api, std::map<std::string, std::string>& have, bool assert_region = false) {
-    static std::mutex one_at_a_time; std::lock_guard<std::mutex> lk(one_at_a_time);   // the watch thread and the assert thread share `have`
+    // (one thread calls this: the session's start, then the facts watch)
     const char* site = getenv("RINA_AREA"); const char* key = getenv("RINA_SITE_KEY");
     std::map<std::string, std::string> want;
     const std::string facts = read_facts();
@@ -262,7 +263,7 @@ static void sync_maps(frogram::Session& s, const std::string& api, std::map<std:
                     e.find("EPERM") != std::string::npos ? " = RINA_SITE_KEY in /opt/fdf/var/site.env is not the key map_site holds for this area (HMAC mismatch)" :
                     e.find("ENOENT") != std::string::npos ? " = the region has no map_site for RINA_AREA (run map_site on the RAM manager first)" :
                     e.find("EALREADY") != std::string::npos ? " = a newer registration is already held" :
-                    e.find("EEXIST") != std::string::npos ? " = another live member holds this mapping; it is theirs until they leave (asserted again every FDF_ASSERT_SEC)" : "");
+                    e.find("EEXIST") != std::string::npos ? " = another live member holds this mapping; it is theirs until they leave (registered again on the next change of the facts)" : "");
         }
     }
     fflush(stdout);
@@ -412,7 +413,6 @@ static frogram::Json announce(frogram::Session& s, const std::string& api, const
     const std::string facts = read_facts();
     frogram::Json a = s.call("POST", api + "?op=rina", "{\"op\":\"announce\",\"ns\":" + frogram::Json::quote(ns) + ",\"name\":" + frogram::Json::quote(name) +
                   ",\"ips\":" + ipv4s() + ",\"cap\":" + frogram::Json::quote(capability()) + (facts.empty() ? "" : ",\"facts\":" + frogram::Json::quote(facts)) + "}");
-    if (a["ok"].b) write_member(s, api, ns, name, facts);
     return a;
 }
 
@@ -459,7 +459,6 @@ int main(int argc, char** argv) {
                   ",\"ips\":" + ipv4s() + ",\"cap\":" + frogram::Json::quote(capability()) + (facts.empty() ? "" : ",\"facts\":" + frogram::Json::quote(facts)) + "}");
             frogram::Json a; try { a = frogram::Json::parse(body); } catch (...) { fprintf(stderr, "fdf-client: unreadable answer to the announcement: %s\n", body.substr(0, 200).c_str()); return 1; }
             if (a["ok"].b) {   // [LEAF_ADDR_FROM_THE_REGION_V1] a leaf's /32 is the region's to give: said, never chosen here
-                write_member(s, api, ns, name, facts);                                    // [MEMBER_IS_A_TUPLE_V1]
                 if (!a["addr"].s.empty()) {
 #ifndef _WIN32
                     if (reach_wanted()) { std::lock_guard<std::mutex> lk(reach_mu); reach_addr = a["addr"].s;
@@ -469,13 +468,12 @@ int main(int argc, char** argv) {
                     { printf("fdf-client: the region gave this leaf %s (its WireGuard Address)\n", a["addr"].s.c_str()); fflush(stdout); } }
                 break; }
             if (a["error"].s != "EEXIST") { fprintf(stderr, "fdf-client: the announcement was refused: %s %s\n", a["error"].s.c_str(), a["why"].s.c_str()); return 1; }
-            fprintf(stderr, "fdf-client: JOIN REFUSED by the region: %s. Not a member until that changes; waiting for the region to change (no retry loop).\n", a["why"].s.c_str());
-            const std::string jp = "join:" + ns;
-            s.call_text("POST", api + "?op=rina", "{\"op\":\"watch_participants\",\"proc\":" + frogram::Json::quote(jp) + "}");
-            const std::string t = s.call_text("POST", api + "?op=rina_block", "{\"op\":\"wait\",\"proc\":" + frogram::Json::quote(jp) + ",\"after\":" + std::to_string(jat) + "}", 3.0e8);
-            for (size_t i = 2; i < t.size();) { const size_t tab = t.find('\t', i), nl = t.find('\n', i); if (tab == std::string::npos || nl == std::string::npos) break;
-                const unsigned long long n = std::stoull(t.substr(i, tab - i)); if (n > jat) jat = n; i = nl + 1; }
-            fprintf(stderr, "fdf-client: the region changed; trying the announcement again\n");
+            fprintf(stderr, "fdf-client: JOIN REFUSED by the region: %s. Not a member until that changes; waiting for the members to change (a held read, no retry loop).\n", a["why"].s.c_str());
+            // [MEMBER_IS_A_TUPLE_V1] the region changing is the members' family changing: (pond, member), held
+            frogram::Memory mm(s, api);
+            if (jat == 0) for (auto& c : mm.read("pond", "member")) if (c.id > jat) jat = c.id;
+            for (auto& c : mm.read("pond", "member", "", (int64_t)jat, 600.0)) if (c.id > jat) jat = c.id;
+            fprintf(stderr, "fdf-client: the members changed; trying the announcement again\n");
         }
         { frogram::Json v = rina("{\"op\":\"version\"}");
           printf("fdf-client: build %s; region at %s is build %s\n", FDF_BUILD_TAG, where.c_str(), v["ok"].b ? v["server"].s.c_str() : "(no version op: older than fdf-2026-10-09-r2)"); }
@@ -485,6 +483,7 @@ int main(int argc, char** argv) {
         std::thread([&s, api, ns, name] { telemetry_loop(s, api, ns, name); }).detach();     // [TELEMETRY_IS_A_TUPLE_V1]
 #ifndef _WIN32
         std::map<std::string, std::string> have_maps; sync_maps(s, api, have_maps);       // [MAP_FROM_FACTS_V1]
+        write_member(s, api, ns, name, announced);   // [MEMBER_IS_A_TUPLE_V1] after its mappings: a reader of the members finds them there
         // [IPCP_FACTS_V1] re-announce when the facts file changes. Watch the DIRECTORY (editors and `mv` replace the file,
         // which would orphan a watch on the inode); react to our file's name only. Held in the kernel; nothing polls.
         std::thread([&s, api, ns, name, &have_maps, announced] {
@@ -519,7 +518,7 @@ int main(int argc, char** argv) {
                 try { frogram::Json a = announce(s, api, ns, name);
                       if (a["ok"].b) printf("fdf-client: facts changed, re-announced%s\n", a["addr"].s.empty() ? "" : (" (leaf " + a["addr"].s + ")").c_str()); else fprintf(stderr, "fdf-client: re-announcement refused: %s %s\n", a["error"].s.c_str(), a["why"].s.c_str());
                       { std::lock_guard<std::mutex> lk(reach_mu); reach_addr = reach_wanted() ? a["addr"].s : std::string(); }   // [REACH_V1]
-                      fflush(stdout); sync_maps(s, api, have_maps); reach_sync(); }
+                      fflush(stdout); sync_maps(s, api, have_maps); write_member(s, api, ns, name, now); reach_sync(); }
                 catch (const std::exception& x) { fprintf(stderr, "fdf-client: re-announce failed: %s -- ending this session so a fresh one re-announces and re-registers\n", x.what()); session_over(1); }
             }
         }).detach();
@@ -549,12 +548,10 @@ int main(int argc, char** argv) {
                 if (after < 0) after = 0;
             }
         }).detach();
-        // [MAPS_ASSERTED_V1] every ASSERT_SEC: the region is read and my mappings re-registered if it lacks them. Nothing is
-        // written when the region already holds them, so a steady region sees no event from this.
-        std::thread([&s, api, &have_maps] {
-            const char* e = getenv("FDF_ASSERT_SEC"); const int every = e && atoi(e) > 0 ? atoi(e) : 30;
-            for (;;) { sleep(every); try { sync_maps(s, api, have_maps, true); } catch (const std::exception& x) { fprintf(stderr, "fdf-client: assert failed: %s -- ending this session for a fresh one\n", x.what()); session_over(1); } }
-        }).detach();
+        // [EVENTS_NOT_TIMERS_V1] (was [MAPS_ASSERTED_V1]: every 30 s the region was read and this member's mappings
+        // registered again if it lacked them -- a timer standing in for a defect.) A mapping goes with the session that
+        // registered it ([OWNED_MAPPING_IS_NOT_RESTORED_V1]); this session registers them at its start and again on every
+        // change of its facts.
 #endif
 #ifndef _WIN32
         reach_sync();                                                            // [REACH_V1] after the join
