@@ -1045,38 +1045,6 @@ def prune_self_stale_capability(role: str, var: str = "capability",
     return n
 
 
-def held(service: str, var: str, scope: str, have: str = "", wait_s: float = 25.0,
-         dbhost: str = DEFAULT_DBHOST) -> Tuple[Optional[Dict[str, Any]], str]:
-    """[HELD_UNTIL_CHANGED_V1] one cell's value, held at the store until it is not what the reader has: `have` is the
-    digest the last answer carried ("" the first time: answered at once). Returns (value or None when the cell is not
-    there, digest). The store bounds the hold (30 s) and answers with the same digest when nothing changed; the
-    reader asks again with it -- one question open, never a spin. An api.php without the hold answers with no
-    digest: that is said, never worked around."""
-    q = ("http://%s/api.php?entity=sensors&action=values&parse=1&SensorType=%s&SensorName=%s&wait_s=%.3f&changed_from=%s"
-         % (dbhost, urllib.parse.quote(service), urllib.parse.quote(var_name(var, scope)), float(wait_s), urllib.parse.quote(have)))
-    req = urllib.request.Request(q, method="GET")
-    try:
-        with _urlopen(req, timeout=None) as r:
-            ans = json.loads(r.read().decode())
-    except urllib.error.HTTPError as e:
-        raise classify_store_failure(e, body_of(e))("held read on %s: HTTP %s" % (dbhost, getattr(e, "code", "?"))) from e
-    except Exception as e:
-        raise classify_store_failure(e)("held read on %s: %s: %s" % (dbhost, type(e).__name__, e)) from e
-    if "digest" not in ans:
-        raise RuntimeError("the api.php on %s has no held read until a change (no digest in its answer): it is older "
-                           "than frognet-api-2026-11-04-r1" % dbhost)
-    for row in ans.get("rows") or []:
-        d = row.get("data")
-        if not isinstance(d, dict) and isinstance(row.get("jsonData"), str):
-            try:
-                d = json.loads(row["jsonData"])
-            except ValueError:
-                d = None
-        if isinstance(d, dict):
-            return d, ans["digest"]
-    return None, ans["digest"]
-
-
 def get_all(service: str, dbhost: str = DEFAULT_DBHOST,
             fresh_s: int = 0, timeout=DEFAULT_TIMEOUT, wait_s: float = 0.0,
             min_rows: int = 0, name_like: Optional[str] = None) -> List[Dict[str, Any]]:
