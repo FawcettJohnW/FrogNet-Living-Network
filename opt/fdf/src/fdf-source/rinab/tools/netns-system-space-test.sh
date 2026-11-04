@@ -111,7 +111,9 @@ NSF() { local n=$1; shift; local F=$T/$n/fs m=""
 fsnode() { local n=$1; local F=$T/$n/fs
   for b in $BINDS; do mkdir -p $F/${b%%:*}; done
   cp -a /etc/. $F/etc/; mkdir -p $F/etc/frognet $F/etc/wireguard $F/etc/sentinels $F/etc/dnsmasq.d
-  printf '127.0.0.1 localhost\n' > $F/etc/hosts; echo "g-$n" > $F/etc/fnid; echo "domain=$n" > $F/etc/dnsmasq.d/frognet.conf
+  # [APP_TUPLES_IN_CONTROL_V1] databasehost_control.frognet as the election writes it (the highest .1, w's 10.4.4.1); the
+  # daemon's own election rewrites it from then on
+  printf '127.0.0.1 localhost\n10.4.4.1 databasehost_control.frognet\n' > $F/etc/hosts; echo "g-$n" > $F/etc/fnid; echo "domain=$n" > $F/etc/dnsmasq.d/frognet.conf
   printf '# netns system-space test\n' > $F/etc/frognet/tunnel.conf; printf 'NETWORK_NAME=p\n' > $F/etc/frognet/gateways.conf
   if [ "${LOGIN:-}" = 1 ]; then
     NSF $n env FDF_WG_IMPL=wireguard-go FDF_DEVICE_ID=g-$n bash $T/bin/fdf-region-join --files-only "$LINE" < /dev/null > $T/$n/login.log 2>&1   # [ORG_NODE_JOIN_V1] as the installer runs it
@@ -143,7 +145,7 @@ daemon() { local n=$1
   svc $T/$n/client.log NSF $n env FDF_NAME=$n $(cat $T/$n/fs/opt-fdf-var/site.env) sh -c \
     'R=$(sed -n "s/^export RINA_RAM=//p" /opt/fdf/var/join.env); [ -f /opt/fdf/var/system-ram.env ] && R=$(sed -n "s/^RINA_RAM=//p" /opt/fdf/var/system-ram.env); echo $$ > /opt/fdf/var/client.pid; exec fdf-client $R'
   NSF $n env FDF_NAME=$n python3 $T/bin/fdf-facts --watch > $T/$n/facts.log 2>&1 &
-  # [SYSTEM_RAM_FOLLOWED_V1] an app on the node, as fdf-app.service runs it (no RINA_RAM: it follows the SystemRam)
+  # [APP_TUPLES_IN_CONTROL_V1] an app on the node, as fdf-app.service runs it: its tuples in databasehost-control
   NSF $n env FDF_APPS=/opt/fdf/var/apps python3 $PK/bin/fdf-app config rangertrak general --role eoc:default > $T/$n/app-config.log 2>&1
   svc $T/$n/app.log NSF $n env FDF_NAME=$n FDF_APPS=/opt/fdf/var/apps python3 $PK/bin/fdf-app serve; }
 daemon z; daemon w
@@ -162,7 +164,7 @@ dump() { for n in z w; do echo "--- $n: system space lines"; grep -E "system spa
 r=($(both_on hubA "parts A $RAM")); check ${r[0]} "both on hubA, the first on the list; hubA's RAM manager lists both ($(secs ${r[1]}) s)"; [ ${r[0]} = 0 ] || dump
 ok=1; for i in $(seq 120); do ip netns exec z ip -4 route | grep -q '^10.4.4.0/24 via 10.3.3.20' && { ok=0; break; }; sleep 0.5; done
 check $ok "z routes w's 10.4.4.0/24 over the LAN (via its lease 10.3.3.20)"
-a=($(app_on A $RAM)); check ${a[0]} "the app on z and w: both configuration tuples in the SystemRam on hubA ($(secs ${a[1]}) s)"
+a=($(app_on w 10.4.4.1:8841)); check $([ ${a[0]} = 0 ] && [ "$(appcfg A $RAM)" = 0 ] && echo 0 || echo 1) "the app on z and w: both configuration tuples in databasehost-control, w's 10.4.4.1:8841 ($(secs ${a[1]}) s); none on the conduit hubA ($(appcfg A $RAM))"
 check $(NSF w wg show interfaces 2>/dev/null | grep -q wg && echo 0 || echo 1) "w has its own tunnel to hubA, through z: $(NSF w wg show all latest-handshakes 2>/dev/null | awk '{print $1}' | tr '\n' ' ')"
 sleep 4
 # ---- failover: hubA's RAM manager dies
@@ -181,11 +183,11 @@ check $(ip netns exec z ip -4 route | grep -q '^10.4.4.0/24 via 10.3.3.20' && ec
 check $(ip netns exec w ping -c 1 -W 2 -I 10.4.4.1 10.3.3.1 > /dev/null 2>&1 && echo 0 || echo 1) "on the LAN: w's .1 -> z's .1"
 ok=1; for i in $(seq 120); do [ "$(appwhere w 10.4.4.1:8841)" = rangertrak.general ] && { ok=0; break; }; sleep 0.25; done
 check $ok "on the LAN: the app's RAM general is served on this side, its where cell in w's 10.4.4.1:8841"
-a=($(app_on w 10.4.4.1:8841)); check ${a[0]} "on the LAN: the app followed the SystemRam: both configuration tuples on w's 10.4.4.1:8841 ($(secs ${a[1]}) s; z: $(grep -o 'the SystemRam is [^ ]* now' $T/z/app.log | tail -1))"
+a=($(app_on w 10.4.4.1:8841)); check ${a[0]} "on the LAN: the app did not move: both configuration tuples still in databasehost-control, w's 10.4.4.1:8841 ($(secs ${a[1]}) s; z's moves: $(grep -c 'databasehost-control is [^ ]* now' $T/z/app.log))"
 # ---- the primary returns: both on hubA
 hostup A
 r=($(both_on hubA "parts A $RAM")); check ${r[0]} "hubA back: both on hubA from the LAN ($(secs ${r[1]}) s)"; [ ${r[0]} = 0 ] || dump
 check $(NSF z wg show interfaces 2>/dev/null | grep -q wg && echo 0 || echo 1) "z's hub channel is back up"
-a=($(app_on A $RAM)); check ${a[0]} "hubA back: the app's configuration tuples written again there ($(secs ${a[1]}) s)"
+a=($(app_on w 10.4.4.1:8841)); check $([ ${a[0]} = 0 ] && [ "$(appcfg A $RAM)" = 0 ] && [ "$(appwhere w 10.4.4.1:8841)" = rangertrak.general ] && echo 0 || echo 1) "hubA back: the app's tuples still in w's 10.4.4.1:8841 and general served ($(appwhere w 10.4.4.1:8841)); none on hubA ($(appcfg A $RAM))"
 echo "RESULT $([ $FAILS = 0 ] && echo PASS || echo "FAIL: $FAILS")"
 [ -n "${PAUSE:-}" ] && { echo "PAUSE: holding the namespaces ${PAUSE}s (T=$T)"; sleep $PAUSE; }

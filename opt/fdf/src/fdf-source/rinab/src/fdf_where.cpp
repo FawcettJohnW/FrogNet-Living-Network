@@ -81,7 +81,10 @@ int main(int argc, char** argv) {
         // is down, it would outlive the member (nothing sweeps it until the member's NEXT session ends). So a service is
         // said only while this machine's ns is an alive participant; otherwise nothing is written and it says so.
         if (!clearing && !addin.empty() && service != addin) { fprintf(stderr, "fdf-where: FDF_ADDIN=%s writes only its own service, not %s (nothing written)\n", addin.c_str(), service.c_str()); return 2; }
-        if (!clearing && !standalone) {
+        // [HOLD_NEEDS_NO_MEMBER_SESSION_V1] a held cell is this process's own session's (own:true): it cannot outlive its
+        // writer, so it is written on any RAM host, the member's session there or not -- fdf-app holds its presence and
+        // its RAMs' cells in databasehost-control while the member's session is on the WAN conduit [APP_TUPLES_IN_CONTROL_V1]
+        if (!clearing && !standalone && !hold) {
             frogram::Json r = s.call("POST", std::string(API) + "?op=rina", "{\"op\":\"participants\"}");
             bool alive = false; for (auto& p : r["participants"].a) if (p["ns"].s == ns && p["alive"].b) alive = true;
             if (!alive) { fprintf(stderr, "fdf-where: %s is not an alive member at %s (its fdf-client is not joined): nothing written\n", ns.c_str(), where.c_str()); return 3; }

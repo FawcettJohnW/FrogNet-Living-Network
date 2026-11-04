@@ -9,8 +9,8 @@
 #   usage: tools/test_fdf_app.py [BUILD_STATIC_DIR]   (default: rinab/build/static)
 # Checks, each with what it saw:
 #   1 every RAM is served by exactly one member, the one the selection names (c), and answers there
-#   2 c's session ends: each RAM moves to b, within the time printed; c stops serving
-#   3 c's session is back: the RAMs move to c again (the selection is deterministic; a stronger member takes it)
+#   2 c gone (its session and its fdf-app, so its presence in databasehost-control): each RAM moves to b, within the time printed; c stops serving
+#   3 c is back: the RAMs move to c again (the selection is deterministic; a stronger member takes it)
 #   4 a member without the app is never chosen
 #   6 b is cut off (behind b's address for the network RAM there is now b's own side's RAM): b's droplet writes its
 #     configuration and capability there again and serves both RAMs on its side; a and c still map them to c. b
@@ -28,7 +28,7 @@
 #     tuple lacks a ranked key ranks below every member that has it; the same tuples give the same answer in any order
 #  13 [GROUP_PLACE_V1] pat, hospitals' lead, places it "here" on c (the place cell as the door writes it): every member
 #     adopts it and hospitals is on c, whatever the selection says; a place written by a user who is not the lead changes nothing
-#  14 c's session ends: hospitals is served by nobody (the group went with its lead's device), general and alpha stay on a
+#  14 c gone: hospitals is served by nobody (the group went with its lead's device), general and alpha stay on a
 #  15 c is back, and pat places hospitals on databasehost: the app's selection again (need gpu: b)
 #   5 every member with the app has the same map of where each RAM is served (FDF_VAR/app-where.json), the one the pages use
 import json, os, shutil, socket, subprocess, sys, tempfile, time
@@ -67,7 +67,8 @@ via = {n: Via(NET) for n in "abcd"}   # each member's one address for the networ
 MEM = {"a": 1_000_000, "b": 4_000_000, "c": 8_000_000, "d": 16_000_000}   # d is strongest but has no app
 members = {}
 def member_env(n):
-    return dict(os.environ, RINA_RAM=via[n].addr, FDF_FACTS=T + "/%s/facts.json" % n, FDF_VAR=T + "/" + n,
+    # [APP_TUPLES_IN_CONTROL_V1] databasehost-control is the one network RAM here, reached the way the session reaches it
+    return dict(os.environ, RINA_RAM=via[n].addr, RINA_CONTROL_RAM=via[n].addr, FDF_FACTS=T + "/%s/facts.json" % n, FDF_VAR=T + "/" + n,
                 FDF_APPS=T + "/%s/apps" % n, FDF_BIN=T + "/bin", FDF_PY=os.path.join(F, "lib", "python"), FDF_NAME="node-" + n)
 import threading
 up = {}
@@ -93,9 +94,17 @@ for n in "abc":   # the admin's install on each member it names (d is not named:
     subprocess.run([os.path.join(F, "bin", "fdf-app"), "config", "rangertrak", "general,hospitals", "--login",
                     "--role", "hospitals", "--role", "command:default",
                     "--user", "pat:beds-2026=hospitals", "--admin", "boss:adm-2026"], env=member_env(n), check=True)
-for n in "abcd":
+def serve(n, mode="w"):
     members[n]["serve"] = subprocess.Popen([os.path.join(F, "bin", "fdf-app"), "serve"], env=member_env(n),
-                                           stdout=open(T + "/%s/app.log" % n, "w"), stderr=subprocess.STDOUT)
+                                           stdout=open(T + "/%s/app.log" % n, mode), stderr=subprocess.STDOUT)
+for n in "abcd":
+    serve(n)
+def machine_gone(n):
+    """[APP_TUPLES_IN_CONTROL_V1] the machine gone: its session and its fdf-app (and with it its presence in
+    databasehost-control) end"""
+    client_stop(n); p = members[n]["serve"]; p.terminate(); p.wait()
+def machine_back(n):
+    client(n); serve(n, "a")
 
 def where(r):
     out = subprocess.run([os.path.join(F, "bin", "fdf-app"), "where", "rangertrak", r], env=member_env("a"),
@@ -170,15 +179,15 @@ try:
     check(bad is not None and all(not x["bag"]["ok"] and "mac" in x["bag"]["why"] for x in bad) and all(c["bag"]["seq"] == seq and "kim" in c["bag"]["users"] for c in cf3),
           "9 a wrong admin password's configuration refused by every member (%s); the configuration unchanged" % ([x["bag"]["why"][:40] for x in (bad or [])][:1]))
 
-    client_stop("c")
+    machine_gone("c")
     t0 = time.monotonic()
     for r in ("general", "hospitals"):
         hp, _ = wait_for(lambda: (lambda w: w if w.startswith("127.0.2.1:") and answers(w) else None)(where(r)))
-        check(hp is not None, "2 c's session ended: %s on b (127.0.2.1) %.0f ms after: %s" % (r, (time.monotonic() - t0) * 1000, hp or where(r) or "nothing"))
+        check(hp is not None, "2 c gone: %s on b (127.0.2.1) %.0f ms after: %s" % (r, (time.monotonic() - t0) * 1000, hp or where(r) or "nothing"))
     gone, _ = wait_for(lambda: all(not answers("127.0.3.1:%d" % p) for p in (21000 + __import__("zlib").crc32(("rangertrak." + r).encode()) % 8000 for r in ("general", "hospitals"))))
     check(bool(gone), "2 c stopped serving both RAMs")
 
-    client("c")
+    machine_back("c")
     t0 = time.monotonic()
     for r in ("general", "hospitals"):
         hp, _ = wait_for(lambda: (lambda w: w if w.startswith("127.0.3.1:") and answers(w) else None)(where(r)))
@@ -250,11 +259,11 @@ try:
     check(ms is not None and cfp == ["guid-c"] * 3 and still and notlead,
           "13 pat placed hospitals on c: there %.0f ms after (%s); every configuration tuple has it: %s; kim's place (not the lead) changed nothing: %s"
           % (dt * 1000, (map_of("a") or {}).get("rangertrak.hospitals"), cfp, still and notlead))
-    client_stop("c")
+    machine_gone("c")
     gone, dt = wait_for(lambda: all("rangertrak.hospitals" not in (map_of(n) or {"rangertrak.hospitals": 1}) for n in "ab")
                         and all((map_of(n) or {}).get("rangertrak.general", "").startswith("127.0.1.1:") for n in "ab"), 20)
     check(bool(gone), "14 c gone: hospitals served by nobody %.0f ms after (a's map: %s)" % (dt * 1000, map_of("a")))
-    client("c")
+    machine_back("c")
     wait_for(on(want, rs), 20)
     place("pat", "databasehost")
     ms, dt = wait_for(on({"general": "127.0.1.1", "alpha": "127.0.1.1", "hospitals": "127.0.2.1"}, rs), 20)

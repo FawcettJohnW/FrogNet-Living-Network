@@ -83,7 +83,7 @@ import threading
 up = {}
 def member_env(post):
     R = T + "/" + post
-    return dict(os.environ, RINA_RAM=via[post].addr, FDF_FACTS=R + "/facts.json", FDF_VAR=R, FDF_APPS=R + "/apps",
+    return dict(os.environ, RINA_RAM=via[post].addr, RINA_CONTROL_RAM=via[post].addr, FDF_FACTS=R + "/facts.json", FDF_VAR=R, FDF_APPS=R + "/apps",
                 FDF_BIN=T + "/bin", FDF_PY=os.path.join(FDF, "lib", "python"), FDF_NAME="post-" + post)
 def session(post):                # the member's session as its unit runs it (fdf-join: Restart=always)
     up[post] = True
@@ -111,7 +111,7 @@ for i, name in enumerate(("A", "B"), start=1):
     svc = ["rt-mission", "rt-log", "rt-handled", "rt-roster", "rt-pos", "rt-who", "rt-msg", "rt-dm", "rt-team", "rt-notes"]
     json.dump({"apps": [{"id": "radiolog", "title": "Radio log", "version": "1", "page": "../rt/log.html", "services": svc,
                          "app": "rangertrak", "rams": {x: ("team" if x == "rt-team" else "general") for x in svc}}]}, open(R + "/www/dc/apps.json", "w"))
-    open(R + "/fdf.env", "w").write("export FDF_BIN=%s/bin FDF_VAR=%s RINA_RAM=%s\n" % (T, R, via[name].addr))
+    open(R + "/fdf.env", "w").write("export FDF_BIN=%s/bin FDF_VAR=%s RINA_RAM=%s RINA_CONTROL_RAM=%s\n" % (T, R, via[name].addr, via[name].addr))
     p = free(); posts[name] = "127.0.0.1:%d" % p
     # PHP_CLI_SERVER_WORKERS: the built-in server is one process otherwise, and a held read would hold every page
     procs.append(subprocess.Popen(["php", "-S", "127.0.0.1:%d" % p, "-t", R + "/www"], env=dict(os.environ, PHP_CLI_SERVER_WORKERS="16"),

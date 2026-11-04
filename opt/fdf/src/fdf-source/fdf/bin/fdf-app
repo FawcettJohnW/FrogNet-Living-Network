@@ -52,7 +52,7 @@
   fdf-app serve
         on a member: for every app installed here (FDF_APPS/<app>.json), write its configuration tuple and say so as a
         capability tuple, and write both again after the network RAM changes (a held read ends); on every event
-        (a held read on the fdf-app family, and one on the members' own cells, (pond, member), for who is there) run each app RAM's selection over the alive
+        (a held read on the fdf-app family, and one on (pond, where), for who is there and where each RAM is served) run each app RAM's selection over the alive
         members that have the app; serve the RAMs this member is chosen for (fdf-ram, a child of this process) and say
         so in this member's where cell; stop serving the ones it is not.
 
@@ -62,13 +62,23 @@ same tuples, so nothing is negotiated, claimed or held. The app's own ranking is
 then the highest guid. A stronger member arriving takes the RAM;
 the app's owners write their own truth again to it (APP-SETUP-AND-OPERATION.md, "Why it works this way").
 
-Environment: RINA_RAM (the network RAM; else where the SystemRam is now, system-ram.env; else /opt/fdf/var/join.env), FDF_FACTS (this member's facts.json), FDF_APPS
+[APP_TUPLES_IN_CONTROL_V1] (John 2026-11-04: "There is only one configuration tuple, and it lives in databasehost-control";
+"The WAN manager is not a RAM manager. It is a conduit.") Every tuple of the app -- configuration, capability, the
+admin's, the answers, the places, the maps, where each RAM is served -- and who is there are in databasehost-control:
+the RAM host of the node /etc/hosts names databasehost_control.frognet (the highest .1, written by every merge). Who is
+there is each member's own presence cell, (pond, where, w:<guid>/fdf-app) {fdf-app: {addr}}, held by this program's
+own session there (fdf-where --hold): gone the moment this member's fdf-app is gone or cannot reach it. Nothing of the
+app is on the WAN conduit. /etc/hosts naming another databasehost-control (a split, a merge) is the event: this
+member's own truth is written there again at once.
+
+Environment: RINA_CONTROL_RAM (host:port, else databasehost_control.frognet in FDF_HOSTS, /etc/hosts, port
+FDF_LAN_RAM_PORT 8841), FDF_FACTS (this member's facts.json), FDF_APPS
 (/opt/fdf/apps), FDF_VAR (/opt/fdf/var), FDF_BIN (/opt/fdf/bin), FDF_APP_LISTEN (the address the droplets listen on;
 default this member's .1).
 """
 import hashlib, hmac, json, os, queue, signal, socket, subprocess, sys, threading, time, zlib
 
-BUILD_TAG = "fdf-app-2026-11-04-r11"
+BUILD_TAG = "fdf-app-2026-11-04-r12"
 LIB = os.environ.get("FDF_PY") or os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "lib", "python")
 sys.path.insert(0, LIB)
 import fdfram  # noqa: E402
@@ -79,15 +89,15 @@ VAR = os.environ.get("FDF_VAR", "/opt/fdf/var")
 APPS = os.environ.get("FDF_APPS", "/opt/fdf/apps")
 BIN = os.environ.get("FDF_BIN", "/opt/fdf/bin")
 FACTS = os.environ.get("FDF_FACTS", os.path.join(VAR, "facts.json"))
-SVC = "fdf-app"                                   # the family in the network RAM: config/<app>, can/<app>.<guid>
-# [CHILDREN_KNOW_THE_RAM_V1] fdf-events and fdf-where, which this runs, find the network RAM only in RINA_RAM; join.env
-# is read here (fdfram.where) and handed to them. Found on Seattle7 2026-11-01: fdf-app.service sets no RINA_RAM, so its
-# own reads found join.env and every fdf-events it started ended at once ("no RINA_RAM, no RINA_AREA").
-PINNED = bool(os.environ.get("RINA_RAM"))         # a RAM named in the environment is the one used, never another
+SVC = "fdf-app"                                   # the family in databasehost-control: config/<app>, can/<app>.<guid>
+PRESENCE = "fdf-app"                              # [APP_TUPLES_IN_CONTROL_V1] (pond, where, w:<guid>/fdf-app): this member is there
+HOSTS = os.environ.get("FDF_HOSTS", "/etc/hosts")
+PINNED = bool(os.environ.get("RINA_CONTROL_RAM"))  # named in the environment (a test): the one used, never another
+# [CHILDREN_KNOW_THE_RAM_V1] fdf-where, which this runs, finds its RAM only in RINA_RAM: databasehost-control, handed to it
 try:
-    os.environ["RINA_RAM"] = fdfram.where()
+    os.environ["RINA_RAM"] = fdfram.control_ram()
 except fdfram.RamError:
-    pass                                          # (config before join: the serve says so when it needs the RAM)
+    pass                                          # (config before the election: the serve says so when it needs the RAM)
 
 
 def log(m):
@@ -95,7 +105,14 @@ def log(m):
 
 
 def ram():
-    return fdfram.Ram(fdfram.where())
+    return fdfram.Ram(fdfram.control_ram())
+
+
+def _quiet(f):
+    try:
+        return f()
+    except fdfram.RamError:
+        return ""
 
 
 def facts():
@@ -239,16 +256,24 @@ def read_family(rm):
 
 
 def members(rm):
-    """[MEMBER_IS_A_TUPLE_V1] the members there now: each one's own (pond, member, <ns>), written on its session (it goes
-    with the session). Shaped as the region's participants were, alive because present."""
-    return [dict(c["bag"], alive=True) for c in rm.read("pond", "member") if not c.get("gone") and isinstance(c.get("bag"), dict)]
+    """[APP_TUPLES_IN_CONTROL_V1] the members there now: each one's own presence cell in databasehost-control,
+    (pond, where, w:<guid>/fdf-app) {from, fdf-app: {addr}}, held by its fdf-app's own session (gone with it). Shaped as
+    the region's participants were (facts: guid, name, its address), alive because present."""
+    out, tail = [], "/" + PRESENCE
+    for c in rm.read("pond", "where"):
+        i, b = str(c.get("instance", "")), c.get("bag")
+        if c.get("gone") or not i.startswith("w:") or not i.endswith(tail) or not isinstance(b, dict) or not isinstance(b.get(PRESENCE), dict):
+            continue
+        out.append({"alive": True, "facts": {"guid": i[2:-len(tail)], "name": b.get("from", ""),
+                                             "addrs": [{"ip": str(b[PRESENCE].get("addr", "")), "kind": "own"}]}})
+    return out
 
 
 def resolve(parts, guid):
     for p in parts:
         f = p.get("facts") or {}
         if p.get("alive") and f.get("guid") == guid:
-            return dot1(f)
+            return dot1(f) or next((str(a.get("ip", "")) for a in f.get("addrs") or [] if a.get("kind") == "own"), "")
     return ""
 
 
@@ -276,10 +301,19 @@ class Server:
         self.socks = {}                      # (app, r) -> its listening socket, kept while served here
         self.holders = {}                    # where key -> its `fdf-where --hold` (the cell is that session's own)
         self.events = queue.Queue()
-        self.rm = ram()
+        w = None
+        while not _quiet(fdfram.control_ram):          # [EVENTS_NOT_TIMERS_V1] the election writing /etc/hosts is the event
+            if w is None:
+                log("%s names no databasehost_control.frognet yet: waiting for the election to write it" % HOSTS)
+                w = fdf_watch.Inotify(os.path.dirname(HOSTS) or ".")
+            w.read()
+        if w is not None:
+            w.close()
+        self.rm = ram(); os.environ["RINA_RAM"] = self.rm.hostport
         self.said = set()                    # where keys this member has said
         self.answered = {}                   # [ADMIN_APP_V1] app -> the admin seq this member has answered
         self.chosen = {}                     # [APP_SELECTION_V1] (app, ram) -> the guid chosen last, to say why when it changes
+        self.presence = None                 # [APP_TUPLES_IN_CONTROL_V1] the `fdf-where --hold fdf-app` holding this member's presence
 
     def installed(self):
         """{app: its configuration} for every app installed here"""
@@ -453,11 +487,42 @@ class Server:
         threading.Thread(target=ended, daemon=True).start()
         return True
 
+    def hold_presence(self):
+        """[APP_TUPLES_IN_CONTROL_V1] this member's presence in databasehost-control, (pond, where, w:<guid>/fdf-app)
+        {fdf-app: {addr}}: written own:true by `fdf-where --hold` on its OWN session there and held -- gone the moment this
+        fdf-app is gone or cannot reach databasehost-control; nobody sweeps it. Returned once it is written ("ready"), so
+        the members read next include this one. Its end, once it was held, is an event."""
+        h = self.presence
+        if h is not None and h.poll() is None:
+            return True
+        h = self.presence = subprocess.Popen([os.path.join(BIN, "fdf-where"), "--hold", PRESENCE, "addr=" + self.listen],
+                                             env=dict(os.environ, FDF_FACTS=FACTS, FDF_ADDIN=PRESENCE),
+                                             stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
+        ready = False
+        for line in h.stdout:
+            if line.strip() == "ready":
+                ready = True
+                break
+        def ended():
+            for _ in h.stdout:
+                pass
+            err = h.stderr.read(); h.wait()
+            if ready:                              # never held: no event (the read that failed with it is the event)
+                self.events.put("again: this member's presence ended (rc %s%s)" % (h.returncode, ": " + err.strip()[:120] if err.strip() else ""))
+            else:
+                log("this member's presence was not written at %s (rc %s): %s" % (os.environ.get("RINA_RAM", "?"), h.returncode, err.strip()[:200]))
+        threading.Thread(target=ended, daemon=True).start()
+        if ready:
+            log("this member's presence held in databasehost-control %s" % os.environ.get("RINA_RAM", "?"))
+        return ready
+
     def decide(self, why):
         t0 = time.monotonic()
         try:
             if why.startswith("again"):
                 self.say_own()
+            if not self.hold_presence():
+                raise fdfram.RamError("this member's presence could not be held at %s" % os.environ.get("RINA_RAM", "?"))
             if self.adopt():                         # [ADMIN_APP_V1] a newer configuration from the admin: this member's own now
                 self.say_own()
             if self.adopt_places():                  # [GROUP_PLACE_V1] a lead's newer place for its group
@@ -465,9 +530,9 @@ class Server:
             parts = members(self.rm)
             cfgs, cans, _ = read_family(self.rm)
         except fdfram.RamError as e:
-            log("the network RAM did not answer (%s); the next event decides again" % e)
-            if why.startswith("again"):
-                self.events.put(why)
+            # [EVENTS_NOT_TIMERS_V1] not asked again here: the held reads on it fail too, and their follow is the
+            # event ("again") when it says it is up or /etc/hosts names another one
+            log("databasehost-control did not answer (%s); decided again when it is up or another one is named" % e)
             return
         want, placed = set(), {}
         for app, c in self.installed().items():
@@ -516,30 +581,36 @@ class Server:
             log("the map was not said in the network RAM (%s)" % e)
 
     def follow(self, err, since):
-        """[SYSTEM_RAM_FOLLOWED_V1] a read on the SystemRam failed: wait until it says it is up again, or until the
-        SystemRam is another one (system-ram.env, written by the tunnel daemon on a split or a merge), and use that one
-        from then on -- this member's configuration and capability are written again there (the "again" event), and the
-        droplets' where holders, started again, are there too"""
+        """[APP_TUPLES_IN_CONTROL_V1] a read on databasehost-control failed: wait until it says it is up again, or until
+        /etc/hosts names another one (the election, on a split or a merge), and use that one from then on -- this
+        member's configuration, capability and presence are written again there (the "again" event)"""
         old = self.rm.hostport
-        at = old if "ESTALE" in str(err) else fdf_watch.up_or_moved(old, since, lambda: fdfram.where(env=False) if not PINNED else old)
+        at = old if "ESTALE" in str(err) else fdf_watch.up_or_moved(
+            old, since, (lambda: _quiet(fdfram.control_ram) or old) if not PINNED else (lambda: old), dirs=[os.path.dirname(HOSTS) or ".", VAR])
         if at != old and self.rm.hostport == old:
-            self.rm = fdfram.Ram(at); os.environ["RINA_RAM"] = at
-            log("the SystemRam is %s now (was %s): this member's own truth is written there again" % (at, old))
+            self.moved(at, old)
 
-    def watch_system(self):
-        """[SYSTEM_RAM_FOLLOWED_V1] the tunnel daemon moving the system space (system-ram.env written: a merge back onto
-        the WAN RAM manager, or a split onto the LAN's) is an event even while the one this member is on still answers:
-        the move is followed at once, and this member's own truth written there"""
+    def moved(self, at, old):
+        """databasehost-control is `at` now: this member's reads and writes go there, and its held cells (presence, where)
+        are held there -- the holders on the old one are ended, and their ends are the events that hold them again"""
+        self.rm = fdfram.Ram(at); os.environ["RINA_RAM"] = at
+        log("databasehost-control is %s now (was %s): this member's own truth is written there again" % (at, old))
+        for h in [self.presence] + list(self.holders.values()):
+            if h is not None and h.poll() is None:
+                h.terminate()
+        self.events.put("again: databasehost-control moved")
+
+    def watch_control(self):
+        """[APP_TUPLES_IN_CONTROL_V1] /etc/hosts naming another databasehost-control (a merge, a split) is the event even
+        while the old one still answers: followed at once"""
         if PINNED:
             return
-        w = fdf_watch.Inotify(VAR)
+        w = fdf_watch.Inotify(os.path.dirname(HOSTS) or ".")
         while True:
-            at = fdfram.where(env=False)
+            at = _quiet(fdfram.control_ram)
             old = self.rm.hostport
             if at and at != old:
-                self.rm = fdfram.Ram(at); os.environ["RINA_RAM"] = at
-                log("the SystemRam moved to %s (was %s): this member's own truth is written there again" % (at, old))
-                self.events.put("again: the SystemRam moved")
+                self.moved(at, old)
             w.read()
 
     def watch_family(self):
@@ -547,7 +618,7 @@ class Server:
         start when it says it is up (fdf_watch.wait_up: its own file, or this machine's member's)."""
         last, on = -1, self.rm
         while True:
-            if on is not self.rm:                     # [SYSTEM_RAM_FOLLOWED_V1] another SystemRam: its ids are its own
+            if on is not self.rm:                     # [SYSTEM_RAM_FOLLOWED_V1] another databasehost-control: its ids are its own
                 last, on = -1, self.rm
             try:
                 cs = on.read(SVC, after=last, wait_s=25)
@@ -564,33 +635,33 @@ class Server:
                 self.events.put("again: the held read ended")
 
     def watch_members(self):
-        """[MEMBER_IS_A_TUPLE_V1] a held read on the members' own cells, (pond, member, *): one joining, changing its
-        facts or gone (its session ended) is the event. (Was fdf-events: the region's notices relayed as lines.)"""
+        """[APP_TUPLES_IN_CONTROL_V1] a held read on (pond, where) in databasehost-control: a member's presence there or
+        gone, and a RAM said served or no longer, is the event"""
         last, on = -1, self.rm
         while True:
             if on is not self.rm:
                 last, on = -1, self.rm
             try:
-                cs = on.read("pond", "member", after=last, wait_s=25)
+                cs = on.read("pond", "where", after=last, wait_s=25)
                 if cs:
                     last = max(int(c.get("id", -1)) for c in cs)
                     self.events.put("members: " + ", ".join(sorted({c.get("instance", "") for c in cs}))[:80])
             except fdfram.RamError as e:
                 t = time.time()
-                log("held read on (pond, member) ended (%s); read again when the RAM says it is up" % e)
+                log("held read on (pond, where) ended (%s); read again when it says it is up" % e)
                 self.follow(e, t)
                 last = -1
                 self.events.put("again: the members' read ended")
 
     def run(self):
-        log("build %s; member %s; droplets listen on %s; apps here: %s"
-            % (BUILD_TAG, self.me, self.listen, ", ".join(self.installed()) or "none"))
+        log("build %s; member %s; droplets listen on %s; apps here: %s; databasehost-control %s"
+            % (BUILD_TAG, self.me, self.listen, ", ".join(self.installed()) or "none", self.rm.hostport))
         try:                                         # this member's own cell from before r44 (one cell, no session): its own to remove
             for c in self.rm.read("pond", "where", "w:" + self.me):
                 if not c.get("gone"): self.rm.remove(c); log("removed this member's earlier where cell (now one held cell per RAM)")
         except fdfram.RamError as e:
             log("this member's earlier where cell: %s" % e)
-        threading.Thread(target=self.watch_system, daemon=True).start()
+        threading.Thread(target=self.watch_control, daemon=True).start()
         threading.Thread(target=self.watch_family, daemon=True).start()
         threading.Thread(target=self.watch_members, daemon=True).start()
         self.decide("again: start")
@@ -604,6 +675,8 @@ class Server:
     def shutdown(self, *_):
         for k in list(self.procs):
             self.stop(*k)
+        if self.presence is not None and self.presence.poll() is None:
+            self.presence.terminate()
         sys.exit(0)
 
 
@@ -620,11 +693,11 @@ def save_installed(app, cfg):
 # ---------------------------------------------------------------- [APP_INSTALL_V1] one command on a member's console
 # (John 2026-11-04: "They log into the Linux console of a machine joined to the network. They run one command that looks
 # at the args, if present, or runs an interactive session asking the questions it needs to know.") The install asks the
-# SystemRam for the app's configuration tuple: (fdf-app, config, <app>.*). The one the read returns is the app as it is
+# databasehost-control for the app's configuration tuple: (fdf-app, config, <app>.*). The one the read returns is the app as it is
 # set up -- no choosing between members' tuples and no search: every member holds a read on that family already ("Just
 # the one you have"). Found: it is shown and adopted as it is (John 2026-11-04: "There is no --clone": changes are
 # the admin app's); this member keeps a local copy for failover. Not found: this is the app's first
-# install -- the args, or the questions. The admin key is never in the SystemRam (only its salt and check value): the
+# install -- the args, or the questions. The admin key is never in databasehost-control (only its salt and check value): the
 # installing member asks the admin password once, checks it against the check value, and keeps the key, so it can verify
 # the admin app's later changes. Being on the network is the trust: nothing else is asked.
 def _ask(q, default=""):
@@ -731,7 +804,10 @@ def install(argv):
         found = next((c.get("bag") for c in rm.read(SVC, "config") if str(c.get("instance", "")).startswith(app + ".")
                       and isinstance(c.get("bag"), dict)), None)
     except fdfram.RamError as e:
-        print("fdf-app: the SystemRam is not reachable from here (%s): nothing installed" % e); return 1
+        # [APP_TUPLES_IN_CONTROL_V1] (John 2026-11-04: "On bootstrap, if there is no SystemRam and the app is not
+        # FrogNetHost, error out and bail")
+        print("fdf-app: databasehost-control is not reachable from here (%s): nothing installed. The first FrogNetHost "
+              "makes it; install the app on a node of a network that has one" % e); return 1
     tty = sys.stdin.isatty()
     if found is None:
         if rest and not rest[0].startswith("--"):
@@ -740,7 +816,7 @@ def install(argv):
             if rc:
                 return rc
             r = subprocess.run((os.environ.get("FDF_APP_RESTART") or "systemctl restart fdf-app").split())
-            print("fdf-app: fdf-app.service %s" % ("restarted: it writes this configuration into the SystemRam" if r.returncode == 0 else "did NOT restart (systemctl %d)" % r.returncode))
+            print("fdf-app: fdf-app.service %s" % ("restarted: it writes this configuration into databasehost-control" if r.returncode == 0 else "did NOT restart (systemctl %d)" % r.returncode))
             return 0 if r.returncode == 0 else 1
         if not tty:
             print("fdf-app: %s: its first install, and no terminal to ask in: give the arguments (fdf-app config's)" % app); return 2
@@ -759,7 +835,7 @@ def install(argv):
         pub = found.get("admin") or {}
         if pub.get("user"):
             if not given_admin and not tty:
-                print("fdf-app: %s has an admin (%s): give --admin %s:PASSWORD (its key is kept here, never in the SystemRam)" % (app, pub["user"], pub["user"])); return 2
+                print("fdf-app: %s has an admin (%s): give --admin %s:PASSWORD (its key is kept here, never in databasehost-control)" % (app, pub["user"], pub["user"])); return 2
             a = _admin_for(app, pub, given_admin)
             if a is None:
                 print("fdf-app: nothing installed"); return 2
@@ -770,7 +846,7 @@ def install(argv):
     print("fdf-app: %s installed on this member (%s); its RAMs %s" % (app, os.path.join(APPS, app + ".json"), ", ".join(c["rams"])))
     _show(app, c)
     r = subprocess.run((os.environ.get("FDF_APP_RESTART") or "systemctl restart fdf-app").split())
-    print("fdf-app: fdf-app.service %s: it writes this configuration into the SystemRam and serves what its selection gives it"
+    print("fdf-app: fdf-app.service %s: it writes this configuration into databasehost-control and serves what its selection gives it"
           % ("restarted" if r.returncode == 0 else "did NOT restart (systemctl %d): journalctl -u fdf-app" % r.returncode))
     return 0 if r.returncode == 0 else 1
 

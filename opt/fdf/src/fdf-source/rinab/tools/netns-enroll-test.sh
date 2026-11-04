@@ -69,7 +69,7 @@ for i in $(seq 100); do grep -q "start (adopt)" $T/$n/hub.log && break; sleep 0.
 svc $T/A/identity.log ip netns exec A sh -c "mount --bind $T/A/run-wg /run/wireguard && exec env RINA_RAM=$RAM FDF_HUB_ENV=$T/A/hub.env FDF_ADMITTED=$T/A/admitted FDF_SITE_KEYS=$T/A FDF_PY=$FDFPY FDF_BIN=$T/bin python3 -u $T/bin/fdf-identity --serve"
 for i in $(seq 100); do grep -q "answering identity asks" $T/A/identity.log && break; sleep 0.1; done
 # ---- A: the app, as a node has it (its own fdf-client; fdf-app config, then serve)
-AE() { NS A env RINA_RAM=$RAM FDF_FACTS=$T/A/node-facts.json FDF_VAR=$T/A FDF_APPS=$T/A/apps FDF_BIN=$T/bin FDF_PY=$FDFPY FDF_NAME=Seattle7 "$@"; }
+AE() { NS A env RINA_RAM=$RAM RINA_CONTROL_RAM=$RAM FDF_FACTS=$T/A/node-facts.json FDF_VAR=$T/A FDF_APPS=$T/A/apps FDF_BIN=$T/bin FDF_PY=$FDFPY FDF_NAME=Seattle7 "$@"; }
 printf '{"name":"Seattle7","guid":"guid-a","role":"node","subnet":"10.170.170.0/24","addrs":[{"ip":"198.18.0.1","kind":"own"}],"capability":{"mem_total_kb":2000000,"cores":4}}\n' > $T/A/node-facts.json
 ( AE $T/bin/fdf-client >> $T/A/client.log 2>&1 ) & echo $! >> $T/svc.pids
 sleep 1.5
@@ -78,7 +78,7 @@ AE python3 $T/bin/fdf-app config rangertrak general,echo --role eoc --role echo:
 ( AE python3 $T/bin/fdf-app serve >> $T/A/app.log 2>&1 ) & echo $! >> $T/svc.pids
 # ---- A: the door
 mkdir -p $T/door/www/dc; cp $PK/www/dc/ram.php $T/door/www/dc/; printf '{"apps": []}\n' > $T/door/www/dc/apps.json
-printf 'export RINA_RAM=%s FDF_BIN=%s FDF_VAR=%s FDF_PY=%s\n' $RAM $T/bin $T/A $FDFPY > $T/door/fdf.env
+printf 'export RINA_RAM=%s RINA_CONTROL_RAM=%s FDF_BIN=%s FDF_VAR=%s FDF_PY=%s\n' $RAM $RAM $T/bin $T/A $FDFPY > $T/door/fdf.env
 NS A env PHP_CLI_SERVER_WORKERS=8 php -S 198.18.0.1:8088 -t $T/door/www >> $T/door.log 2>&1 & echo $! >> $T/svc.pids
 DOOR=198.18.0.1:8088
 for i in $(seq 100); do NS A curl -s -m 2 "http://$DOOR/dc/ram.php?op=roles&app=rangertrak" | grep -q '"ok":true' && break; sleep 0.2; done
