@@ -4,6 +4,8 @@ rem fdf-windows-<build>.zip. It looks first and says what is missing before it c
 rem   Administrator, 64-bit Windows on x64, wintun.dll beside it, the invitation (it must decode)
 rem then keeps the invitation (var\invite) and makes the scheduled task "FrogNet member" (at startup, as SYSTEM) that
 rem runs fdf-bridge.cmd, its output in var\fdf-bridge.log, and starts it now.
+rem   setup.cmd fdfenroll1 URL APP USER   [ENROLL_V1] the admin tool's enrollment line (shown beside the user's QR):
+rem                               the password is asked here; the door answers with this computer's invitation
 rem   setup.cmd fdfinv1.<...>     the line fdf-identity NAME --leaf printed on any machine of the region
 rem   setup.cmd                   again, with the kept invitation (after an update: unzip over, run this)
 rem   setup.cmd remove            the task stops and is removed; var\ (the invitation) is left as it is
@@ -23,14 +25,21 @@ if not exist "%D%wintun.dll" (
 )
 if not exist "%D%var" mkdir "%D%var"
 set "FDF_INVITE=%D%var\invite"
+if /i "%~1"=="fdfenroll1" (
+  "%D%runtime\bin\java.exe" -cp "%D%lib\*" com.fawcettinnovations.fdf.cli.MainKt enroll %*
+  if errorlevel 1 ( echo setup: the enrollment was refused ^(above^); nothing changed & exit /b 2 )
+  del "%D%var\forward" >nul 2>&1
+  goto kept
+)
 if not "%~1"=="" (
   "%D%runtime\bin\java.exe" -cp "%D%lib\*" com.fawcettinnovations.fdf.cli.MainKt keep-invite %1
   if errorlevel 1 ( echo setup: the invitation was refused ^(above^); nothing changed & exit /b 2 )
   rem a new invitation: its region is the forward pond, which the bridge takes when var\forward is not there
   del "%D%var\forward" >nul 2>&1
 )
+:kept
 if not exist "%FDF_INVITE%" (
-  echo setup: no invitation kept: run  setup.cmd fdfinv1.^<...^>  ^(fdf-identity NAME --leaf, on any machine of the region, prints it^)
+  echo setup: no invitation kept: run  setup.cmd fdfenroll1 ...  ^(the admin tool's enrollment line^) or  setup.cmd fdfinv1.^<...^>
   exit /b 2
 )
 rem the task's command: fdf-bridge.cmd with its output kept, so a start nobody watched can be read afterwards

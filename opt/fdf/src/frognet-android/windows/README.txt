@@ -9,10 +9,14 @@ tunnel (stop both before starting this: the same key must not be in two tunnels)
 
 Once:
   1. Unzip to C:\fdf (any folder).
-  2. Get this computer's invitation: on any machine already in the region, `fdf-identity NAME --leaf` prints one line,
-     fdfinv1.<...> (a secret: it holds this computer's key). Then, in a terminal opened as Administrator:
+  2. Enroll it with the admin tool, as a phone is: in the app's admin page make this computer a user (its own: a
+     second enrollment of a user gives a new key and the first stops working) and press its QR; under the QR is its
+     enrollment line, fdfenroll1 <door> <app> <user>. In a terminal opened as Administrator:
        cd C:\fdf
-       setup.cmd fdfinv1.<...>
+       setup.cmd fdfenroll1 <door> <app> <user>
+     It asks for that user's password (not shown, not kept); the door answers with this computer's own invitation.
+     (Without the admin tool: `fdf-identity NAME --leaf` on any machine of the region prints an invitation,
+     fdfinv1.<...>, a secret; then  setup.cmd fdfinv1.<...> )
      setup.cmd checks first (Administrator, x64, wintun.dll, the invitation decodes), keeps the invitation in
      var\invite, and makes the scheduled task "FrogNet member": fdf-bridge.cmd at every startup, as SYSTEM, its output
      in var\fdf-bridge.log. It starts it now. The region, this computer's key, name and address are the invitation's.

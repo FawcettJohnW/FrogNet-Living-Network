@@ -218,6 +218,10 @@ routed.
   its role. A lead gets **Team members**: names and passwords (kept as verifiers), each member's frog QR at the address
   a member can reach (hotspot, Wi-Fi, or the lead's FrogNet edge), and the team's sponsor on port 21801
   (`TeamHostService`, `Enroll.Sponsor`), which asks the door for each member's invitation as the lead.
+- **A computer** (the Windows bridge, `rt-admin-2026-11-04-r7` / `fdf-kt-2026-11-04-a26`): enrolls the same way. The
+  admin's QR dialog shows the enrollment line as text beside the code; `setup.cmd fdfenroll1 URL APP USER` asks for the
+  password (not echoed, never kept or logged), POSTs `op=enroll`, and keeps the answered invitation (`fdf-member-kt
+  enroll`). Give the computer its own user: a second enrollment of a user replaces that user's key.
 - **The frog QR** (`ui/frogqr.js`, also `ui-admin/`): lily-pad modules joined by the logo's lines, eyes for finder
   patterns, the logo's frog in the middle. `test/test_frogqr.py`: zxing core 3.4.1 (the phone's) reads it wherever a
   plain code of the same text reads, over 5 codes and 11 camera-like degradations.

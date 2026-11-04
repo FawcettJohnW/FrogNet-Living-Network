@@ -223,7 +223,8 @@ function showQr(u) {
   if (!$('#qrDoor').value) $('#qrDoor').value = A.door || ''
   const draw = () => {
     const d = $('#qrDoor').value.trim(), url = 'http://' + d + '/dc/ram.php'
-    $('#qrImg').innerHTML = FrogQR.svg(FrogQR.enrollLine(url, A.app, u), { px: 420 })
+    const line = FrogQR.enrollLine(url, A.app, u)   // [ENROLL_V1] the same line for a phone's camera and a computer's setup
+    $('#qrImg').innerHTML = FrogQR.svg(line, { px: 420 }); $('#qrLine').textContent = line
     $('#qrWho').textContent = u + ' · ' + ((A.cur.users || {})[u] || {}).role + (((A.cur.users || {})[u] || {}).lead ? ' (lead)' : '') + ' · ' + url
   }
   $('#qrDoor').oninput = draw; draw(); $('#qr').hidden = false

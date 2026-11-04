@@ -219,9 +219,37 @@ fun keptInvite(given: String?): Invite? {
     return if (file.exists()) Invite.parse(file.readText()) else null
 }
 
+// [ENROLL_V1] this computer joins the way a phone does, through the admin tool: the app's admin makes the user and shows
+// its enrollment (the QR's line, fdfenroll1 URL APP USER); the password is typed here, never shown, never kept, never
+// logged. The door answers with this computer's own invitation, which is kept as `keep-invite` keeps one.
+fun enroll(line: String): Invite? {
+    val p = line.trim().split(Regex("\\s+"))
+    if (p.size != 4 || p[0] != "fdfenroll1") error("not an enrollment line (fdfenroll1 URL APP USER): the admin tool shows it beside the user's QR")
+    val (url, app, user) = p.drop(1).map { java.net.URLDecoder.decode(it.replace("+", "%2B"), "UTF-8") }
+    val con = System.console() ?: error("the password is typed in a terminal: run this from one")
+    val pw = con.readPassword("password for %s in %s: ", user, app) ?: error("no password typed")
+    val body = "{\"user\":" + Json.quote(user) + ",\"password\":" + Json.quote(String(pw)) + "}"; java.util.Arrays.fill(pw, ' ')
+    val at = url + "?op=enroll&app=" + java.net.URLEncoder.encode(app, "UTF-8")
+    val h = (java.net.URL(at).openConnection() as java.net.HttpURLConnection).apply {
+        requestMethod = "POST"; doOutput = true; connectTimeout = 15000; readTimeout = 70000; setRequestProperty("Content-Type", "application/json") }
+    val text = try { h.outputStream.use { it.write(body.toByteArray()) }
+        (if (h.responseCode < 400) h.inputStream else h.errorStream ?: h.inputStream).bufferedReader().readText() }
+        catch (e: java.io.IOException) { error("the door at $at did not answer: ${e.message}") }
+    val a = try { Json.parse(text) } catch (e: Exception) { error("the door at $at answered HTTP ${h.responseCode}, not JSON: ${text.take(200)}") }
+    if (!a["ok"].bool || a["invite"].str.isEmpty()) error("enrollment refused by $at (HTTP ${h.responseCode}): ${a["why"].str.ifEmpty { text.take(200) }}")
+    log("enrolled as $user in $app (role ${a["role"].str}) at $url")
+    return keptInvite(a["invite"].str)
+}
+
 fun bridgeMode(given: String? = null) {
     // [LEAF_BY_INVITE_V1] with an invitation, this machine's key, name and forward pond are the invitation's, and that
     // pond's tunnel comes up from it before its session (the region is inside it). Without one: as before.
+    // [ONE_BRIDGE_PER_COMPUTER_V1] its question port is taken first: held means a bridge already runs here (the scheduled
+    // task's), with the same key -- a second one would fight it for the tunnel, so it says so and stops before anything
+    // (seen: WinBox 2026-11-04, fdf-bridge.cmd run by hand beside the task, BindException in ctl-accept and on it went)
+    val ctl = System.getenv("FDF_CTL_PORT")?.toIntOrNull()?.let { port ->
+        try { java.net.ServerSocket(port, 8, java.net.InetAddress.getByName("127.0.0.1")) }
+        catch (e: java.net.BindException) { log("bridge: NOT STARTED: a bridge already runs on this computer (127.0.0.1:$port is held; the scheduled task \"FrogNet member\" runs one). Its log: var\\fdf-bridge.log; ask it: fdf-bridge.cmd ask status"); exitProcess(3) } }
     val inv = keptInvite(given)
     val ff = File(System.getenv("FDF_FORWARD_FILE")); fun forward() = if (ff.exists()) ff.readText().trim() else inv?.area ?: ""
     val (f, key) = if (inv != null) Json.parse("{\"name\":" + Json.quote(inv.name) + ",\"guid\":\"\",\"pubkey\":" + Json.quote(publicKey(inv.privkey)) + "}") to inv.privkey
@@ -285,8 +313,7 @@ fun bridgeMode(given: String? = null) {
             Thread.sleep(5000)
         }
     }, "pond-$area").apply { isDaemon = true; start() }
-    System.getenv("FDF_CTL_PORT")?.toIntOrNull()?.let { port -> Thread({
-        val ss = java.net.ServerSocket(port, 8, java.net.InetAddress.getByName("127.0.0.1"))
+    ctl?.let { ss -> Thread({
         while (true) { val so = ss.accept(); Thread({ so.use { s ->
             val q = s.getInputStream().bufferedReader().readLine() ?: return@use
             val a = try { when {
@@ -565,6 +592,9 @@ fun main(args: Array<String>) {
     if (args.firstOrNull() == "selftest") exitProcess(if (selftest() == 0) 0 else 1)
     // keep-invite fdfinv1.<...>: [LEAF_BY_INVITE_V1] kept in FDF_INVITE if it decodes (an installer's step); nothing started
     if (args.firstOrNull() == "keep-invite") { try { keptInvite(args.getOrNull(1) ?: error("usage: keep-invite fdfinv1.<...>"))?.let { println(it) } }
+        catch (e: Exception) { System.err.println("fdf-member-kt: ${e.message}"); exitProcess(2) }; exitProcess(0) }
+    // enroll fdfenroll1 URL APP USER: [ENROLL_V1] the admin tool's enrollment; the invitation is kept (an installer's step)
+    if (args.firstOrNull() == "enroll") { try { enroll(args.drop(1).joinToString(" "))?.let { println(it) } }
         catch (e: Exception) { System.err.println("fdf-member-kt: ${e.message}"); exitProcess(2) }; exitProcess(0) }
     if (args.firstOrNull() == "leaf") { invitedLeaf(args.getOrNull(1)); exitProcess(1) }
     if (args.firstOrNull() == "probe") { probe(args[1], args.getOrElse(2) { "frognet" }, args.getOrElse(3) { "200" }.toInt()); exitProcess(0) }

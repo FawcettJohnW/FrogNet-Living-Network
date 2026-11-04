@@ -128,6 +128,7 @@ footer #changes { flex: 1; color: var(--mu); min-width: 200px; } footer #changes
   <footer><div id="changes">No changes.</div><button type="button" id="revert">Revert</button><button type="button" class="go" id="apply" disabled>Apply to the network</button></footer>
 </div>
 <div id="qr" hidden><div class="card"><div id="qrImg"></div><div id="qrWho"></div>
+  <div class="mu">A computer enrolls with this line (setup.cmd &lt;the line&gt;): <code id="qrLine" style="user-select:all;word-break:break-all"></code></div>
   <label class="mu">Address the phone reaches this node's door at <input type="text" id="qrDoor"></label>
   <div class="add"><button type="button" id="qrClose">Close</button></div></div></div>
 <script src="qrcode.js"></script>
