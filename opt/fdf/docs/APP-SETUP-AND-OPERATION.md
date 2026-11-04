@@ -396,11 +396,14 @@ deterministic selection over the same tuples and gets the same answer.
 
 ## Split
 
-**Where the app's tuples are**: as the design's section 9 (the doc "FrogNet SystemRam, FrogNetHost Admin and App
-Services — Design", 2026-11-04) says, and nowhere else: the Admin's one configuration tuple in databasehost-control;
-each installed machine's `fdf-app can` and `fdf-app applied` in the SystemRam; app data in the AppRams; the general
-AppRam's AppHost named `<app>Host.frognet` by the election. The code does not do this yet (fdf-app r12 is wrong: it put
-every fdf-app tuple, the where cells and a presence cell into databasehost-control).
+**Where the app's tuples are** (the doc "FrogNet SystemRam, FrogNetHost Admin and App Services — Design", 2026-11-04,
+sections 5, 7 and 9): the Admin's one configuration tuple in databasehost-control; each installed machine's
+`fdf-app can` (held by its session) and `fdf-app applied` in the SystemRam; app data in the AppRams; the AppHosts in
+`/etc/hosts`, written by the election. On a split each side's election names its own AppHosts from the capability
+tuples on that side, and the merge writes the configuration tuples into that side's databasehost-control. Gates:
+`rinab/tools/test_fdf_app.py` 1-13, `fdf/www/rt/test_rt_pages.py`, `rinab/tools/netns-enroll-test.sh`,
+`rinab/tools/netns-system-space-test.sh` (the real tunnel daemon's election writes `rangertrakHost.frognet` on both
+nodes, through both hub failovers; nothing of the app on the conduit).
 
 1. Connectivity changes.
 2. The fabric re-forms on each reachable side.
@@ -483,27 +486,37 @@ was said on the radio, and stays in the log.
 
 ## How it is built
 
-- **`fdf-app config APP RAM,RAM [--partition relocate|fail]`** is the admin's install on a member: the droplet's
-  configuration, `/opt/fdf/apps/<app>.json`. The droplet owns it.
-- **`fdf-app serve`** (unit `fdf-app.service`, installed by `fdf-join`) runs on every member. For each app installed
-  there it writes its configuration tuple `(fdf-app, config, <app>.<guid>)` and its capability tuple
-  `(fdf-app, can, <app>.<guid>)` into the network RAM. When its held read on the `fdf-app` family ends (the network RAM
-  may be another one now), it writes both again and reads the family from the start.
-- On every event (that held read, and a held read on the members' own cells `(pond, member)` for who is alive:
-  `[MEMBER_IS_A_TUPLE_V1]`) it runs each RAM's selection over the alive members that can serve the app (default: most
-  memory, then cores, then guid). It starts `fdf-ram` for each RAM it is chosen for, on its own `.1` at a port derived
-  from `<app>.<ram>`, and stops the others. It holds each droplet's listening socket and hands it to the droplet
-  (`RIBBIT_LISTEN_FD`), so a droplet that exits is started again on the same socket and refuses nothing
-  (`[LISTENING_SOCKET_OUTLIVES_THE_HOST_V1]`); the exit itself is the event that starts it again. It writes its where cell
-  `(pond, where, w:<guid>)`.
-- It writes `/opt/fdf/var/app-where.json`, `{"<app>.<ram>": "host:port"}`, the same answer every member computes.
-- **The door on a node, `ram.php`**, maps each service to its app and RAM (`apps.json`: `"app"`, `"rams"`). For each
-  request it reads `app-where.json`. A service whose RAM is not served yet is refused with 503: the client connects
-  first. Every answer carries `"ram"`, the RAM that answered. A page that sees it change reads everything there and
-  writes its own truth again: every family it owns, kept on the device (browser storage), not only those it watches.
+- **`fdf-app config APP RAM,RAM ... --admin USER:PASSWORD`** is the app's first install, by its Admin: a port picked
+  at random between 20000 and 65535 for every RAM, the app's ONE configuration tuple `(fdf-app, config, <app>)` signed
+  (HMAC under the admin key) and written into databasehost-control, and this machine's copy in
+  `/opt/fdf/apps/<app>.json` (the admin key is kept only there). `fdf-app install APP` on every further machine reads
+  that tuple and adopts it as it is; with no `databasehost_control.frognet` named it installs nothing.
+- **`fdf-app serve`** (unit `fdf-app.service`) runs on every installed machine (`[APP_SERVICES_V1]`, fdf-app r13):
+  - it holds a read on the configuration tuples in databasehost-control and adopts a newer seq whose mac is the admin
+    key's, answering in the SystemRam, `(fdf-app, applied, <app>.<guid>)`; a Team's own tuple,
+    `(fdf-app, config, <app>.<team>)`, written by its lead through the door, is adopted when it is that Team's lead's;
+  - it holds its capability for every AppRam it offers in the SystemRam, `(fdf-app, can, <app>.<ram>.<guid>)`,
+    written own:true by `ram hold` on its own session (`[CAPABILITY_HELD_BY_ITS_SESSION_V1]`): gone with the service;
+  - it serves each AppRam whose AppHost `/etc/hosts` names this machine, on that AppRam's port, and stops the others;
+    a new port in the configuration restarts it there. It holds each AppRam's listening socket and hands it to
+    `fdf-ram` (`RIBBIT_LISTEN_FD`), so one that exits is started again on the same socket
+    (`[LISTENING_SOCKET_OUTLIVES_THE_HOST_V1]`).
+- **The election writes the AppHosts** (`opt/frognet_semantic/core/app_hosts.py`, `[APP_HOST_ELECTION_V1]`): every
+  node's election (`discovery/elect.py`, `discovery/live.py`) writes `<app>Host.frognet` for each app's general AppRam and
+  `<team>Host.frognet` for each Team's, one handler per service: a Team its lead placed "here" on a node, that node; else
+  the app's selection over the live capability tuples. The tunnel daemon holds a read on the `fdf-app` family in
+  databasehost-control and in the SystemRam, so a capability or configuration written or gone is an event. When
+  databasehost-control moves, the merge writes the configuration tuples into it again, as signed, from the installed
+  machines' copies (`[CONFIG_WRITTEN_AGAIN_BY_THE_MERGE_V1]`).
+- **The door on a node, `ram.php`** (door r13), maps each service to its app and RAM (`apps.json`: `"app"`, `"rams"`).
+  For each request it finds the AppRam by its AppHost in `/etc/hosts` and its port in the configuration tuple. A
+  service whose AppRam has no AppHost yet is refused with 503: the client connects first. Every answer carries `"ram"`,
+  the RAM that answered. A page that sees it change reads everything there and writes its own truth again. The admin
+  app's configuration is written by the door as the app's one tuple in databasehost-control; a device's own access
+  record goes into the general AppRam.
 - **The door's held reads are events** (`[EVENTS_NOT_TIMERS_V1]`, door r11). `op=watch` is one child, `ram watch`: a
   follow on every family the page shows, ended by the first rows. A family whose RAM does not answer is held until
-  that RAM says it is up, or the app's RAMs are placed again: the answer says `"again"` and the page reads that family
+  that RAM says it is up, or `/etc/hosts` is written (an AppHost elected): the answer says `"again"` and the page reads that family
   in full. ESTALE (the RAM started again) is answered the same way. `op=rams&not=<map>&up=<host:port,..>&wait_s=S`
   holds a member until its RAMs are not that map (they moved) or one of those RAMs says it is up (`"up"`): RangerTrak's
   `AppCore` waits there when a session fails, and its followers open their sessions again on that answer

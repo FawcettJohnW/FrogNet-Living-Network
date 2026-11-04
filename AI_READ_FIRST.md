@@ -571,9 +571,12 @@ reads) holds the capability tuples, each held by its service's session (a dead s
 machine's answers (`fdf-app applied`, `frognethost state`); every election reads capability there. App data is in the
 AppRams. Every app carries its own PHP door alongside `api.php`. Every instance holds a read on its capability family:
 an install, a capability change or a configuration change is an event, and the selection runs again.
-In the code today (fdf-app r12, door r12) none of this is so: every installed machine writes its own copy of the
-configuration, r12 put every fdf-app tuple, the where cells and a presence cell into databasehost-control, and ports
-are hashed from the name. That is wrong and is being rebuilt.
+Built (r47: fdf-app r13, door r13, `core/app_hosts.py`, `ram hold`): the first install writes the one signed tuple;
+`fdf-app serve` adopts it, holds its capability in the SystemRam and serves what `/etc/hosts` names it for; every
+node's election (`discovery/elect.py`, `discovery/live.py`, the daemon's held reads on the `fdf-app` families) writes
+`<service>Host.frognet`; the merge writes the configuration tuples into a new databasehost-control. Not built: a
+Team on a phone (its members' apps selecting it from its capability tuple), the parent's children registry, and the
+databasehost election itself still reads capability from the region's facts, not the SystemRam.
 The app's access definition (its teams and their password verifiers; a team's members use the general RAM and their team's RAM, and the network's levels have nothing to do with it) is in its app configuration tuples, so a device's own edge checks a login by
 reading them: login is a read, with no login server and no check on each request after it. The device keeps its role
 and writes its access record again after every RAM change, so no user action is needed after a split or a merge. Every

@@ -45,8 +45,9 @@ Then one invitation per node (on the holder):
     sudo bash /tmp/fdf-install-x86_64-fdf-2026-11-01-r38.run fdfinv1.<this node's invitation>
 
 The join installs `fdf-client`, `fdf-facts` and `fdf-app` (`fdf-app.service`: `fdf-app serve`). `fdf-app serve`
-writes the node's capability and configuration tuples for every app installed on it, runs each app RAM's selection,
-starts `fdf-ram` for the RAMs this node is chosen for, and writes `/opt/fdf/var/app-where.json`. Nothing else is
+adopts the app's one configuration tuple from databasehost-control, holds this node's capability tuples in the
+SystemRam, and starts `fdf-ram` for each AppRam whose AppHost (`<app>Host.frognet`, `<team>Host.frognet`, written by the
+election into `/etc/hosts`) is this node, on that AppRam's port. Nothing else is
 started by hand.
 
 ## 2. The app on each node: install, then configure

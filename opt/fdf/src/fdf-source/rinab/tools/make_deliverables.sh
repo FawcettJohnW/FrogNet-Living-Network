@@ -27,6 +27,7 @@ FROGNET_FILES=(
   etc/sudoers.d/frognet-snapshot
   opt/frognet_semantic/core/build_id.py
   opt/frognet_semantic/core/frognet_role_elect.py
+  opt/frognet_semantic/core/app_hosts.py
   opt/frognet_semantic/core/frognet_service_hosts.py
   opt/frognet_semantic/core/not_frognet.py
   opt/frognet_semantic/core/region_capability.py

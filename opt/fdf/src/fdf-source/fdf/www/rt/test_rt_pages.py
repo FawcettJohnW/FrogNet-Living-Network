@@ -9,7 +9,7 @@
 # (laptop-a), the scribe at post B (laptop-b), a field phone on post A's Wi-Fi that sends no host name (shown and numbered by
 # the name typed for it, "phone"). [APP_DROPLET_V1] the app's
 # general RAM is served by a droplet the app's selection picks (A, the stronger); the pages reach it through ram.php,
-# which follows the post's app-where.json.
+# which finds it by its AppHost in the post's /etc/hosts and its port in the configuration.
 #
 #   python3 test_rt_pages.py RINAB_BUILD_STATIC    (fdf-ram, ram, fdf-client, fdf-where, fdf-events from it; ram.php
 #                                                   from ../dc, fdf-app from ../../bin, beside this directory)
@@ -68,6 +68,49 @@ def ram_host(name):
 RAM = ram_host("region")          # the network RAM
 RAM_B_LAN = ram_host("b-lan")     # the network RAM on B's side of a split
 via = {"A": Via(RAM), "B": Via(RAM)}   # each post's one address for the network RAM, whatever is behind it
+# [APP_SERVICES_V1] each post's RAM host (its .1's, one port) -- databasehost-control and the SystemRam are A's while the
+# posts are joined, B's own on B's side of a cut -- and each post's /etc/hosts as its election writes it: the AppHost lines
+# are the real election's (core/app_hosts.py), run on a held read on each fdf-app family, as the tunnel daemon runs it
+LPORT = free(); os.environ["FDF_LAN_RAM_PORT"] = str(LPORT); os.environ["FDF_PY"] = os.path.join(FDF, "lib", "python")
+sys.path.insert(0, os.path.join(FDF, "..", "..", "..", "..", "frognet_semantic"))
+from core import app_hosts  # noqa: E402
+def lan_ram(ip, name):
+    procs.append(subprocess.Popen([T + "/bin/fdf-ram", "--listen", "%s:%d" % (ip, LPORT), "--api", "/FawcettInnovations.RINA.ram_interface.php"],
+                                  env=dict(os.environ, RINA_REGION_FILE=T + "/%s.perm" % name, RINA_NET_CONFIG=T + "/none", FDF_VAR=T + "/v-" + name),
+                                  stdout=subprocess.DEVNULL, stderr=open(T + "/host-%s.log" % name, "w")))
+    for _ in range(100):
+        try: socket.create_connection((ip, LPORT), 0.2).close(); break
+        except OSError: time.sleep(0.05)
+lan_ram("127.0.0.2", "lan-a"); lan_ram("127.0.0.3", "lan-b")
+import threading
+JOINED = {"nodes": ["A", "B"], "ram": "127.0.0.2"}
+view = {"A": dict(JOINED), "B": dict(JOINED)}
+elock = threading.Lock()
+def elect(post, why=""):
+    with elock:
+        hp = T + "/%s/etc/hosts" % post; v = view[post]
+        base = ["127.0.0.1 localhost"] + ["127.0.%d.1 FrogNetHost.post-%s" % (1 if n == "A" else 2, n) for n in v["nodes"]] + \
+               ["%s databasehost_control.frognet" % v["ram"], "%s databasehost.frognet" % v["ram"]]
+        try: was = [l.rstrip("\n") for l in open(hp)]
+        except OSError: was = []
+        if app_hosts.ip_of(was, "databasehost_control.frognet") not in ("", v["ram"]):    # the merge writes the configuration again
+            app_hosts.APPS = T + "/%s/apps" % post; app_hosts.write_configs_again(v["ram"])
+        etc = app_hosts.commit(base, hosts_path=hp, logger=lambda m: open(T + "/%s/elect.log" % post, "a").write("%s: %s\n" % (why, m)))
+        if etc != was:
+            open(hp + ".tmp", "w").write("\n".join(etc) + "\n"); os.replace(hp + ".tmp", hp)
+def elector(post):
+    def watch(ix):
+        last, at = -1, None
+        while True:
+            ip = view[post]["ram"]
+            if ip != at: last, at = -1, ip
+            try:
+                cs = fdfram.Ram("%s:%d" % (ip, LPORT)).read("fdf-app", "", "", after=last, wait_s=5)
+                if cs: last = max(int(c["id"]) for c in cs); elect(post, "app tuples")
+            except fdfram.RamError: time.sleep(0.2)
+    elect(post, "start"); threading.Thread(target=watch, args=(0,), daemon=True).start()
+def move(post, nodes, ram):
+    view[post] = {"nodes": nodes, "ram": ram}; elect(post, "view")
 VL = os.path.join(FDF, "..", "..", "..", "..", "..", "var", "www", "html", "vendor", "leaflet")   # the node serves it from here (00845fb)
 if not os.path.isdir(VL): sys.exit("no Leaflet at %s: the map page needs it" % VL)
 posts = {}
@@ -79,11 +122,10 @@ def post309_start(post):
 # host names (a station ID is the host name, hidden from users). The phone's lease has none: fdf-facts records the MAC.
 # The fresh phone at A has a lease too; the board asks it nothing
 LEASES = {"A": {"127.0.11.2": "laptop-a", "127.0.11.3": "02:00:00:00:00:33", "127.0.11.4": "phone-g", "127.0.11.5": "eoc-1", "127.0.11.6": "tablet-h", "127.0.11.7": "laptop-c"}, "B": {"127.0.12.2": "laptop-b"}}
-import threading
 up = {}
 def member_env(post):
     R = T + "/" + post
-    return dict(os.environ, RINA_RAM=via[post].addr, RINA_CONTROL_RAM=via[post].addr, FDF_FACTS=R + "/facts.json", FDF_VAR=R, FDF_APPS=R + "/apps",
+    return dict(os.environ, RINA_RAM=via[post].addr, FDF_HOSTS=R + "/etc/hosts", FDF_FACTS=R + "/facts.json", FDF_VAR=R, FDF_APPS=R + "/apps",
                 FDF_BIN=T + "/bin", FDF_PY=os.path.join(FDF, "lib", "python"), FDF_NAME="post-" + post)
 def session(post):                # the member's session as its unit runs it (fdf-join: Restart=always)
     up[post] = True
@@ -94,13 +136,16 @@ def session(post):                # the member's session as its unit runs it (fd
             if up[post]: time.sleep(0.5)
     threading.Thread(target=run, daemon=True).start()
 for i, name in enumerate(("A", "B"), start=1):
-    R = T + "/" + name; os.makedirs(R + "/www/dc")
+    R = T + "/" + name; os.makedirs(R + "/www/dc"); os.makedirs(R + "/etc"); elector(name)
     json.dump({"name": "post-" + name, "guid": "guid-" + name, "role": "node", "subnet": "127.0.%d.0/24" % i,
                "addrs": [{"ip": "127.0.%d.1" % i, "kind": "own"}] + [{"ip": ip, "kind": "given", "value": h, "mac": "02:00:00:00:00:%02x" % k}
                                                                     for k, (ip, h) in enumerate(LEASES[name].items())],
                "capability": {"mem_total_kb": 8_000_000 if name == "A" else 4_000_000, "cores": 4}}, open(R + "/facts.json", "w"))
-    subprocess.run([os.path.join(FDF, "bin", "fdf-app"), "config", "rangertrak", "general,hospitals",
-                    "--role", "hospitals", "--role", "eoc:default", "--user", "kim:kim-pw=hospitals", "--user", "lee:lee-pw=hospitals"], env=member_env(name), check=True, stdout=subprocess.DEVNULL)
+    if name == "A":       # the app's first install, at A; B installs it from its one configuration tuple
+        subprocess.run([os.path.join(FDF, "bin", "fdf-app"), "config", "rangertrak", "general,hospitals",
+                        "--role", "hospitals", "--role", "eoc:default", "--user", "kim:kim-pw=hospitals", "--user", "lee:lee-pw=hospitals"], env=member_env(name), check=True, stdout=subprocess.DEVNULL)
+    else:
+        subprocess.run([os.path.join(FDF, "bin", "fdf-app"), "install", "rangertrak"], env=dict(member_env(name), FDF_APP_RESTART="true"), check=True, stdout=subprocess.DEVNULL, stdin=subprocess.DEVNULL)
     session(name)
     procs.append(subprocess.Popen([os.path.join(FDF, "bin", "fdf-app"), "serve"], env=member_env(name),
                                   stdout=open(R + "/app.log", "w"), stderr=subprocess.STDOUT))
@@ -111,14 +156,18 @@ for i, name in enumerate(("A", "B"), start=1):
     svc = ["rt-mission", "rt-log", "rt-handled", "rt-roster", "rt-pos", "rt-who", "rt-msg", "rt-dm", "rt-team", "rt-notes"]
     json.dump({"apps": [{"id": "radiolog", "title": "Radio log", "version": "1", "page": "../rt/log.html", "services": svc,
                          "app": "rangertrak", "rams": {x: ("team" if x == "rt-team" else "general") for x in svc}}]}, open(R + "/www/dc/apps.json", "w"))
-    open(R + "/fdf.env", "w").write("export FDF_BIN=%s/bin FDF_VAR=%s RINA_RAM=%s RINA_CONTROL_RAM=%s\n" % (T, R, via[name].addr, via[name].addr))
+    open(R + "/fdf.env", "w").write("export FDF_BIN=%s/bin FDF_VAR=%s RINA_RAM=%s FDF_HOSTS=%s FDF_LAN_RAM_PORT=%d\n" % (T, R, via[name].addr, R + "/etc/hosts", LPORT))
     p = free(); posts[name] = "127.0.0.1:%d" % p
     # PHP_CLI_SERVER_WORKERS: the built-in server is one process otherwise, and a held read would hold every page
     procs.append(subprocess.Popen(["php", "-S", "127.0.0.1:%d" % p, "-t", R + "/www"], env=dict(os.environ, PHP_CLI_SERVER_WORKERS="16"),
                                   stdout=subprocess.DEVNULL, stderr=open(T + "/php-%s.log" % name, "w")))
 def map_of(post):
-    try: return json.load(open(T + "/%s/app-where.json" % post))
+    """where the post's door finds each AppRam: its AppHost in the post's /etc/hosts, its port in the configuration"""
+    try:
+        h = {l.split()[1]: l.split()[0] for l in open(T + "/%s/etc/hosts" % post) if len(l.split()) >= 2}
+        c = json.load(open(T + "/%s/apps/rangertrak.json" % post))
     except (OSError, ValueError): return {}
+    return {"rangertrak." + r: "%s:%d" % (h[app_hosts.host_name("rangertrak", r)], c["ports"][r]) for r in c.get("rams") or [] if app_hosts.host_name("rangertrak", r) in h}
 def wait_map(post, want, s=20):
     t0 = time.time()
     while time.time() - t0 < s:
@@ -272,7 +321,7 @@ try:
               % ([x[0] for x in m1], nmk, (time.time() - t0) * 1000, len(rows(a)), m2[0] if m2 else None))
         # 11
         post309["A"].terminate(); post309["A"].wait(); post309["A"] = post309_start("A")     # a lost and resumed read
-        via["B"].to(RAM_B_LAN); dm = wait_map("B", "127.0.2.1:")
+        via["B"].to(RAM_B_LAN); move("B", ["B"], "127.0.0.3"); move("A", ["A"], "127.0.0.2"); dm = wait_map("B", "127.0.2.1:")
         check(dm is not None, "11 B cut off: the general RAM on B's side is B's droplet %.2f s after (%s)" % (dm or -1, map_of("B")))
         log(b, "N7CUT", notes="while cut 1")             # the write after the move: the page reads everything there first
         t0 = time.time(); ok = False
@@ -300,15 +349,15 @@ try:
         ok_r = wait_rows(b, n_before, 20); n_own = sum(1 for x in rows(b) if x[7] == "scribe-b")
         recs, t1 = [], time.time()
         while time.time() - t1 < 15:
-            recs = [c["bag"] for c in fdfram.Ram(RAM_B_LAN).read("fdf-app", "device")]
+            recs = [c["bag"] for c in fdfram.Ram(map_of("B")["rangertrak.general"]).read("fdf-app", "device")]
             if any(r.get("station") == "laptop-b" and r.get("role") == "hospitals" for r in recs): break
             time.sleep(0.1)
-        on_region = [c["bag"]["station"] for c in fdfram.Ram(RAM).read("fdf-app", "device")]
+        on_region = [c["bag"]["station"] for c in fdfram.Ram(map_of("A")["rangertrak.general"]).read("fdf-app", "device")]
         check(any(r.get("station") == "laptop-b" and r.get("role") == "hospitals" for r in recs) and "phone" in on_region,
-              "11 [APP_ACCESS_V1] the devices' own access records: B's written again on its side's network RAM (%s); the region's has %s"
+              "11 [APP_ACCESS_V1] the devices' own access records: B's written again in its side's general AppRam (%s); A's has %s"
               % ([(r["station"], r["role"]) for r in recs], sorted(set(on_region))))
         check(ok_r and n_own == n_before == 28, "11 B reloaded during the cut: its %d own entries back on its side (%d before the reload)" % (n_own, n_before))
-        via["B"].to(RAM); dm = wait_map("B", "127.0.1.1:")
+        via["B"].to(RAM); move("A", ["A", "B"], "127.0.0.2"); move("B", ["A", "B"], "127.0.0.2"); dm = wait_map("B", "127.0.1.1:")
         check(dm is not None, "11 B back: the general RAM is A's again on B %.2f s after (%s)" % (dm or -1, map_of("B")))
         t0 = time.time(); ok = False
         while time.time() - t0 < 60:

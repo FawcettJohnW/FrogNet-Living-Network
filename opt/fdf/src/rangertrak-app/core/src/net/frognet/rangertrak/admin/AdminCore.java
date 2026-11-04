@@ -51,7 +51,7 @@ import java.util.Map;
  */
 public final class AdminCore {
     public interface Ui { void deliver(String json); }
-    public static final String BUILD = "rt-admin-2026-11-04-r7";
+    public static final String BUILD = "rt-admin-2026-11-04-r8";
 
     private final Ui ui;
     private volatile String door = "", app = "", user = "";
@@ -200,7 +200,7 @@ public final class AdminCore {
     public void close() { stopWatch(); }
 
     // ------------------------------------------------------------------ [ASSIGNMENTS_SAVE_V1] save and restore, by hand
-    private static final String[] KEPT = { "rams", "partition", "login", "roles", "categories", "users", "select" };
+    private static final String[] KEPT = { "rams", "ports", "partition", "login", "roles", "categories", "users", "select" };
     private void save() throws Exception {
         if (key == null) throw new Exception("not connected as the admin");
         if (!saves.isDirectory() && !saves.mkdirs()) throw new Exception("cannot make " + saves);
@@ -279,7 +279,18 @@ public final class AdminCore {
             for (Object k : Json.arr(Json.obj(e.getValue()).get("rank"))) { String n = Json.str(k); if (!n.matches("-?[A-Za-z0-9_]{1,40}")) throw new Exception("selection of " + r + ": rank '" + n + "': a capability key, or -key"); rank.add(n); }
             if (!need.isEmpty() || !rank.isEmpty()) sel.put(r, Json.o("need", need, "rank", rank));
         }
-        String text = Json.write(Json.o("rams", rams, "partition", part, "login", Json.bool(want.get("login")), "roles", roles, "categories", cats, "users", users, "select", sel));
+        // [APP_SERVICES_V1] every AppRam is a service with its own port: the one it has, kept; a new RAM gets one picked at
+        // random between 20000 and 65535 that no other RAM of the app has (each machine's AppHost refuses one in use there)
+        Map<String, Object> had = Json.obj(current.get("ports")), ports = new LinkedHashMap<String, Object>();
+        java.util.Set<Long> used = new java.util.HashSet<Long>();
+        for (Object v : had.values()) used.add((long) Json.num(v));
+        java.security.SecureRandom rnd = new java.security.SecureRandom();
+        for (Object r : rams) {
+            long p = had.containsKey(r) ? (long) Json.num(had.get(r)) : 0;
+            while (p == 0 || (!had.containsKey(r) && used.contains(p))) p = 20000 + rnd.nextInt(65535 - 20000 + 1);
+            used.add(p); ports.put(Json.str(r), p);
+        }
+        String text = Json.write(Json.o("rams", rams, "ports", ports, "partition", part, "login", Json.bool(want.get("login")), "roles", roles, "categories", cats, "users", users, "select", sel));
         long seq = Math.max(System.currentTimeMillis(), (long) Json.num(current.get("seq")) + 1);
         door("op=admin&app=" + URLEncoder.encode(app, "UTF-8"),
              Json.write(Json.o("config", text, "seq", seq, "user", user, "mac", hmac(key, text + "\n" + seq))), 10000);

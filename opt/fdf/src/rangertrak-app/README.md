@@ -16,7 +16,7 @@ a member, or tap it and Chat, to talk to that one or to the whole team) and **Pu
 | phone | `android/` | a WebView around the same page, the phone's GPS (every fix is the device's own position). Android Studio, or `./gradlew :app:assembleDebug` |
 | the world | `../fdf-source/fdf/bin/rt-sim` | 80 simulated instances (teams, ambulances, boats, victims, hospitals, fires, outages, hosts) in the Seattle metro area and Vashon, each on its own session |
 
-The cells (all in RangerTrak's RAMs, where `app-where.json` says they are served):
+The cells (all in RangerTrak's AppRams, at their AppHosts in `/etc/hosts` and their ports in the configuration tuple):
 
 | cell | written by | kind |
 | --- | --- | --- |

@@ -6,7 +6,7 @@
 """rt-post309 -- [POST_309_V1] the post's ICS-309 files: RangerTrak's Post participant (PLAN.md, "The participants").
 
 On the node at a post: held reads on the radio log, (rt-log, <mission>.<op>, <dev>.<seq>), in the app's general RAM
-(where FDF_VAR/app-where.json says it is served now), and every entry appended to FDF_VAR/rt/309/<mission>.<op>.csv in
+(its AppHost in /etc/hosts and its port, fdf_appram: [APP_SERVICES_V1]), and every entry appended to FDF_VAR/rt/309/<mission>.<op>.csv in
 the order this post read them, each entry once by its id. The file is the post's durable record; the RAM keeps the
 cells only while it is up. [RT_213_V1] An entry that asks for an ICS-213 is also written, once, as
 FDF_VAR/rt/213/<mission>.<op>.<entry id>.txt, its fields as the 213 page shows them.
@@ -20,16 +20,16 @@ Environment: FDF_VAR (/opt/fdf/var), FDF_PY (the fdfram module's directory).
 """
 import calendar, csv, json, os, sys, time
 
-BUILD_TAG = "rt-post309-2026-11-03-r3"
+BUILD_TAG = "rt-post309-2026-11-04-r4"
 LIB = os.environ.get("FDF_PY") or os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "lib", "python")
 sys.path.insert(0, LIB)
 import fdfram  # noqa: E402
 import fdf_watch  # noqa: E402  [EVENTS_NOT_TIMERS_V1]
+import fdf_appram  # noqa: E402  [APP_SERVICES_V1]
 
 VAR = os.environ.get("FDF_VAR", "/opt/fdf/var")
 OUT = os.path.join(VAR, "rt", "309")
-WHERE = os.path.join(VAR, "app-where.json")
-KEY = "rangertrak.general"
+WHERE = fdf_appram.HOSTS                     # the election writing it is the event
 COLS = ["msg_no", "date", "callsign", "status", "location", "notes", "by", "id"]
 
 
@@ -38,11 +38,7 @@ def log(m):
 
 
 def where():
-    try:
-        with open(WHERE) as f:
-            return json.load(f).get(KEY, "")
-    except (OSError, ValueError):
-        return ""
+    return fdf_appram.where("rangertrak", "general")
 
 
 def msg_no(n):

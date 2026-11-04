@@ -33,21 +33,22 @@
 // Only the services an installed add-in declares (apps.json) are reachable. A failure is the answer, with why.
 // [RAM_IS_SAID_V1] every read and write answer carries "ram": the RAM that holds the service right now. A page that sees
 // it change reads everything again and writes its own truth there: memory is never moved, each owner writes its own again.
-// [APP_DROPLET_V1] an app's services are in the app's own RAMs (APP-SETUP-AND-OPERATION.md): apps.json names, per service,
-// the app and the RAM ("app", "rams": {service: ram}); where that RAM is served now is this node's app-where.json, which
-// fdf-app serve writes on every event. A service of an app whose RAM is not served is refused: the client connects first.
-// [TEAM_RAM_V1] a service whose RAM is "team" is in the team's own RAM, named by the request (read: &team=, write:
-// "team" in the body): <app>.<team>, served where app-where.json says. ?op=rams lists the app's RAMs served now.
+// [APP_SERVICES_V1] (the doc "FrogNet SystemRam, FrogNetHost Admin and App Services -- Design", sections 5, 7 and 9)
+// an app's services are in its AppRams: apps.json names, per service, the app and the RAM ("app", "rams": {service: ram}).
+// Each AppRam is a service whose AppHost the election writes into /etc/hosts -- <app>Host.frognet for the general one,
+// <team>Host.frognet for a Team's -- and whose port is in the app's one configuration tuple. A service of an app whose
+// AppRam has no AppHost now is refused: the client connects first. [TEAM_RAM_V1] a service whose RAM is "team" is in
+// the team's own AppRam, named by the request (read: &team=, write: "team" in the body). ?op=rams lists them.
+// The app's one configuration tuple, (fdf-app, config, <app>), and each Team's, (fdf-app, config, <app>.<team>), are in
+// databasehost-control (databasehost_control.frognet's RAM host); the installed machines' capability and answers,
+// (fdf-app, can|applied, ...), in the SystemRam (databasehost.frognet's); a device's own record in the general AppRam.
 // The launcher's own service (dc) stays on the network RAM (fdf.env's RINA_RAM).
-// [APP_TUPLES_IN_CONTROL_V1] the app's own tuples, the service fdf-app (configurations, the admin's, the answers, the
-// places, the devices' records), are in databasehost-control: the RAM host of the node /etc/hosts names
-// databasehost_control.frognet (port FDF_LAN_RAM_PORT, 8841), or RINA_CONTROL_RAM. Never the WAN conduit.
 // [STATION_IS_HOSTNAME_V1] whoami: the asking device's hostname, as this node's facts have it (the lease this node gave
 // that address, facts.addrs kind "given", value). It is the device's station ID (PLAN.md, "Message numbers"): unique on
 // the network, typed by nobody. A device this node gave no lease has none here, and is told so.
 header('Content-Type: application/json');
 // [DOOR_SAYS_ITS_BUILD_V1] every answer says which door answered: the header, and "door" in the admin and roles answers
-const DOOR_BUILD = 'dc-door-2026-11-04-r12';
+const DOOR_BUILD = 'dc-door-2026-11-04-r13';
 header('X-FDF-Door: ' . DOOR_BUILD);
 set_time_limit(0);
 $env = '. ' . escapeshellarg(dirname(__DIR__, 2) . '/fdf.env') . ' && exec "$FDF_BIN"/ram ';
@@ -74,22 +75,27 @@ function ram($env, $args) {
 }
 
 $where = trim((string)shell_exec('. ' . escapeshellarg(dirname(__DIR__, 2) . '/fdf.env') . ' && printf %s "$RINA_RAM"'));
-// [APP_TUPLES_IN_CONTROL_V1] databasehost-control, read from /etc/hosts at each request (the election rewrites it)
-function control_ram() {
-    $o = explode("\n", (string)shell_exec('. ' . escapeshellarg(dirname(__DIR__, 2) . '/fdf.env') . ' && printf "%s\n%s\n%s" "${RINA_CONTROL_RAM:-}" "${FDF_HOSTS:-/etc/hosts}" "${FDF_LAN_RAM_PORT:-8841}"'));
-    if (trim($o[0] ?? '') !== '') return trim($o[0]);
-    foreach ((array)@file(trim($o[1] ?? '/etc/hosts')) as $l) {
+// [APP_SERVICES_V1] /etc/hosts (FDF_HOSTS), read at each request: the election rewrites it
+$hostenv = explode("\n", (string)shell_exec('. ' . escapeshellarg(dirname(__DIR__, 2) . '/fdf.env') . ' && printf "%s\n%s\n%s\n%s" "${FDF_HOSTS:-/etc/hosts}" "${FDF_LAN_RAM_PORT:-8841}" "${RINA_CONTROL_RAM:-}" "${RINA_SYSTEM_RAM:-}"'));
+function host_ip($name) {
+    global $hostenv;
+    foreach ((array)@file(trim($hostenv[0] ?? '/etc/hosts')) as $l) {
         $p = preg_split('/\s+/', trim(explode('#', $l, 2)[0]));
-        if (count($p) >= 2 && in_array('databasehost_control.frognet', array_slice($p, 1), true)) return $p[0] . ':' . trim($o[2] ?? '8841');
+        if (count($p) >= 2 && in_array($name, array_slice($p, 1), true)) return $p[0];
     }
     return '';
 }
-$ctl = control_ram();
-function ctl_env() {
-    global $ctl;
-    if (!preg_match('/^[0-9.]+:[0-9]+$/', $ctl)) fail(503, 'this node names no databasehost_control.frognet yet (/etc/hosts): the election has not run here');
-    return '. ' . escapeshellarg(dirname(__DIR__, 2) . '/fdf.env') . ' && RINA_RAM=' . escapeshellarg($ctl) . ' exec "$FDF_BIN"/ram ';
+function role_env($name, $over, $what) {                         // the ram CLI on the RAM host of databasehost-control or the SystemRam
+    global $hostenv;
+    $at = trim($hostenv[$over] ?? '');
+    if ($at === '') { $ip = host_ip($name); $at = $ip === '' ? '' : $ip . ':' . trim($hostenv[1] ?? '8841'); }
+    if (!preg_match('/^[0-9.]+:[0-9]+$/', $at)) fail(503, "this node names no $name yet (/etc/hosts): the election has not run here ($what)");
+    return [$at, '. ' . escapeshellarg(dirname(__DIR__, 2) . '/fdf.env') . ' && RINA_RAM=' . escapeshellarg($at) . ' exec "$FDF_BIN"/ram '];
 }
+function ctl_env() { return role_env('databasehost_control.frognet', 2, 'databasehost-control')[1]; }
+function sys_env() { return role_env('databasehost.frognet', 3, 'the SystemRam')[1]; }
+function sys_at() { return role_env('databasehost.frognet', 3, 'the SystemRam')[0]; }
+function svc_host($app, $ram) { return ($ram === 'general' ? $app : $ram) . 'Host.frognet'; }
 $fdf_var = trim((string)shell_exec('. ' . escapeshellarg(dirname(__DIR__, 2) . '/fdf.env') . ' && printf %s "${FDF_VAR:-/opt/fdf/var}"'));
 function station_of($ip) {                                      // [STATION_IS_HOSTNAME_V1] the lease this node gave $ip
     global $fdf_var;
@@ -107,8 +113,8 @@ function for_service($s, $team = null, $soft = false) {         // [APP_DROPLET_
         if (!is_string($team) || !preg_match('/^[A-Za-z0-9_-]{1,40}$/', $team) || $team === 'general') fail(400, "service '$s' is in a team's RAM: name the team");
         $key = substr($key, 0, -4) . $team;
     }
-    $map = json_decode((string)@file_get_contents($fdf_var . '/app-where.json'), true);
-    $at = is_array($map) ? ($map[$key] ?? '') : '';
+    [$app, $ram] = explode('.', $key, 2);
+    $at = served_at($app, $ram);
     if ($soft && ($at === '' || !preg_match('/^[0-9.]+:[0-9]+$/', $at))) { $where = '-'; return; }   // op=watch: held until placed
     if ($at === '' || !preg_match('/^[0-9.]+:[0-9]+$/', $at)) fail(503, "the app's RAM " . $key . ' is not served yet: nothing works until it is');
     $where = $at;
@@ -121,14 +127,45 @@ function ram_try($env, $args) {                                // ram(), with it
     $text = stream_get_contents($pipes[1]); $err = stream_get_contents($pipes[2]); fclose($pipes[1]); fclose($pipes[2]);
     return [proc_close($p), $text . $err];
 }
-// [ENROLL_V1] the app's newest configuration (each droplet writes its own; the admin's seq decides)
-function app_cfg($app) {
-    global $env;
+// [APP_SERVICES_V1] the app's one configuration tuple, (fdf-app, config, <app>), in databasehost-control: the Admin's
+// text decoded, with its seq and admin (salt and check value, never the key); and each Team's, (fdf-app, config,
+// <app>.<team>), as "places"; $soft: null when there is none
+$cfg_cache = [];
+function app_tuple($app) {
+    global $cfg_cache;
+    if (array_key_exists($app, $cfg_cache)) return $cfg_cache[$app];
+    $bag = null; $places = [];
+    foreach ((json_decode(ram(ctl_env(), ['read', 'fdf-app', 'config']), true)['rows'] ?? []) as $c) {
+        $i = (string)($c['instance'] ?? ''); $b = $c['bag'] ?? null;
+        if (!is_array($b) || !$b) continue;
+        if ($i === $app && ($bag === null || intval($b['seq'] ?? 0) > intval($bag['seq'] ?? 0))) $bag = $b;
+        elseif (strpos($i, $app . '.') === 0) $places[substr($i, strlen($app) + 1)] = $b;
+    }
     $cfg = null;
-    foreach ((json_decode(ram(ctl_env(), ['read', 'fdf-app', 'config']), true)['rows'] ?? []) as $c)
-        if (strpos($c['instance'] ?? '', $app . '.') === 0 && ($cfg === null || intval($c['bag']['seq'] ?? 0) > intval($cfg['seq'] ?? 0))) $cfg = $c['bag'];
-    if (!is_array($cfg)) fail(503, "no configuration of $app in databasehost-control yet: no droplet of it has written its own");
+    if (is_array($bag)) {
+        $cfg = json_decode((string)($bag['config'] ?? ''), true);
+        if (is_array($cfg)) $cfg = $cfg + ['seq' => intval($bag['seq'] ?? 0), 'admin' => $bag['admin'] ?? (object)[], 'places' => $places, '_bag' => $bag];
+        else $cfg = null;
+    }
+    return $cfg_cache[$app] = $cfg;
+}
+function app_cfg($app) {
+    $cfg = app_tuple($app);
+    if (!is_array($cfg)) fail(503, "no configuration of $app in databasehost-control yet: its first install writes it");
     return $cfg;
+}
+// [APP_SERVICES_V1] where APP's AppRam RAM is served now: its AppHost (/etc/hosts) and its port (the configuration)
+function served_at($app, $ram) {
+    $ip = host_ip(svc_host($app, $ram));
+    if ($ip === '') return '';
+    $cfg = app_tuple($app);
+    $port = is_array($cfg) ? intval(($cfg['ports'] ?? [])[$ram] ?? 0) : 0;
+    return $port ? $ip . ':' . $port : '';
+}
+function served_map($app) {
+    $cfg = app_tuple($app); $o = [];
+    foreach ((is_array($cfg) ? ($cfg['rams'] ?? []) : []) as $r) { $w = served_at($app, $r); if ($w !== '') $o[$r] = $w; }
+    return $o;
 }
 // [ENROLL_V1] a user and password, checked against the verifier in the app's configuration: the user's record
 function check_user($app, $in) {
@@ -244,22 +281,14 @@ if ($op === 'read') {
         exit;
     }
     echo json_encode(['ok' => true, 'got' => $got], JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE);
-} elseif ($op === 'rams') {                                    // [TEAM_RAM_V1] the app's RAMs served now, and where
-    // [GROUP_PLACE_V1] &until=RAM&wait_s=S: held until RAM is served (a member's where cell is the event), at most S s
-    // (25): a lead that moved its group to databasehost hears the moment a member serves it. "places": where each
-    // group's lead placed it (the newest configuration's), for the dashboard and the apps.
+} elseif ($op === 'rams') {                                    // [TEAM_RAM_V1] the app's AppRams served now, and where
+    // [GROUP_PLACE_V1] &until=RAM&wait_s=S: held until RAM has an AppHost (the election writing /etc/hosts is the event),
+    // at most S s (25). "places": where each Team's lead placed it (its own configuration tuple).
     $app = $_GET['app'] ?? '';
     if (!preg_match('/^[A-Za-z0-9_-]{1,40}$/', $app)) fail(400, 'app needed');
-    $read = function () use ($fdf_var, $app) {
-        $map = json_decode((string)@file_get_contents($fdf_var . '/app-where.json'), true);
-        $o = []; foreach ((is_array($map) ? $map : []) as $k => $v) if (strpos($k, $app . '.') === 0) $o[substr($k, strlen($app) + 1)] = $v;
-        return $o;
-    };
-    // [EVENTS_NOT_TIMERS_V1] held (at most wait_s, 25) on the one event that changes the answer: this node's
-    // app-where.json written (fdf-app writes it on every placement), or -- &up=HOST:PORT,.. -- one of those RAMs saying
-    // it is up (FDF_VAR/ram/<host>_<port>.up). &until=RAM: until that RAM is served. &not=JSON: until the RAMs are not
-    // that map (a member whose sessions failed asks where they are now; the same answer means: not moved yet).
-    // "up": the RAM that said so -- the member opens its sessions to it again, nothing else changed.
+    // [EVENTS_NOT_TIMERS_V1] held (at most wait_s, 25) on the one event that changes the answer: /etc/hosts written
+    // (an AppHost elected), or -- &up=HOST:PORT,.. -- one of those RAMs saying it is up (FDF_VAR/ram/<host>_<port>.up).
+    // &until=RAM: until that RAM is served. &not=JSON: until the RAMs are not that map.
     $until = (string)($_GET['until'] ?? ''); $wait = max(0, min(25, intval($_GET['wait_s'] ?? 0)));
     $not = isset($_GET['not']) ? json_decode((string)$_GET['not'], true) : null;
     if ($until !== '' && !preg_match('/^[A-Za-z0-9_-]{1,40}$/', $until)) fail(400, 'until: a RAM name');
@@ -267,55 +296,25 @@ if ($op === 'read') {
         if (!preg_match('/^([0-9.]+):([0-9]+)$/', $u, $mm)) fail(400, 'up: HOST:PORT,..');
         $ups[$fdf_var . '/ram/' . $mm[1] . '_' . $mm[2] . '.up'] = $u; $ups[$fdf_var . '/ram/0.0.0.0_' . $mm[2] . '.up'] = $u;
     }
-    $since = microtime(true); $out = $read(); $up = '';
+    $since = microtime(true); $out = served_map($app); $up = '';
     $done = function ($o) use ($until, $not) { return ($until === '' || isset($o[$until])) && (!is_array($not) || $o != $not); };
     if (($until !== '' || is_array($not)) && $wait > 0) {
         $end = $since + $wait;
         while (!$done($out) && ($left = $end - microtime(true)) > 0) {
-            $args = ['written', sprintf('%.3f', $left), sprintf('%.6f', $since), $fdf_var . '/app-where.json']; foreach ($ups as $f => $u) $args[] = $f;
+            $args = ['written', sprintf('%.3f', $left), sprintf('%.6f', $since), trim($hostenv[0] ?? '/etc/hosts')]; foreach ($ups as $f => $u) $args[] = $f;
             $w = (string)(json_decode(ram($env, $args), true)['written'] ?? '');
             if ($w === '') break;                               // the wait's bound: the same answer
             if (isset($ups[$w])) { $up = $ups[$w]; break; }
-            $since = microtime(true); $out = $read();
+            $since = microtime(true); $cfg_cache = []; $out = served_map($app);
         }
     }
-    $places = []; $seq = -1;                                   // the newest configuration's (no configuration: none)
-    foreach ((json_decode(ram(ctl_env(), ['read', 'fdf-app', 'config']), true)['rows'] ?? []) as $c)
-        if (strpos($c['instance'] ?? '', $app . '.') === 0 && intval($c['bag']['seq'] ?? 0) > $seq) { $seq = intval($c['bag']['seq'] ?? 0); $places = $c['bag']['places'] ?? []; }
-    echo json_encode(['ok' => true, 'rams' => $out, 'places' => (object)$places, 'door' => DOOR_BUILD] + ($up !== '' ? ['up' => $up] : []));
+    $cfg = app_tuple($app);
+    echo json_encode(['ok' => true, 'rams' => (object)$out, 'places' => (object)(is_array($cfg) ? $cfg['places'] : []), 'door' => DOOR_BUILD] + ($up !== '' ? ['up' => $up] : []));
 } elseif ($op === 'roles' || ($op === 'admin' && $_SERVER['REQUEST_METHOD'] === 'GET')) {
     $app = $_GET['app'] ?? '';
     if (!preg_match('/^[A-Za-z0-9_-]{1,40}$/', $app)) fail(400, 'app needed');
-    $map = json_decode((string)@file_get_contents($fdf_var . '/app-where.json'), true);
-    $served = []; foreach ((is_array($map) ? $map : []) as $k => $v) if (strpos($k, $app . '.') === 0) $served[substr($k, strlen($app) + 1)] = $v;
-    $last = -1;
-    if ($op === 'admin' && isset($_GET['after'])) {           // held until a member answers the admin (or W s)
-        // [GROUPS_NOW_V1] ... or a group's place, a member's configuration or capability, or a member's map of where the
-        // app's RAMs are (fdf-app writes it when it changes, after this node's app-where.json)
-        // [FAMILY_LOG_V1] one blocking read on the service fdf-app: `after` is a place in that family (the `last` this
-        // answer gives), not in any one of its variables
-        $wait = max(0, min(25, intval($_GET['wait'] ?? 20)));
-        $t0 = microtime(true);
-        [$rc, $said] = ram_try(ctl_env(), ['read', 'fdf-app', '', '', intval($_GET['after']), $wait]);
-        // [EVENTS_NOT_TIMERS_V1][NOT_THIS_MEMORY_V1] ESTALE: another memory than the admin read -- the full read below
-        // gives the new `last`, now. The RAM not answering: held until it says it is up (its own file, or this node's
-        // member's for the address it reached), within the same W s; then the full read below.
-        if ($rc !== 0 && strpos($said, 'ESTALE') === false && preg_match('/^([0-9.]+):([0-9]+)$/', $ctl, $mm))
-            ram($env, ['written', sprintf('%.3f', max(0.1, $wait - (microtime(true) - $t0))), sprintf('%.6f', $t0),
-                       $fdf_var . '/ram/' . $mm[1] . '_' . $mm[2] . '.up', $fdf_var . '/ram/0.0.0.0_' . $mm[2] . '.up']);
-    }
-    // the service fdf-app as it is now, read once: its configurations, the members' answers, the places, the
-    // capabilities and the maps; `last` is the largest id there (no later than the service's log at the read's start)
-    $all = json_decode(ram(ctl_env(), ['read', 'fdf-app', '']), true)['rows'] ?? [];
-    $of = function ($v) use ($all) { return array_values(array_filter($all, function ($c) use ($v) { return ($c['variable'] ?? '') === $v; })); };
-    foreach ($all as $c) $last = max($last, intval($c['id'] ?? -1));
-    $cfgs = []; $best = null;
-    foreach ($of('config') as $c) {
-        if (strpos($c['instance'] ?? '', $app . '.') !== 0) continue;
-        $cfgs[] = $c['bag'];
-        if ($best === null || intval($c['bag']['seq'] ?? 0) > intval($best['seq'] ?? 0)) $best = $c['bag'];
-    }
-    if ($best === null) fail(503, "no configuration of $app in databasehost-control yet: no droplet of it has written its own");
+    $best = app_cfg($app);
+    $served = served_map($app);
     if ($op === 'roles') {
         // [CATEGORIES_V1] each role (a group) says its category; `categories` is the admin's order of them (the tabs, the map's layers)
         $roles = []; $cats = array_values(array_filter($best['categories'] ?? [], 'is_string'));
@@ -324,24 +323,49 @@ if ($op === 'read') {
             if (!in_array($c, $cats, true)) $cats[] = $c;
             $roles[$r] = ['default' => !empty($x['default']), 'ram' => in_array($r, $best['rams'] ?? [], true), 'category' => $c];
         }
-        echo json_encode(['ok' => true, 'door' => DOOR_BUILD, 'roles' => $roles, 'categories' => $cats, 'rams' => $best['rams'] ?? [], 'served' => $served, 'login' => !empty($best['login']), 'seq' => intval($best['seq'] ?? 0)], JSON_UNESCAPED_SLASHES);
+        echo json_encode(['ok' => true, 'door' => DOOR_BUILD, 'roles' => $roles, 'categories' => $cats, 'rams' => $best['rams'] ?? [], 'served' => (object)$served, 'login' => !empty($best['login']), 'seq' => intval($best['seq'] ?? 0)], JSON_UNESCAPED_SLASHES);
         exit;
     }
+    // the admin's view: held until an installed machine answers, its capability comes or goes, or the configuration
+    // changes (or W s). [FAMILY_LOG_V1] one blocking read on the service fdf-app in the SystemRam: `after` is a place
+    // in that family (the `last` this answer gives)
+    $last = -1;
+    if (isset($_GET['after'])) {
+        $wait = max(0, min(25, intval($_GET['wait'] ?? 20)));
+        $t0 = microtime(true);
+        [$rc, $said] = ram_try(sys_env(), ['read', 'fdf-app', '', '', intval($_GET['after']), $wait]);
+        // [EVENTS_NOT_TIMERS_V1][NOT_THIS_MEMORY_V1] ESTALE: another memory: the full read below gives the new `last`.
+        // Not answering: held until it says it is up, within the same W s; then the full read below.
+        if ($rc !== 0 && strpos($said, 'ESTALE') === false && preg_match('/^([0-9.]+):([0-9]+)$/', sys_at(), $mm))
+            ram($env, ['written', sprintf('%.3f', max(0.1, $wait - (microtime(true) - $t0))), sprintf('%.6f', $t0),
+                       $fdf_var . '/ram/' . $mm[1] . '_' . $mm[2] . '.up', $fdf_var . '/ram/0.0.0.0_' . $mm[2] . '.up']);
+        $cfg_cache = []; $best = app_cfg($app); $served = served_map($app);
+    }
+    $all = json_decode(ram(sys_env(), ['read', 'fdf-app', '']), true)['rows'] ?? [];
+    foreach ($all as $c) $last = max($last, intval($c['id'] ?? -1));
+    // one row per installed machine (its capability tuples), each showing the one configuration; its answer in applied
+    $pub = $best; unset($pub['_bag']); $machines = [];
+    foreach ($all as $c) {
+        if (($c['variable'] ?? '') !== 'can' || strpos($c['instance'] ?? '', $app . '.') !== 0 || !is_array($c['bag'] ?? null)) continue;
+        $g = (string)($c['bag']['guid'] ?? ''); if ($g === '' || isset($machines[$g])) continue;
+        $machines[$g] = $pub + ['guid' => $g, 'member' => (string)($c['bag']['member'] ?? $g), 'addr' => (string)($c['bag']['addr'] ?? '')];
+    }
     $applied = [];
-    foreach ($of('applied') as $c) if (strpos($c['instance'] ?? '', $app . '.') === 0) $applied[] = $c['bag'];
-    // [GROUPS_NOW_V1] this node's map read AFTER `last` is known: a map written in between is newer than `last`, so the
-    // next held read wakes on it (read before, it was lost: the answer old, `last` past it)
-    $map = json_decode((string)@file_get_contents($fdf_var . '/app-where.json'), true);
-    $served = []; foreach ((is_array($map) ? $map : []) as $k => $v) if (strpos($k, $app . '.') === 0) $served[substr($k, strlen($app) + 1)] = $v;
-    echo json_encode(['ok' => true, 'door' => DOOR_BUILD, 'configs' => $cfgs, 'applied' => $applied, 'served' => $served, 'last' => $last], JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE);
+    foreach ($all as $c) if (($c['variable'] ?? '') === 'applied' && strpos($c['instance'] ?? '', $app . '.') === 0 && is_array($c['bag'] ?? null)) $applied[] = $c['bag'];
+    $configs = array_values($machines) ?: [$pub + ['guid' => '', 'member' => 'databasehost-control']];
+    echo json_encode(['ok' => true, 'door' => DOOR_BUILD, 'configs' => $configs, 'applied' => $applied, 'served' => (object)$served, 'last' => $last], JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE);
 } elseif ($op === 'admin' && $_SERVER['REQUEST_METHOD'] === 'POST') {
+    // [APP_SERVICES_V1] the Admin's configuration: the app's one tuple in databasehost-control, written by the Admin (the
+    // admin app, through this door); the admin's salt and check value kept with it (never the key)
     $in = json_decode(file_get_contents('php://input'), true);
     $app = $_GET['app'] ?? '';
     if (!is_array($in) || !preg_match('/^[A-Za-z0-9_-]{1,40}$/', $app)) fail(400, 'app and a JSON body needed');
     if (!is_string($in['config'] ?? null) || strlen($in['config']) > 200000 || !is_int($in['seq'] ?? null) || !preg_match('/^[0-9a-f]{64}$/', (string)($in['mac'] ?? '')))
         fail(400, 'config (text), seq (integer) and mac (hex) needed');
-    $bag = ['config' => $in['config'], 'seq' => $in['seq'], 'user' => (string)($in['user'] ?? ''), 'mac' => $in['mac'], 'at' => time()];
-    echo ram(ctl_env(), ['write', 'fdf-app', 'admin', $app, json_encode($bag, JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE)]);
+    $cur = app_cfg($app);
+    if ($in['seq'] <= intval($cur['seq'] ?? 0)) fail(409, 'seq ' . $in['seq'] . ' is not newer than the configuration in databasehost-control (' . intval($cur['seq'] ?? 0) . ')');
+    $bag = ['config' => $in['config'], 'seq' => $in['seq'], 'user' => (string)($in['user'] ?? ''), 'mac' => $in['mac'], 'admin' => $cur['admin'] ?? (object)[], 'at' => time()];
+    echo ram(ctl_env(), ['write', 'fdf-app', 'config', $app, json_encode($bag, JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE)]);
 } elseif ($op === 'whoami') {
     // [STATION_IS_HOSTNAME_V1] the asking device's host name, from its lease here; '' when it gave none (the device's
     // own name is then its name: the page asks for it). Nobody sees a station ID: it is the host or device name.
@@ -364,15 +388,12 @@ if ($op === 'read') {
                       'invite' => region_identity(ident_name([$app, (string)$in['user']])), 'door' => DOOR_BUILD], JSON_UNESCAPED_SLASHES);
 } elseif ($op === 'login' && $_SERVER['REQUEST_METHOD'] === 'POST') {
     // [APP_ACCESS_V1] login is a read, here at the device's own edge: the app's access definition is in its configuration
-    // tuples in databasehost-control (each droplet writes it), and the password is checked against the verifier there. No
+    // tuple in databasehost-control (the Admin's one), and the password is checked against the verifier there. No
     // login server and nothing sent to another node. The answer is the role; the device writes its own access record.
     $in = json_decode(file_get_contents('php://input'), true);
     $app = $_GET['app'] ?? '';
     if (!is_array($in) || !preg_match('/^[A-Za-z0-9_-]{1,40}$/', $app)) fail(400, 'app and a JSON body needed');
-    $cfg = null;
-    foreach ((json_decode(ram(ctl_env(), ['read', 'fdf-app', 'config']), true)['rows'] ?? []) as $c)
-        if (strpos($c['instance'] ?? '', $app . '.') === 0 && ($cfg === null || intval($c['bag']['seq'] ?? 0) > intval($cfg['seq'] ?? 0))) $cfg = $c['bag'];   // [ADMIN_APP_V1] the newest
-    if (!is_array($cfg)) fail(503, "no configuration of $app in databasehost-control yet: no droplet of it has written its own");
+    $cfg = app_cfg($app);
     $user = (string)($in['user'] ?? ''); $role = (string)($in['role'] ?? '');
     if ($user !== '') {
         $u = $cfg['users'][$user] ?? null; $v = is_array($u) ? ($u['verifier'] ?? null) : null;
@@ -387,8 +408,8 @@ if ($op === 'read') {
     // [GROUP_PLACE_V1] (John 2026-11-03: "The Lead should be able to say that the region lives on databasehost.frognet")
     // the lead says where its group's RAM lives: "here", on the lead's own device (named by its guid: the group goes
     // where the lead goes, and members who cannot reach it fail), or "databasehost", wherever the app's selection puts
-    // it (it stays when the lead leaves). Checked here against the verifier; every member with the app adopts the
-    // newest into its own configuration and writes it again with it (fdf-app serve), so the choice is owned, not held.
+    // it (it stays when the lead leaves). Checked here against the verifier, and written as the Team's own configuration
+    // tuple, (fdf-app, config, <app>.<team>), in databasehost-control: its owner is its lead. The election reads it.
     $in = json_decode(file_get_contents('php://input'), true);
     $app = $_GET['app'] ?? '';
     if (!is_array($in) || !preg_match('/^[A-Za-z0-9_-]{1,40}$/', $app)) fail(400, 'app and a JSON body needed');
@@ -401,17 +422,19 @@ if ($op === 'read') {
     if ($at === 'here' && !preg_match('/^[A-Za-z0-9._:-]{1,80}$/', $guid)) fail(400, "guid: the lead's device that serves the group");
     $bag = ['at' => $at, 'guid' => $at === 'here' ? $guid : '', 'user' => (string)$in['user'], 'role' => $role,
             'seq' => (int)(microtime(true) * 1000), 'from' => $_SERVER['REMOTE_ADDR'] ?? ''];
-    ram(ctl_env(), ['write', 'fdf-app', 'place', $app . '.' . $role, json_encode($bag, JSON_UNESCAPED_SLASHES)]);
+    ram(ctl_env(), ['write', 'fdf-app', 'config', $app . '.' . $role, json_encode($bag, JSON_UNESCAPED_SLASHES)]);
     error_log('dc ram.php: [GROUP_PLACE_V1] ' . $app . ' group ' . $role . ' placed ' . $at . ($bag['guid'] !== '' ? ' (' . $bag['guid'] . ')' : '') . ' by its lead ' . $bag['user']);
     echo json_encode(['ok' => true, 'place' => $bag, 'door' => DOOR_BUILD], JSON_UNESCAPED_SLASHES);
 } elseif ($op === 'device' && $_SERVER['REQUEST_METHOD'] === 'POST') {
     // [APP_ACCESS_V1] the device's own access record (its role, its user), written by the device after its login and
-    // again after every RAM change, in the network RAM beside the app's configuration: (fdf-app, device, <app>.<dev>)
+    // again after every RAM change, in the app's general AppRam (a client's own record): (fdf-app, device, <app>.<dev>)
     $in = json_decode(file_get_contents('php://input'), true);
     $app = $_GET['app'] ?? ''; $dev = (string)($in['dev'] ?? '');
     if (!preg_match('/^[A-Za-z0-9_-]{1,40}$/', $app) || !preg_match('/^[A-Za-z0-9_-]{1,40}$/', $dev)) fail(400, 'app and dev needed');
     $bag = ['dev' => $dev, 'station' => preg_replace('/[^a-z0-9-]/', '', strtolower((string)($in['station'] ?? ''))), 'role' => (string)($in['role'] ?? ''), 'user' => (string)($in['user'] ?? ''), 'at' => time()];
-    echo ram(ctl_env(), ['write', 'fdf-app', 'device', $app . '.' . $dev, json_encode($bag, JSON_UNESCAPED_SLASHES)]);
+    $at = served_at($app, 'general');
+    if ($at === '') fail(503, "the app's general AppRam has no AppHost yet (" . svc_host($app, 'general') . "): nothing works until it has");
+    echo ram('. ' . escapeshellarg(dirname(__DIR__, 2) . '/fdf.env') . ' && RINA_RAM=' . escapeshellarg($at) . ' exec "$FDF_BIN"/ram ', ['write', 'fdf-app', 'device', $app . '.' . $dev, json_encode($bag, JSON_UNESCAPED_SLASHES)]);
 } else {
     fail(400, 'op is read, write, watch, announce, rams, roles, admin, whoami, login, device, enroll, identity or place');
 }

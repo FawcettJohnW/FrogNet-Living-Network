@@ -35,7 +35,7 @@ cleanup() { [ -f $T/svc.pids ] && kill $(cat $T/svc.pids) 2>/dev/null; rm -f $T/
 trap cleanup EXIT; cleanup
 WGGO=$(command -v wireguard-go || ls $H/build/wg/wireguard-go-$(uname -m) 2>/dev/null)
 [ -x "$WGGO" ] || { echo "FAIL  setup: wireguard-go not found"; exit 1; }
-cp $B/fdf-events $B/fdf-client $B/fdf-where $B/fdf-ram $T/bin/ 2>/dev/null; [ -x $T/bin/fdf-ram ] || cp $H/build/bin/fdf-ram-static $T/bin/fdf-ram
+cp $B/fdf-events $B/fdf-client $B/fdf-where $B/fdf-ram $B/ram $T/bin/ 2>/dev/null; [ -x $T/bin/fdf-ram ] || cp $H/build/bin/fdf-ram-static $T/bin/fdf-ram
 cp $PK/bin/fdf-facts $PK/bin/fdf-hub $PK/bin/fdf-invite $PK/bin/fdf-region-join $PK/bin/fdf-org $PK/bin/fdf-login $T/bin/; cp "$WGGO" $T/bin/wireguard-go
 export PATH=$T/bin:$PATH
 cat > $T/bin/capability-probe <<'EOF'
@@ -111,9 +111,7 @@ NSF() { local n=$1; shift; local F=$T/$n/fs m=""
 fsnode() { local n=$1; local F=$T/$n/fs
   for b in $BINDS; do mkdir -p $F/${b%%:*}; done
   cp -a /etc/. $F/etc/; mkdir -p $F/etc/frognet $F/etc/wireguard $F/etc/sentinels $F/etc/dnsmasq.d
-  # [APP_TUPLES_IN_CONTROL_V1] databasehost_control.frognet as the election writes it (the highest .1, w's 10.4.4.1); the
-  # daemon's own election rewrites it from then on
-  printf '127.0.0.1 localhost\n10.4.4.1 databasehost_control.frognet\n' > $F/etc/hosts; echo "g-$n" > $F/etc/fnid; echo "domain=$n" > $F/etc/dnsmasq.d/frognet.conf
+  printf '127.0.0.1 localhost\n' > $F/etc/hosts; echo "g-$n" > $F/etc/fnid; echo "domain=$n" > $F/etc/dnsmasq.d/frognet.conf
   printf '# netns system-space test\n' > $F/etc/frognet/tunnel.conf; printf 'NETWORK_NAME=p\n' > $F/etc/frognet/gateways.conf
   if [ "${LOGIN:-}" = 1 ]; then
     NSF $n env FDF_WG_IMPL=wireguard-go FDF_DEVICE_ID=g-$n bash $T/bin/fdf-region-join --files-only "$LINE" < /dev/null > $T/$n/login.log 2>&1   # [ORG_NODE_JOIN_V1] as the installer runs it
@@ -145,26 +143,37 @@ daemon() { local n=$1
   svc $T/$n/client.log NSF $n env FDF_NAME=$n $(cat $T/$n/fs/opt-fdf-var/site.env) sh -c \
     'R=$(sed -n "s/^export RINA_RAM=//p" /opt/fdf/var/join.env); [ -f /opt/fdf/var/system-ram.env ] && R=$(sed -n "s/^RINA_RAM=//p" /opt/fdf/var/system-ram.env); echo $$ > /opt/fdf/var/client.pid; exec fdf-client $R'
   NSF $n env FDF_NAME=$n python3 $T/bin/fdf-facts --watch > $T/$n/facts.log 2>&1 &
-  # [APP_TUPLES_IN_CONTROL_V1] an app on the node, as fdf-app.service runs it: its tuples in databasehost-control
-  NSF $n env FDF_APPS=/opt/fdf/var/apps python3 $PK/bin/fdf-app config rangertrak general --role eoc:default > $T/$n/app-config.log 2>&1
-  svc $T/$n/app.log NSF $n env FDF_NAME=$n FDF_APPS=/opt/fdf/var/apps python3 $PK/bin/fdf-app serve; }
+  }
 daemon z; daemon w
 on() { grep "system space on" $T/$1/daemon.log | tail -1 | sed 's/.*system space on \([^(]*\) (.*/\1/' | sed 's/ *$//'; }
 # wait until both daemons' last "system space on" names $1, and the RAM manager they are on lists both; prints seconds
 both_on() { local want=$1 t0=$(ms) ok=1; for i in $(seq ${3:-240}); do
     [ "$(on z)" = "$want" ] && [ "$(on w)" = "$want" ] && [ "$(eval "$2")" = "w z" ] && { ok=0; break; }; sleep 0.25; done
   echo "$ok $(( ($(ms) - t0) / 100 ))"; }
-# the app configuration tuples in the RAM manager at $2, read from namespace $1: how many members' (expected: z and w)
-appcfg() { NS $1 curl -s -m 3 "http://$2$API?op=read&service=fdf-app&variable=config" | python3 -c 'import sys,json; print(len([c for c in json.load(sys.stdin).get("cells",[]) if c.get("instance","").startswith("rangertrak.") and not c.get("gone")]))' 2>/dev/null; }
-appwhere() { NS $1 curl -s -m 3 "http://$2$API?op=read&service=pond&variable=where" | python3 -c 'import sys,json; print(" ".join(sorted(k for c in json.load(sys.stdin).get("cells",[]) if not c.get("gone") for k in (c.get("bag") or {}) if k.startswith("rangertrak."))))' 2>/dev/null; }
-app_on() { local t0=$(ms); for i in $(seq 160); do [ "$(appcfg $1 $2)" = 2 ] && { echo "0 $(( ($(ms) - t0) / 100 ))"; return; }; sleep 0.25; done; echo "1 $(( ($(ms) - t0) / 100 ))"; }
+# [APP_SERVICES_V1] the app as the design has it: its one configuration tuple in databasehost-control, each machine's
+# capability tuples in the SystemRam, rangertrakHost.frognet written by the daemon's own election on every node
+hostsof() { sed -n "s/^\([0-9.]*\) $2\$/\1/p" $T/$1/fs/etc/hosts | head -1; }
+cells() { NS $1 curl -s -m 3 "http://$2$API?op=read&service=fdf-app&variable=$3" | python3 -c 'import sys,json; print(" ".join(sorted(c["instance"] for c in json.load(sys.stdin).get("cells",[]) if c.get("bag") and not c.get("gone"))))' 2>/dev/null; }
+appok() {   # every node names one AppHost, the same; the one tuple in databasehost-control; z's and w's capability in the SystemRam; nothing on hubA
+  local zc=$(hostsof z databasehost_control.frognet) zs=$(hostsof z databasehost.frognet) za=$(hostsof z rangertrakHost.frognet) wa=$(hostsof w rangertrakHost.frognet)
+  [ -n "$za" ] && [ "$za" = "$wa" ] && [ "$(cells z $zc:8841 config)" = rangertrak ] && [ "$(cells z $zs:8841 can)" = "rangertrak.general.g-w rangertrak.general.g-z" ] \
+    && [ -z "$(NS z curl -s -m 3 "http://$RAM$API?op=read&service=fdf-app" 2>/dev/null | grep -o '"instance"')" ]; }
+appsay() { echo "AppHost z:$(hostsof z rangertrakHost.frognet) w:$(hostsof w rangertrakHost.frognet); control $(hostsof z databasehost_control.frognet): $(cells z $(hostsof z databasehost_control.frognet):8841 config); SystemRam $(hostsof z databasehost.frognet): $(cells z $(hostsof z databasehost.frognet):8841 can)"; }
+app_on() { local t0=$(ms); for i in $(seq 160); do appok && { echo "0 $(( ($(ms) - t0) / 100 ))"; return; }; sleep 0.25; done; echo "1 $(( ($(ms) - t0) / 100 ))"; }
 secs() { echo "$(( $1 / 10 )).$(( $1 % 10 ))"; }
 dump() { for n in z w; do echo "--- $n: system space lines"; grep -E "system space|SPACE_|LAN RAM|follows|lost" $T/$n/daemon.log | tail -12 | cut -c1-260 | sed 's/^/    /'
          echo "--- $n client.log (last 6)"; tail -6 $T/$n/client.log | sed 's/^/    /'; echo "--- $n routes"; ip netns exec $n ip -4 route | sed 's/^/    /'; done; }
 r=($(both_on hubA "parts A $RAM")); check ${r[0]} "both on hubA, the first on the list; hubA's RAM manager lists both ($(secs ${r[1]}) s)"; [ ${r[0]} = 0 ] || dump
 ok=1; for i in $(seq 120); do ip netns exec z ip -4 route | grep -q '^10.4.4.0/24 via 10.3.3.20' && { ok=0; break; }; sleep 0.5; done
 check $ok "z routes w's 10.4.4.0/24 over the LAN (via its lease 10.3.3.20)"
-a=($(app_on w 10.4.4.1:8841)); check $([ ${a[0]} = 0 ] && [ "$(appcfg A $RAM)" = 0 ] && echo 0 || echo 1) "the app on z and w: both configuration tuples in databasehost-control, w's 10.4.4.1:8841 ($(secs ${a[1]}) s); none on the conduit hubA ($(appcfg A $RAM))"
+# the app: its first install on z (databasehost-control named), installed on w from its one tuple, served on both
+for i in $(seq 120); do grep -q databasehost_control.frognet $T/z/fs/etc/hosts && grep -q databasehost_control.frognet $T/w/fs/etc/hosts && break; sleep 0.25; done
+NSF z env FDF_APPS=/opt/fdf/var/apps python3 $PK/bin/fdf-app config rangertrak general --role eoc:default > $T/z/app-config.log 2>&1
+check $? "the app's first install on z: $(tail -1 $T/z/app-config.log | cut -c1-200)"
+NSF w env FDF_APPS=/opt/fdf/var/apps FDF_APP_RESTART=true python3 $PK/bin/fdf-app install rangertrak < /dev/null > $T/w/app-install.log 2>&1
+check $? "the app installed on w from its one configuration tuple: $(tail -2 $T/w/app-install.log | head -1 | cut -c1-200)"
+for n in z w; do svc $T/$n/app.log NSF $n env FDF_NAME=$n FDF_APPS=/opt/fdf/var/apps python3 $PK/bin/fdf-app serve; done
+a=($(app_on)); check ${a[0]} "the app: $(appsay); nothing of it on the conduit hubA ($(secs ${a[1]}) s)"
 check $(NSF w wg show interfaces 2>/dev/null | grep -q wg && echo 0 || echo 1) "w has its own tunnel to hubA, through z: $(NSF w wg show all latest-handshakes 2>/dev/null | awk '{print $1}' | tr '\n' ' ')"
 sleep 4
 # ---- failover: hubA's RAM manager dies
@@ -181,13 +190,13 @@ r=($(both_on "lan 10.4.4.1" "parts w 10.4.4.1:8841")); check ${r[0]} "both WAN R
 check $( (NSF z wg show interfaces; NSF w wg show interfaces) 2>/dev/null | tr ' ' '\n' | grep -q '^wg' && echo 1 || echo 0) "on the LAN: no hub channel on z or w; only the standing sessions' probe tunnels, routing nothing ($( (NSF z wg show interfaces; NSF w wg show interfaces) 2>/dev/null | tr '\n' ' '))"
 check $(ip netns exec z ip -4 route | grep -q '^10.4.4.0/24 via 10.3.3.20' && echo 0 || echo 1) "on the LAN: z still routes w's /24"
 check $(ip netns exec w ping -c 1 -W 2 -I 10.4.4.1 10.3.3.1 > /dev/null 2>&1 && echo 0 || echo 1) "on the LAN: w's .1 -> z's .1"
-ok=1; for i in $(seq 120); do [ "$(appwhere w 10.4.4.1:8841)" = rangertrak.general ] && { ok=0; break; }; sleep 0.25; done
-check $ok "on the LAN: the app's RAM general is served on this side, its where cell in w's 10.4.4.1:8841"
-a=($(app_on w 10.4.4.1:8841)); check ${a[0]} "on the LAN: the app did not move: both configuration tuples still in databasehost-control, w's 10.4.4.1:8841 ($(secs ${a[1]}) s; z's moves: $(grep -c 'databasehost-control is [^ ]* now' $T/z/app.log))"
+a=($(app_on)); check ${a[0]} "on the LAN: $(appsay) ($(secs ${a[1]}) s)"
+AH=$(hostsof z rangertrakHost.frognet); PT=$(python3 -c "import json; print(json.load(open('$T/z/fs/opt-fdf-var/apps/rangertrak.json'))['ports']['general'])")
+check $(NS z curl -s -m 3 -X POST -d '{"op":"version"}' "http://$AH:$PT$API?op=rina" | grep -q '"ok":true' && echo 0 || echo 1) "on the LAN: the general AppRam answers at its AppHost $AH, its port $PT"
 # ---- the primary returns: both on hubA
 hostup A
 r=($(both_on hubA "parts A $RAM")); check ${r[0]} "hubA back: both on hubA from the LAN ($(secs ${r[1]}) s)"; [ ${r[0]} = 0 ] || dump
 check $(NSF z wg show interfaces 2>/dev/null | grep -q wg && echo 0 || echo 1) "z's hub channel is back up"
-a=($(app_on w 10.4.4.1:8841)); check $([ ${a[0]} = 0 ] && [ "$(appcfg A $RAM)" = 0 ] && [ "$(appwhere w 10.4.4.1:8841)" = rangertrak.general ] && echo 0 || echo 1) "hubA back: the app's tuples still in w's 10.4.4.1:8841 and general served ($(appwhere w 10.4.4.1:8841)); none on hubA ($(appcfg A $RAM))"
+a=($(app_on)); check ${a[0]} "hubA back: $(appsay); nothing of it on hubA ($(secs ${a[1]}) s)"
 echo "RESULT $([ $FAILS = 0 ] && echo PASS || echo "FAIL: $FAILS")"
 [ -n "${PAUSE:-}" ] && { echo "PAUSE: holding the namespaces ${PAUSE}s (T=$T)"; sleep $PAUSE; }

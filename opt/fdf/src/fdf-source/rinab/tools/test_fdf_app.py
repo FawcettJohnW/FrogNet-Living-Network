@@ -3,42 +3,44 @@
 #  Copyright (C) 2016-2026 Fawcett Innovations LLC             #
 #  SPDX-License-Identifier: GPL-2.0-only                       #
 ################################################################
-# test_fdf_app.py -- [APP_DROPLET_V1] fdf-app against a real network RAM (fdf-ram) and three real members, each with
-# its own session (fdf-client) and its own fdf-app serve, its droplets listening on its own loopback .1 (127.0.N.1).
-# One app, rangertrak, with two RAMs (general, hospitals); member c has the most memory, b the next, a the least.
-#   usage: tools/test_fdf_app.py [BUILD_STATIC_DIR]   (default: rinab/build/static)
-# Checks, each with what it saw:
-#   1 every RAM is served by exactly one member, the one the selection names (c), and answers there
-#   2 c gone (its session and its fdf-app, so its presence in databasehost-control): each RAM moves to b, within the time printed; c stops serving
-#   3 c is back: the RAMs move to c again (the selection is deterministic; a stronger member takes it)
-#   4 a member without the app is never chosen
-#   6 b is cut off (behind b's address for the network RAM there is now b's own side's RAM): b's droplet writes its
-#     configuration and capability there again and serves both RAMs on its side; a and c still map them to c. b
-#     rejoins: b maps them to c again and stops serving
-#   7 [APP_ACCESS_V1] each droplet's configuration tuple carries the access definition: login, the roles, the users
-#     each assigned a role with their password's verifier (the password itself nowhere in the network RAM)
-#   8 [ADMIN_APP_V1] the admin app's configuration, (fdf-app, admin, rangertrak) with the admin key's mac: every member
-#     adopts it (a new team role and its RAM, a new user), says so in (fdf-app, applied, ...), and serves the new RAM;
-#     the admin key is nowhere in the network RAM, its check value is
-#   9 a configuration with a mac from the wrong password: refused by every member, and nothing changes
-#  10 [APP_SELECTION_V1] the app's own selection, in the admin's configuration ("select" {"*": rank -mem_total_kb}):
-#     every RAM moves to a (the least memory), and a, b and c map them the same
-#  11 "need": hospitals needs gpu, which only b's capability has: hospitals on b, the rest stay on a
-#  12 the selection itself (fdf_select): a member that does not offer a RAM ("serve") is not a candidate; a member whose
-#     tuple lacks a ranked key ranks below every member that has it; the same tuples give the same answer in any order
-#  13 [GROUP_PLACE_V1] pat, hospitals' lead, places it "here" on c (the place cell as the door writes it): every member
-#     adopts it and hospitals is on c, whatever the selection says; a place written by a user who is not the lead changes nothing
-#  14 c gone: hospitals is served by nobody (the group went with its lead's device), general and alpha stay on a
-#  15 c is back, and pat places hospitals on databasehost: the app's selection again (need gpu: b)
-#   5 every member with the app has the same map of where each RAM is served (FDF_VAR/app-where.json), the one the pages use
-import json, os, shutil, socket, subprocess, sys, tempfile, time
+"""test_fdf_app.py -- [APP_SERVICES_V1] fdf-app as the design has it (the doc "FrogNet SystemRam, FrogNetHost Admin and
+App Services -- Design", 2026-11-04, sections 5, 7 and 9), on real RAM hosts (fdf-ram) and four machines a, b, c, d,
+each with its own fdf-app serve and its own .1 (127.0.N.1). Two RAM hosts on one port, 127.0.0.2 and 127.0.0.3: the
+hosts file (as every node's election writes it) names databasehost-control and the SystemRam; the AppHost lines are
+the real election's (core/app_hosts.py), run here as the tunnel daemon runs it: on a held read on each fdf-app family
+and on a membership change. One app, rangertrak, RAMs general and hospitals; c has the most memory, b the next, a the
+least, d the most and no app.
+
+  1  the first install (a, the Admin's line): ONE configuration tuple, (fdf-app, config, rangertrak), in
+     databasehost-control, signed, with a port in 20000..65535 for every RAM; nothing else of the app there
+  2  b and c install it from that tuple (the admin password checked against its check value); d never offers it.
+     databasehost-control still holds exactly the one tuple: no machine writes a copy of its own
+  3  each machine's capability tuple per AppRam in the SystemRam; the password nowhere in a tuple
+  4  the election: rangertrakHost.frognet and hospitalsHost.frognet name c; c serves each on its configured port
+  5  c's service gone (its machine still there): its capability tuples gone with its session; both on b
+  6  c back: both on c again
+  7  the Admin's configuration (a new Team RAM alpha with its own port, a new user): adopted by a, b and c (their
+     answers in the SystemRam); alpha served on its port
+  8  a configuration under the wrong admin password: refused by every machine; nothing changes
+  9  the port of general changed in the configuration: its AppHost restarts it on the new port; the old one closed
+ 10  the app's selection (-mem_total_kb): every AppRam on a
+ 11  hospitals' lead places it here on b (its own configuration tuple): hospitalsHost.frognet names b; a place by a
+     user who is not its lead is no place; placed on databasehost: the selection again
+ 12  databasehost-control and the SystemRam move (the hosts file names the other RAM host): the merge writes the
+     configuration tuples into the new databasehost-control as signed; the capability tuples are held there; the
+     AppHosts the same
+ 13  install with no databasehost-control named: nothing installed
+usage: tools/test_fdf_app.py [BUILD_STATIC_DIR]
+"""
+import hashlib, hmac, json, os, shutil, socket, subprocess, sys, tempfile, threading, time
+
 H = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 B = sys.argv[1] if len(sys.argv) > 1 else os.path.join(H, "build", "static")
 F = os.path.join(H, "..", "fdf")
+FN = os.path.join(H, "..", "..", "..", "..", "frognet_semantic")
 sys.path.insert(0, os.path.join(F, "lib", "python"))
+sys.path.insert(0, FN)
 import fdfram  # noqa: E402
-sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
-from netcut import Via  # noqa: E402
 
 FAILS = []
 def check(ok, what):
@@ -50,78 +52,81 @@ def free():
 
 T = tempfile.mkdtemp(prefix="fdf-app-")
 os.makedirs(T + "/bin")
-for b in ("fdf-ram", "fdf-client", "fdf-where", "fdf-events"): shutil.copy(os.path.join(B, b), T + "/bin/")
+for b in ("fdf-ram", "ram"): shutil.copy(os.path.join(B, b), T + "/bin/")
 procs = []
-NET = "127.0.0.1:%d" % free()
-procs.append(subprocess.Popen([T + "/bin/fdf-ram", "--listen", NET, "--api", fdfram.API],
-                              env=dict(os.environ, RINA_REGION_FILE=T + "/net.perm", RINA_NET_CONFIG=T + "/none"),
-                              stdout=subprocess.DEVNULL, stderr=open(T + "/net.log", "w")))
-time.sleep(0.5)
-rm = fdfram.Ram(NET)
-NET_B = "127.0.0.1:%d" % free()   # b's side of a split: another network RAM
-procs.append(subprocess.Popen([T + "/bin/fdf-ram", "--listen", NET_B, "--api", fdfram.API],
-                              env=dict(os.environ, RINA_REGION_FILE=T + "/net-b.perm", RINA_NET_CONFIG=T + "/none"),
-                              stdout=subprocess.DEVNULL, stderr=open(T + "/net-b.log", "w")))
-via = {n: Via(NET) for n in "abcd"}   # each member's one address for the network RAM
+PORT = free()
+os.environ["FDF_LAN_RAM_PORT"] = str(PORT); os.environ["FDF_PY"] = os.path.join(F, "lib", "python")
+from core import app_hosts  # noqa: E402  (reads FDF_LAN_RAM_PORT)
+def ram_at(ip, name):
+    procs.append(subprocess.Popen([T + "/bin/fdf-ram", "--listen", "%s:%d" % (ip, PORT), "--api", fdfram.API],
+                                  env=dict(os.environ, RINA_REGION_FILE=T + "/%s.perm" % name, RINA_NET_CONFIG=T + "/none", FDF_VAR=T + "/v-" + name),
+                                  stdout=subprocess.DEVNULL, stderr=open(T + "/%s.log" % name, "w")))
+    for _ in range(100):
+        try: socket.create_connection((ip, PORT), 0.2).close(); return
+        except OSError: time.sleep(0.05)
+ram_at("127.0.0.2", "ram2"); ram_at("127.0.0.3", "ram3")
+R = {ip: fdfram.Ram("%s:%d" % (ip, PORT)) for ip in ("127.0.0.2", "127.0.0.3")}
 
-MEM = {"a": 1_000_000, "b": 4_000_000, "c": 8_000_000, "d": 16_000_000}   # d is strongest but has no app
+# ---- the hosts file every node's election writes, and the election (the tunnel daemon's two app-tuple reads)
+HOSTS = T + "/etc/hosts"; os.makedirs(T + "/etc")
+MEM = {"a": 1_000_000, "b": 4_000_000, "c": 8_000_000, "d": 16_000_000}
+IDX = {"a": 1, "b": 2, "c": 3, "d": 4}
+world = {"control": "127.0.0.2", "system": "127.0.0.2", "nodes": set("abcd"), "apps": {}}
+lock = threading.Lock()
+def elect(why=""):
+    with lock:
+        base = ["127.0.0.1 localhost"] + ["127.0.%d.1 FrogNetHost.node-%s" % (IDX[n], n) for n in sorted(world["nodes"])] + \
+               ["%s databasehost_control.frognet" % world["control"], "%s databasehost.frognet" % world["system"]]
+        try:
+            was = [l.rstrip("\n") for l in open(HOSTS)]
+        except OSError:
+            was = []
+        if app_hosts.ip_of(was, "databasehost_control.frognet") not in ("", world["control"]):
+            for n, d in world["apps"].items():          # [CONFIG_WRITTEN_AGAIN_BY_THE_MERGE_V1] each node's merge, from its copies
+                app_hosts.APPS = d; app_hosts.write_configs_again(world["control"], logger=lambda m: open(T + "/elect.log", "a").write(m + "\n"))
+        etc = app_hosts.commit(base, hosts_path=HOSTS, logger=lambda m: open(T + "/elect.log", "a").write("%s: %s\n" % (why, m)))
+        text = "\n".join(etc) + "\n"
+        if text != "\n".join(was) + "\n":
+            open(HOSTS + ".tmp", "w").write(text); os.replace(HOSTS + ".tmp", HOSTS)
+def watch(name):
+    last, at = -1, None
+    while True:
+        ip = world["control"] if name == "control" else world["system"]
+        if ip != at: last, at = -1, ip
+        try:
+            cs = R[ip].read("fdf-app", "", "", after=last, wait_s=5)
+            if cs:
+                last = max(int(c["id"]) for c in cs); elect("app tuples (%s)" % name)
+        except fdfram.RamError:
+            time.sleep(0.2)
+elect("start")
+for n in ("control", "system"): threading.Thread(target=watch, args=(n,), daemon=True).start()
+
 members = {}
-def member_env(n):
-    # [APP_TUPLES_IN_CONTROL_V1] databasehost-control is the one network RAM here, reached the way the session reaches it
-    return dict(os.environ, RINA_RAM=via[n].addr, RINA_CONTROL_RAM=via[n].addr, FDF_FACTS=T + "/%s/facts.json" % n, FDF_VAR=T + "/" + n,
-                FDF_APPS=T + "/%s/apps" % n, FDF_BIN=T + "/bin", FDF_PY=os.path.join(F, "lib", "python"), FDF_NAME="node-" + n)
-import threading
-up = {}
-def client(n):
-    """the member's session as its unit runs it (fdf-join: Restart=always): a session that ends is started again"""
-    up[n] = True
-    def run():
-        while up[n]:
-            p = subprocess.Popen([T + "/bin/fdf-client"], env=member_env(n), stdout=open(T + "/%s/client.log" % n, "a"), stderr=subprocess.STDOUT)
-            members[n]["session"] = p; p.wait()
-            if up[n]: time.sleep(0.5)
-    members.setdefault(n, {}); threading.Thread(target=run, daemon=True).start()
-def client_stop(n):
-    up[n] = False; p = members[n]["session"]; p.terminate(); p.wait()
-for i, n in enumerate("abcd", start=1):
-    d = T + "/" + n; os.makedirs(d + "/apps")
-    json.dump({"name": "node-" + n, "guid": "guid-" + n, "role": "node", "subnet": "127.0.%d.0/24" % i,
-               "addrs": [{"ip": "127.0.%d.1" % i, "kind": "own"}],
-               "capability": dict({"mem_total_kb": MEM[n], "cores": 4}, **({"gpu": 1} if n == "b" else {}))}, open(d + "/facts.json", "w"))
-    client(n)
-time.sleep(1.5)
-for n in "abc":   # the admin's install on each member it names (d is not named: it has no app)
-    subprocess.run([os.path.join(F, "bin", "fdf-app"), "config", "rangertrak", "general,hospitals", "--login",
-                    "--role", "hospitals", "--role", "command:default",
-                    "--user", "pat:beds-2026=hospitals", "--admin", "boss:adm-2026"], env=member_env(n), check=True)
-def serve(n, mode="w"):
-    members[n]["serve"] = subprocess.Popen([os.path.join(F, "bin", "fdf-app"), "serve"], env=member_env(n),
-                                           stdout=open(T + "/%s/app.log" % n, mode), stderr=subprocess.STDOUT)
+def env_of(n):
+    return dict(os.environ, FDF_HOSTS=HOSTS, FDF_FACTS=T + "/%s/facts.json" % n, FDF_VAR=T + "/" + n, FDF_APPS=T + "/%s/apps" % n,
+                FDF_BIN=T + "/bin", FDF_APP_RESTART="true")
 for n in "abcd":
-    serve(n)
-def machine_gone(n):
-    """[APP_TUPLES_IN_CONTROL_V1] the machine gone: its session and its fdf-app (and with it its presence in
-    databasehost-control) end"""
-    client_stop(n); p = members[n]["serve"]; p.terminate(); p.wait()
-def machine_back(n):
-    client(n); serve(n, "a")
-
-def where(r):
-    out = subprocess.run([os.path.join(F, "bin", "fdf-app"), "where", "rangertrak", r], env=member_env("a"),
-                         capture_output=True, text=True).stdout.strip()
-    return out
+    d = T + "/" + n; os.makedirs(d + "/apps")
+    json.dump({"name": "node-" + n, "guid": "guid-" + n, "role": "node", "addrs": [{"ip": "127.0.%d.1" % IDX[n], "kind": "own"}],
+               "capability": dict({"mem_total_kb": MEM[n], "cores": 4}, **({"gpu": 1} if n == "b" else {}))}, open(d + "/facts.json", "w"))
+    world["apps"][n] = d + "/apps"
+fa = os.path.join(F, "bin", "fdf-app")
+def run(n, *a):
+    p = subprocess.run([sys.executable, fa] + list(a), env=env_of(n), capture_output=True, text=True, stdin=subprocess.DEVNULL, timeout=120)
+    return p.returncode, (p.stdout + p.stderr).strip()
+def serve(n):
+    members[n] = subprocess.Popen([sys.executable, fa, "serve"], env=env_of(n), stdout=open(T + "/%s/app.log" % n, "a"), stderr=subprocess.STDOUT)
+def stop(n):
+    p = members.pop(n); p.terminate(); p.wait()
+def live(rm, v, pre=""):
+    return [c for c in rm.read("fdf-app", v) if not c.get("gone") and c.get("bag") and c["instance"].startswith(pre)]
+def hosts():
+    try: return {l.split()[1]: l.split()[0] for l in open(HOSTS) if len(l.split()) >= 2}
+    except OSError: return {}
 def answers(hp):
     try: return bool(fdfram.Ram(hp).version(timeout=2))
     except Exception: return False
-def serving(n):
-    return [l for l in open(T + "/%s/app.log" % n) if "serving rangertrak" in l]
-def maps_agree():
-    want = {"rangertrak." + r: where(r) for r in ("general", "hospitals")}
-    got = {n: (json.load(open(T + "/%s/app-where.json" % n)) if os.path.exists(T + "/%s/app-where.json" % n) else None) for n in "abc"}
-    return want if all(g is not None and {k: g.get(k) for k in want} == want for g in got.values()) else None   # (check 8 adds a RAM)
-def map_of(n):
-    try: return json.load(open(T + "/%s/app-where.json" % n))
-    except (OSError, ValueError): return None
 def wait_for(pred, limit=15.0):
     t0 = time.monotonic()
     while time.monotonic() - t0 < limit:
@@ -129,166 +134,127 @@ def wait_for(pred, limit=15.0):
         if v: return v, time.monotonic() - t0
         time.sleep(0.02)
     return None, limit
+def ctl(): return R[world["control"]]
+def sysr(): return R[world["system"]]
+def cfg_now():
+    b = [c["bag"] for c in live(ctl(), "config") if c["instance"] == "rangertrak"]
+    return (json.loads(b[0]["config"]), b[0]) if b else (None, None)
+def on(want):
+    """every AppRam named on the node it should be, answering on its configured port"""
+    def f():
+        c, _ = cfg_now(); h = hosts()
+        if not c: return None
+        got = {r: "%s:%s" % (h.get(app_hosts.host_name("rangertrak", r), ""), c["ports"][r]) for r in want}
+        return got if all(got[r].startswith("127.0.%d.1:" % IDX[want[r]]) and answers(got[r]) for r in want) else None
+    return f
+def admin_send(pw, cfg, seq):
+    salt = hashlib.sha256(b"fdf-app-admin:rangertrak:boss").digest()[:16]
+    k = hashlib.pbkdf2_hmac("sha256", pw.encode(), salt, 200000)
+    text = json.dumps(cfg, sort_keys=True)
+    _, bag = cfg_now()
+    ctl().write("fdf-app", "config", "rangertrak", {"config": text, "seq": seq, "user": "boss", "admin": bag["admin"], "at": int(time.time()),
+                                                    "mac": hmac.new(k, ("%s\n%d" % (text, seq)).encode(), hashlib.sha256).hexdigest()})
+    return k
+def applied(seq, ok=True):
+    a = [c["bag"] for c in live(sysr(), "applied", "rangertrak.")]
+    return a if len(a) == 3 and all(x["seq"] == seq and bool(x["ok"]) == ok for x in a) else None
 
 try:
-    for r in ("general", "hospitals"):
-        hp, dt = wait_for(lambda: (lambda w: w if w.startswith("127.0.3.1:") and answers(w) else None)(where(r)))
-        check(hp is not None, "1 %s served by c (127.0.3.1), answering there: %s (%.2f s from start)" % (r, hp or where(r) or "nothing", dt))
-    check(not serving("d"), "4 d (the strongest, no app) never serves: %d serving lines" % len(serving("d")))
-    m, _ = wait_for(maps_agree, 5)
-    check(m is not None, "5 a, b and c each map the RAMs to c: %s" % m)
-    import hashlib
-    cf = [c for c in rm.read("fdf-app", "config")]
-    txt = json.dumps([c["bag"] for c in cf])
-    v = cf[0]["bag"]["users"]["pat"]["verifier"] if cf else {}
-    ok_v = bool(v) and hashlib.pbkdf2_hmac("sha256", b"beds-2026", bytes.fromhex(v["salt"]), int(v["n"])).hex() == v["hash"]
-    check(len(cf) == 3 and all(c["bag"]["login"] and set(c["bag"]["roles"]) == {"hospitals", "command"} and c["bag"]["users"]["pat"]["role"] == "hospitals" for c in cf)
-          and ok_v and "beds-2026" not in txt and "cmd-2026" not in txt,
-          "7 the access definition in the three droplets' configuration tuples: roles %s, pat assigned hospitals, the verifier checks "
-          "the password, no password in the network RAM" % (sorted(cf[0]["bag"]["roles"]) if cf else None))
+    rc, out = run("a", "config", "rangertrak", "general,hospitals", "--login", "--role", "hospitals", "--role", "command:default",
+                  "--user", "pat:beds-2026=hospitals", "--user", "kim:kim-2026=command", "--admin", "boss:adm-2026")
+    cf = live(ctl(), "config")
+    c0, b0 = cfg_now()
+    check(rc == 0 and [x["instance"] for x in cf] == ["rangertrak"] and c0 and all(20000 <= c0["ports"][r] <= 65535 for r in ("general", "hospitals"))
+          and len(b0["mac"]) == 64 and "key" not in json.dumps(b0["admin"]) and not live(ctl(), "can") and not live(ctl(), "applied"),
+          "1 the first install: one configuration tuple in databasehost-control %s, signed, ports %s; nothing else of the app there: %s"
+          % ([x["instance"] for x in cf], c0 and c0["ports"], out.splitlines()[-1:]))
+    rcs = [run(n, "install", "rangertrak", "--admin", "boss:adm-2026") for n in "bc"]
+    bad = run("d", "install", "rangertrak", "--admin", "boss:wrong")
+    check(all(r[0] == 0 for r in rcs) and bad[0] != 0 and not os.listdir(T + "/d/apps") and [x["instance"] for x in live(ctl(), "config")] == ["rangertrak"]
+          and all(json.load(open(T + "/%s/apps/rangertrak.json" % n))["ports"] == c0["ports"] for n in "bc"),
+          "2 b and c installed from the tuple; a wrong admin password on d installs nothing (%s); databasehost-control still holds one tuple"
+          % bad[1].splitlines()[-1:])
+    for n in "abcd": serve(n)
+    cans, _ = wait_for(lambda: (lambda x: x if len(x) == 6 else None)(sorted(c["instance"] for c in live(sysr(), "can", "rangertrak."))))
+    alltext = json.dumps([c["bag"] for c in live(ctl(), "config") + live(sysr(), "can")])
+    check(bool(cans) and "beds-2026" not in alltext and "adm-2026" not in alltext,
+          "3 the capability tuples in the SystemRam, one per machine per AppRam: %s; no password in any tuple" % cans)
+    m, dt = wait_for(on({"general": "c", "hospitals": "c"}))
+    check(m is not None and not [l for l in open(T + "/d/app.log") if "serving" in l],
+          "4 the election: rangertrakHost.frognet and hospitalsHost.frognet on c, served on their ports (%.0f ms): %s" % (dt * 1000, m))
 
-    # [ADMIN_APP_V1] what the admin app sends: the configuration as text, a seq, HMAC-SHA256 under the admin key
-    import hmac
-    def admin_send(pw, cfg, seq):
-        salt = hashlib.sha256(b"fdf-app-admin:rangertrak:boss").digest()[:16]
-        k = hashlib.pbkdf2_hmac("sha256", pw.encode(), salt, 200000)
-        text = json.dumps(cfg)
-        rm.write("fdf-app", "admin", "rangertrak", {"config": text, "seq": seq, "user": "boss", "at": int(time.time()),
-                                                     "mac": hmac.new(k, ("%s\n%d" % (text, seq)).encode(), hashlib.sha256).hexdigest()})
-        return k
-    vs = os.urandom(16); kim = {"kdf": "pbkdf2-sha256", "n": 200000, "salt": vs.hex(), "hash": hashlib.pbkdf2_hmac("sha256", b"kim-2026", vs, 200000).hex()}
-    new = {"rams": ["general", "hospitals", "alpha"], "partition": "relocate", "login": True,
-           "roles": {"hospitals": {"default": False}, "command": {"default": True}, "alpha": {"default": True}},
-           "users": dict((u, {"role": b["role"], "verifier": b["verifier"]}) for u, b in cf[0]["bag"]["users"].items())}
-    new["users"]["kim"] = {"role": "alpha", "verifier": kim}
-    seq = int(time.time() * 1000) + 5000
+    stop("c"); t0 = time.monotonic()
+    m, dt = wait_for(on({"general": "b", "hospitals": "b"}))
+    gone = not [c for c in live(sysr(), "can") if c["instance"].endswith(".guid-c")]
+    check(m is not None and gone, "5 c's service gone: its capability tuples gone with its session (%s); both on b %.0f ms after: %s" % (gone, dt * 1000, m))
+    serve("c")
+    m, dt = wait_for(on({"general": "c", "hospitals": "c"}))
+    check(m is not None, "6 c back: both on c %.0f ms after: %s" % (dt * 1000, m))
+
+    c1, _ = cfg_now()
+    vs = os.urandom(16)
+    new = dict(c1, rams=["general", "hospitals", "alpha"], ports=dict(c1["ports"], alpha=c1["ports"]["general"] + 1 if c1["ports"]["general"] < 65535 else 20001),
+               roles=dict(c1["roles"], alpha={"default": True, "category": "Teams"}),
+               users=dict(c1["users"], ann={"role": "alpha", "verifier": {"kdf": "pbkdf2-sha256", "n": 200000, "salt": vs.hex(),
+                                                                          "hash": hashlib.pbkdf2_hmac("sha256", b"ann-2026", vs, 200000).hex()}, "lead": False}))
+    seq = int(time.time() * 1000) + 1000
     k = admin_send("adm-2026", new, seq)
-    ap, dt = wait_for(lambda: (lambda a: a if len(a) == 3 and all(x["bag"]["seq"] == seq and x["bag"]["ok"] for x in a) else None)(rm.read("fdf-app", "applied")), 15)
-    hp, _ = wait_for(lambda: (lambda w: w if answers(w) else None)(where("alpha")), 15)
-    cf2, _ = wait_for(lambda: (lambda c: c if len(c) == 3 and all(x["bag"]["seq"] == seq for x in c) else None)(rm.read("fdf-app", "config")), 10)
-    cf2 = cf2 or rm.read("fdf-app", "config")
-    chk = hmac.new(k, b"fdf-admin-check", hashlib.sha256).hexdigest()
-    alltext = json.dumps([c["bag"] for c in rm.read("fdf-app", "config")] + [c["bag"] for c in rm.read("fdf-app", "admin")])
-    check(ap is not None and all(c["bag"]["seq"] == seq and "alpha" in c["bag"]["rams"] and c["bag"]["users"].get("kim", {}).get("role") == "alpha" for c in cf2)
-          and hp is not None and k.hex() not in alltext and all(c["bag"]["admin"]["check"] == chk for c in cf2),
-          "8 the admin's configuration adopted by a, b and c in %.0f ms (applied: %s); the new team RAM alpha served at %s; the admin key "
-          "nowhere in the network RAM, its check value in every configuration tuple" % (dt * 1000, [(x["bag"]["member"], x["bag"]["ok"]) for x in (ap or [])], hp))
-    admin_send("not-the-password", dict(new, roles={"hospitals": {"default": True}}, users={}), seq + 1)
-    bad, _ = wait_for(lambda: (lambda a: a if len(a) == 3 and all(x["bag"]["seq"] == seq + 1 for x in a) else None)(rm.read("fdf-app", "applied")), 15)
-    cf3 = rm.read("fdf-app", "config")
-    check(bad is not None and all(not x["bag"]["ok"] and "mac" in x["bag"]["why"] for x in bad) and all(c["bag"]["seq"] == seq and "kim" in c["bag"]["users"] for c in cf3),
-          "9 a wrong admin password's configuration refused by every member (%s); the configuration unchanged" % ([x["bag"]["why"][:40] for x in (bad or [])][:1]))
+    ap, dt = wait_for(lambda: applied(seq), 15)
+    m, _ = wait_for(on({"general": "c", "hospitals": "c", "alpha": "c"}))
+    check(ap is not None and m is not None and all("ann" in json.load(open(T + "/%s/apps/rangertrak.json" % n))["users"] for n in "abc")
+          and k.hex() not in json.dumps([c["bag"] for c in live(ctl(), "config")]),
+          "7 the Admin's configuration adopted by a, b and c in %.0f ms (%s); alpha served on its port %s" % (dt * 1000, [(x["member"], x["ok"]) for x in ap or []], m and m.get("alpha")))
+    admin_send("not-the-password", dict(new, users={}), seq + 1)
+    bad, _ = wait_for(lambda: applied(seq + 1, ok=False), 15)
+    check(bad is not None and all("mac" in x["why"] for x in bad) and all(json.load(open(T + "/%s/apps/rangertrak.json" % n))["seq"] == seq for n in "abc"),
+          "8 a configuration under the wrong admin password refused by every machine (%s); nothing changed" % ([x["why"][:40] for x in bad or []][:1]))
 
-    machine_gone("c")
-    t0 = time.monotonic()
-    for r in ("general", "hospitals"):
-        hp, _ = wait_for(lambda: (lambda w: w if w.startswith("127.0.2.1:") and answers(w) else None)(where(r)))
-        check(hp is not None, "2 c gone: %s on b (127.0.2.1) %.0f ms after: %s" % (r, (time.monotonic() - t0) * 1000, hp or where(r) or "nothing"))
-    gone, _ = wait_for(lambda: all(not answers("127.0.3.1:%d" % p) for p in (21000 + __import__("zlib").crc32(("rangertrak." + r).encode()) % 8000 for r in ("general", "hospitals"))))
-    check(bool(gone), "2 c stopped serving both RAMs")
+    oldp = new["ports"]["general"]; newp = 20000 + (oldp - 20000 + 77) % 45000
+    new2 = dict(new, ports=dict(new["ports"], general=newp))
+    admin_send("adm-2026", new2, seq + 2)
+    m, dt = wait_for(lambda: (lambda w: w if w and w.get("general", "").endswith(":%d" % newp) else None)(on({"general": "c", "hospitals": "c", "alpha": "c"})()), 15)
+    check(m is not None and not answers("127.0.3.1:%d" % oldp), "9 general's port changed %d -> %d: c serves it on the new one %.0f ms after, the old one closed" % (oldp, newp, dt * 1000))
 
-    machine_back("c")
-    t0 = time.monotonic()
-    for r in ("general", "hospitals"):
-        hp, _ = wait_for(lambda: (lambda w: w if w.startswith("127.0.3.1:") and answers(w) else None)(where(r)))
-        check(hp is not None, "3 c is back: %s on c again %.0f ms after its session: %s" % (r, (time.monotonic() - t0) * 1000, hp or where(r) or "nothing"))
-    check(not serving("d"), "4 d still never serves")
-    m, _ = wait_for(maps_agree, 5)
-    check(m is not None, "5 after c's return, a, b and c each map the RAMs to c again: %s" % m)
+    new3 = dict(new2, select={"*": {"need": [], "rank": ["-mem_total_kb"]}})
+    admin_send("adm-2026", new3, seq + 3)
+    m, dt = wait_for(on({"general": "a", "hospitals": "a", "alpha": "a"}), 20)
+    check(m is not None, "10 the app's selection -mem_total_kb: every AppRam on a %.0f ms after: %s" % (dt * 1000, m))
 
-    on_c = m
-    via["b"].to(NET_B); t0 = time.monotonic()
-    want_b = {k: "127.0.2.1:" + v.split(":")[1] for k, v in on_c.items()}
-    mb, _ = wait_for(lambda: {k: (map_of("b") or {}).get(k) for k in want_b} == want_b and all(answers(v) for v in want_b.values()), 20)
-    dt = time.monotonic() - t0
-    cfg_b = sorted(c["instance"] for c in fdfram.Ram(NET_B).read("fdf-app", "config"))
-    check(bool(mb) and cfg_b == ["rangertrak.guid-b"],
-          "6 b cut off: b serves both on its side %.0f ms after (%s); the configuration on its side's RAM: %s"
-          % (dt * 1000, map_of("b"), cfg_b))
-    check(all({k: (map_of(n) or {}).get(k) for k in on_c} == on_c for n in "ac"), "6 a and c still map them to c: %s, %s" % (map_of("a"), map_of("c")))
-    via["b"].to(NET); t0 = time.monotonic()
-    mb, _ = wait_for(lambda: {k: (map_of("b") or {}).get(k) for k in on_c} == on_c, 20)
-    dt = time.monotonic() - t0
-    gone, _ = wait_for(lambda: all(not answers(v) for v in want_b.values()), 10)
-    check(bool(mb) and bool(gone), "6 b rejoined: b maps them to c again %.0f ms after, and stopped serving: %s" % (dt * 1000, map_of("b")))
-
-    # [APP_SELECTION_V1]
-    def on(host, rams):
-        return lambda: (lambda ms: ms if all(ms[n] and all(str(ms[n].get("rangertrak." + r, "")).startswith(host[r] + ":") for r in rams) for n in "abc")
-                        and all(answers(ms["a"]["rangertrak." + r]) for r in rams) else None)({n: map_of(n) for n in "abc"})
-    sel = {"*": {"rank": ["-mem_total_kb"]}}
-    t0 = time.monotonic()
-    admin_send("adm-2026", dict(new, select=sel), seq + 10)
-    rs = ("general", "hospitals", "alpha")
-    ms, dt = wait_for(on({r: "127.0.1.1" for r in rs}, rs), 20)
-    check(ms is not None, "10 the admin's selection %s: every RAM on a (the least memory) %.0f ms after, the same map on a, b and c: %s"
-          % (json.dumps(sel), dt * 1000, map_of("a")))
-    sel = {"*": {"rank": ["-mem_total_kb"]}, "hospitals": {"need": ["gpu"], "rank": ["mem_total_kb"]}}
-    admin_send("adm-2026", dict(new, select=sel), seq + 11)
-    ms, dt = wait_for(on({"general": "127.0.1.1", "alpha": "127.0.1.1", "hospitals": "127.0.2.1"}, rs), 20)
-    why = [l.strip() for l in open(T + "/a/app.log") if "RAM hospitals ->" in l][-1:]
-    check(ms is not None, "11 hospitals needs gpu: on b %.0f ms after, general and alpha stay on a: %s; a's log: %s" % (dt * 1000, map_of("a"), why))
-    import fdf_select, random
-    cands = [("g1", {"mem_total_kb": 9, "serve": ["general"]}), ("g2", {"mem_total_kb": 5}), ("g3", {}), ("g4", {"mem_total_kb": "x"})]
-    one = fdf_select.select({"*": {"rank": ["mem_total_kb"]}}, "hospitals", cands)
-    two = fdf_select.select({"*": {"rank": ["mem_total_kb"]}}, "general", cands)
-    low = fdf_select.select({"*": {"rank": ["-mem_total_kb"]}}, "hospitals", cands)
-    same = all(fdf_select.select({"*": {"rank": ["-mem_total_kb"]}}, "hospitals", random.sample(cands, len(cands))) == low for _ in range(20))
-    bad = []
-    for b in ({"*": {"rank": "mem"}}, {"*": {"order": []}}, {"*": {"need": ["-x"]}}, [1]):
-        try: fdf_select.check(b)
-        except ValueError: bad.append(b)
-    check(one == "g2" and two == "g1" and low == "g2" and same and len(bad) == 4,
-          "12 the selection: hospitals (g1 offers only general) -> %s; general -> %s; lowest memory -> %s (absent and non-numeric rank last); "
-          "the same in any order: %s; %d of 4 bad selections refused" % (one, two, low, same, len(bad)))
-
-    # [GROUP_PLACE_V1]
-    lead = dict(new, select=sel, users=dict(new["users"], pat=dict(new["users"]["pat"], lead=True)))
-    admin_send("adm-2026", lead, seq + 12)
-    wait_for(lambda: (lambda c: c if len(c) == 3 and all(x["bag"]["seq"] == seq + 12 for x in c) else None)(rm.read("fdf-app", "config")), 15)
+    lead = dict(new3, users=dict(new3["users"], pat=dict(new3["users"]["pat"], lead=True)))
+    admin_send("adm-2026", lead, seq + 4); wait_for(lambda: applied(seq + 4), 15)
     def place(user, at, guid=""):
-        rm.write("fdf-app", "place", "rangertrak.hospitals", {"at": at, "guid": guid, "user": user, "role": "hospitals",
-                                                               "seq": int(time.time() * 1000), "from": "test"})
-    place("pat", "here", "guid-c")
-    want = {"general": "127.0.1.1", "alpha": "127.0.1.1", "hospitals": "127.0.3.1"}
-    ms, dt = wait_for(on(want, rs), 20)
-    cfp = [c["bag"].get("places", {}).get("hospitals", {}).get("guid") for c in rm.read("fdf-app", "config")]
-    place("kim", "here", "guid-a"); time.sleep(1.5)
-    still = (map_of("a") or {}).get("rangertrak.hospitals", "").startswith("127.0.3.1:")
-    notlead = any("by 'kim' is not its lead's" in l for l in open(T + "/a/app.log"))
-    check(ms is not None and cfp == ["guid-c"] * 3 and still and notlead,
-          "13 pat placed hospitals on c: there %.0f ms after (%s); every configuration tuple has it: %s; kim's place (not the lead) changed nothing: %s"
-          % (dt * 1000, (map_of("a") or {}).get("rangertrak.hospitals"), cfp, still and notlead))
-    machine_gone("c")
-    gone, dt = wait_for(lambda: all("rangertrak.hospitals" not in (map_of(n) or {"rangertrak.hospitals": 1}) for n in "ab")
-                        and all((map_of(n) or {}).get("rangertrak.general", "").startswith("127.0.1.1:") for n in "ab"), 20)
-    check(bool(gone), "14 c gone: hospitals served by nobody %.0f ms after (a's map: %s)" % (dt * 1000, map_of("a")))
-    machine_back("c")
-    wait_for(on(want, rs), 20)
+        ctl().write("fdf-app", "config", "rangertrak.hospitals", {"at": at, "guid": guid, "user": user, "role": "hospitals", "seq": int(time.time() * 1000), "from": "test"})
+    place("pat", "here", "guid-b")
+    m, dt = wait_for(on({"general": "a", "hospitals": "b"}), 15)
+    place("kim", "here", "guid-c")
+    m1, _ = wait_for(on({"general": "a", "hospitals": "a"}), 15)
+    place("pat", "here", "guid-b"); wait_for(on({"general": "a", "hospitals": "b"}), 15)
     place("pat", "databasehost")
-    ms, dt = wait_for(on({"general": "127.0.1.1", "alpha": "127.0.1.1", "hospitals": "127.0.2.1"}, rs), 20)
-    check(ms is not None, "15 pat placed hospitals on databasehost: the selection again, on b (need gpu) %.0f ms after: %s" % (dt * 1000, map_of("a")))
-    # [APP_INSTALL_V1] d installs the app from the SystemRam's configuration tuple: a wrong admin password installs
-    # nothing; the right one adopts the configuration as it is there, with the admin key kept on d
-    envd = dict(member_env("d"), FDF_APP_RESTART="true")
-    bad = subprocess.run([os.path.join(F, "bin", "fdf-app"), "install", "rangertrak", "--admin", "boss:wrong"], env=envd,
-                         stdin=subprocess.DEVNULL, capture_output=True, text=True)
-    nofile = not os.path.exists(T + "/d/apps/rangertrak.json")
-    ok = subprocess.run([os.path.join(F, "bin", "fdf-app"), "install", "rangertrak", "--admin", "boss:adm-2026"], env=envd,
-                        stdin=subprocess.DEVNULL, capture_output=True, text=True)
-    mine = json.load(open(T + "/d/apps/rangertrak.json")) if os.path.exists(T + "/d/apps/rangertrak.json") else {}
-    theirs = [c["bag"] for c in rm.read("fdf-app", "config") if c["instance"].startswith("rangertrak.")]
-    same = any(all(mine.get(k) == t.get(k) for k in ("rams", "roles", "categories", "users", "login", "partition", "seq")) for t in theirs)
-    keyok = bool(mine.get("admin", {}).get("key")) and mine["admin"]["check"] == theirs[0]["admin"]["check"]
-    check(bad.returncode != 0 and nofile and ok.returncode == 0 and same and keyok and "adm-2026" not in ok.stdout,
-          "16 install on d: a wrong admin password refused, nothing saved (%s); the right one: the SystemRam's configuration "
-          "as it is (rams %s, users %s), the admin key kept on d and checked: %s" % (bad.stdout.strip().splitlines()[-1:], mine.get("rams"), sorted(mine.get("users") or {}), keyok))
+    m2, dt2 = wait_for(on({"general": "a", "hospitals": "a"}), 15)
+    check(m is not None and m1 is not None and m2 is not None,
+          "11 pat placed hospitals here on b: hospitalsHost.frognet on b %.0f ms after; a place by kim (not its lead) is no place: the selection (a), not c: %s; "
+          "pat placed it on databasehost: the selection again (a) %.0f ms after" % (dt * 1000, bool(m1), dt2 * 1000))
+
+    _, before = cfg_now()
+    world["control"] = world["system"] = "127.0.0.3"; t0 = time.monotonic(); elect("split")
+    got, dt = wait_for(lambda: (lambda b: b if b and b[0]["bag"]["seq"] == before["seq"] and b[0]["bag"]["mac"] == before["mac"] else None)
+                       ([c for c in live(R["127.0.0.3"], "config") if c["instance"] == "rangertrak"]), 15)
+    cn, _ = wait_for(lambda: (lambda x: x if len(x) == 9 else None)(sorted(c["instance"] for c in live(R["127.0.0.3"], "can", "rangertrak."))), 15)
+    m, _ = wait_for(on({"general": "a", "hospitals": "a", "alpha": "a"}), 15)
+    check(bool(got) and bool(cn) and m is not None,
+          "12 databasehost-control and the SystemRam moved: the configuration tuple written into the new one by the merge, as signed (%.0f ms); "
+          "%d capability tuples held there; the AppHosts the same: %s" % (dt * 1000, len(cn or []), m))
+
+    os.makedirs(T + "/e/apps")
+    json.dump({"name": "node-e", "guid": "guid-e", "addrs": [{"ip": "127.0.5.1", "kind": "own"}]}, open(T + "/e/facts.json", "w"))
+    open(T + "/nohosts", "w").write("127.0.0.1 localhost\n")
+    p = subprocess.run([sys.executable, fa, "install", "rangertrak", "--admin", "boss:adm-2026"], env=dict(env_of("e"), FDF_HOSTS=T + "/nohosts"),
+                       capture_output=True, text=True, stdin=subprocess.DEVNULL)
+    check(p.returncode != 0 and not os.listdir(T + "/e/apps") and "databasehost-control" in p.stdout,
+          "13 install with no databasehost-control named: nothing installed (%s)" % p.stdout.strip().splitlines()[-1:])
 finally:
-    for n in list(up): up[n] = False
-    for m in members.values():
-        for p in m.values():
-            if p.poll() is None: p.terminate()
-    for p in procs: p.terminate()
+    for p in list(members.values()) + procs:
+        if p.poll() is None: p.terminate()
     print("logs in", T)
 print("RESULT", "PASS" if not FAILS else "FAIL: %d" % len(FAILS))
 sys.exit(1 if FAILS else 0)

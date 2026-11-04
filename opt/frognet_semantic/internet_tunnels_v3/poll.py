@@ -1542,6 +1542,7 @@ def run_region_loop():
                 config.log.error("REGION: election after %s FAILED after %.1fs: %s (re-run on the next event)", job["why"], time.monotonic() - t0, e)
 
     def _elect_async(why, alive, parts):
+        _elect_state["last"] = (alive, parts)                          # [APP_HOST_ELECTION_V1] the app tuples' events elect on these
         with _elect_lock:
             _elect_pending.clear(); _elect_pending.update({"why": why, "alive": alive, "parts": parts})
             if _elect_state["running"]:
@@ -1581,6 +1582,44 @@ def run_region_loop():
             region.end_events()
             os.write(_rejoin_wake[1], b"s")              # and a rejoin wait ends now
     _thr.Thread(target=_forward_watch, name="region-forward", daemon=True).start()
+
+    # [APP_HOST_ELECTION_V1] (the design, section 7: every instance holds a read on its capability family) an app's
+    # configuration tuple (databasehost-control) or a service's capability tuple (the SystemRam) written, or gone with
+    # its session, is an election input changing: a held read on each fdf-app family, and the election runs on the
+    # newest alive set. /etc/hosts naming another RAM host for either is the event to read that one.
+    def _app_tuples_watch(name):
+        import sys as _sys
+        _sys.path.insert(0, os.environ.get("FDF_PY", "/opt/fdf/lib/python"))
+        import fdfram, fdf_watch
+        hosts = os.environ.get("FDF_HOSTS", "/etc/hosts")
+        def where():
+            try:
+                return fdfram.role_ram(name, "")
+            except fdfram.RamError:
+                return ""
+        last, at = -1, None
+        while config.running:
+            hp = where()
+            if not hp:
+                w = fdf_watch.Inotify(os.path.dirname(hosts) or "."); w.read(); w.close(); continue
+            if hp != at:
+                last, at = -1, hp
+            t = time.time()
+            try:
+                cs = fdfram.Ram(hp).read("fdf-app", "", "", after=last, wait_s=fdfram.HOLD_S)
+                if cs:
+                    first = last < 0
+                    last = max(int(c.get("id", -1)) for c in cs)
+                    if not first and _elect_state.get("last"):
+                        _elect_async("app tuples (%s)" % name.split(".")[0], *_elect_state["last"])
+            except fdfram.RamError as e:
+                if "ESTALE" in str(e):
+                    last = -1; continue
+                config.log.warning("REGION: [APP_HOST_ELECTION_V1] the read on %s (%s) ended: %s; read again when it is up or another is named", name, hp, e)
+                fdf_watch.up_or_moved(hp, t, lambda: where() or hp, dirs=[os.path.dirname(hosts) or "."])
+                last = -1
+    for _n in ("databasehost_control.frognet", "databasehost.frognet"):
+        _thr.Thread(target=_app_tuples_watch, args=(_n,), name="region-app-" + _n.split(".")[0], daemon=True).start()
 
     def _do_switch():
         area, env = switch["to"]; switch["to"] = None; old = config.REGION_AREA; t0 = time.monotonic()
