@@ -40,7 +40,6 @@ std::string field(const std::string& bag, const std::string& k) {
 // [RINA_RECORDS_V1] the region's control records live in its own memory (rina_memory.hpp), not the generic tuple memory.
 // The control code (and rlite-ctl's ported command logic, ctl_run) is written against frogram::MemoryApi; this is that
 // interface over the records: a write publishes an immutable value by exchange; a read of a variable walks its tables.
-void push_event(const std::string& proc, const std::string& bag);   // [RINA_MEMORY_V1] below
 // [REGION_FILE_V1] Permanent records (envelope flag "p":1) are durable: each is appended to the region's file and
 // fdatasync'd BEFORE it is published, and at start the file is replayed (the last value of each record wins; an empty
 // value is a deletion) and compacted. RINA_REGION_FILE names it; a host without one does not start -- Permanent
@@ -96,7 +95,7 @@ public:
     uint64_t publish(const std::string& v, const std::string& i, const std::string& bag) {
         // "ev:<program>" is that program's INPUT SPACE (rlite-ctl's terminate addresses the machine's agent this way):
         // an event pushed there, which answers its parked wait -- not a record
-        if (v.compare(0, 3, "ev:") == 0) { push_event(v.substr(3), bag); return 0; }
+        if (v.compare(0, 3, "ev:") == 0) throw std::runtime_error("[ONE_OWNER_V1] ev:" + v.substr(3) + " is another program's space: nobody writes into it");
         rmem::VarSet* vs = rmem::records().get(v, true); if (!vs) throw std::runtime_error("records: the variable table is full");
         rmem::RecSlot* r = vs->get(i, true);
         const uint64_t id = rmem::record_ids().fetch_add(1, std::memory_order_acq_rel) + 1;
@@ -163,7 +162,7 @@ std::string get(frogram::MemoryApi&, const std::string& kind, const std::string&
 }
 void put(frogram::MemoryApi& m, const std::string& variable, const std::string& instance, const std::string& value) {
     m.write("rina", variable, instance, "{\"v\":" + Json::quote(value) + "}");
-}  void put_gone_permanent(frogram::MemoryApi& m, const std::string& variable, const std::string& instance) { m.write("rina", variable, instance, "{\"v\":\"\",\"p\":1}"); }   // [MAP_REMOVAL_IS_PERMANENT_V1] removing a Permanent record is Permanent too: filed, so the replay deletes it
+}  [[maybe_unused]] void put_gone_permanent(frogram::MemoryApi& m, const std::string& variable, const std::string& instance) { m.write("rina", variable, instance, "{\"v\":\"\",\"p\":1}"); }   // [MAP_REMOVAL_IS_PERMANENT_V1] removing a Permanent record is Permanent too: filed, so the replay deletes it
 struct Ipcp { std::string name, dif, type; int id; };
 std::vector<Ipcp> ipcps_of(frogram::MemoryApi& m, const std::string& ns) {
     std::vector<Ipcp> v;
@@ -233,24 +232,8 @@ namespace {
 constexpr uint64_t RING = 4096;                       // cells per flow direction in its receiver's stream
 // [RINA_MEMORY_V1] an event is pushed into the program's own input space (rina_memory.hpp), not written as a tuple
 void answer_parked_wait(frogram::MemoryApi& m, rmem::InputSpace* sp);
-void push_event(const std::string& proc, const std::string& bag);
-// [RMT_OVER_DIF_LINKS_V1] the topology may have changed (a machine's devices, an enrollment, a lower flow, a shim's
-// device, a machine gone): every agent is told, through its own input space, and re-derives its routes from the records
-// [NO_NOTICE_NOBODY_READS_V1] only to an agent that holds a wait on its space (awatch, as pwatch for the participants'
-// watchers): an FD&F member's session (fdf-client, the Kotlin member) holds the members' family instead and is never
-// pushed anything -- was: every node record, read or not, so the unread spaces of every FD&F member grew with each event
-void notify_agents(frogram::MemoryApi& m) {
-    for (auto& r : scan(m, "awatch", "")) if (!r.value.empty()) push_event("agent:" + r.rest, "{\"k\":\"t\"}");
-}
-// [FDF_PARTICIPANTS_CHANGE_V1] (transport CHANGE) every process watching the participant set hears of each change (an
-// announcement, a machine's session up or down) as one event in its input space; its held wait returns, it re-reads
-void notify_participants(frogram::MemoryApi& m) {
-    for (auto& r : scan(m, "pwatch", "")) if (!r.value.empty()) push_event(r.rest, "{\"k\":\"p\"}");
-}
-void push_event(const std::string& proc, const std::string& bag) {
-    rmem::InputSpace* sp = rmem::spaces().get(proc, true); if (!sp) return;
-    sp->push(bag); answer_parked_wait(region_memory(), sp);
-}
+// [NO_PUSH_V1] (John 2026-11-04: "There should not be any pushing at all") the region tells nobody anything: no notice
+// to agents, none to participant or mapping watchers. Whoever needs the members holds a read on their own cells.
 void ev(frogram::MemoryApi& m, const std::string& proc, const std::string&, const std::string& bag) {
     rmem::InputSpace* sp = rmem::spaces().get(proc, true); if (!sp) return;
     sp->push(bag); answer_parked_wait(m, sp);           // [DEFERRED_ANSWER_V1] a parked wait is answered by this push
@@ -264,6 +247,50 @@ std::string dump(const Json& j) {
         case Json::Arr: { std::string o = "["; for (size_t i = 0; i < j.a.size(); ++i) o += (i ? "," : "") + dump(j.a[i]); return o + "]"; }
         default: { std::string o = "{"; for (size_t i = 0; i < j.o.size(); ++i) o += (i ? "," : "") + Json::quote(j.o[i].first) + ":" + dump(j.o[i].second); return o + "}"; }
     }
+}
+// [ONE_OWNER_V1] (John 2026-11-04: "There is nothing that is not written by the one and only owner. Nobody writes into
+// anybody else's space, period. There is no cross-space write.") The members are their own cells, (pond, member, <ns>),
+// each written own:true by that member on its own session (gone with it); a member's mappings are in its own cell,
+// signed with the site key. The region writes none of it: announce, participants, world, resolve and map_list are
+// READS of that family. Alive = the cell is there.
+struct MemberCell { uint64_t id; std::string ns; Json bag; };
+std::vector<MemberCell> members_now() {
+    std::vector<MemberCell> out;
+    try { for (auto& c : rina_resident_memory().read("pond", "member", "")) if (c.bag.type == Json::Obj && c.bag.size() > 0) out.push_back({c.id, c.instance, c.bag}); }
+    catch (...) {}
+    std::sort(out.begin(), out.end(), [](const MemberCell& a, const MemberCell& b) { return a.id < b.id; });   // first claimant first
+    return out;
+}
+std::string participant_json(const MemberCell& c) {                 // the announcement as it was: cap an object, facts an object
+    std::string out = "{"; bool f = true, has_ns = false;
+    for (auto& kv : c.bag.o) {
+        std::string v = dump(kv.second);
+        if (kv.first == "cap" && kv.second.type == Json::Str) { try { Json::parse(kv.second.s); v = kv.second.s; } catch (...) {} }
+        if (kv.first == "ns") has_ns = true;
+        out += (f ? "" : ",") + Json::quote(kv.first) + ":" + v; f = false;
+    }
+    if (!has_ns) out += (f ? "" : ",") + std::string("\"ns\":") + Json::quote(c.ns);
+    return out + ",\"alive\":true,\"id\":" + std::to_string((unsigned long long)c.id) + "}";
+}
+// the site's live mappings: each member's own, verified with the site key (name|rloc|ttl|ts, HMAC-SHA256), one owner per
+// EID -- the first claimant alive
+std::string mappings_json(frogram::MemoryApi& m, const std::string& site, const std::vector<MemberCell>& mem, double t) {
+    std::set<std::string> seen; std::string out; bool f = true;
+    for (auto& c : mem) for (auto& mp : c.bag["maps"].a) {
+        const std::string eid = mp["eid"].s, rloc = mp["rloc"].s, ttl = mp["ttl"].s, ts = mp["ts"].s, st = mp["site"].s;
+        if (eid.empty() || seen.count(eid) || (!site.empty() && st != site)) continue;
+        const std::string key = get(m, "site", st); if (key.empty()) continue;
+        const std::string msg = eid + "|" + rloc + "|" + ttl + "|" + ts;
+        unsigned char md[EVP_MAX_MD_SIZE]; unsigned int n = 0;
+        HMAC(EVP_sha256(), key.data(), int(key.size()), reinterpret_cast<const unsigned char*>(msg.data()), msg.size(), md, &n);
+        static const char hx[] = "0123456789abcdef"; std::string want; for (unsigned i = 0; i < n; ++i) { want += hx[md[i] >> 4]; want += hx[md[i] & 15]; }
+        if (want != mp["auth"].s) continue;                           // not signed with this site's key: not a mapping here
+        const double exp = strtod(ts.c_str(), nullptr) + strtod(ttl.c_str(), nullptr); if (exp <= t) continue;
+        seen.insert(eid);
+        out += (f ? "" : ",") + std::string("{\"eid\":") + Json::quote(eid) + ",\"rloc\":" + Json::quote(rloc) + ",\"site\":" + Json::quote(st) +
+               ",\"ttl_left\":" + std::to_string(int(exp - t)) + ",\"ns\":" + Json::quote(c.ns) + "}"; f = false;
+    }
+    return out;
 }
 // [FORK_KEEPS_REGISTRATIONS_V1] an input space's holders: every program that holds its fd has its OWN cell
 // "ibh|<inbox>|<proc>" = "1" -- no read-modify-write of a shared cell, so concurrent holds cannot lose one. Requests go
@@ -358,8 +385,6 @@ std::string wait_answer(frogram::MemoryApi& m, const std::string& me_p, rmem::In
 std::string wait_op(const std::string& me_p, uint64_t after) {
     frogram::MemoryApi& m = region_memory();
     rmem::InputSpace* sp = rmem::spaces().get(me_p, true);
-    if (me_p.compare(0, 6, "agent:") == 0 && get(m, "awatch", me_p.substr(6)) != sess_key(rina_session_id()))
-        put(m, "awatch", me_p.substr(6), sess_key(rina_session_id()));        // [NO_NOTICE_NOBODY_READS_V1] it reads its space
     if (sp->any_after(after) || sp->gone()) return wait_answer(m, me_p, sp, after);
     void* h = rina_defer();
     if (!h) throw std::runtime_error("wait: no continuation to park (not inside a request)");
@@ -382,6 +407,15 @@ static std::set<std::string> served_prefixes(const Json& fj) {
 
 std::string resident(const std::string& op, const Json& in) {
     frogram::MemoryApi& m = region_memory();
+    // [NO_PUSH_V1][ONE_OWNER_V1] (John 2026-11-04: "There are no pushes. There are no locks. There is nothing that is not
+    // written by the one and only owner. Nobody writes into anybody else's space, period.") The RINA program and flow
+    // operations delivered into another program's input space (a flow request, a verdict, an SDU, a terminate) and let
+    // the region write a machine's records for it (rlite-ctl at the memory): they are not served. FD&F's members write
+    // their own cells and read everyone else's.
+    static const std::set<std::string> NOT_SERVED = {"mine", "reassert", "pmine", "preassert", "seen", "taken_now", "taken", "rmt_view",
+        "rmem", "hello", "fork", "register", "alloc", "ctl", "accept", "send", "unregister", "wait"};
+    if (NOT_SERVED.count(op))
+        return "{\"ok\":false,\"error\":\"ENOSYS\",\"why\":\"[ONE_OWNER_V1] op " + op + " delivers into another program's space or writes for it: not served\"}";
     // [AGENT_REASSERTS_V1] (experiment 5b) what a machine owns in the region, as stored, so that it can write it back
     // after a host change: its IPCPs (ipcp|<machine>|*), their registrations in lower DIFs (nreg|*|<its ipcp>) and the
     // adjacencies it is an end of (adj|*, ans or bns = it). The agent keeps this copy; it is the machine's own truth.
@@ -410,7 +444,6 @@ std::string resident(const std::string& op, const Json& in) {
             if (!owns(v, i, Json::parse(bag)["v"].s, names)) return "{\"ok\":false,\"error\":\"EPERM\",\"record\":" + Json::quote(v + "|" + i) + "}";
         }
         for (auto& r : in["recs"].a) { m.write("rina", r[0].s, r[1].s, r[2].s); ++n; }
-        notify_agents(m);                                          // the topology may have changed for everyone
         return "{\"ok\":true,\"n\":" + std::to_string(n) + "}";
     }
     // [LIBRARY_REASSERTS_V1] (experiment 5b, part C) what a PROGRAM owns in the region, as stored, so that it can write it
@@ -456,68 +489,17 @@ std::string resident(const std::string& op, const Json& in) {
         // [MAP_WATCH_V1] a member that lost its RAM manager waits on the MAPPING for the area's name: every registration of
         // that name (the RAM manager's own, on its restart or move) is one event in the watcher's input space; its held wait
         // returns and it re-resolves. No timer: the re-registration is the event. Dropped when the watcher's session ends.
-        if (op == "map_watch") {                 // name "*": every mapping's registration and removal ([MAP_PREFIX_LOCATOR_SET_V1], the hub's watch)
-            const std::string name = in["name"].s, proc = in["proc"].s;
-            if (name.empty() || proc.empty()) return "{\"ok\":false,\"error\":\"EINVAL\"}";
-            put(m, "mwatch", name + "|" + proc, sess_key(rina_session_id())); return "{\"ok\":true}";
-        }
-        if (op == "map_register") {
-            // [MAP_PREFIX_LOCATOR_SET_V1] (PLAN-FROGNET-ON-FDF 0.3, security contract 2) the same signed registration serves an
-            // EID prefix: name = the prefix ("10.9.9.0/24"), rloc = its LOCATOR SET as text ("hub1:prio:weight,hub2:..."),
-            // signed with the DIF's site key named by `site` (the area) rather than a per-prefix site. The HMAC covers
-            // name|rloc|ttl|ts exactly as before, so the row holds only what was verified. `own:true` binds the mapping to
-            // this session: it goes when the session ends, and holders of a watch on it are told (map-notify).
-            const std::string site = in["site"].s.empty() ? name : in["site"].s;
-            const std::string key = get(m, "site", site);
-            if (key.empty()) return "{\"ok\":false,\"error\":\"ENOENT\",\"why\":\"no site for this name\"}";
-            const std::string rloc = in["rloc"].s, ttl = in["ttl"].s, ts = in["ts"].s;
-            const std::string msg = name + "|" + rloc + "|" + ttl + "|" + ts;
-            unsigned char md[EVP_MAX_MD_SIZE]; unsigned int n = 0;
-            HMAC(EVP_sha256(), key.data(), int(key.size()), reinterpret_cast<const unsigned char*>(msg.data()), msg.size(), md, &n);
-            static const char hx[] = "0123456789abcdef"; std::string want; for (unsigned i = 0; i < n; ++i) { want += hx[md[i] >> 4]; want += hx[md[i] & 15]; }
-            if (want != in["auth"].s) return "{\"ok\":false,\"error\":\"EPERM\",\"why\":\"authentication failed\"}";
-            const std::string cur = get(m, "map", name);
-            if (!cur.empty() && strtod(field(cur, "ts").c_str(), nullptr) >= strtod(ts.c_str(), nullptr)) return "{\"ok\":false,\"error\":\"EALREADY\",\"why\":\"not newer than the registration held\"}";
-            // [MAP_OWNER_IS_NOT_TRANSFERRED_V1] a live mapping bound to ANOTHER live session is that session's: a second
-            // claimant is refused with the holder named, as a served /24 is (PREFIX_OVERLAP_REFUSED_V1). Before this, the
-            // newer registration silently took ownership, and when that session later withdrew "its" mapping the first
-            // registrant's prefix left the region while its client still believed it held it (Seattle7 2026-10-09:
-            // Seattle5 registered 10.170.170.0/24 as its exit, then withdrew it; Seattle7's withdraw said EPERM).
-            if (in["own"].b && !cur.empty() && strtod(field(cur, "exp").c_str(), nullptr) > t) {
-                const std::string owner = get(m, "mown", name);
-                if (!owner.empty() && owner != sess_key(rina_session_id()) && !get(m, "sess", owner).empty())
-                    return "{\"ok\":false,\"error\":\"EEXIST\",\"why\":" + Json::quote(name + " is held by a live session (" + get(m, "sess", owner) + "); not transferred") + "}";
-            }
-            char exp[32]; snprintf(exp, sizeof exp, "%.3f", t + strtod(ttl.c_str(), nullptr));
-            m.write("rina", "map", name, "{\"v\":" + Json::quote("rloc=" + rloc + ";exp=" + exp + ";ts=" + ts + ";site=" + site + (in["own"].b ? ";own=1" : "")) + ",\"p\":1}");   // [OWNED_MAPPING_IS_NOT_RESTORED_V1] filed (it supersedes an older one), never restored
-            put(m, "mown", name, in["own"].b ? sess_key(rina_session_id()) : "");          // [MAP_PREFIX_LOCATOR_SET_V1] session-bound, or not
-            for (auto& w : scan(m, "mwatch", name + "|")) if (!w.value.empty()) push_event(w.rest.substr(name.size() + 1), "{\"k\":\"m\"}");   // [MAP_WATCH_V1]
-            for (auto& w : scan(m, "mwatch", "*|")) if (!w.value.empty()) push_event(w.rest.substr(2), "{\"k\":\"m\"}");
-            return "{\"ok\":true,\"expires\":" + std::string(exp) + "}";
-        }
+        if (op == "map_watch") return "{\"ok\":false,\"error\":\"ENOSYS\",\"why\":\"[NO_PUSH_V1] the region pushes nothing: hold a read on the members' own cells, (pond, member)\"}";   // [NO_PUSH_V1]
+        if (op == "map_register") return "{\"ok\":false,\"error\":\"ENOSYS\",\"why\":\"[ONE_OWNER_V1] a mapping is its member's own: signed, in its (pond, member) cell\"}";
         const std::string cur = get(m, "map", name);
         if (cur.empty() || strtod(field(cur, "exp").c_str(), nullptr) <= t) return "{\"ok\":false,\"error\":\"ENOENT\"}";
         return "{\"ok\":true,\"rloc\":" + Json::quote(field(cur, "rloc")) + ",\"site\":" + Json::quote(field(cur, "site")) + ",\"ttl_left\":" + std::to_string(int(strtod(field(cur, "exp").c_str(), nullptr) - t)) + "}";
     }
-    if (op == "map_remove") {                  // [MAP_PREFIX_LOCATOR_SET_V1] a session withdraws a mapping it registered with own:true
-        frogram::MemoryApi& m = region_memory(); const std::string name = in["name"].s;
-        if (name.empty() || get(m, "mown", name) != sess_key(rina_session_id())) return "{\"ok\":false,\"error\":\"EPERM\",\"why\":\"not this session's mapping\"}";
-        put(m, "mown", name, ""); put_gone_permanent(m, "map", name);   // [MAP_REMOVAL_IS_PERMANENT_V1]
-        for (auto& w : scan(m, "mwatch", name + "|")) if (!w.value.empty()) push_event(w.rest.substr(name.size() + 1), "{\"k\":\"m\"}");
-        for (auto& w : scan(m, "mwatch", "*|")) if (!w.value.empty()) push_event(w.rest.substr(2), "{\"k\":\"m\"}");
-        return "{\"ok\":true}";
-    }
-    if (op == "map_list") {                    // [MAP_PREFIX_LOCATOR_SET_V1] every live mapping registered under a site, in one read
-        frogram::MemoryApi& m = region_memory(); const std::string site = in["site"].s;
+    if (op == "map_remove") return "{\"ok\":false,\"error\":\"ENOSYS\",\"why\":\"[ONE_OWNER_V1] a mapping goes when its member rewrites its own cell without it\"}";
+    if (op == "map_list") {                    // [ONE_OWNER_V1] read from the members' own cells
+        frogram::MemoryApi& m = region_memory();
         struct timespec now; clock_gettime(CLOCK_REALTIME, &now); const double t = double(now.tv_sec) + double(now.tv_nsec) / 1e9;
-        std::string out = "{\"ok\":true,\"mappings\":["; bool f = true;
-        for (auto& r : scan(m, "map", "")) {
-            if (r.value.empty() || strtod(field(r.value, "exp").c_str(), nullptr) <= t) continue;
-            if (!site.empty() && field(r.value, "site") != site) continue;
-            out += (f ? "" : ",") + std::string("{\"eid\":") + Json::quote(r.rest) + ",\"rloc\":" + Json::quote(field(r.value, "rloc")) + ",\"site\":" + Json::quote(field(r.value, "site")) +
-                   ",\"ttl_left\":" + std::to_string(int(strtod(field(r.value, "exp").c_str(), nullptr) - t)) + "}"; f = false;
-        }
-        return out + "]}";
+        return "{\"ok\":true,\"mappings\":[" + mappings_json(m, in["site"].s, members_now(), t) + "]}";
     }
     // [SESSION_PEER_V1] the address this request's session arrives FROM, as this host sees it. A machine whose answer is
     // not one of its own addresses is behind NAT (DESIGN-NAT.md step 1): measured, never configured.
@@ -589,101 +571,60 @@ std::string resident(const std::string& op, const Json& in) {
     // name, its IPs and its measured capability (FrogNet's capability probe, verbatim) -- into the shared space; the
     // participants are the announcements; a participant is alive while its machine's session is up (its node record).
     if (op == "announce") {
+        // [ONE_OWNER_V1] an announcement is checked, never stored: the member's own cell (pond, member, <ns>) IS its
+        // announcement, written by the member after this answer. The region writes nothing for it.
         const std::string ns = in["ns"].s;
         if (ns.empty() || in["name"].s.empty() || in["cap"].s.empty()) return "{\"ok\":false,\"error\":\"EINVAL\",\"why\":\"an announcement needs ns, name and cap\"}";
-        std::string ips = "["; bool f = true; for (auto& a : in["ips"].a) { ips += (f ? "" : ",") + Json::quote(a.s); f = false; } ips += "]";
-        // [IPCP_FACTS_V1] (PLAN-FROGNET-ON-FDF 0.3/0.6) the member's own facts about itself, an opaque JSON object the
-        // announcing program supplies as text (like cap): FrogNet's node facts (name, guid, subnet, pubkey, transit,
-        // chorus, hosts behind it, echo, role). Re-announced by the same session whenever they change; gone with it.
-        std::string facts = in["facts"].s;
-        if (!facts.empty()) { try { Json fj = Json::parse(facts); if (fj.type != Json::Obj) facts.clear(); } catch (...) { return "{\"ok\":false,\"error\":\"EINVAL\",\"why\":\"facts is not a JSON object\"}"; } }
-        // [PREFIX_OVERLAP_REFUSED_V1] (PLAN-RAM-DISCOVERY §4) a member's served /24s (facts.addrs rows of kind "own"
-        // whose ip is 10.x.y.1, and facts.subnet) may not overlap a LIVE member's. Refused with the holder's name, so
-        // two islands with the same addressing never both route it; the joiner stays out and says so.
-        if (!facts.empty()) {
-            auto served = served_prefixes;
-            std::set<std::string> mine; try { mine = served(Json::parse(facts)); } catch (...) {}
-            if (!mine.empty()) for (auto& r : scan(m, "ann", "")) {
-                if (r.rest == ns || r.value.empty() || get(m, "node", r.rest).empty()) continue;      // me, or not alive
-                Json a; try { a = Json::parse(r.value); } catch (...) { continue; }
-                if (a["facts"].type != Json::Obj) continue;
-                for (auto& pfx : served(a["facts"])) if (mine.count(pfx)) {
-                    const std::string holder = a["name"].s;
+        std::string facts = in["facts"].s; Json fj;
+        if (!facts.empty()) { try { fj = Json::parse(facts); if (fj.type != Json::Obj) fj = Json(); } catch (...) { return "{\"ok\":false,\"error\":\"EINVAL\",\"why\":\"facts is not a JSON object\"}"; } }
+        // [PREFIX_OVERLAP_REFUSED_V1] (PLAN-RAM-DISCOVERY §4) a member's served /24s may not overlap a LIVE member's
+        if (fj.type == Json::Obj) {
+            const std::set<std::string> mine = served_prefixes(fj);
+            if (!mine.empty()) for (auto& c : members_now()) {
+                if (c.ns == ns || c.bag["facts"].type != Json::Obj) continue;
+                for (auto& pfx : served_prefixes(c.bag["facts"])) if (mine.count(pfx)) {
+                    const std::string holder = c.bag["name"].s;
                     return "{\"ok\":false,\"error\":\"EEXIST\",\"why\":" + Json::quote(pfx + ".0/24 is served by " + holder + " (alive); this announcement is refused") + ",\"holder\":" + Json::quote(holder) + ",\"prefix\":" + Json::quote(pfx + ".0/24") + "}";
                 }
             }
         }
-        // [LEAF_ADDR_FROM_THE_REGION_V1] (John 2026-10-10: "Nobody types shit. That's what the ram manager is for") a leaf
-        // off the mesh (facts.role leaf, a WireGuard pubkey, no `lan`) is given its /32 here: the lowest 10.252.X.Y no
-        // live session holds (10.252.254.0/24 is the broker's veths, never given), bound to THIS session -- the same on
-        // every re-announcement, free when the session ends or when the member is on a LAN (`lan`, no pubkey). The
-        // region writes it into the stored facts (fdf-hub and fdf_graph read facts.addr) and returns it. A leaf that
-        // says its own addr is refused: an address nobody typed cannot be a duplicate.
-        std::string given;
-        if (!facts.empty()) {
-            Json fj; try { fj = Json::parse(facts); } catch (...) {}
-            // [REACH_IS_A_LEAF_HERE_V1] a participant that asks to reach this network ("reach":true, a WireGuard pubkey)
-            // needs an address in THIS scope, exactly as a leaf does: the same /32 rule, the same session binding.
-            const bool reacher = fj["role"].s == "participant" && fj["reach"].b;
-            if (fj["role"].s == "leaf" || reacher) {
-                if (fj["addr"].type != Json::Null)
-                    return "{\"ok\":false,\"error\":\"EINVAL\",\"why\":\"a leaf's address is the region's to give: facts.addr is not the member's to say (leave it out)\"}";
-                const std::string sid = sess_key(rina_session_id());
-                // [LEAF_BY_INVITE_V1] an invited leaf's address is its edge: fdf-invite gave it with the key the hub admitted,
-                // the hub routes that /32 to that key alone, and the leaf reached this region through it. Nothing is
-                // allocated here for it; the edge is written as its addr (fdf_graph places the leaf by it).
-                const bool invited = fj["role"].s == "leaf" && !fj["edge"].s.empty();
-                if (invited) {
-                    in_addr ia;
-                    if (inet_pton(AF_INET, fj["edge"].s.c_str(), &ia) != 1) return "{\"ok\":false,\"error\":\"EINVAL\",\"why\":\"facts.edge is not an IPv4 address\"}";
-                }
-                for (auto& r : scan(m, "laddr", "")) if (!invited && r.value == sid) { given = r.rest; break; }
-                const bool wants = !invited && !fj["pubkey"].s.empty() && fj["lan"].type == Json::Null;
-                if (invited) given = fj["edge"].s;
-                if (!invited && !wants && !given.empty()) { put(m, "laddr", given, ""); given.clear(); }        // on a LAN now: freed
-                if (wants && given.empty()) {
-                    std::set<std::string> held;
-                    for (auto& r : scan(m, "laddr", "")) if (!r.value.empty() && !get(m, "sess", r.value).empty()) held.insert(r.rest);
-                    for (int x = 0; x < 254 && given.empty(); ++x)
-                        for (int y = 1; y < 255 && given.empty(); ++y) { const std::string ip = "10.252." + std::to_string(x) + "." + std::to_string(y); if (!held.count(ip)) given = ip; }
-                    if (given.empty()) return "{\"ok\":false,\"error\":\"ENOSPC\",\"why\":\"every leaf address in 10.252.0.0/16 is held by a live session\"}";
-                    put(m, "laddr", given, sid);
-                }
-                if (wants || invited) {
-                    size_t b = facts.find_first_not_of(" \t\r\n", 1);
-                    facts = "{\"addr\":" + Json::quote(given + "/32") + (b != std::string::npos && facts[b] == '}' ? "" : ",") + facts.substr(1);
-                }
+        // [LEAF_BY_INVITE_V1] a leaf's (or a reacher's) address is its edge, from the invitation the hub admitted it by:
+        // its own, said by it. Nothing is allocated here.
+        if (fj.type == Json::Obj && (fj["role"].s == "leaf" || (fj["role"].s == "participant" && fj["reach"].b))) {
+            if (fj["addr"].type != Json::Null) return "{\"ok\":false,\"error\":\"EINVAL\",\"why\":\"a leaf's address is its invitation's edge: facts.addr is not said (leave it out)\"}";
+            in_addr ia;
+            const bool invited = fj["role"].s == "leaf" && !fj["edge"].s.empty();
+            if (invited) {
+                if (inet_pton(AF_INET, fj["edge"].s.c_str(), &ia) != 1) return "{\"ok\":false,\"error\":\"EINVAL\",\"why\":\"facts.edge is not an IPv4 address\"}";
+                return "{\"ok\":true,\"addr\":" + Json::quote(fj["edge"].s + "/32") + "}";
             }
+            // [LEAF_ADDR_FROM_THE_REGION_V1] a leaf off the mesh with no invitation edge (or a reacher) is given a /32 from
+            // the region's OWN pool: the region's records of which /32 a live session holds (laddr) are the region's, and
+            // the address is its answer -- the member writes it into its own facts. Nothing of the member's is written here.
+            const std::string sid = sess_key(rina_session_id()); std::string given;
+            for (auto& r : scan(m, "laddr", "")) if (r.value == sid) { given = r.rest; break; }
+            const bool wants = !fj["pubkey"].s.empty() && fj["lan"].type == Json::Null;
+            if (!wants) { if (!given.empty()) put(m, "laddr", given, ""); return "{\"ok\":true}"; }
+            if (given.empty()) {
+                std::set<std::string> held;
+                for (auto& r : scan(m, "laddr", "")) if (!r.value.empty() && !get(m, "sess", r.value).empty()) held.insert(r.rest);
+                for (int x = 0; x < 254 && given.empty(); ++x)
+                    for (int y = 1; y < 255 && given.empty(); ++y) { const std::string ip = "10.252." + std::to_string(x) + "." + std::to_string(y); if (!held.count(ip)) given = ip; }
+                if (given.empty()) return "{\"ok\":false,\"error\":\"ENOSPC\",\"why\":\"every leaf address in 10.252.0.0/16 is held by a live session\"}";
+                put(m, "laddr", given, sid);
+            }
+            return "{\"ok\":true,\"addr\":" + Json::quote(given + "/32") + "}";
         }
-        put(m, "ann", ns, "{\"ns\":" + Json::quote(ns) + ",\"name\":" + Json::quote(in["name"].s) + ",\"ips\":" + ips + ",\"cap\":" + in["cap"].s +
-            (facts.empty() ? "" : ",\"facts\":" + facts) + "}");
-        notify_agents(m);
-        notify_participants(m);                                          // [FDF_PARTICIPANTS_CHANGE_V1]
-        return given.empty() ? "{\"ok\":true}" : "{\"ok\":true,\"addr\":" + Json::quote(given + "/32") + "}";
+        return "{\"ok\":true}";
     }
-    if (op == "watch_participants") {           // [FDF_PARTICIPANTS_CHANGE_V1] this process watches; dropped when its session ends
-        if (in["proc"].s.empty()) return "{\"ok\":false,\"error\":\"EINVAL\"}";
-        put(m, "pwatch", in["proc"].s, sess_key(rina_session_id())); return "{\"ok\":true}";
-    }
+    if (op == "watch_participants") return "{\"ok\":false,\"error\":\"ENOSYS\",\"why\":\"[NO_PUSH_V1] the region pushes nothing: hold a read on the members' own cells, (pond, member)\"}";   // [NO_PUSH_V1]
     if (op == "version") return std::string("{\"ok\":true,\"server\":\"") + FDF_BUILD_TAG + "\"}";     // [FDF_VERSION_V1]
-    if (op == "world") {                       // [WORLD_IN_ONE_READ_V1] participants AND the site's live mappings in one answer: the
-        // daemon's per-event read is one round trip, not two (a WAN member pays the region's RTT once per event)
-        const std::string site = in["site"].s;
+    if (op == "world") {                       // [WORLD_IN_ONE_READ_V1][ONE_OWNER_V1] the members' own cells and their mappings
         struct timespec now; clock_gettime(CLOCK_REALTIME, &now); const double t = double(now.tv_sec) + double(now.tv_nsec) / 1e9;
+        const std::vector<MemberCell> mem = members_now();
         std::string out = std::string("{\"ok\":true,\"server\":\"") + FDF_BUILD_TAG + "\",\"participants\":["; bool f = true;
-        for (auto& r : scan(m, "ann", "")) {
-            if (r.value.empty()) continue;
-            const bool alive = !get(m, "node", r.rest).empty();
-            out += (f ? "" : ",") + r.value.substr(0, r.value.size() - 1) + ",\"alive\":" + (alive ? "true" : "false") + ",\"id\":" + std::to_string(r.id) + "}"; f = false;
-        }
-        out += "],\"mappings\":["; f = true;
-        for (auto& r : scan(m, "map", "")) {
-            if (r.value.empty() || strtod(field(r.value, "exp").c_str(), nullptr) <= t) continue;
-            if (!site.empty() && field(r.value, "site") != site) continue;
-            out += (f ? "" : ",") + std::string("{\"eid\":") + Json::quote(r.rest) + ",\"rloc\":" + Json::quote(field(r.value, "rloc")) + ",\"site\":" + Json::quote(field(r.value, "site")) +
-                   ",\"ttl_left\":" + std::to_string(int(strtod(field(r.value, "exp").c_str(), nullptr) - t)) + "}"; f = false;
-        }
-        return out + "]}";
+        for (auto& c : mem) { out += (f ? "" : ",") + participant_json(c); f = false; }
+        return out + "],\"mappings\":[" + mappings_json(m, in["site"].s, mem, t) + "]}";
     }
     if (op == "resolve") {
         // [IDENTITY_IN_TUPLES_V1] tuples name machines by identity (w:<guid>), never by address: an address means one
@@ -694,10 +635,10 @@ std::string resident(const std::string& op, const Json& in) {
         std::string out = std::string("{\"ok\":true,\"server\":\"") + FDF_BUILD_TAG + "\",\"resolved\":{"; bool f = true;
         for (auto& idj : in["ids"].a) {
             const std::string id = idj.s; std::string one;
-            const std::string row = get(m, "ann", id);
-            if (row.empty() || get(m, "node", id).empty()) one = "{\"error\":\"ENOENT\",\"why\":\"no alive member " + id + " in this pond\"}";
+            Json a; bool alive = false;
+            for (auto& c : members_now()) if (c.ns == id) { a = c.bag; alive = true; }       // [ONE_OWNER_V1] its own cell
+            if (!alive) one = "{\"error\":\"ENOENT\",\"why\":\"no alive member " + id + " in this pond\"}";
             else {
-                Json a; try { a = Json::parse(row); } catch (...) {}
                 const Json& fj = a["facts"]; const std::string role = fj["role"].s, name = a["name"].s;
                 std::string addr;
                 if (role == "leaf") { addr = fj["addr"].s; if (addr.find('/') != std::string::npos) addr = addr.substr(0, addr.find('/')); }
@@ -711,13 +652,9 @@ std::string resident(const std::string& op, const Json& in) {
         }
         return out + "}}";
     }
-    if (op == "participants") {
+    if (op == "participants") {                 // [ONE_OWNER_V1] the members' own cells
         std::string out = std::string("{\"ok\":true,\"server\":\"") + FDF_BUILD_TAG + "\",\"participants\":["; bool f = true;
-        for (auto& r : scan(m, "ann", "")) {
-            if (r.value.empty()) continue;
-            const bool alive = !get(m, "node", r.rest).empty();
-            out += (f ? "" : ",") + r.value.substr(0, r.value.size() - 1) + ",\"alive\":" + (alive ? "true" : "false") + ",\"id\":" + std::to_string(r.id) + "}"; f = false;   // [IPCP_FACTS_V1] id: first claimant wins
-        }
+        for (auto& c : members_now()) { out += (f ? "" : ",") + participant_json(c); f = false; }
         return out + "]}";
     }
     if (op == "node") {                        // a machine's agent: its devices, measured there; and, on a new session, rejoin
@@ -725,14 +662,8 @@ std::string resident(const std::string& op, const Json& in) {
         const std::string cur = get(m, "node", ns), ep = cur.compare(0, 6, "epoch=") == 0 ? cur.substr(6, cur.find(';') - 6) : "";
         put(m, "sess", sid, "node:" + ns);
         put(m, "node", ns, "epoch=" + sid + ";" + in["devs"].s);
-        std::string out, err; int rc = 0;
-        if (ep != sid) { rc = ctl_run(m, ns, {"node-rejoin"}, out, err); }       // this machine's word starts a new epoch
-        rmem::InputSpace* asp = rmem::spaces().get("agent:" + ns, true);   // [RINA_MEMORY_V1] the agent's input space:
-        const uint64_t seen = asp ? asp->numbered() : 0;                  // an earlier agent's terminate is not this one's
-        notify_agents(m);                                                 // [RMT_OVER_DIF_LINKS_V1] its devices may have changed every route
-        notify_participants(m);                                           // [FDF_PARTICIPANTS_CHANGE_V1] alive may have changed
-        return "{\"ok\":true,\"rejoined\":" + std::string(ep != sid ? "true" : "false") + ",\"rc\":" + std::to_string(rc) + ",\"err\":" + Json::quote(err) +
-               ",\"after\":" + std::to_string(seen) + "}";
+        // [ONE_OWNER_V1] the record is this machine's own word that it is here, on its session; nothing is run for it
+        return "{\"ok\":true,\"rejoined\":" + std::string(ep != sid ? "true" : "false") + ",\"after\":0}";
     }
             if (op == "register") {
                 Ipcp me; if (!pick(m, in["ns"].s, in["dif"].s, me)) return "{\"ok\":false,\"error\":\"ENXIO\"}";
@@ -774,7 +705,6 @@ std::string resident(const std::string& op, const Json& in) {
             if (op == "ctl") {                                    // one rlite-ctl command, run at the memory
                 std::vector<std::string> args; for (auto& a : in["args"].a) args.push_back(a.s);
                 std::string out, err; const int rc = ctl_run(m, in["ns"].s, args, out, err);
-                notify_agents(m);                                 // [RMT_OVER_DIF_LINKS_V1] an enrollment, a lower flow, a device...
                 return "{\"ok\":true,\"rc\":" + std::to_string(rc) + ",\"out\":" + Json::quote(out) + ",\"err\":" + Json::quote(err) + "}";
             }
             if (op == "accept") {
@@ -984,42 +914,27 @@ void rina_session_down(uint64_t sid) {
         // [HELD_READS_END_WITH_THE_SESSION_V1] every read this program left held ends now. Each parked request keeps its
         // session -- and the session's sockets -- alive until it returns; a held read that never returns leaked three
         // descriptors per program until the host reached its open-file limit (1,024) and could take no new session.
-        ev(m, p, "x:gone", "{\"k\":\"x\"}");                                 // its wait
         if (rmem::InputSpace* sp = rmem::spaces().get(p, false)) sp->end();      // [RINA_MEMORY_V1] and every later one returns at once
         for (auto& f : scan(m, "pfl:" + p, "")) {   // [RINA_MEMORY_V1] the flows it received on: their senders' credit waits end
             if (rmem::FlowDir* fd = rmem::flows().get(f.rest + "|" + p, false)) { fd->end(); answer_parked_credit(fd); }
             put(m, "pfl:" + p, f.rest, ""); }
     }
     else if (who.compare(0, 5, "node:") == 0) { const std::string ns = who.substr(5), cur = get(m, "node", ns);
-        if (cur.compare(0, 6 + sess_key(sid).size(), "epoch=" + sess_key(sid)) == 0) { put(m, "node", ns, ""); notify_agents(m);
-            // [ANN_GOES_WITH_THE_SESSION_V1] gone is gone: the announcement goes with the machine's session. Every reader
+        if (cur.compare(0, 6 + sess_key(sid).size(), "epoch=" + sess_key(sid)) == 0) { put(m, "node", ns, "");            // [ANN_GOES_WITH_THE_SESSION_V1] gone is gone: the announcement goes with the machine's session. Every reader
             // (fdf_graph, graph_apply, fdf-hub, gen, region.py) already skipped a dead one, so nothing plans differently;
             // what changes is that dead rows no longer pile up for the life of the RAM manager (the stale
             // FrogNetHost.Seattle* duplicates from before ME_BY_GUID) and ride along on every member's `world` read.
-            put(m, "ann", ns, "");
-            // [ATTENTION_IS_A_TUPLE_V1] the member is gone, so are its notices: (pond, attention, <its ns>) -- gone is gone
-            // [SERVICE_WHERE_IS_A_TUPLE_V1] and so are the services it said it runs: (pond, where, <its ns>)
-            try { frogram::MemoryApi& ram = rina_resident_memory();
-                  for (const char* v : {"attention", "where"}) for (auto& c : ram.read("pond", v, ns)) ram.remove("pond", v, c.id);
-                  // [ADDIN_OWNS_ITS_CELL_V1] and each add-in's own cell on that machine, (pond, where, <ns>/<add-in>)
-                  for (auto& c : ram.read("pond", "where", "")) if (c.instance.compare(0, ns.size() + 1, ns + "/") == 0) ram.remove("pond", "where", c.id); } catch (...) {}   // the RAM, not the region's records
+            // [ONE_OWNER_V1] its cells in the RAM -- notices, where cells -- are its own sessions' (own:true): they went with
+            // those sessions. The region sweeps nobody's cells.
         } }   // only if no newer agent took over; [RMT_OVER_DIF_LINKS_V1] its links are gone
     put(m, "sess", sess_key(sid), "");
     put(m, "speer", sess_key(sid), "");                              // [SESSION_PEER_V1]
-    for (auto& r : scan(m, "pwatch", "")) if (r.value == sess_key(sid)) put(m, "pwatch", r.rest, "");
-    for (auto& r : scan(m, "awatch", "")) if (r.value == sess_key(sid)) put(m, "awatch", r.rest, "");   // [NO_NOTICE_NOBODY_READS_V1]
-    for (auto& r : scan(m, "mwatch", "")) if (r.value == sess_key(sid)) put(m, "mwatch", r.rest, "");   // [MAP_WATCH_V1] a watcher gone   // [FDF_PARTICIPANTS_CHANGE_V1] a watcher gone
-    for (auto& r : scan(m, "laddr", "")) if (r.value == sess_key(sid)) put(m, "laddr", r.rest, "");       // [LEAF_ADDR_FROM_THE_REGION_V1] its /32 is free
-    for (auto& r : scan(m, "mown", "")) if (r.value == sess_key(sid)) {                                   // [MAP_PREFIX_LOCATOR_SET_V1] its mappings go with it
-        put(m, "mown", r.rest, ""); put_gone_permanent(m, "map", r.rest);   // [MAP_REMOVAL_IS_PERMANENT_V1]
-        for (auto& w : scan(m, "mwatch", r.rest + "|")) if (!w.value.empty()) push_event(w.rest.substr(r.rest.size() + 1), "{\"k\":\"m\"}");
-        for (auto& w : scan(m, "mwatch", "*|")) if (!w.value.empty()) push_event(w.rest.substr(2), "{\"k\":\"m\"}"); }
+    for (auto& r : scan(m, "laddr", "")) if (r.value == sess_key(sid)) put(m, "laddr", r.rest, "");       // the region's own pool: its /32 is free
     {   // [OWNED_CELL_GOES_WITH_THE_SESSION_V1] every tuple this session wrote with own:true is written {} now
         const std::string k = sess_key(sid); const std::vector<Rec> mine = scan(m, "owncells:" + k, "");
         if (!mine.empty()) { put(m, "owndone", k, "1");                 // a write still in flight sees this and does it itself
             for (auto& r : mine) { owned_cell_gone(m, r.rest, k); put(m, "owncells:" + k, r.rest, ""); } }
     }
-    notify_participants(m);                                          // [FDF_PARTICIPANTS_CHANGE_V1] a participant may have gone
 }
 
 // [OWNED_CELL_GOES_WITH_THE_SESSION_V1] A plain write with "own":true makes its tuple the session's: a participant is

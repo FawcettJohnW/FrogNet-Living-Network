@@ -1153,6 +1153,14 @@ FrogNet's daemon, outside FD&F, cited for completeness (`opt/frognet_semantic/in
 - `fdf-client` exits when its session ends, and systemd restarts it 2 s later. The fresh session re-announces and re-registers (`fdf-source/fdf/bin/fdf-join:38-40`; `fdf_client.cpp:403-408`).
 - **Measured, r20 containers.** With the region host off the network for 49–52 s, traffic returned 15–40 s after reconnect with no manual step. With the RAM manager stopped for 40 s, `fdf-client` waited and re-joined (`docs/cleanup-2026-10/FINAL-GATES.md:78`; `T4a.md:181-182`; `T4b.md:231`).
 
+### G.5b One owner, no pushes `[ONE_OWNER_V1]` `[NO_PUSH_V1]` (John 2026-11-04: "There are no pushes. There are no locks. There is nothing that is not written by the one and only owner. Nobody writes into anybody else's space, period. There is no cross-space write.")
+
+- **A member's announcement and mappings are its own cell**, `(pond, member, <ns>)`, written `own:true` on its own session. Its mappings are in that cell, each signed with the site key (`eid|rloc|ttl|ts`, HMAC-SHA256).
+- **The region writes nothing for anyone.** `announce` only checks: a served /24 that a live member already serves is refused (EEXIST), and a leaf's address is its invitation's edge. `participants`, `world`, `resolve` and `map_list` are reads of the members' cells. `map_list` verifies each mapping's signature, and the first claimant holds an EID. `map_register` and `map_remove` are refused (ENOSYS). The region allocates no leaf address.
+- **Nothing is pushed.** `notify_agents`, `notify_participants`, `watch_participants` and `map_watch` are gone. The RINA program and flow operations (`hello`, `register`, `alloc`, `accept`, `send`, `wait`, `ctl` and the rest) delivered into another program's input space, and the `ev:` writes did the same: they are refused. `fdf-events`, `fdf-where --hold`, `fdf-browser` and `fdf-comms.sh` hold reads.
+- **The region sweeps nobody's cells.** Notices (`fdf-attention`, which holds its notice on its own session) and where cells (`fdf-where --hold`, one held cell per app RAM in `fdf-app`: `(pond, where, w:<guid>/<app.ram>)`) go with their writers' sessions.
+- **The one carried write.** A browser page cannot hold a session, so the node's door (`ram.php op=write`, `op=admin`) carries that page's own write: the instance is the device's, written for that device only.
+
 ### G.5a Events, not timers `[EVENTS_NOT_TIMERS_V1]` (John 2026-11-03: "There should be no walks, no locks, no notifications, and no waiting.")
 
 What a program waits for is an event, never a timer:

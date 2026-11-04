@@ -173,6 +173,7 @@ public:
     // so a held-read owner (fdf-events) can pull a snapshot (participants/world) on its own one connection, never a
     // second channel. Same op=rina path as call(); the text is the region's reply verbatim, for the caller to ship on.
     std::string call_text(const std::string& body, double t = 15.0) { return s_->call_text("POST", api() + "?op=rina", body, t); }
+    frogram::Session& session() { return *s_; }             // the same session, for the memory's own reads (held reads)
 private:
     template <class F> static frogram::Json answer(F f) {
         try { return f(); }

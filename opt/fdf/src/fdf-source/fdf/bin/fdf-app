@@ -269,6 +269,7 @@ class Server:
         self.listen = os.environ.get("FDF_APP_LISTEN") or dot1(self.f)
         self.procs = {}                      # (app, r) -> Popen
         self.socks = {}                      # (app, r) -> its listening socket, kept while served here
+        self.holders = {}                    # where key -> its `fdf-where --hold` (the cell is that session's own)
         self.events = queue.Queue()
         self.rm = ram()
         self.said = set()                    # where keys this member has said
@@ -425,21 +426,27 @@ class Server:
                 p.kill()
             log("no longer serving %s's RAM %s" % (app, r))
         k = where_key(app, r)
-        if k in self.said:
-            self._where([k, "--clear"])
-            self.said.discard(k)
+        h = self.holders.pop(k, None)
+        if h is not None and h.poll() is None:
+            h.terminate()                          # its session ends: its cell goes with it, written by nobody else
+        self.said.discard(k)
 
-    def _where(self, args):
-        r = subprocess.run([os.path.join(BIN, "fdf-where")] + args, env=dict(os.environ, FDF_FACTS=FACTS),
-                           capture_output=True, text=True, timeout=10)
-        if r.returncode != 0:
-            log("fdf-where %s failed: %s" % (" ".join(args), (r.stderr or r.stdout).strip()[:200]))
-        return r.returncode == 0
-
-    def mine_in_where(self):
-        for c in self.rm.read("pond", "where", "w:" + self.me):
-            return set(k for k in (c.get("bag") or {}) if k != "from")
-        return set()
+    def hold_where(self, k, port):
+        """[ONE_OWNER_V1] (John 2026-11-04: "There is nothing that is not written by the one and only owner.") the cell
+        that says this member serves `k` is (pond, where, w:<guid>/<k>), written own:true by `fdf-where --hold` on its OWN
+        session and held there: gone the moment it is not served here or this member is gone -- nobody sweeps it.
+        Its exit is an event: decided again (started again if still wanted)."""
+        h = self.holders.get(k)
+        if h is not None and h.poll() is None:
+            return False
+        h = self.holders[k] = subprocess.Popen([os.path.join(BIN, "fdf-where"), "--hold", k, "ram=self:%d" % port],
+                                               env=dict(os.environ, FDF_FACTS=FACTS, FDF_ADDIN=k),
+                                               stdout=subprocess.DEVNULL, stderr=subprocess.PIPE, text=True)
+        def ended():
+            err = h.stderr.read(); h.wait()
+            self.events.put("again: the where cell for %s ended (rc %s%s)" % (k, h.returncode, ": " + err.strip()[:120] if err.strip() else ""))
+        threading.Thread(target=ended, daemon=True).start()
+        return True
 
     def decide(self, why):
         t0 = time.monotonic()
@@ -475,15 +482,13 @@ class Server:
         for k in list(self.procs):
             if k not in want:
                 self.stop(*k)
-        listed = self.mine_in_where()
         for app, r in sorted(want):
             self.start(app, r)
             k = where_key(app, r)
-            if k not in listed:
-                if self._where([k, "ram=self:%d" % port_of(app, r)]):
-                    self.said.add(k)
-                    log("%s: %s's RAM %s is here (where cell written) %d ms after the event"
-                        % (why, app, r, int((time.monotonic() - t0) * 1000)))
+            if self.hold_where(k, port_of(app, r)):
+                self.said.add(k)
+                log("%s: %s's RAM %s is here (its where cell held by this member's own session) %d ms after the event"
+                    % (why, app, r, int((time.monotonic() - t0) * 1000)))
 
     def write_map(self, placed, why):
         """[APP_WHERE_MAP_V1] this member's answer to "where is each of my apps' RAMs", FDF_VAR/app-where.json, for the
@@ -544,6 +549,11 @@ class Server:
     def run(self):
         log("build %s; member %s; droplets listen on %s; apps here: %s"
             % (BUILD_TAG, self.me, self.listen, ", ".join(self.installed()) or "none"))
+        try:                                         # this member's own cell from before r44 (one cell, no session): its own to remove
+            for c in self.rm.read("pond", "where", "w:" + self.me):
+                if not c.get("gone"): self.rm.remove(c); log("removed this member's earlier where cell (now one held cell per RAM)")
+        except fdfram.RamError as e:
+            log("this member's earlier where cell: %s" % e)
         threading.Thread(target=self.watch_family, daemon=True).start()
         threading.Thread(target=self.watch_members, daemon=True).start()
         self.decide("again: start")

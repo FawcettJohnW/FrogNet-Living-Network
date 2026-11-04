@@ -112,22 +112,14 @@ int main(int argc, char** argv) {
                 frogram::Json::quote(inst) + ",\"bag\":" + bag + ",\"own\":true}";
             for (uint64_t o : old) m.remove("pond", "where", o);                      // a cell from before: this session's is the one now
             s.call("POST", wr, body);
-            const std::string me = "where:" + inst + ":" + std::to_string(getpid());
-            frogram::Json r = s.call("POST", std::string(API) + "?op=rina", "{\"op\":\"watch_participants\",\"proc\":" + frogram::Json::quote(me) + "}");
-            if (!r["ok"].b) { fprintf(stderr, "fdf-where: watch_participants refused: %s\n", r["error"].s.c_str()); return 1; }
+            // [NO_PUSH_V1] held on the family of the cell itself, (pond, where): nothing is pushed to this program. A
+            // read that returns with this cell gone is the event to write it again; the session's end is "gone".
             printf("held %s at %s: %s\n", inst.c_str(), where.c_str(), bag.c_str()); printf("ready\n"); fflush(stdout);
             try {
-                for (unsigned long long at = 0;;) {
-                    const std::string t = s.call_text("POST", std::string(API) + "?op=rina_block",
-                        "{\"op\":\"wait\",\"proc\":" + frogram::Json::quote(me) + ",\"after\":" + std::to_string(at) + "}", 3.0e8);
+                int64_t at = 0; for (auto& c : m.read("pond", "where")) if (int64_t(c.id) > at) at = int64_t(c.id);
+                for (;;) {
                     bool ev = false;
-                    for (size_t i = 2; i < t.size();) {
-                        const size_t tab = t.find('\t', i), nl = t.find('\n', i); if (tab == std::string::npos || nl == std::string::npos) break;
-                        const unsigned long long n = std::stoull(t.substr(i, tab - i)); if (n > at) at = n;
-                        if (t.compare(tab + 1, nl - tab - 1, "{\"k\":\"x\"}") == 0 || t.substr(tab + 1, nl - tab - 1).find("\"k\":\"x\"") != std::string::npos) {
-                            printf("gone\n"); fflush(stdout); return 1; }
-                        ev = true; i = nl + 1;
-                    }
+                    for (auto& c : m.read("pond", "where", "", at, 600)) { if (int64_t(c.id) > at) at = int64_t(c.id); ev = true; }
                     if (!ev) continue;
                     bool mine = false;
                     for (auto& c : m.read("pond", "where", inst)) if (c.bag.type == frogram::Json::Obj && !c.bag.o.empty()) mine = true;
