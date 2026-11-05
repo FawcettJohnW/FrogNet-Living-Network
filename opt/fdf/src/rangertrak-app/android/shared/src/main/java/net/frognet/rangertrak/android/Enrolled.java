@@ -12,8 +12,8 @@ import java.util.Map;
 /**
  * [ENROLL_V1] what enrolling left on this phone, in this app's private preferences ("rt-enroll"): who the user is in the
  * app (its user, its role, whether it leads its team), the door it enrolled through, and the user's password (the app
- * logs in with it, and a lead asks the door for its members' invitations with it). The invitation itself is the FrogNet
- * Disaster Area base's (Base: it keeps the invitation). A lead's members are kept here as verifiers only (Enroll.verifier), never their passwords.
+ * logs in with it, and a lead asks the door for its members' invitations with it). The invitation itself is the
+ * FrogNet member's, compiled into this app (Member: Identity keeps it). A lead's members are kept here as verifiers only (Enroll.verifier), never their passwords.
  */
 final class Enrolled {
     final String app, user, password, role, door;

@@ -144,6 +144,15 @@ Android project now builds three apps from one copy of the code: `:app` (every v
 (and in `adb logcat -s RangerTrak`); [BACK_CLOSES_FIRST_V1] Back closes what is open, then Home on the public view;
 the keyboard resizes the screen instead of covering the chat.
 
+## r27: every app is self-contained ([APP_IS_SELF_CONTAINED_V1])
+
+John 2026-11-04: "we aren't going to have the user install 2 things, on any platform. All apps are fully self contained
+entities." r20-r26's hidden Disaster Area base ([BASE_APP_V1]) is gone: each app is its own FrogNet member again, as r15
+(`shared/.../Member.java` over frognet-android's member, MemberService, BridgeVpn, fdf-tun). The update zip's
+REMOVED.txt lists the `base/` module and `Base.java`: delete them. Android allows one VPN at a time, so two RangerTrak
+apps joined on one phone take the tunnel from each other. [DOOR_REFUSAL_LOGGED_V1] every door refusal is said on the
+status line and in Logcat (tag RangerTrak) with the door's reason, the op and the HTTP status.
+
 ## The Android project stays where it is opened ([RT_ANDROID_UPDATE_IN_PLACE_V1])
 
 The project in Android Studio is the export `android/studio_project.sh` made (`RangerTrak-Android-Studio-<build>`, the

@@ -9,8 +9,8 @@ android {
         applicationId = "net.frognet.rangertrak.power"
         minSdk = 29
         targetSdk = 34
-        versionCode = 26
-        versionName = "rt-app-2026-11-04-r26"
+        versionCode = 27
+        versionName = "rt-app-2026-11-04-r27"
     }
     compileOptions { sourceCompatibility = JavaVersion.VERSION_17; targetCompatibility = JavaVersion.VERSION_17 }
     packaging { jniLibs { useLegacyPackaging = true } }

@@ -151,17 +151,14 @@ built on the same platform with the RangerTrak app.
 The device remains a device; it never becomes a Linux fabric member. Its app participation follows the same
 write-first, read-second rule.
 
-**On Android the membership is the hidden base's** ([BASE_APP_V1], built). **John (2026-11-03):** "the base disaster
-area app is hidden from the user. They don't need to bring it up and make login a 2-step process" ... "it's shared
-between all of the various apps and ram regions a given machine needs." The base is frognet-android's app, labelled
-Disaster Area, with no launcher icon: one membership per device. A level app (RangerTrak Team, Public, the kart ...)
-asks it through `JoinActivity` (`net.frognet.action.JOIN`, with the level's line and the user and password the level
-app asked for: the one login; the base attaches again when they change, and the door upgrades an open level,
-[ONE_LEVEL_PER_HOST_V1]); `net.frognet.action.LEAVE` ends it. The base sends each app that asked its state (joined,
-edge, invited, join) when it changes (`net.frognet.action.MEMBER_STATE`). RangerTrak no longer compiles the member in
-(it did, [RT_IS_A_MEMBER_V1]: Team and Public on one phone were two memberships); `:base` is a module of its Gradle
-project and of its Studio export. Gates: the type-checks (`frognet-android/tools/app-typecheck.sh`,
-`rangertrak-app/android/typecheck.sh`); not run on a phone here.
+**Every app is self-contained: it is its own FrogNet member** ([APP_IS_SELF_CONTAINED_V1], built; it replaces
+[BASE_APP_V1], the hidden Disaster Area base). **John (2026-11-04):** "we aren't going to have the user install 2
+things, on any platform. All apps are fully self contained entities." On Android each RangerTrak app (EOC, Team,
+Public, the unit apps, the admin app) compiles frognet-android's member, MemberService, BridgeVpn and fdf-tun in
+(`shared`, `Member.java`); its membership (key, invitation or join line, login) is in that app's private storage. On
+Windows the client zip carries the member. Nothing else is installed. Android allows one VPN at a time: two RangerTrak
+apps joined on one phone take the tunnel from each other. Gates: `rangertrak-app/android/typecheck.sh` (the member's
+classes are compiled in); not run on a phone here.
 
 ## Roles, the resilient EOC, and login wherever a device can ([ROLES_NOT_MACHINES_V1], John 2026-11-02)
 

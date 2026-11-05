@@ -49,7 +49,7 @@ public final class AppCore {
 
     public static final String APP = "rangertrak";
     public static final String API = "/FawcettInnovations.RINA.ram_interface.php";
-    public static final String BUILD = "rt-app-2026-11-04-r26";
+    public static final String BUILD = "rt-app-2026-11-04-r27";
 
     private final Ui ui;
     private String door = "", dev = "", name = "", role = "", team = "", user = "", mission = "";
@@ -150,6 +150,10 @@ public final class AppCore {
         }
         if (!Json.bool(o.get("ok"))) {            // the door says why ("why"); a stand-in may say "error"
             String why = Json.str(o.get("why")); if (why.isEmpty()) why = Json.str(o.get("error"));
+            // [DOOR_REFUSAL_LOGGED_V1] every refusal said with the door's reason, the call (its op only: never the
+            // password in the query) and the status, on the status line and in the log (Logcat tag RangerTrak)
+            out("ev", "status", "text", "[DOOR_REFUSAL_LOGGED_V1] the door at " + door + " refused ?" + q.replaceAll("&.*", "")
+                    + " (HTTP " + LAST_STATUS.get() + "): " + (why.isEmpty() ? "no reason given" : why));
             throw new Exception(why.isEmpty() ? "the door refused with no reason: " + answered(q, r) : why);
         }
         return o;

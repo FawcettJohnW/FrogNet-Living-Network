@@ -20,14 +20,11 @@
     <uses-feature android:name="android.hardware.camera" android:required="false" />
     <uses-feature android:name="android.hardware.camera.front" android:required="false" />
     <uses-feature android:name="android.hardware.microphone" android:required="false" />
-    <!-- [BASE_APP_V1] the device's hidden base (the Disaster Area base): no launcher icon; the level apps (RangerTrak Team,
-         Public, the kart ...) start, change and end its one membership through JoinActivity. Its own screen (the log, the
-         membership) is still there for whoever opens it from another app's menu or Android's app settings. -->
-    <application android:label="Disaster Area" android:allowBackup="false">
+<application android:label="FrogNet Member" android:allowBackup="false">
         <activity android:name=".MainActivity" android:exported="true">
             <intent-filter>
-                <action android:name="net.frognet.action.BASE" />
-                <category android:name="android.intent.category.DEFAULT" />
+                <action android:name="android.intent.action.MAIN" />
+                <category android:name="android.intent.category.LAUNCHER" />
             </intent-filter>
         </activity>
         <!-- [JOIN_FROM_ANOTHER_APP_V1] another app (FrogNet Kart) starts the membership: no screen; the VPN consent once -->

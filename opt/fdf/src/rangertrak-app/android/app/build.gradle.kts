@@ -8,11 +8,11 @@ android {
         applicationId = "net.frognet.rangertrak"
         minSdk = 29
         targetSdk = 34
-        versionCode = 26
-        versionName = "rt-app-2026-11-04-r26"
+        versionCode = 27
+        versionName = "rt-app-2026-11-04-r27"
     }
     compileOptions { sourceCompatibility = JavaVersion.VERSION_17; targetCompatibility = JavaVersion.VERSION_17 }
-    packaging { jniLibs { useLegacyPackaging = true } }   // [TEAM_HOST_V1] libteamram.so is RUN from nativeLibraryDir: extracted at install (fdf-tun is the base's)
+    packaging { jniLibs { useLegacyPackaging = true } }   // fdf-tun and [TEAM_HOST_V1] libteamram.so are RUN from nativeLibraryDir: extracted at install
     buildTypes { release { isMinifyEnabled = false } }
 }
 dependencies { implementation(project(":shared")) }   // [RT_ANDROID_SHARED_V1] the shell, the core, the RAM library, the page
