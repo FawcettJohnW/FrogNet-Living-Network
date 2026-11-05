@@ -1,4 +1,4 @@
-# RangerTrak app (desktop and phone) -- rt-app-2026-11-05-r32
+# RangerTrak app (desktop and phone) -- rt-app-2026-11-05-r33
 
 The demo John set on 2026-11-01 (`opt/frognet_semantic/ribbit/examples/rangertrak/PLAN.md`, its first decision): the EOC
 on a Windows app, a first responder on a phone, presence with GPS, chat, a pre-populated moving world, in an app and not
@@ -46,6 +46,15 @@ role's `act`/`req`, or `RT.button`). **A new view**: `RT.role(...)` in a layer's
 `--lock=` and `--layers=`. **The admin app**: a layer's own panel is `ui-admin/layers/<name>.js` calling
 `RTA.panel(title, fn)` (none yet). Gates: `test/test_app.py` (32 checks; the Team and Public apps run with their own
 layers only), `test/test_team_host.py`, `android/typecheck.sh`.
+
+## r33: each Windows app its own settings ([RT_APP_SETTINGS_APART_V1])
+
+The EOC app (`--lock=eoc --layers=...`) wrote its lock and layers into `~/.rangertrak/settings.json`, which the
+RangerTrak app read too: it then opened as the EOC, with the EOC's layers, and never asked which app. Now the
+RangerTrak app keeps `settings.json`, the EOC app `settings-eoc.json` (its own device id: both may run on one
+computer), and only what the computer remembers is read or written (dev, door, name, role, team, unit, comms,
+commsApp); the lock and the layers are the app's own, from its command line. An old settings.json with the EOC's lock
+in it is read without it.
 
 ## r32: which app, first; Diagnostics on the screen
 

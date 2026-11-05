@@ -89,7 +89,7 @@ public final class Main extends Application {
         try {
             Map<String, Object> m = Json.obj(Json.parse(json)), s = settings();
             s.put("comms", Json.o("camera", Json.str(m.get("camera")), "mic", Json.str(m.get("mic")), "speaker", Json.str(m.get("speaker"))));
-            write(s);
+            write(s, settingsFile());
             java.util.List<String> c = new java.util.ArrayList<>(java.util.Arrays.asList(commsExeSaved(),
                     "--ram", Json.str(m.get("ram")), "--media", Json.str(m.get("media")), "--name", Json.str(m.get("name"))));
             // calling: --auto-join places the call once the peer is in the room. Answering: the Communicator rings with the
@@ -127,7 +127,7 @@ public final class Main extends Application {
         File f = fc.showOpenDialog(stage);
         return f == null ? "" : remember(f.getAbsolutePath());
     }
-    private String remember(String exe) { Map<String, Object> s = settings(); s.put("commsApp", exe); write(s); return exe; }
+    private String remember(String exe) { Map<String, Object> s = settings(); s.put("commsApp", exe); write(s, settingsFile()); return exe; }
     /** comms-app --list-devices, parsed: cameras by name, audio devices by number (mic: has inputs; speaker: outputs) */
     public static Map<String, Object> devices(String exe) {
         java.util.List<Object> cams = new java.util.ArrayList<>(), mics = new java.util.ArrayList<>(), spk = new java.util.ArrayList<>();
@@ -181,12 +181,18 @@ public final class Main extends Application {
     // ------------------------------------------------------------------ this computer's settings
     private Map<String, Object> settings() {
         Map<String, Object> s;
-        try { s = Json.obj(Json.parse(new String(Files.readAllBytes(home().resolve("settings.json")), StandardCharsets.UTF_8))); }
+        try { s = Json.obj(Json.parse(new String(Files.readAllBytes(home().resolve(settingsFile())), StandardCharsets.UTF_8))); }
         catch (Exception e) { s = Json.o(); }
+        // [RT_APP_SETTINGS_APART_V1] what this computer remembers, only: which app this is (its lock, its layers) is the
+        // app's own, never read from the file (r31 and before wrote the EOC app's lock into the one settings.json, and the
+        // RangerTrak app then opened as the EOC)
+        Map<String, Object> kept = Json.o();
+        for (String k : KEPT) if (s.containsKey(k)) kept.put(k, s.get(k));
+        s = kept;
         if (Json.str(s.get("dev")).isEmpty()) {           // this device's own id, made once
             StringBuilder b = new StringBuilder("d"); SecureRandom r = new SecureRandom();
             for (int i = 0; i < 12; i++) b.append("0123456789abcdef".charAt(r.nextInt(16)));
-            s.put("dev", b.toString()); write(s);
+            s.put("dev", b.toString()); write(s, settingsFile());
         }
         if (Json.str(s.get("name")).isEmpty()) try { s.put("name", InetAddress.getLocalHost().getHostName()); } catch (Exception ignored) { }
         if (Json.str(s.get("door")).isEmpty()) s.put("door", gateway());
@@ -206,11 +212,16 @@ public final class Main extends Application {
     private void save(Map<String, Object> m) {
         Map<String, Object> s = settings();
         for (String k : new String[]{"door", "name", "role", "team", "unit"}) s.put(k, Json.str(m.get(k)));
-        write(s);
+        write(s, settingsFile());
     }
+    private static final String[] KEPT = {"dev", "door", "name", "role", "team", "unit", "comms", "commsApp"};
+    /** [RT_APP_SETTINGS_APART_V1] each app its own file: settings.json the RangerTrak app's, settings-eoc.json the EOC app's
+     *  (its own device id too: both may run on one computer) */
+    private String settingsFile() { return lock().isEmpty() ? "settings.json" : "settings-" + lock().replaceAll("[^a-z0-9_-]", "") + ".json"; }
 
-    private static void write(Map<String, Object> s) {
-        try { Files.createDirectories(home()); Files.write(home().resolve("settings.json"), Json.write(s).getBytes(StandardCharsets.UTF_8)); }
+    private static void write(Map<String, Object> s0, String file) {
+        Map<String, Object> s = Json.o(); for (String k : KEPT) if (s0.containsKey(k)) s.put(k, s0.get(k));
+        try { Files.createDirectories(home()); Files.write(home().resolve(file), Json.write(s).getBytes(StandardCharsets.UTF_8)); }
         catch (IOException e) { System.err.println("settings not saved: " + e.getMessage()); }
     }
 
