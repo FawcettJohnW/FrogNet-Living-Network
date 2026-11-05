@@ -281,6 +281,7 @@ function diagSheet(d) {
   if (S.sheet !== 'diag' || $('#sheet').hidden) return
   const t = (ms) => ms ? new Date(ms).toLocaleTimeString() : '—', j = (o) => esc(JSON.stringify(o))
   const yes = (b) => b ? '<span class="ok">yes</span>' : '<span class="bad">NO</span>'
+  let tun = null; try { tun = window.rtNative && window.rtNative.tunnelState ? JSON.parse(window.rtNative.tunnelState()) : null } catch (e) { tun = { notes: ['tunnel state not read: ' + e] } }
   let gps = null; try { gps = window.rtNative && window.rtNative.gpsState ? JSON.parse(window.rtNative.gpsState()) : null } catch (e) { gps = { error: String(e) } }
   const me = d.me || {}, lf = me.lastFix, ls = d.lastSay, h = d.hosts
   const fs = (d.followers || []).map(f => `<tr><td><b>${esc(f.name)}</b><div class="meta">${esc(f.service)}${f.variable ? ' / ' + esc(f.variable) : ''}</div></td>
@@ -291,6 +292,11 @@ function diagSheet(d) {
     <div>Door <b>${esc(d.door) || '<span class="bad">none</span>'}</b>; the RAMs it says: ${j(d.doorRams)}; in use: ${j(d.rams)}</div>
     <h3>Where this device reads and writes</h3>
     <table class="dt"><tr><th>Follower</th><th>RAM at</th><th>State</th><th>Sessions</th><th>Writes</th><th>Holds</th></tr>${fs || '<tr><td colspan="6" class="bad">no followers: not connected</td></tr>'}</table>
+    ${tun ? `<h3>FrogNet tunnel</h3>
+    <div>This app's tunnel: ${tun.running ? '<span class="ok">up</span>' : '<span class="bad">not running</span>'}${tun.vpnUp ? ' · a VPN network is up' : ''}${tun.otherTunnel ? ' · another FrogNet app\'s tunnel is up' : ''} · invitation ${tun.invited ? 'yes (' + esc(tun.what) + ')' : '<span class="bad">NO</span>'}</div>
+    <div>On a node's LAN: ${tun.nodeLan ? esc(tun.nodeLan) + ' (no tunnel needed: the node routes this phone)' : 'no'}${tun.lanShape && !tun.nodeLan ? ' · node-shaped LAN ' + esc(tun.lanShape) : ''} · gateways asked: ${esc(JSON.stringify(tun.gateways))}</div>
+    <div class="meta">${esc(tun.networks || '')}</div>
+    <div class="meta">${(tun.notes || []).map(esc).join('<br>') || 'no tunnel decision yet'}</div>` : ''}
     <h3>This device</h3>
     <div>${gps ? `Phone GPS: permission ${yes(gps.permission)}, GPS on ${yes(gps.gpsOn)}, fixes ${gps.fixes}${gps.last ? `, last ${gps.last.lat.toFixed(5)},${gps.last.lng.toFixed(5)} ±${Math.round(gps.last.acc)} m, ${gps.last.ageS} s ago` : ' <span class="bad">(none yet)</span>'}` : `This device has no GPS of its own: its position is ${S.addr ? 'the address ' + esc(S.addr.label || '') : S.nodeFixed ? 'its node\'s, ' + esc((myNode() || {}).name || '') + ' (its GPS)' : '<span class="bad">none</span>: ' + nodeWhy()} <button type="button" onclick="addressSheet('Where is this device?')">Where am I?</button>`}</div>
     <div>Last position sent to the core: ${lf ? `${t(lf.at)} ${Number(lf.lat).toFixed(5)},${Number(lf.lng).toFixed(5)} (${esc(lf.src)}); written to ${esc(lf.to)}: ${yes(lf.written)}` : '<span class="bad">none</span>'}</div>

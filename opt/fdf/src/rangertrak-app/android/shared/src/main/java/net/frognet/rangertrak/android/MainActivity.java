@@ -24,6 +24,9 @@ import net.frognet.ram.Json;
 import net.frognet.rangertrak.AppCore;
 
 import java.security.SecureRandom;
+import java.util.ArrayList;
+import java.util.HashMap;
+import java.util.List;
 import java.util.Map;
 
 /**
@@ -70,6 +73,16 @@ public final class MainActivity extends Activity implements LocationListener {
         /** [RT_NO_GPS_V1] a street address, looked up by Android's Geocoder: this device's position when it has no GPS */
         /** [RT_MAP_SAYS_V1] the page's own account of its map, in Logcat (tag RangerTrak) */
         @JavascriptInterface public void log(final String line) { android.util.Log.i("RangerTrak", line); }
+        /** [RT_DIAG_V1] the FrogNet tunnel as Diagnostics shows it: what this phone's network is, whether this app holds the
+         *  tunnel (or another FrogNet app does), whether it has an invitation, and the tunnel decisions it made, in order */
+        @JavascriptInterface public String tunnelState() {
+            String lan = "", shape = "", nets = "";
+            try { lan = nodeLan(); shape = lanShape(); nets = networks(); } catch (RuntimeException e) { nets = "networks not read: " + e; }
+            List<String> notes; synchronized (tunnelNotes) { notes = new ArrayList<String>(tunnelNotes); }
+            return Json.write(Json.o("invited", Member.has(MainActivity.this), "what", Member.has(MainActivity.this) ? Member.what(MainActivity.this) : "",
+                    "running", Member.running(), "started", memberStarted, "vpnUp", vpnUp(), "otherTunnel", otherTunnel() != null,
+                    "nodeLan", lan, "lanShape", shape, "gateways", new HashMap<String, Object>(gwIsNode), "networks", nets, "notes", notes));
+        }
         /** [RT_DIAG_V1] the phone's GPS as Diagnostics shows it: permission, the GPS switched on, fixes had, the last one */
         @JavascriptInterface public String gpsState() {
             LocationManager lm = (LocationManager) getSystemService(LOCATION_SERVICE);
@@ -168,7 +181,12 @@ public final class MainActivity extends Activity implements LocationListener {
     static final int VPN_CONSENT = 7;
     private volatile boolean memberStarted = false, memberRestart = false;
     private volatile String pendingConnect = null;
-    private void note(String l) { android.util.Log.i("RangerTrak", l); deliver(Json.o("ev", "status", "text", l)); }
+    private void note(String l) {
+        android.util.Log.i("RangerTrak", l); deliver(Json.o("ev", "status", "text", l));
+        // [RT_DIAG_V1] the tunnel's decisions, kept for Diag (the status line shows only the last line of anything)
+        if (l.startsWith("[")) { tunnelNotes.add(new java.text.SimpleDateFormat("HH:mm:ss").format(new java.util.Date()) + " " + l); while (tunnelNotes.size() > 12) tunnelNotes.remove(0); }
+    }
+    private final List<String> tunnelNotes = java.util.Collections.synchronizedList(new ArrayList<String>());
     /** [SHARED_TUNNEL_V1] a TUN on this phone that routes 10.0.0.0/8 while this app has no membership running: another
      *  FrogNet app's tunnel to the FrogNet host; null when there is none */
     private android.net.Network otherTunnel() {
