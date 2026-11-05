@@ -1,6 +1,7 @@
 // RangerTrak for Android [RT_APP_ANDROID_V1]: the app's page (../ui) and core (../core, on ../../frognet-ram-java) in a
 // WebView, with the phone's GPS. Built with Android Studio or ./gradlew :app:assembleDebug (Android SDK + Google's Maven).
 pluginManagement { repositories { google(); mavenCentral(); gradlePluginPortal() } }
+apply(from = "rt-update.settings.gradle.kts")   // [RT_ANDROID_UPDATE_APPLIES_ITSELF_V1] says the build; applies a downloaded update zip
 dependencyResolutionManagement { repositories { google(); mavenCentral() } }
 rootProject.name = "rangertrak-android"
 include(":shared")     // [RT_ANDROID_SHARED_V1] the code the three apps share

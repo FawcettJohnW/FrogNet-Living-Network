@@ -14,4 +14,6 @@ RM=$(cd $O && find . -type f | sed 's|^\./||' | sort | while read f; do [ -e "$N
 Z="$OUT/RangerTrak-Android-Studio-update-$BUILD.zip"; rm -f "$Z"
 [ -z "$CH" ] || (cd $N && zip -q "$Z" $CH)
 [ -z "$RM" ] || { printf '%s\n' $RM > $T/REMOVED.txt; (cd $T && zip -q "$Z" REMOVED.txt); }
+# [RT_ANDROID_UPDATE_APPLIES_ITSELF_V1] the project this zip is made over: a project older than that cannot take it
+OB=$(sed -n 's/.*BUILD = "\(rt-app-[^"]*\)".*/\1/p' $O/shared/src/core/net/frognet/rangertrak/AppCore.java); echo "$OB" > $T/BASE.txt; (cd $T && zip -q "$Z" BASE.txt)
 echo "$Z (over $(basename "$BASE")):"; unzip -l "$Z" | sed -n '4,$p'; rm -rf $T

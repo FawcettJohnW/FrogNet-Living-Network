@@ -1,4 +1,4 @@
-# RangerTrak app (desktop and phone) -- rt-app-2026-11-05-r41
+# RangerTrak app (desktop and phone) -- rt-app-2026-11-05-r42
 
 The demo John set on 2026-11-01 (`opt/frognet_semantic/ribbit/examples/rangertrak/PLAN.md`, its first decision): the EOC
 on a Windows app, a first responder on a phone, presence with GPS, chat, a pre-populated moving world, in an app and not
@@ -46,6 +46,19 @@ role's `act`/`req`, or `RT.button`). **A new view**: `RT.role(...)` in a layer's
 `--lock=` and `--layers=`. **The admin app**: a layer's own panel is `ui-admin/layers/<name>.js` calling
 `RTA.panel(title, fn)` (none yet). Gates: `test/test_app.py` (32 checks; the Team and Public apps run with their own
 layers only), `test/test_team_host.py`, `android/typecheck.sh`.
+
+## r42: the Android project applies its own updates ([RT_ANDROID_UPDATE_APPLIES_ITSELF_V1])
+
+Twice an update zip was unzipped and the phone ran the old build (r29 after r36's zip; r37 after r38's and r40's): the
+files were not where Android Studio builds from (Windows' Extract All makes a new folder named after the zip), and
+the phone ran the `phone` module, not `app`. Nothing said either. Now `settings.gradle.kts` applies
+`rt-update.settings.gradle.kts`, which every build runs first: it says "RangerTrak: building <build> in <folder>" in
+Studio's Build output, and applies the newest update zip newer than the project (from the project folder, the one above
+it, or Downloads; its build read from its own AppCore.java, so "(1)" copies count) before anything compiles, deleting
+its REMOVED.txt and saying so. An update made over a newer project than this one (BASE.txt) stops the build and says
+which project it needs. Update zips (studio_update.sh) are made over the last full project delivered and carry
+BASE.txt. Tested with Gradle 8.14 on a stand-in project: applied the newest of an r42 and an r43 "(1)" zip over r41,
+deleted the removed file, applied nothing the second time, refused r43 over an r40 project.
 
 ## r41: the Android module `phone` is `telecom`
 
