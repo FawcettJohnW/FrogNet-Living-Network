@@ -75,6 +75,15 @@ public final class Follower {
 
     private static String key(String v, String i) { return v + "\u0000" + i; }
 
+    /** [RT_DIAG_V1] variable -> how many tuples this follower holds of it now */
+    public Map<String, Integer> counts() {
+        Map<String, Integer> out = new java.util.TreeMap<String, Integer>();
+        synchronized (view) {
+            for (String k : view.keySet()) { String v = k.substring(0, Math.max(0, k.indexOf('\u0000'))); Integer n = out.get(v); out.put(v, n == null ? 1 : n + 1); }
+        }
+        return out;
+    }
+
     /** instance -> bag, for one variable */
     public Map<String, Map<String, Object>> family(String variable) {
         Map<String, Map<String, Object>> out = new HashMap<String, Map<String, Object>>();

@@ -49,7 +49,7 @@ public final class AppCore {
 
     public static final String APP = "rangertrak";
     public static final String API = "/FawcettInnovations.RINA.ram_interface.php";
-    public static final String BUILD = "rt-app-2026-11-05-r31";
+    public static final String BUILD = "rt-app-2026-11-05-r32";
 
     private final Ui ui;
     private String door = "", dev = "", name = "", role = "", team = "", user = "", mission = "";
@@ -119,6 +119,7 @@ public final class AppCore {
             else if (op.equals("missionSet")) missionSet(m);
             else if (op.equals("say")) send(Json.str(m.get("to")), Json.str(m.get("text")));
             else if (op.equals("fix")) position(m);
+            else if (op.equals("diag")) diag(m);
             else if (op.equals("hosts")) hosts();
             else if (op.equals("sensorHosts")) sensorHosts();
             else if (op.equals("sensors")) sensors(Json.str(m.get("host")));
@@ -475,7 +476,34 @@ public final class AppCore {
         fix = Json.o("name", name, "kind", kindOf(), "team", isTeam() ? team : "", "unit", team, "lat", Json.dbl(m.get("lat")),
                 "lng", Json.dbl(m.get("lng")), "acc", Json.dbl(m.get("acc")), "at", System.currentTimeMillis() / 1000, "via", door, "status", status,
                 "src", Json.str(m.get("src")).isEmpty() ? "gps" : Json.str(m.get("src")));   // [RT_NO_GPS_V1] "address": typed, not measured
-        positions.write(mission, dev, fix, true);
+        boolean ok = positions.write(mission, dev, fix, true);
+        // [RT_DIAG_V1] a position that did not go out is said, not dropped in silence
+        lastPos = Json.o("at", System.currentTimeMillis(), "lat", fix.get("lat"), "lng", fix.get("lng"), "src", fix.get("src"), "written", ok,
+                "to", positions.host + ":" + positions.port);
+        if (!ok && !posSaidBad) { posSaidBad = true; out("ev", "error", "text", "your position was not written: no session to the positions RAM at " + positions.host + ":" + positions.port
+                + (positions.failing() != null ? " (" + positions.failing() + ")" : "")); }
+        if (ok) posSaidBad = false;
+    }
+    private volatile Map<String, Object> lastPos = null, lastSay = null, lastHosts = null;
+    private volatile boolean posSaidBad = false;
+
+    /** [RT_DIAG_V1] what this device's core holds and where it reads and writes, for the page's Diagnostics: the door and
+     *  the RAMs it says, every follower (where, up or failing and why, its sessions, its writes, the tuples it holds by
+     *  variable), this device's last position and whether it went out and came back, the last message and whether it came
+     *  back, and the nodes' GPS answer. The page adds its own side (the map, its fixes). */
+    private void diag(Map<String, Object> m) {
+        List<Object> fs = new ArrayList<Object>();
+        for (Follower f : followers())
+            fs.add(Json.o("name", f.name, "service", f.service, "variable", f.variable, "at", f.host + ":" + f.port, "up", f.up(),
+                    "failing", f.failing() == null ? "" : f.failing(), "sessions", f.gen(), "writes", f.writes(), "holds", new HashMap<String, Object>(f.counts())));
+        Map<String, Object> me = Json.o("dev", dev, "lastFix", lastPos);
+        if (positions != null) { Map<String, Object> mine = positions.family(mission).get(dev); me.put("inPositions", mine != null); if (mine != null) me.put("readBack", mine); }
+        if (general != null) me.put("inPresence", general.family(mission).containsKey(dev));
+        Map<String, Object> said = lastSay == null ? null : new HashMap<String, Object>(lastSay);
+        if (said != null) { synchronized (seen) { said.put("cameBack", seen.containsKey(Json.str(said.get("id")))); } }
+        out("ev", "diag", "build", BUILD, "door", door, "role", role, "view", view().connect, "team", team, "mission", mission, "name", name,
+                "layers", layerNames(), "rams", new HashMap<String, Object>(rams), "doorRams", new HashMap<String, Object>(doorRams),
+                "followers", fs, "me", me, "lastSay", said, "hosts", lastHosts, "at", System.currentTimeMillis());
     }
 
     private void world(Follower who, Object unused) {
@@ -518,6 +546,8 @@ public final class AppCore {
         long ms = System.currentTimeMillis();
         Map<String, Object> b = Json.o("from", dev, "name", name, "text", text, "at", ms / 1000);
         String inst = dev + "." + ms;
+        final String id = to.equals("all") ? "m:" + inst : to.startsWith("dev:") ? "s:" + inst : "t:" + to.substring(Math.min(5, to.length())).toLowerCase() + ":" + inst;
+        lastSay = Json.o("to", to, "id", id, "at", ms);
         if (to.equals("all")) { if (msgs == null || !msgs.write(mission, inst, b, false)) throw new Exception("not connected"); }
         else if (to.startsWith("team:")) {
             String t = to.substring(5); Follower f = null;
@@ -531,6 +561,14 @@ public final class AppCore {
             // dm follows OUR variable; the write goes to theirs on the same RAM (the follower's service is rt-dm)
             emitOnce("s:" + inst, b, to);
         }
+        lastSay.put("written", true);
+        // [RT_DIAG_V1] a message written that its RAM does not give back is said
+        final String said = to;
+        if (!to.startsWith("dev:")) new Thread(new Runnable() { public void run() {
+            sleepMs(5000);
+            boolean back; synchronized (seen) { back = seen.containsKey(id); }
+            if (!back) out("ev", "error", "text", "your message to " + said + " was written but has not come back from its RAM in 5 s (Diagnostics says where it went)");
+        } }, "said-back").start();
     }
 
     /** [RT_LAYERS_V1] this device's kind on the map: its view's (the layer that adds it says) */
@@ -691,11 +729,15 @@ public final class AppCore {
                             "lat", Json.dbl(tpv.get("lat")), "lng", Json.dbl(tpv.get("lon")), "fixAt", Json.str(tpv.get("time"))));
                 }
                 out("ev", "hosts", "list", list);
+                lastHosts = Json.o("at", System.currentTimeMillis(), "from", SENSORS, "withFix", list, "noFix", nofix);
                 StringBuilder names = new StringBuilder();
                 for (Object h : list) names.append(names.length() == 0 ? "" : ", ").append(Json.str(Json.obj(h).get("name")));
                 say("Hosts: " + (list.size() + nofix.size()) + " node(s) record a GPS sensor; " + list.size() + " with a fix ("
                         + names + ")" + (nofix.isEmpty() ? "" : "; no fix: " + String.join(", ", nofix)));
-            } catch (Exception e) { out("ev", "error", "text", "the nodes' GPS sensors (databasehost.frognet): " + e.getMessage()); }
+            } catch (Exception e) {
+                lastHosts = Json.o("at", System.currentTimeMillis(), "from", SENSORS, "error", String.valueOf(e.getMessage()));
+                out("ev", "error", "text", "the nodes' GPS sensors (databasehost.frognet): " + e.getMessage());
+            }
         } }, "hosts").start();
     }
 

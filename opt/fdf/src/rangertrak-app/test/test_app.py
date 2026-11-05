@@ -105,23 +105,26 @@ json.dump({"rams": ["general"], "ports": {"general": int(where["rangertrak.gener
 sim = subprocess.Popen([os.path.join(FDF, "bin", "rt-sim"), "--tick", "1"], env=dict(os.environ, FDF_VAR=T + "/var", FDF_HOSTS=T + "/hosts", FDF_APPS=T + "/apps", FDF_PY=os.path.join(FDF, "lib", "python")),
                        stdout=open(T + "/sim.log", "w"), stderr=subprocess.STDOUT)
 CP = os.pathsep.join([os.path.join(SRC, "frognet-ram-java", "build", "frognet-ram.jar"), os.path.join(APP, "build", "core"), os.path.join(APP, "build", "test")])
-dev = {}
+dev, ROLE = {}, {}
 for d, name, role, team, *lock in (("eoc1", "EOC Desk", "eoc", ""), ("alpha9", "Pat (Alpha)", "team", "Alpha"), ("pub1", "Citizen", "public", ""),
                               ("hosp1", "Charge Nurse", "hospital", ""), ("med12", "Medic 12 crew", "ambulance", ""),
                               ("teamapp", "Lee (Bravo)", "team", "Bravo", "team"), ("pubapp", "Resident", "public", "", "public")):
-    p = free(); dev[d] = p
+    p = free(); dev[d] = p; ROLE[d] = role
     # [RT_LAYERS_V1] the Team app and the Public app as they are built: the base and their own layers only
     lay = {"teamapp": "help,field,team", "pubapp": "help,public"}.get(d, "")
     procs.append(subprocess.Popen(["java", "-Drt.sensors=http://127.0.0.1:%d/api.php" % dp, "-Drt.layers=" + lay, "-cp", CP, "DevHost", os.path.join(APP, "ui"), str(p), d, name, DOOR, role, team] + lock,
                                   stdout=open(T + "/dev-%s.log" % d, "w"), stderr=subprocess.STDOUT))
 time.sleep(2.5)
 
+PICKED = []
 def markers(pg): return pg.evaluate("Object.keys(S.markers).length")
 with sync_playwright() as pw:
     br = pw.chromium.launch()
     def open_dev(d, w=1280, h=800):
         pg = br.new_context(viewport={"width": w, "height": h}).new_page()
-        pg.goto("http://127.0.0.1:%d/" % dev[d]); pg.wait_for_selector("#connect:not([hidden])", timeout=8000); return pg
+        pg.goto("http://127.0.0.1:%d/" % dev[d]); pg.wait_for_selector("#connect:not([hidden]), #pick:not([hidden])", timeout=8000)
+        if pg.is_visible("#pick"): PICKED.append((d, pg.evaluate("[...document.querySelectorAll('#pick [data-pick]')].map(b=>b.textContent)"))); pg.click("[data-pick=%s]" % ROLE[d])   # [RT_APP_PICKER_V1]
+        pg.wait_for_selector("#connect:not([hidden])", timeout=3000); return pg
     eoc = open_dev("eoc1")
     eoc.wait_for_function("[...document.querySelectorAll('[name=team] option')].map(o=>o.value).join()==='Alpha,Bravo,Charlie,Delta,Echo'", timeout=8000)
     check(True, "24 the connect screen's teams are the admin's, asked of the node: " + eoc.evaluate("[...document.querySelectorAll('[name=team] option')].map(o=>o.value).join(', ')"))
@@ -175,7 +178,7 @@ with sync_playwright() as pw:
         eoc.screenshot(path=os.path.join(SHOTS, "eoc-chat.png")); eoc.click("#pop .pclose")
 
     pb = open_dev("pub1", 412, 860)
-    pb.check("[name=role][value=public]"); pb.click("#connect button"); pb.wait_for_selector("#main:not([hidden])", timeout=8000)
+    pb.wait_for_selector("#connect:not([hidden])"); pb.click("#connect button"); pb.wait_for_selector("#main:not([hidden])", timeout=8000)
     home_ok = pb.is_visible("#home") and pb.evaluate("document.querySelectorAll('#home [data-go]').length") == 8
     pb.click("[data-go=map]"); pb.wait_for_function("Object.keys(S.markers).length > 10", timeout=15000)
     pk = pb.evaluate("[...new Set(Object.keys(S.markers).map(id=>id.startsWith('help:')?'help':id.startsWith('field:')?(S.field[id.slice(6)]||{}).what:(S.pos[id]||{}).kind))]")
@@ -233,7 +236,7 @@ with sync_playwright() as pw:
         tm.screenshot(path=os.path.join(SHOTS, "team-actions.png"))
     # [RT_FACILITY_V1] the hospital's desk; [RT_TRANSPORT_V1] the ambulance
     hs = open_dev("hosp1", 1100, 800)
-    hs.check("[name=role][value=hospital]"); hs.fill("[name=unit]", "Swedish Ballard"); hs.click("#connect button")
+    hs.wait_for_selector("#connect:not([hidden])"); hs.fill("[name=unit]", "Swedish Ballard"); hs.click("#connect button")
     hs.wait_for_selector("#main:not([hidden])", timeout=8000)
     hs.wait_for_function("Object.keys(S.fac).length >= 12 && !$('#sheet').hidden && S.sheet==='fac'", timeout=15000)
     hs.fill(".fac [name=b_ed]", "3"); hs.fill(".fac [name=b_icu]", "1"); hs.select_option(".fac [name=diversion]", "Trauma diversion")
@@ -243,7 +246,7 @@ with sync_playwright() as pw:
           "21 the hospital's desk: %d hospitals' statuses (the simulated ones); Swedish Ballard's published, on the EOC: %s" % (
               hs.evaluate("Object.keys(S.fac).length"), eoc.evaluate("JSON.stringify(S.fac['swedish-ballard'].beds)")))
     md = open_dev("med12", 412, 860)
-    md.check("[name=role][value=ambulance]"); md.fill("[name=unit]", "Medic 12"); md.click("#connect button")
+    md.wait_for_selector("#connect:not([hidden])"); md.fill("[name=unit]", "Medic 12"); md.click("#connect button")
     md.wait_for_selector("#main:not([hidden])", timeout=8000); md.wait_for_function("Object.keys(S.fac).length >= 12", timeout=10000)
     md.click("#actBtn"); md.select_option(".tf [name=to]", "Swedish Ballard"); md.select_option(".tf [name=triage]", "Red")
     md.fill(".tf [name=eta]", "9"); md.fill(".tf [name=complaint]", "fall from ladder, unresponsive"); md.click(".tf .go")
@@ -294,6 +297,16 @@ with sync_playwright() as pw:
     check(p_ok and pb_back and home_again and "page error" in err and pl == "help,public",
           "31 the Public app (layers " + pl + "): no view to choose (titled RangerTrak Public), opens on its home; Back from the map goes Home; a page error is said on the status line: '%s'" % err[:80])
     if SHOTS: pa.screenshot(path=os.path.join(SHOTS, "public-app-phone.png"))
+    pk = dict(PICKED)
+    check(set(pk) == {"eoc1", "alpha9", "pub1", "hosp1", "med12"} and any(t.startswith("RangerTrak EOC") for t in pk["eoc1"]) and len(pk["eoc1"]) >= 5,
+          "33 [RT_APP_PICKER_V1] the RangerTrak app asks which app first (%s); the Team and Public apps do not: asked on %s" % (pk.get("eoc1"), sorted(pk)))
+    # [RT_DIAG_V1] the team member's Diagnostics: its followers up, its position written and in the positions RAM, its message back
+    tm.evaluate("$('#sheet').hidden=true"); tm.click("#diagBtn"); tm.wait_for_function("/Where this device reads/.test($('#sheet').textContent) && /Last message/.test($('#sheet').textContent)", timeout=8000)
+    dg = tm.inner_text("#sheet .sh-body")
+    import re as _re
+    check("DOWN" not in dg and _re.search(r"In the positions RAM: yes", dg) and _re.search(r"came back yes", dg) and "Last position sent to the core" in dg,
+          "34 [RT_DIAG_V1] the Team member's Diagnostics: no follower down, its position in the positions RAM, its message came back: %s" % " | ".join(l for l in dg.splitlines() if l.startswith(("In the positions", "Last message", "Last position")))[:300])
+    if SHOTS: tm.screenshot(path=os.path.join(SHOTS, "diag-phone.png"))
     # [RT_RADIO_LOG_IN_THE_APP_V1] a scribe's entry, as the radio log app writes it (rt.js logEntry), on the EOC's Radio log
     sys.path.insert(0, os.path.join(FDF, "lib", "python")); import fnw1
     gh, gp = json.load(open(T + "/var/app-where.json"))["rangertrak.general"].rsplit(":", 1); ls = fnw1.Session(gh, gp)

@@ -70,6 +70,15 @@ public final class MainActivity extends Activity implements LocationListener {
         /** [RT_NO_GPS_V1] a street address, looked up by Android's Geocoder: this device's position when it has no GPS */
         /** [RT_MAP_SAYS_V1] the page's own account of its map, in Logcat (tag RangerTrak) */
         @JavascriptInterface public void log(final String line) { android.util.Log.i("RangerTrak", line); }
+        /** [RT_DIAG_V1] the phone's GPS as Diagnostics shows it: permission, the GPS switched on, fixes had, the last one */
+        @JavascriptInterface public String gpsState() {
+            LocationManager lm = (LocationManager) getSystemService(LOCATION_SERVICE);
+            Location l = lastFix;
+            return Json.write(Json.o("permission", checkSelfPermission(Manifest.permission.ACCESS_FINE_LOCATION) == PackageManager.PERMISSION_GRANTED,
+                    "gpsOn", lm != null && lm.isProviderEnabled(LocationManager.GPS_PROVIDER), "fixes", fixes, "connected", connected,
+                    "last", l == null ? null : Json.o("lat", l.getLatitude(), "lng", l.getLongitude(), "acc", (double) l.getAccuracy(),
+                            "ageS", (System.currentTimeMillis() - l.getTime()) / 1000)));
+        }
         @JavascriptInterface public void geocode(final String address) {
             new Thread(new Runnable() { public void run() {
                 if (!android.location.Geocoder.isPresent()) {
@@ -743,8 +752,9 @@ public final class MainActivity extends Activity implements LocationListener {
             deliver(Json.o("ev", "error", "text", "Location is switched off on this phone: switch it on (Settings, Location) for your position on the map"));
     }
 
+    private volatile long fixes = 0;
     @Override public void onLocationChanged(Location l) {
-        lastFix = l;
+        lastFix = l; fixes++;
         if (!connected) return;
         final String line = fixLine(l);
         new Thread(new Runnable() { public void run() { core.handle(line); } }, "fix").start();

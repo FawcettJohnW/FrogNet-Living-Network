@@ -132,3 +132,18 @@ table.rl td { padding: 5px 6px; border-bottom: 1px solid #1f2a24; vertical-align
 #sheet .icsform input:not([type=checkbox]), #sheet .icsform select, #sheet .icsform textarea,
 #sheet .icsupd input:not([type=checkbox]), #sheet .icsupd select, #sheet .icsupd textarea { display: block; width: 100%; box-sizing: border-box }
 #sheet label.chk { display: flex; gap: 6px; align-items: center }
+
+/* [RT_APP_PICKER_V1] which app: one button per view */
+#pick { position: fixed; inset: 0; display: grid; place-items: center; background: rgba(0,0,0,.6); z-index: 9000; padding: 16px; }
+#pick .pick-card { background: var(--pn); border: 1px solid var(--bd); border-radius: 14px; padding: 20px; width: min(380px, 100%); }
+#pick h2 { margin: 0 0 12px; font-size: 22px; }
+#pick .pick-list { display: grid; gap: 8px; }
+#pick .pick-list button { font-size: 17px; padding: 12px 14px; text-align: left; border-radius: 9px; border: 1px solid var(--bd); background: #0b130e; color: var(--fg); display: flex; justify-content: space-between; align-items: center; cursor: pointer; }
+#pick .pick-list button:hover { border-color: #3fb36b; }
+#pick .pick-last { font-size: 12px; color: var(--mu); }
+#otherApp.linkish { align-self: flex-start; background: none; border: 0; color: #8fe0ad; padding: 0; font-size: 14px; cursor: pointer; text-decoration: underline; }
+
+/* [RT_DIAG_V1] */
+.diag { display: grid; gap: 6px; font-size: 13px; overflow-wrap: anywhere; } .diag h3 { margin: 8px 0 2px; font-size: 14px; }
+.diag .dt { width: 100%; border-collapse: collapse; } .diag .dt th, .diag .dt td { text-align: left; vertical-align: top; padding: 3px 5px; border-bottom: 1px solid var(--bd); }
+.diag .ok { color: #3fb36b; font-weight: 600; } .diag .bad { color: #ff6b6b; font-weight: 600; }

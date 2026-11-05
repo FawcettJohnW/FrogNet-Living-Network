@@ -1,4 +1,4 @@
-# RangerTrak app (desktop and phone) -- rt-app-2026-11-05-r31
+# RangerTrak app (desktop and phone) -- rt-app-2026-11-05-r32
 
 The demo John set on 2026-11-01 (`opt/frognet_semantic/ribbit/examples/rangertrak/PLAN.md`, its first decision): the EOC
 on a Windows app, a first responder on a phone, presence with GPS, chat, a pre-populated moving world, in an app and not
@@ -46,6 +46,25 @@ role's `act`/`req`, or `RT.button`). **A new view**: `RT.role(...)` in a layer's
 `--lock=` and `--layers=`. **The admin app**: a layer's own panel is `ui-admin/layers/<name>.js` calling
 `RTA.panel(title, fn)` (none yet). Gates: `test/test_app.py` (32 checks; the Team and Public apps run with their own
 layers only), `test/test_team_host.py`, `android/typecheck.sh`.
+
+## r32: which app, first; Diagnostics on the screen
+
+- **Which app?** ([RT_APP_PICKER_V1]) The RangerTrak app (every view: the Windows RangerTrak app, the phone's "app"
+  module) opens on a pop-up, one button per view (RangerTrak EOC, Team, Hospital, Ambulance, Water, Power, Shelter,
+  Phone, Public), the one used last marked. The connect screen is then that app's (its title, its fields); Other app on
+  it asks again. The EOC, Team and Public apps (locked to one view) do not ask. Connecting by an enrolled phone or a
+  lead's card closes it.
+- **Diag** ([RT_DIAG_V1]) in the header: the core's account (`op=diag` → `ev diag`) and the page's, on one sheet, again
+  on every world, message or error while it is open: the build, view, mission, door, the RAMs the door says and the
+  ones in use; every follower (its RAM's host:port, up or DOWN and why, sessions, writes, the tuples it holds by
+  variable); the phone's GPS (permission, GPS on, fixes, the last, from `rtNative.gpsState()`); the last position sent
+  and whether it was written and is in the positions RAM; whether this device is present; the last message and whether
+  it came back; the map's line ([RT_MAP_SAYS_V1]); the layers on; the nodes' GPS answer (databasehost.frognet's
+  sensors, or its error); what went wrong lately. A position that could not be written, and a message its RAM did not
+  give back in 5 s, are said on the status line. `Follower.counts()` (frognet-ram-java) gives the held tuples.
+- Gates: test_app 34/34 (33: the RangerTrak app asks, the Team and Public apps do not; 34: the Team member's Diagnostics
+  say its followers up, its position in the positions RAM, its message came back); test_enroll_page, test_admin_page,
+  typecheck PASS.
 
 ## r31 / admin r10: categories as pop-ups, groups added with their leads, QR codes saved
 

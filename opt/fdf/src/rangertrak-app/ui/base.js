@@ -105,6 +105,7 @@ function start() {
     S.cfg.role = lock.name; $('#roleSet').hidden = true
     document.querySelector('#connect h1').textContent = lock.title; document.title = lock.title
   }
+  else pickerReady()
   if (S.cfg.build) $('#cstatus').textContent = S.cfg.build      // [APP_SAYS_ITS_BUILD_V1] which build this is, on the first screen
   // [APP_IS_SELF_CONTAINED_V1] the phone is the FrogNet member itself: its invitation, pasted once, then kept (and only said)
   if (S.cfg.platform === 'android') {
@@ -120,7 +121,28 @@ function start() {
   RT.fire('init', S.cfg)
   roleFields(); askRoles()
   S.ready = true; for (const m of early.splice(0)) window.rtDeliver(m)
-  setTimeout(() => { $('#splash').classList.add('gone'); f.hidden = false }, 1800)
+  setTimeout(() => { $('#splash').classList.add('gone'); if (lock || Object.keys(RT.roles).length < 2) f.hidden = false; else pickApp() }, 1800)
+}
+// [RT_APP_PICKER_V1] an app with more than one view (the RangerTrak app, not the EOC, Team or Public app) asks first which
+// app this is: a pop-up with one button per view; the connect screen is then that app's (its title, its fields), and
+// "Other app" on it asks again. The view used last is marked, never taken without asking.
+function pickerReady() {
+  $('#roleSet').hidden = true
+  document.body.insertAdjacentHTML('beforeend', '<div id="pick" hidden><div class="pick-card"><h2>Which app?</h2><div class="pick-list"></div></div></div>')
+  $('#cstatus').insertAdjacentHTML('beforebegin', '<button type="button" id="otherApp" class="linkish">Other app</button>')
+  $('#otherApp').onclick = pickApp
+}
+function pickApp() {
+  const last = S.cfg.role
+  $('#pick .pick-list').innerHTML = Object.values(RT.roles).map(r => `<button type="button" data-pick="${esc(r.name)}">${esc(r.title || 'RangerTrak ' + r.label)}${r.name === last ? '<span class="pick-last">last used</span>' : ''}</button>`).join('')
+  $('#pick').querySelectorAll('[data-pick]').forEach(b => b.onclick = () => {
+    const r = RT.roles[b.dataset.pick], f = $('#connect')
+    f.querySelector(`[name=role][value=${r.name}]`).checked = true; roleFields()
+    const t = r.title || 'RangerTrak ' + r.label
+    f.querySelector('h1').textContent = t; document.title = t
+    $('#pick').hidden = true; f.hidden = false
+  })
+  $('#connect').hidden = true; $('#pick').hidden = false
 }
 function roleFields() {
   const c = $('#connect').querySelector('[name=role]:checked'), r = RT.roles[c ? c.value : ''] || {}
@@ -181,6 +203,7 @@ window.rtDeliver = function (line) {
   if (!S.ready) { early.push(m); return }
   if (m.ev === 'status') status(m.text)
   else if (m.ev === 'error') { status('⚠ ' + m.text); if (!$('#connect').hidden) $('#cstatus').textContent = m.text }
+  else if (m.ev === 'diag') diagSheet(m)
   else if (m.ev === 'connected') connected(m)
   else if (m.ev === 'enrollScan') enrollScan(m)
   else if (m.ev === 'enrolled') enrolled(m)
@@ -190,8 +213,8 @@ window.rtDeliver = function (line) {
     S.mission = m; if (S.sheet === 'mis' && !$('#sheet').hidden && !S.misEditing) missionPanel()
     if (changed) notify({ id: 'mis:' + m.id, from: '', name: 'Mission', to: 'all', text: 'the mission now is ' + (m.name || m.id), at: Date.now() / 1000 })
     addressFix() }
-  else if (m.ev === 'world') world(m.who || {}, m.pos || {})
-  else if (m.ev === 'msg') message(m)
+  else if (m.ev === 'world') { world(m.who || {}, m.pos || {}); diagAgain() }
+  else if (m.ev === 'msg') { message(m); diagAgain() }
   else if (m.ev === 'sensorHosts') sensorHosts(m.hosts || {})
   else if (m.ev === 'sensors') sensorList(m.host, m.list || [])
   else if (m.ev === 'sensor') sensorShow(m)
@@ -205,10 +228,46 @@ window.rtDeliver = function (line) {
   else if (m.ev === 'hosts') { S.gps = {}; for (const h of m.list || []) S.gps['gps:' + h.name] = Object.assign({ kind: 'host' }, h); redraw() }
   for (const f of (RT.evs[m.ev] || [])) f(m)                     // [RT_LAYERS_V1] the layers' events
 }
-function status(t) { $('#status').textContent = t; $('#dot').classList.toggle('up', !/FAILING|cannot|⚠/.test(t)) }
+function status(t) { $('#status').textContent = t; $('#dot').classList.toggle('up', !/FAILING|cannot|⚠/.test(t)); if (/FAILING|cannot|⚠|not /.test(t)) said(t) }
+// ------------------------------------------------------------ [RT_DIAG_V1] Diagnostics: the core's account (op=diag) and the page's
+// own (the map, this device's fixes, what went wrong lately), on one sheet, again whenever the world, a message or an error
+// comes while it is open. Nothing to run anywhere: the app says it.
+S.errs = []
+function said(t) { S.errs.push(new Date().toLocaleTimeString() + ' ' + t); if (S.errs.length > 30) S.errs.shift(); diagAgain() }
+let diagAsked = 0
+function diagAgain() { if (S.sheet === 'diag' && !$('#sheet').hidden && Date.now() - diagAsked > 1000) { diagAsked = Date.now(); send({ op: 'diag' }) } }
+$('#diagBtn').onclick = () => { diagAsked = Date.now(); send({ op: 'diag' }); sheet('diag', 'Diagnostics', '<div class="meta">asking the core…</div>') }
+function diagSheet(d) {
+  if (S.sheet !== 'diag' || $('#sheet').hidden) return
+  const t = (ms) => ms ? new Date(ms).toLocaleTimeString() : '—', j = (o) => esc(JSON.stringify(o))
+  const yes = (b) => b ? '<span class="ok">yes</span>' : '<span class="bad">NO</span>'
+  let gps = null; try { gps = window.rtNative && window.rtNative.gpsState ? JSON.parse(window.rtNative.gpsState()) : null } catch (e) { gps = { error: String(e) } }
+  const me = d.me || {}, lf = me.lastFix, ls = d.lastSay, h = d.hosts
+  const fs = (d.followers || []).map(f => `<tr><td><b>${esc(f.name)}</b><div class="meta">${esc(f.service)}${f.variable ? ' / ' + esc(f.variable) : ''}</div></td>
+    <td>${esc(f.at)}</td><td>${f.up ? '<span class="ok">up</span>' : '<span class="bad">DOWN</span>'}${f.failing ? '<div class="bad">' + esc(f.failing) + '</div>' : ''}</td>
+    <td>${f.sessions}</td><td>${f.writes}</td><td>${Object.entries(f.holds || {}).map(([v, n]) => esc(v || '(none)') + ' ' + n).join('<br>') || '<span class="meta">nothing</span>'}</td></tr>`).join('')
+  const body = `<div class="diag">
+    <div><b>${esc(d.build)}</b> · view ${esc(d.role)} (${esc(d.view)})${d.team ? ' · team ' + esc(d.team) : ''} · mission ${esc(d.mission) || '<span class="bad">none</span>'} · ${esc(d.name)} · layers ${esc(d.layers)}</div>
+    <div>Door <b>${esc(d.door) || '<span class="bad">none</span>'}</b>; the RAMs it says: ${j(d.doorRams)}; in use: ${j(d.rams)}</div>
+    <h3>Where this device reads and writes</h3>
+    <table class="dt"><tr><th>Follower</th><th>RAM at</th><th>State</th><th>Sessions</th><th>Writes</th><th>Holds</th></tr>${fs || '<tr><td colspan="6" class="bad">no followers: not connected</td></tr>'}</table>
+    <h3>This device</h3>
+    <div>${gps ? `Phone GPS: permission ${yes(gps.permission)}, GPS on ${yes(gps.gpsOn)}, fixes ${gps.fixes}${gps.last ? `, last ${gps.last.lat.toFixed(5)},${gps.last.lng.toFixed(5)} ±${Math.round(gps.last.acc)} m, ${gps.last.ageS} s ago` : ' <span class="bad">(none yet)</span>'}` : 'No GPS on this device (a typed address is its position)'}</div>
+    <div>Last position sent to the core: ${lf ? `${t(lf.at)} ${Number(lf.lat).toFixed(5)},${Number(lf.lng).toFixed(5)} (${esc(lf.src)}); written to ${esc(lf.to)}: ${yes(lf.written)}` : '<span class="bad">none</span>'}</div>
+    <div>In the positions RAM: ${yes(me.inPositions)}${me.readBack ? ' ' + j({ lat: me.readBack.lat, lng: me.readBack.lng, kind: me.readBack.kind }) : ''} · present: ${yes(me.inPresence)}</div>
+    <div>Last message: ${ls ? `${t(ls.at)} to ${esc(ls.to)}; written ${yes(ls.written)}; came back ${yes(ls.cameBack)}` : 'none sent'}</div>
+    <h3>The map</h3>
+    <div>${esc(mapSaid || '')}</div>
+    <div>Layers on: ${esc(Object.entries(S.on).filter(([, v]) => v).map(([k]) => k).join(', ') || 'none')}</div>
+    <div>Nodes' GPS: ${!h ? 'not asked (turn on the Hosts layer)' : h.error ? '<span class="bad">' + esc(h.error) + '</span> (' + esc(h.from) + ')' : (h.withFix || []).length + ' with a fix ' + j((h.withFix || []).map(x => x.name)) + ', no fix ' + j(h.noFix) + ' (' + esc(h.from) + ', ' + t(h.at) + ')'}</div>
+    <h3>Lately</h3><div class="meta">${S.errs.slice().reverse().map(esc).join('<br>') || 'nothing went wrong'}</div>
+    <div class="meta">as of ${t(d.at)}</div></div>`
+  $('#sheet .sh-body').innerHTML = body
+}
 function refreshSheet(what) { if (!$('#sheet').hidden) RT.fire('refresh', what) }
 
 function connected(m) {
+  if ($('#pick')) $('#pick').hidden = true     // [RT_APP_PICKER_V1] connected (an enrolled phone, a lead's card): the question is answered
   S.role = m.role; S.team = m.team || ''; S.connectedAt = Date.now()
   const r = RT.me()
   $('#connect').hidden = true; $('#main').hidden = false
