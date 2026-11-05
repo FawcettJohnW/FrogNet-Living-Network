@@ -14,7 +14,7 @@ android {
         minSdk = 29
         targetSdk = 34
         versionCode = 8
-        versionName = "rt-admin-2026-11-04-r8"
+        versionName = "rt-admin-2026-11-05-r9"
     }
     compileOptions { sourceCompatibility = JavaVersion.VERSION_17; targetCompatibility = JavaVersion.VERSION_17 }
     sourceSets["main"].assets.srcDir(genAssets)

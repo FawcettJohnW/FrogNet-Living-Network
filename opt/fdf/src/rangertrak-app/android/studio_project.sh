@@ -56,7 +56,7 @@ plugins { id("com.android.application") }
 android {
     namespace = "net.frognet.rangertrak.admin.android"
     compileSdk = 34
-    defaultConfig { applicationId = "net.frognet.rangertrak.admin"; minSdk = 29; targetSdk = 34; versionCode = 8; versionName = "rt-admin-2026-11-04-r8" }
+    defaultConfig { applicationId = "net.frognet.rangertrak.admin"; minSdk = 29; targetSdk = 34; versionCode = 8; versionName = "rt-admin-2026-11-05-r9" }
     compileOptions { sourceCompatibility = JavaVersion.VERSION_17; targetCompatibility = JavaVersion.VERSION_17 }
     buildTypes { release { isMinifyEnabled = false } }
 }

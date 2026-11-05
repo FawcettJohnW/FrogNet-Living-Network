@@ -44,6 +44,8 @@ public final class Main extends Application {
         }
         /** [RT_CALL_V1] the page's Call: what this computer's Communicator can use, then the Communicator itself */
         public void comms(String json) { Main.this.comms(json); }
+        /** [RT_MAP_SAYS_V1] the page's own account of its map, in this window's log */
+        public void log(String line) { System.out.println(line); }
         public void startComms(String json) { new Thread(() -> Main.this.startComms(json), "comms").start(); }
         /** [CHAT_NOTICE_V1] a message the user cannot see: a Windows notice when this window is not in front */
         public void notice(String from, String text) {

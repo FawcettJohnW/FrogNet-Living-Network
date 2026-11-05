@@ -68,6 +68,8 @@ public final class MainActivity extends Activity implements LocationListener {
             new Thread(new Runnable() { public void run() { core.handle(line); } }, "core").start();
         }
         /** [RT_NO_GPS_V1] a street address, looked up by Android's Geocoder: this device's position when it has no GPS */
+        /** [RT_MAP_SAYS_V1] the page's own account of its map, in Logcat (tag RangerTrak) */
+        @JavascriptInterface public void log(final String line) { android.util.Log.i("RangerTrak", line); }
         @JavascriptInterface public void geocode(final String address) {
             new Thread(new Runnable() { public void run() {
                 if (!android.location.Geocoder.isPresent()) {

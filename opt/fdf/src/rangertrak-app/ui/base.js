@@ -306,12 +306,34 @@ function redraw() {
   }
   RT.fire('redraw', want, place)                          // [RT_LAYERS_V1] the layers' own items (field marks, requests)
   for (const id in S.markers) if (!want[id]) { map.removeLayer(S.markers[id]); delete S.markers[id] }
+  mapSays()
   // hosts: who is connected through which node
   for (const id in S.links) { map.removeLayer(S.links[id]); delete S.links[id] }
   if (S.on.host) for (const id in S.pos) {
     const b = S.pos[id], h = b && b.via && (S.pos[b.via] || Object.values(S.gps).find(g => g.address === b.via))
     if (h && want[id] && typeof h.lat === 'number') S.links[id] = L.polyline([[b.lat, b.lng], [h.lat, h.lng]], { color: '#90a4ae', weight: 1, opacity: .6, dashArray: '3 4' }).addTo(map)
   }
+}
+// [RT_MAP_SAYS_V1] what the map holds and why anything is not on it, said whenever that changes (Logcat tag RangerTrak; the
+// Windows app's window): how many positions the world gave, by kind; how many are drawn; which kinds this view has off;
+// which teams are not shown; how many have no coordinates; and this device's own state
+let mapSaid = ''
+function mapSays() {
+  const all = Object.entries(S.pos).filter(([, b]) => b), by = {}
+  for (const [, b] of all) by[b.kind || '?'] = (by[b.kind || '?'] || 0) + 1
+  const off = Object.keys(by).filter(k => k !== 'team' && !(S.on[k] !== undefined ? S.on[k] : S.on.team))
+  const teamsHidden = [...new Set(all.filter(([, b]) => b.kind === 'team' && !shown(b)).map(([, b]) => String(b.team || '?')))]
+  const noPos = all.filter(([, b]) => typeof b.lat !== 'number').length
+  const viewOnly = all.filter(([, b]) => !visibleInView(b)).length
+  const me = S.pos[S.cfg.dev]
+  const line = '[RT_MAP_SAYS_V1] ' + all.length + ' positions from the world (' + (Object.entries(by).map(([k, n]) => k + ' ' + n).join(', ') || 'none') + '); ' +
+    Object.keys(S.markers).length + ' on the map' + (off.length ? '; kinds off in this view: ' + off.join(', ') : '') +
+    (teamsHidden.length ? '; teams not shown: ' + teamsHidden.join(', ') : '') + (viewOnly ? '; ' + viewOnly + ' not for this view' : '') +
+    (noPos ? '; ' + noPos + ' without coordinates' : '') + '; this device: ' +
+    (me ? (typeof me.lat === 'number' ? 'at ' + me.lat.toFixed(5) + ',' + me.lng.toFixed(5) : 'present, no position yet') : (myFix ? 'has a fix, not in the world yet' : 'no position (no fix, no address)'))
+  if (line === mapSaid) return
+  mapSaid = line; console.log(line)
+  if (window.rtNative && window.rtNative.log) try { window.rtNative.log(line) } catch (e) { }
 }
 function envText(c) { return c.sensors.map(x => Object.entries(x.readings).map(([k, v]) => k + ' ' + v).join(', ')).join('; ') }
 function visibleInView(b) { const o = RT.me().only; return !o || o.includes(b.kind) }
