@@ -28,9 +28,22 @@ const KINDS = {
   host:      { label: 'Hosts',      shape: 'sq',  size: 16, color: '#263238', ch: 'N' },   // the nodes' own GPS
 }
 const TEAM_COLOR = { alpha: '#d62728', bravo: '#1f77b4', charlie: '#2ca02c', delta: '#ff7f0e' }
+// [RT_TEAMS_ARE_THE_NETWORKS_V1] the teams are the network's: the admin's groups with a RAM (the door's op=roles) and every
+// team a position names -- not a list in the page (Alpha..Delta only: an EOC drew no other team, and had no tab for one).
+// A team with no colour of its own gets one from its name.
+const TEAM_MORE = ['#9467bd', '#8c564b', '#e377c2', '#17becf', '#bcbd22', '#7f7f7f', '#393b79', '#637939', '#8c6d31', '#843c39']
+function teamColor(t) { t = String(t || '').toLowerCase(); if (TEAM_COLOR[t]) return TEAM_COLOR[t]; let h = 0; for (const c of t) h = (h * 31 + c.charCodeAt(0)) >>> 0; return TEAM_MORE[h % TEAM_MORE.length] }
+const capT = (t) => t ? t[0].toUpperCase() + t.slice(1) : t
+function knownTeams() { return [...S.teamNames].sort() }
+function addTeam(t) {
+  t = String(t || '').toLowerCase(); if (!t || S.teamNames.has(t)) return false
+  S.teamNames.add(t); if (RT.me().teams === 'all' && !S.teamsOff.has(t)) S.teamsOn.add(t)
+  return true
+}
+function teamsChanged() { if (!map) return; layersPanel(); legend(); tabs(); toList() }
 const LKP_MIN = 10            // a last known position is drawn this many minutes (the app's own choice)
 
-const S = { gps: {}, cfg: {}, role: '', team: '', who: {}, pos: {}, seen: {}, lkp: {}, markers: {}, links: {}, on: {}, msgs: [], tab: 'all', direct: {}, compliance: {}, sheet: '' }
+const S = { teamNames: new Set(), teamsOff: new Set(), teamsOn: new Set(), gps: {}, cfg: {}, role: '', team: '', who: {}, pos: {}, seen: {}, lkp: {}, markers: {}, links: {}, on: {}, msgs: [], tab: 'all', direct: {}, compliance: {}, sheet: '' }
 let map
 
 // ------------------------------------------------------------ [RT_LAYERS_V1] RT: what a layer builds on
@@ -79,6 +92,30 @@ const RT = {
   me() { return RT.roles[S.role] || {} },
 }
 window.RT = RT
+// [RT_TEAMS_ARE_THE_NETWORKS_V1] the admin's teams: every role with its own RAM that is not another view's
+// [RT_CATEGORY_IS_THE_VIEW_V1] the admin's categories are the views: a group in Teams is a team (the Team view's list),
+// one in Ambulance an ambulance unit (the Ambulance view's list), Hospitals a hospital, Power, Water, Shelter, Phone ...
+// (a category's name, any case, its plural s dropped, is the view's name or label). The connect screen offers a view
+// the admin's groups of its own category only.
+function viewOfCategory(c) {
+  const k = String(c || 'Teams').toLowerCase().trim(), one = k.replace(/s$/, '')
+  const v = Object.values(RT.roles).find(r => [r.name, String(r.label || '').toLowerCase()].some(n => n === k || n === one))
+  return v ? v.name : ''
+}
+S.groupsByView = {}
+RT.on('roles', (m) => {
+  const by = {}
+  for (const [r, x] of Object.entries(m.roles || {})) {
+    const v = viewOfCategory((x || {}).category); if (!v || RT.roles[r.toLowerCase()]) continue   // a view's own role (eoc ...) is no group
+    if (v === 'team' && !(x || {}).ram) continue                   // a team is a group with its own RAM
+    ;(by[v] = by[v] || []).push(r)
+  }
+  S.groupsByView = by
+  let more = false
+  for (const r of by.team || []) if (addTeam(r)) more = true
+  if (more) teamsChanged()
+  roleFields()
+})
 
 // ------------------------------------------------------------ start: the native side calls rtInit once the page loads
 // [RT_LAYERS_V1] the app's layers first (cfg.layers, in that order; every one there is when it names none), then the
@@ -153,7 +190,8 @@ function roleFields() {
   document.querySelector('.unit-l').textContent = r.unitLabel || 'Unit'
   // [RT_LAYERS_V1] the unit names this view offers and its hint: its own (a Phone crew is not offered hospitals)
   $('#connect').unit.placeholder = r.unitHint || ''
-  $('#units').innerHTML = (r.units || []).map(u => `<option>${esc(u)}</option>`).join('')
+  const mine = (S.groupsByView || {})[r.name]          // [RT_CATEGORY_IS_THE_VIEW_V1] the admin's groups of this view's category
+  $('#units').innerHTML = (mine && mine.length ? mine.map(capT) : (r.units || [])).map(u => `<option>${esc(u)}</option>`).join('')
 }
 // [ADMIN_APP_V1] the app's roles are the admin's: asked of the node as soon as there is one (and when it changes)
 function askRoles() { const d = $('#connect').door.value.trim(); if (d) send({ op: 'roles', door: d }) }
@@ -288,7 +326,10 @@ function connected(m) {
   S.on.lkp = !r.only
   // (John, 2026-11-01) the EOC starts with the map, teams and resources on it; the chat is a button away. A team member
   // starts with only their own team on the map ([TEAM_VIEW_IS_THE_TEAM_V1]); the others are added from Layers
-  S.teamsOn = new Set(r.teams === 'own' ? [S.team.toLowerCase()] : r.teams === 'all' ? Object.keys(TEAM_COLOR) : [])
+  if (S.team) S.teamNames.add(S.team.toLowerCase())
+  for (const b of Object.values(S.pos)) if (b && b.kind === 'team') S.teamNames.add(String(b.team || '').toLowerCase())
+  S.teamNames.delete('')
+  S.teamsOn = new Set(r.teams === 'own' ? [S.team.toLowerCase()] : r.teams === 'all' ? [...S.teamNames].filter(t => !S.teamsOff.has(t)) : [])
   layersPanel(); legend()
   if (S.on.host) send({ op: 'hosts' })                 // the nodes' own GPS sensors, read once now
   for (const b of RT.buttons) b.hidden = true          // the layers' buttons: each layer shows its own for this view
@@ -308,7 +349,7 @@ function connected(m) {
 }
 
 // ------------------------------------------------------------ the map
-function colorOf(b) { if (b.ooc) return '#d50000'; return b.kind === 'team' ? (TEAM_COLOR[String(b.team || '').toLowerCase()] || b.color || '#888') : (KINDS[b.kind] || KINDS.team).color }
+function colorOf(b) { if (b.ooc) return '#d50000'; return b.kind === 'team' ? teamColor(b.team) : (KINDS[b.kind] || KINDS.team).color }
 function icon(b, id, lkp) {
   const k = KINDS[b.kind] || KINDS.team, c = colorOf(b), s = k.size
   const ch = b.kind === 'team' ? String(b.team || '?')[0] : (k.ch ?? '')
@@ -321,6 +362,8 @@ function world(who, pos) {
   for (const id in S.pos) if (!pos[id] && S.pos[id]) S.lkp[id] = { b: S.pos[id], t: now }   // it left: its last known position
   for (const id in pos) delete S.lkp[id]
   const before = Object.keys(S.who).join(); S.who = who; S.pos = pos; RT.fire('world')
+  let more = false; for (const id in pos) { const b = pos[id]; if (b && b.kind === 'team' && addTeam(b.team)) more = true }
+  if (more) teamsChanged()
   if (Object.keys(who).join() !== before && map) toList()
   redraw()
 }
@@ -401,10 +444,10 @@ function layersPanel() {
   const kinds = Object.keys(KINDS).filter(k => !r.only || r.only.includes(k))
   if (!r.only) {                                  // the teams, one by one: a member adds others from here
     const h = document.createElement('div'); h.className = 'lh'; h.textContent = 'Teams'; p.appendChild(h)
-    for (const t of Object.keys(TEAM_COLOR)) {
+    for (const t of knownTeams()) {
       const l = document.createElement('label')
-      l.innerHTML = `<input type="checkbox" ${S.teamsOn.has(t) ? 'checked' : ''}> <i style="background:${TEAM_COLOR[t]}"></i> ${t[0].toUpperCase() + t.slice(1)}`
-      l.querySelector('input').onchange = (e) => { e.target.checked ? S.teamsOn.add(t) : S.teamsOn.delete(t); redraw() }
+      l.innerHTML = `<input type="checkbox" ${S.teamsOn.has(t) ? 'checked' : ''}> <i style="background:${teamColor(t)}"></i> ${esc(capT(t))}`
+      l.querySelector('input').onchange = (e) => { if (e.target.checked) { S.teamsOn.add(t); S.teamsOff.delete(t) } else { S.teamsOn.delete(t); S.teamsOff.add(t) } redraw() }
       p.appendChild(l)
     }
     const h2 = document.createElement('div'); h2.className = 'lh'; h2.textContent = 'Show'; p.appendChild(h2)
@@ -419,12 +462,12 @@ function layersPanel() {
 $('#layersBtn').onclick = () => { $('#layers').hidden = !$('#layers').hidden }
 function legend() {
   const r = RT.me()
-  $('#legend').innerHTML = r.legend !== undefined ? r.legend : Object.entries(TEAM_COLOR).map(([t, c]) => `<span><i style="background:${c}"></i>${t[0].toUpperCase() + t.slice(1)}</span>`).join('') +
+  $('#legend').innerHTML = r.legend !== undefined ? r.legend : knownTeams().map(t => `<span><i style="background:${teamColor(t)}"></i>${esc(capT(t))}</span>`).join('') +
     '<span><i style="background:#e23b3b;border-radius:2px"></i>Ambulance</span><span><i style="background:#f2c200"></i>Victim</span>'
 }
 
 // ------------------------------------------------------------ chat
-function teamsHere() { return RT.me().teams === 'all' ? Object.keys(TEAM_COLOR).map(t => t[0].toUpperCase() + t.slice(1)) : (S.team ? [S.team] : []) }
+function teamsHere() { return RT.me().teams === 'all' ? knownTeams().map(capT) : (S.team ? [S.team] : []) }
 function tabs() {
   const t = $('#tabs'); t.innerHTML = ''
   for (const [k, n] of [['all', 'Everyone']].concat(teamsHere().map(x => ['team:' + x, x])).concat([['dev', 'Direct']])) {
@@ -449,7 +492,7 @@ function inTab(m) { return S.tab === 'all' ? true : S.tab === 'dev' ? m.to.start
 function msgHtml(m) {
   const mine = m.from === S.cfg.dev, at = m.at ? new Date(m.at * 1000).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) : ''
   const where = m.to === 'all' ? '' : m.to.startsWith('team:') ? ' → ' + m.to.slice(5) : mine ? ' → ' + (S.direct[m.to.slice(4)] || 'direct') : ' → you'
-  const t = m.to.startsWith('team:') ? m.to.slice(5) : '', tc = t ? (TEAM_COLOR[t.toLowerCase()] || '#888') : ''
+  const t = m.to.startsWith('team:') ? m.to.slice(5) : '', tc = t ? teamColor(t) : ''
   const kind = t ? ' team' : m.to.startsWith('dev:') ? ' direct' : ''
   const style = t ? ` style="border-left:5px solid ${tc}"` : ''
   const tag = t ? `<span class="tag" style="background:${tc}">${esc(t)}</span> ` : m.to.startsWith('dev:') ? '<span class="tag dm">direct</span> ' : ''

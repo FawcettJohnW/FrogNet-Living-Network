@@ -307,6 +307,19 @@ with sync_playwright() as pw:
     check("DOWN" not in dg and _re.search(r"In the positions RAM: yes", dg) and _re.search(r"came back yes", dg) and "Last position sent to the core" in dg,
           "34 [RT_DIAG_V1] the Team member's Diagnostics: no follower down, its position in the positions RAM, its message came back: %s" % " | ".join(l for l in dg.splitlines() if l.startswith(("In the positions", "Last message", "Last position")))[:300])
     if SHOTS: tm.screenshot(path=os.path.join(SHOTS, "diag-phone.png"))
+    # [RT_TEAMS_ARE_THE_NETWORKS_V1] a team the page does not name (Echo: the admin's fifth; Zulu: in no list at all) is on
+    # the EOC's map, its Layers and its chat tabs, from the network
+    sys.path.insert(0, os.path.join(FDF, "lib", "python")); import fdfram
+    mis = _re.search(r"mission (\S+)", dg).group(1)
+    gr = fdfram.Ram(where["rangertrak.general"])
+    for i, (t, la) in enumerate((("Echo", 47.61), ("Zulu", 47.62))):
+        gr.write("rt-pos", mis, "x-" + t.lower(), {"name": t + " 1", "kind": "team", "team": t, "lat": la, "lng": -122.33, "at": int(time.time())})
+    try: eoc.wait_for_function("S.markers['x-echo'] && S.markers['x-zulu']", timeout=10000); drawn = True
+    except Exception: drawn = False
+    lay = eoc.evaluate("[...document.querySelectorAll('#layers label')].map(l=>l.textContent.trim())")
+    tabsE = eoc.evaluate("[...document.querySelectorAll('#tabs button')].map(b=>b.textContent)")
+    check(drawn and "Echo" in lay and "Zulu" in lay and any("Echo" in x for x in tabsE) and any("Zulu" in x for x in tabsE),
+          "35 [RT_TEAMS_ARE_THE_NETWORKS_V1] teams Echo and Zulu drawn on the EOC's map %s; its Layers %s; its chat tabs %s" % (drawn, [x for x in lay if x in ("Echo", "Zulu")], tabsE))
     # [RT_RADIO_LOG_IN_THE_APP_V1] a scribe's entry, as the radio log app writes it (rt.js logEntry), on the EOC's Radio log
     sys.path.insert(0, os.path.join(FDF, "lib", "python")); import fnw1
     gh, gp = json.load(open(T + "/var/app-where.json"))["rangertrak.general"].rsplit(":", 1); ls = fnw1.Session(gh, gp)

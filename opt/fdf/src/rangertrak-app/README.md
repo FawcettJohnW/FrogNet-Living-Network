@@ -1,4 +1,4 @@
-# RangerTrak app (desktop and phone) -- rt-app-2026-11-05-r33
+# RangerTrak app (desktop and phone) -- rt-app-2026-11-05-r34
 
 The demo John set on 2026-11-01 (`opt/frognet_semantic/ribbit/examples/rangertrak/PLAN.md`, its first decision): the EOC
 on a Windows app, a first responder on a phone, presence with GPS, chat, a pre-populated moving world, in an app and not
@@ -46,6 +46,17 @@ role's `act`/`req`, or `RT.button`). **A new view**: `RT.role(...)` in a layer's
 `--lock=` and `--layers=`. **The admin app**: a layer's own panel is `ui-admin/layers/<name>.js` calling
 `RTA.panel(title, fn)` (none yet). Gates: `test/test_app.py` (32 checks; the Team and Public apps run with their own
 layers only), `test/test_team_host.py`, `android/typecheck.sh`.
+
+## r34: the teams are the network's; a category is a view
+
+- [RT_TEAMS_ARE_THE_NETWORKS_V1] the page had the teams as a list of its own (Alpha, Bravo, Charlie, Delta): an EOC drew
+  no other team's members, and had no Layers line or chat tab for one. The teams are now the admin's Teams groups (the
+  door's op=roles) and every team a position names; a team with no colour of its own gets one from its name.
+- [RT_CATEGORY_IS_THE_VIEW_V1] the admin's categories are the views: the Team view's list on the connect screen is the
+  groups in Teams (with a RAM), not every group with a RAM (it offered the Ambulance category's groups as teams); the
+  Ambulance, Hospital, Power, Water, Shelter and Phone views offer their own category's groups as units (a category's
+  name, any case, its plural s dropped, is the view's name or label), the built-in names when the admin has none.
+- Gates: test_app 35/35 (35: teams Echo and Zulu, in no list of the page's, on the EOC's map, Layers and chat tabs).
 
 ## r33: each Windows app its own settings ([RT_APP_SETTINGS_APART_V1])
 

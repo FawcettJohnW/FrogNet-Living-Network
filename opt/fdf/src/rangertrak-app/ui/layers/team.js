@@ -18,9 +18,9 @@ RT.layer('team', (RT) => {
   $('[data-field=login]').insertAdjacentHTML('beforebegin', '<div class="for-team" data-field="team" hidden><label>Team <select name="team"><option>Alpha</option><option>Bravo</option><option>Charlie</option><option>Delta</option></select></label></div>')
   RT.hook('init', (cfg) => { if (cfg.team) $('#connect').team.value = cfg.team })
   RT.on('roles', (m) => {
-    const roles = m.roles || {}, sel = $('#connect').team, was = sel.value
-    const notTeams = new Set(Object.keys(RT.roles).filter(r => r !== 'team').concat(['hospitals', 'command']))
-    const teams = Object.entries(roles).filter(([r, x]) => x.ram && !notTeams.has(r.toLowerCase())).map(([r]) => r)
+    const sel = $('#connect').team, was = sel.value
+    // [RT_CATEGORY_IS_THE_VIEW_V1] the groups in the admin's Teams category (with a RAM): not its Ambulance, Power ... groups
+    const teams = (S.groupsByView || {}).team || []
     if (!teams.length) return
     sel.innerHTML = teams.map(t => `<option value="${esc(cap(t))}">${esc(cap(t))}</option>`).join('')
     if (teams.some(t => cap(t) === was)) sel.value = was
