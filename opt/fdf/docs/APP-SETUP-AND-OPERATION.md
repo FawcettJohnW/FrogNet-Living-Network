@@ -159,7 +159,9 @@ Public, the unit apps, the admin app) compiles frognet-android's member, MemberS
 Windows the client zip carries the member. Nothing else is installed. The membership is a FrogNet network, routed
 through the WAN role when one is present -- not a VPN. Its TUN is made with Android's VpnService (BridgeVpn), the only
 way Android gives an app a TUN, and Android keeps one VpnService TUN at a time: off a node's LAN, two apps joined on one
-phone take the TUN from each other (on a node's LAN there is no TUN, [ON_THE_LAN_NO_TUNNEL_V1]). Gates: `rangertrak-app/android/typecheck.sh` (the member's
+phone would take the TUN from each other -- so they don't ([SHARED_TUNNEL_V1], r28): an app that finds another app's tunnel to the
+FrogNet host up (a TUN routing 10.0.0.0/8) brings up none of its own; the phone's routes carry it. When that tunnel goes
+(Android's network callback), it brings up its own. On a node's LAN there is no TUN at all ([ON_THE_LAN_NO_TUNNEL_V1]). Gates: `rangertrak-app/android/typecheck.sh` (the member's
 classes are compiled in); not run on a phone here.
 
 ## Roles, the resilient EOC, and login wherever a device can ([ROLES_NOT_MACHINES_V1], John 2026-11-02)

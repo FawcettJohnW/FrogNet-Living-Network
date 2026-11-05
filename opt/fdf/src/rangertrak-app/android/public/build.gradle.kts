@@ -11,8 +11,8 @@ android {
         applicationId = "net.frognet.rangertrak.pub"
         minSdk = 29
         targetSdk = 34
-        versionCode = 27
-        versionName = "rt-app-2026-11-04-r27"
+        versionCode = 28
+        versionName = "rt-app-2026-11-04-r28"
     }
     compileOptions { sourceCompatibility = JavaVersion.VERSION_17; targetCompatibility = JavaVersion.VERSION_17 }
     packaging { jniLibs { useLegacyPackaging = true } }   // fdf-tun and [TEAM_HOST_V1] libteamram.so are RUN from nativeLibraryDir: extracted at install

@@ -151,8 +151,10 @@ entities." r20-r26's hidden Disaster Area base ([BASE_APP_V1]) is gone: each app
 (`shared/.../Member.java` over frognet-android's member, MemberService, BridgeVpn, fdf-tun). The update zip's
 REMOVED.txt lists the `base/` module and `Base.java`: delete them. The membership is a FrogNet network, routed through the
 WAN role when one is present -- not a VPN. Its TUN is made with Android's VpnService (BridgeVpn), the only way Android
-gives an app a TUN, and Android keeps one VpnService TUN at a time: off a node's LAN, two apps joined on one phone take
-the TUN from each other (on a node's LAN there is no TUN, [ON_THE_LAN_NO_TUNNEL_V1]). [DOOR_REFUSAL_LOGGED_V1] every door refusal is said on the
+gives an app a TUN, and Android keeps one VpnService TUN at a time: off a node's LAN, two apps joined on one phone would take
+the TUN from each other -- so they don't ([SHARED_TUNNEL_V1], r28): an app that finds another app's tunnel to the
+FrogNet host up (a TUN routing 10.0.0.0/8) brings up none of its own; the phone's routes carry it. When that tunnel goes
+(Android's network callback), it brings up its own. On a node's LAN there is no TUN at all ([ON_THE_LAN_NO_TUNNEL_V1]). [DOOR_REFUSAL_LOGGED_V1] every door refusal is said on the
 status line and in Logcat (tag RangerTrak) with the door's reason, the op and the HTTP status.
 
 ## The Android project stays where it is opened ([RT_ANDROID_UPDATE_IN_PLACE_V1])

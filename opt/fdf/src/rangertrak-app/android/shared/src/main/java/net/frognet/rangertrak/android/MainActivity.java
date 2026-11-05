@@ -158,6 +158,39 @@ public final class MainActivity extends Activity implements LocationListener {
     private volatile boolean memberStarted = false, memberRestart = false;
     private volatile String pendingConnect = null;
     private void note(String l) { android.util.Log.i("RangerTrak", l); deliver(Json.o("ev", "status", "text", l)); }
+    /** [SHARED_TUNNEL_V1] a TUN on this phone that routes 10.0.0.0/8 while this app has no membership running: another
+     *  FrogNet app's tunnel to the FrogNet host; null when there is none */
+    private android.net.Network otherTunnel() {
+        if (Member.running()) return null;
+        android.net.ConnectivityManager cm = (android.net.ConnectivityManager) getSystemService(CONNECTIVITY_SERVICE);
+        for (android.net.Network n : cm.getAllNetworks()) {
+            android.net.NetworkCapabilities c = cm.getNetworkCapabilities(n); android.net.LinkProperties lp = cm.getLinkProperties(n);
+            if (c == null || lp == null || !c.hasTransport(android.net.NetworkCapabilities.TRANSPORT_VPN)) continue;
+            for (android.net.RouteInfo r : lp.getRoutes()) {
+                android.net.IpPrefix d = r.getDestination();
+                if (d.getPrefixLength() == 8 && d.getAddress().getHostAddress().equals("10.0.0.0")) return n;
+            }
+        }
+        return null;
+    }
+    private volatile android.net.ConnectivityManager.NetworkCallback otherWatch = null;
+    /** [SHARED_TUNNEL_V1] Android says when that tunnel is gone (an event, not a poll): this app brings up its own */
+    private void watchOtherTunnel(final android.net.Network other) {
+        final android.net.ConnectivityManager cm = (android.net.ConnectivityManager) getSystemService(CONNECTIVITY_SERVICE);
+        if (otherWatch != null) { try { cm.unregisterNetworkCallback(otherWatch); } catch (RuntimeException ignored) { } }
+        otherWatch = new android.net.ConnectivityManager.NetworkCallback() {
+            @Override public void onLost(android.net.Network n) {
+                if (!n.equals(other)) return;
+                try { cm.unregisterNetworkCallback(this); } catch (RuntimeException ignored) { }
+                otherWatch = null;
+                if (memberStarted || !connected || !nodeLan().isEmpty()) return;
+                note("[SHARED_TUNNEL_V1] the other FrogNet app's tunnel is gone: this app brings up its own");
+                runOnUiThread(new Runnable() { public void run() { startMember("the other app's tunnel is gone", false); } });
+            }
+        };
+        cm.registerNetworkCallback(new android.net.NetworkRequest.Builder().addTransportType(android.net.NetworkCapabilities.TRANSPORT_VPN)
+                .removeCapability(android.net.NetworkCapabilities.NET_CAPABILITY_NOT_VPN).build(), otherWatch);
+    }
     private boolean vpnUp() {
         android.net.ConnectivityManager cm = (android.net.ConnectivityManager) getSystemService(CONNECTIVITY_SERVICE);
         for (android.net.Network n : cm.getAllNetworks()) {
@@ -204,6 +237,23 @@ public final class MainActivity extends Activity implements LocationListener {
                 Location l = lastFix; if (l != null) core.handle(fixLine(l));
             } }, "core-connect").start();
             return;
+        }
+        // [SHARED_TUNNEL_V1] another FrogNet app on this phone has its tunnel to the FrogNet host up (its TUN routes
+        // 10.0.0.0/8): routes are the phone's, so this app reaches every address and name through it; it brings up no
+        // tunnel of its own (Android lets one app hold the TUN). When that tunnel goes, this app brings up its own.
+        if (!memberStarted) {
+            final android.net.Network other = otherTunnel();
+            if (other != null) {
+                final String line = pendingConnect; pendingConnect = null;
+                note("[SHARED_TUNNEL_V1] " + why + ": another FrogNet app's tunnel is up on this phone: this app uses it" + networks());
+                watchOtherTunnel(other);
+                if (line == null) return;
+                new Thread(new Runnable() { public void run() {
+                    core.handle(line);
+                    Location l = lastFix; if (l != null) core.handle(fixLine(l));
+                } }, "core-connect").start();
+                return;
+            }
         }
         if (!memberStarted || memberRestart) {          // [APP_IS_SELF_CONTAINED_V1] this app joins (its VPN question, once)
             if (!Member.has(this)) {                    // [ADMITTED_BY_INVITE_V1] the region answers invited keys only
