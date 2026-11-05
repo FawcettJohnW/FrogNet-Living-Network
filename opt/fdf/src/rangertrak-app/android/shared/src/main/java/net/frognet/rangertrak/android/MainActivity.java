@@ -204,8 +204,39 @@ public final class MainActivity extends Activity implements LocationListener {
      *  node's DHCP gave, its gateway that node's x.y.z.1 -- is routed everywhere the node routes: no membership, no
      *  tunnel, no invitation. Off it (any other Wi-Fi, mobile data), this app is the member. The member library's own rule
      *  (Placement: a 10.x inside a /24 a node serves; never the 10.253/10.254 overlay), decided from the address the
-     *  phone has, before anything is tried. "" : not on a node's LAN. */
+     *  phone has, before anything is tried. "" : not on a node's LAN.
+     *  [GATEWAY_IS_A_NODE_V1] (John 2026-11-04, a phone on a home router's 10.101.113.x: "it's not going through the
+     *  Internet to get there") the address's shape is not enough -- any router may hand out 10.x with a .1 gateway: the
+     *  gateway is a node when its door answers (X-FDF-Door). Until the gateway has answered or not, this is "". */
     private String nodeLan() {
+        String lan = lanShape(); if (lan.isEmpty()) return "";
+        Boolean n = gwIsNode.get(gwOf(lan));
+        return n != null && n ? lan : "";
+    }
+    private static String gwOf(String lan) { int a = lan.indexOf(" on "), b = lan.indexOf("'s LAN"); return a > 0 && b > a ? lan.substring(a + 4, b) : ""; }
+    private final Map<String, Boolean> gwIsNode = new java.util.concurrent.ConcurrentHashMap<String, Boolean>();
+    /** [GATEWAY_IS_A_NODE_V1] whether the gateway of a node-shaped LAN is a node is not known yet: asked now (its door),
+     *  then.run() when it has answered; false when it is known (or there is no such LAN) */
+    private boolean gatewayUnknown(final Runnable then) {
+        final String lan = lanShape(); if (lan.isEmpty()) return false;
+        final String gw = gwOf(lan); if (gwIsNode.containsKey(gw)) return false;
+        new Thread(new Runnable() { public void run() {
+            boolean node = false; String said;
+            try {
+                java.net.HttpURLConnection c = (java.net.HttpURLConnection) new java.net.URL("http://" + gw + "/dc/ram.php?op=roles&app=" + AppCore.APP).openConnection();
+                c.setConnectTimeout(3000); c.setReadTimeout(3000);
+                int code = c.getResponseCode(); String d = c.getHeaderField("X-FDF-Door"); node = d != null;
+                said = node ? "its door answered (" + d + ")" : "HTTP " + code + " from " + c.getHeaderField("Server") + ", not a FrogNet door";
+                c.disconnect();
+            } catch (java.io.IOException e) { said = "no door there (" + e.getMessage() + ")"; }
+            gwIsNode.put(gw, node);
+            note("[GATEWAY_IS_A_NODE_V1] " + gw + (node ? " is a FrogNet node: " : " is not a FrogNet node: ") + said + (node ? "" : "; this phone reaches FrogNet through its own tunnel"));
+            runOnUiThread(then);
+        } }, "gateway").start();
+        return true;
+    }
+    /** a 10.x Wi-Fi address (not the overlay) whose gateway is its own x.y.z.1: what a node's LAN looks like */
+    private String lanShape() {
         android.net.ConnectivityManager cm = (android.net.ConnectivityManager) getSystemService(CONNECTIVITY_SERVICE);
         for (android.net.Network n : cm.getAllNetworks()) {
             android.net.NetworkCapabilities c = cm.getNetworkCapabilities(n); android.net.LinkProperties lp = cm.getLinkProperties(n);
@@ -222,7 +253,8 @@ public final class MainActivity extends Activity implements LocationListener {
         return "";
     }
     /** consented: Android just said OK to the VPN question (not asked twice) */
-    private void startMember(String why, boolean consented) {
+    private void startMember(final String why, final boolean consented) {
+        if (gatewayUnknown(new Runnable() { public void run() { startMember(why, consented); } })) return;   // [GATEWAY_IS_A_NODE_V1]
         String lan = nodeLan();
         String tr = ""; try { if (pendingConnect != null) tr = Json.str(Json.obj(Json.parse(pendingConnect)).get("teamRam")); } catch (IllegalArgumentException ignored) { }
         // [TEAM_SPLIT_V1] on its lead's hotspot a member goes the lead's way: the lead's card says whether that needs a
@@ -408,6 +440,7 @@ public final class MainActivity extends Activity implements LocationListener {
         web.loadUrl("file:///android_asset/ui/index.html");
         askForLocation();
         watchNetworks();
+        gatewayUnknown(new Runnable() { public void run() { } });   // [GATEWAY_IS_A_NODE_V1] asked at once, so the first screen knows
     }
 
     private Map<String, Object> settings() {
@@ -555,11 +588,12 @@ public final class MainActivity extends Activity implements LocationListener {
         cm.registerNetworkCallback(new android.net.NetworkRequest.Builder().addCapability(android.net.NetworkCapabilities.NET_CAPABILITY_NOT_VPN).build(),
             new android.net.ConnectivityManager.NetworkCallback() {
                 @Override public void onLinkPropertiesChanged(android.net.Network n, android.net.LinkProperties lp) { netChanged(); }
-                @Override public void onLost(android.net.Network n) { netChanged(); }
+                @Override public void onLost(android.net.Network n) { gwIsNode.clear(); netChanged(); }   // a network gone: its gateway is asked again
             });
     }
     private synchronized void netChanged() {
         if (!connected || onTeamWifi) return;
+        if (gatewayUnknown(new Runnable() { public void run() { new Thread(new Runnable() { public void run() { netChanged(); } }).start(); } })) return;
         String lan = nodeLan();
         if (lan.equals(lastLan)) return;
         boolean first = lastLan == null; lastLan = lan;

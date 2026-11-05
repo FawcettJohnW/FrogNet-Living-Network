@@ -18,11 +18,8 @@
   <fieldset class="roles" id="roleSet"><legend>View</legend>
     <!-- [RT_LAYERS_V1] one radio per view this app has: its layers add them -->
   </fieldset>
-  <div class="for-unit" data-field="unit" hidden><label><span class="unit-l">Unit</span> <input name="unit" list="units" placeholder="Harborview, or Medic 12"></label>
-    <datalist id="units"><option>Harborview</option><option>Swedish First Hill</option><option>Virginia Mason</option><option>UW Medical Center</option>
-      <option>UW Northwest</option><option>Swedish Ballard</option><option>Seattle Children's</option><option>Highline (Burien)</option>
-      <option>Valley Medical (Renton)</option><option>Overlake (Bellevue)</option><option>EvergreenHealth (Kirkland)</option><option>Vashon Health Center</option>
-      <option>Medic 1</option><option>Medic 12</option><option>Medic 21</option><option>Aid 31</option></datalist></div>
+  <div class="for-unit" data-field="unit" hidden><label><span class="unit-l">Unit</span> <input name="unit" list="units"></label>
+    <datalist id="units"></datalist></div>   <!-- [RT_LAYERS_V1] the view's own names and hint (its role's units, unitHint) -->
   <div class="for-eoc" data-field="login" hidden><label>User <input name="user" autocomplete="username"></label>
     <label>Password <input name="password" type="password" autocomplete="current-password"></label></div>
   <div class="for-invite" hidden><label>FrogNet invitation <input name="invite" placeholder="fdfinv1.… (pasted once; kept on this phone)" autocomplete="off"></label>

@@ -36,7 +36,8 @@ let map
 // ------------------------------------------------------------ [RT_LAYERS_V1] RT: what a layer builds on
 // RT.layer(name, fn)       a layer: fn(RT) runs once, when the app loads it
 // RT.role(name, def)       a view the device connects as. def: label, title (the app's name opened as it), field
-//                          ('login': user and password; 'team': the team layer's team; 'unit': a unit name, unitLabel;
+//                          ('login': user and password; 'team': the team layer's team; 'unit': a unit name, unitLabel,
+//                          unitHint, units (the names offered);
 //                          'none'), who() (the header's name for this device), kinds ('all' or the kinds on at first),
 //                          teams ('all' | 'own' | 'none': the teams drawn at first), only (the kinds this view may ever
 //                          draw), chat, home, sensors, mission, log, legend (html), act / req ([label, screen]: the
@@ -128,6 +129,9 @@ function roleFields() {
   $('#scanTeam').hidden = !(S.cfg.platform === 'android' && window.rtNative && window.rtNative.scanTeam)
   document.querySelectorAll('[data-field]').forEach(e => { e.hidden = e.dataset.field !== r.field })
   document.querySelector('.unit-l').textContent = r.unitLabel || 'Unit'
+  // [RT_LAYERS_V1] the unit names this view offers and its hint: its own (a Phone crew is not offered hospitals)
+  $('#connect').unit.placeholder = r.unitHint || ''
+  $('#units').innerHTML = (r.units || []).map(u => `<option>${esc(u)}</option>`).join('')
 }
 // [ADMIN_APP_V1] the app's roles are the admin's: asked of the node as soon as there is one (and when it changes)
 function askRoles() { const d = $('#connect').door.value.trim(); if (d) send({ op: 'roles', door: d }) }

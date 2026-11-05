@@ -14,8 +14,8 @@ android {
         applicationId = "net.frognet.rangertrak.phone"
         minSdk = 29
         targetSdk = 34
-        versionCode = 29
-        versionName = "rt-app-2026-11-04-r29"
+        versionCode = 30
+        versionName = "rt-app-2026-11-04-r30"
         manifestPlaceholders["rtLayers"] = rtLayers.joinToString(",")
     }
     compileOptions { sourceCompatibility = JavaVersion.VERSION_17; targetCompatibility = JavaVersion.VERSION_17 }

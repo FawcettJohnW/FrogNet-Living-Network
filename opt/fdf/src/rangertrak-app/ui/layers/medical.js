@@ -6,9 +6,11 @@
 'use strict'
 RT.layer('medical', (RT) => {
   S.fac = {}; S.tr = {}; S.trActs = {}
-  RT.role('hospital', { label: 'Hospital', field: 'unit', unitLabel: 'Hospital', who: () => S.team, kinds: ['hospital', 'ambulance', 'hazard'],
+  RT.role('hospital', { label: 'Hospital', field: 'unit', unitLabel: 'Hospital', unitHint: 'Harborview',
+                        units: ['Harborview', 'Swedish First Hill', 'Virginia Mason', 'UW Medical Center', 'UW Northwest', 'Swedish Ballard', "Seattle Children's",
+                                'Highline (Burien)', 'Valley Medical (Renton)', 'Overlake (Bellevue)', 'EvergreenHealth (Kirkland)', 'Vashon Health Center'], who: () => S.team, kinds: ['hospital', 'ambulance', 'hazard'],
                         act: ['Status', 'facility'], req: ['Inbound', 'inbound'], connected() { RT.open('facility') } })
-  RT.role('ambulance', { label: 'Ambulance', field: 'unit', unitLabel: 'Unit (e.g. Medic 12)', who: () => S.team, kinds: ['hospital', 'ambulance', 'help', 'hazard', 'service'],
+  RT.role('ambulance', { label: 'Ambulance', field: 'unit', unitLabel: 'Unit', unitHint: 'Medic 12', units: ['Medic 1', 'Medic 12', 'Medic 21', 'Aid 31'], who: () => S.team, kinds: ['hospital', 'ambulance', 'help', 'hazard', 'service'],
                          act: ['Unit', 'unit'], req: ['Hospitals', 'hospitals'] })
   const BEDS = [['ed', 'Emergency'], ['icu', 'ICU'], ['medsurg', 'Med / surg'], ['peds', 'Pediatric'], ['burn', 'Burn'], ['or', 'Operating rooms']]
   const DIVERSION = ['Open', 'ED diversion', 'Trauma diversion', 'Closed to ambulances']

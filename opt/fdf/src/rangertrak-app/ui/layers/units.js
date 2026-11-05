@@ -5,10 +5,10 @@
 // field's Actions and the Requests. A new unit is one line here (or its own layer, with its own screens).
 'use strict'
 RT.layer('units', (RT) => {
-  const unit = (name, label, unitLabel) => RT.role(name, { label, field: 'unit', unitLabel, who: () => S.team,
+  const unit = (name, label, unitLabel, unitHint) => RT.role(name, { label, field: 'unit', unitLabel, unitHint, who: () => S.team,
     kinds: [name, 'hazard', 'help', 'service'], act: ['Actions', 'field'], req: ['Requests', 'requests'] })
-  unit('water', 'Water', 'Water crew or site')
-  unit('power', 'Power', 'Power crew')
-  unit('shelter', 'Shelter', 'Shelter')
-  unit('phone', 'Phone', 'Phone crew')
+  unit('water', 'Water', 'Water crew or site', 'Water crew 3')
+  unit('power', 'Power', 'Power crew', 'Line crew 7')
+  unit('shelter', 'Shelter', 'Shelter', 'Vashon High School gym')
+  unit('phone', 'Phone', 'Phone crew', 'Phone crew 2')
 })

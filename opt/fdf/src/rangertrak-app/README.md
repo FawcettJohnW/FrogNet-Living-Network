@@ -1,4 +1,4 @@
-# RangerTrak app (desktop and phone) -- rt-app-2026-11-04-r29
+# RangerTrak app (desktop and phone) -- rt-app-2026-11-04-r30
 
 The demo John set on 2026-11-01 (`opt/frognet_semantic/ribbit/examples/rangertrak/PLAN.md`, its first decision): the EOC
 on a Windows app, a first responder on a phone, presence with GPS, chat, a pre-populated moving world, in an app and not
@@ -46,6 +46,13 @@ role's `act`/`req`, or `RT.button`). **A new view**: `RT.role(...)` in a layer's
 `--lock=` and `--layers=`. **The admin app**: a layer's own panel is `ui-admin/layers/<name>.js` calling
 `RTA.panel(title, fn)` (none yet). Gates: `test/test_app.py` (32 checks; the Team and Public apps run with their own
 layers only), `test/test_team_host.py`, `android/typecheck.sh`.
+
+## r30: the gateway is a node when its door answers ([GATEWAY_IS_A_NODE_V1])
+
+A phone on a home router that hands out 10.x with a .1 gateway (10.101.113.x, John 2026-11-04) was taken for a node's
+LAN by its address alone, so it never brought up its own tunnel. Now the gateway is asked once (its `/dc/ram.php`
+answers with `X-FDF-Door`); until it has answered, the phone is not on a node's LAN, and it is asked again when a network
+goes. The unit field's names and hint are each view's own (a Phone crew is no longer offered hospitals and Medic units).
 
 ## How it is built
 
