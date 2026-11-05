@@ -156,8 +156,10 @@ write-first, read-second rule.
 things, on any platform. All apps are fully self contained entities." On Android each RangerTrak app (EOC, Team,
 Public, the unit apps, the admin app) compiles frognet-android's member, MemberService, BridgeVpn and fdf-tun in
 (`shared`, `Member.java`); its membership (key, invitation or join line, login) is in that app's private storage. On
-Windows the client zip carries the member. Nothing else is installed. Android allows one VPN at a time: two RangerTrak
-apps joined on one phone take the tunnel from each other. Gates: `rangertrak-app/android/typecheck.sh` (the member's
+Windows the client zip carries the member. Nothing else is installed. The membership is a FrogNet network, routed
+through the WAN role when one is present -- not a VPN. Its TUN is made with Android's VpnService (BridgeVpn), the only
+way Android gives an app a TUN, and Android keeps one VpnService TUN at a time: off a node's LAN, two apps joined on one
+phone take the TUN from each other (on a node's LAN there is no TUN, [ON_THE_LAN_NO_TUNNEL_V1]). Gates: `rangertrak-app/android/typecheck.sh` (the member's
 classes are compiled in); not run on a phone here.
 
 ## Roles, the resilient EOC, and login wherever a device can ([ROLES_NOT_MACHINES_V1], John 2026-11-02)
