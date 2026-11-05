@@ -49,7 +49,7 @@ public final class AppCore {
 
     public static final String APP = "rangertrak";
     public static final String API = "/FawcettInnovations.RINA.ram_interface.php";
-    public static final String BUILD = "rt-app-2026-11-05-r39";
+    public static final String BUILD = "rt-app-2026-11-05-r40";
 
     private final Ui ui;
     private String door = "", dev = "", name = "", role = "", team = "", user = "", mission = "";
@@ -716,15 +716,20 @@ public final class AppCore {
      *  (temperature, humidity, pressure, air quality, gas, radiation, water...: sensehat_reporter.bash and the like);
      *  working = its reading has such a value. Every node is asked once (its System sensor names it), and each such
      *  node is reported with its readings. The rule is here, in one place, to change when the criteria do. */
-    static final String[] ENV = {"temp", "humid", "pressure", "pm2", "pm10", "aqi", "co2", "voc", "gas", "radiation", "water", "smoke", "lux"};
+    // [RT_COMPLIANCE_WORDS_V1] a measurement is environmental when a WORD of its name is one of these (the name split at
+    // _, -, . and case changes): "template_hits" (the semantic proxy's) is not a temperature. The substring match it
+    // replaced put every node out of compliance (John 2026-11-05).
+    static final java.util.Set<String> ENV = new java.util.HashSet<String>(java.util.Arrays.asList(
+            "temp", "temperature", "humid", "humidity", "rh", "pressure", "baro", "pm1", "pm2", "pm25", "pm10", "aqi", "co2", "eco2",
+            "voc", "tvoc", "gas", "radiation", "cpm", "usv", "water", "smoke", "lux"));
     static Map<String, Object> environmental(Object jd) {
         Map<String, Object> o;
         try { o = jd instanceof String ? Json.obj(Json.parse((String) jd)) : Json.obj(jd); } catch (IllegalArgumentException e) { return null; }
         Map<String, Object> got = new java.util.TreeMap<String, Object>();
         for (Map.Entry<String, Object> e : o.entrySet()) {
-            String k = e.getKey().toLowerCase();
             if (!(e.getValue() instanceof Number)) continue;
-            for (String w : ENV) if (k.contains(w)) { got.put(e.getKey(), e.getValue()); break; }
+            for (String w : e.getKey().replaceAll("([a-z])([A-Z])", "$1_$2").toLowerCase().split("[^a-z0-9]+"))
+                if (ENV.contains(w)) { got.put(e.getKey(), e.getValue()); break; }
         }
         return got.isEmpty() ? null : got;
     }

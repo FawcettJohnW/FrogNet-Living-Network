@@ -84,7 +84,9 @@ SENS = {"1": ("Seattle7.System.Perf", "System", {"load": [0.4, 0.3, 0.2], "mem_f
         "3": ("Seattle7.GPS.Position", "GPS", {"timestamp": 1, "error": "invalid gps json",
               "raw": '{"class":"TPV","mode":1} {"class":"TPV","mode":3,"lat":47.4473,"lon":-122.4598,"time":"2026-11-01T22:00:00Z"}'}),
         "4": ("New-York-2.GPS.Position", "GPS", {"class": None, "device": None, "mode": None, "time": None}),
-        "5": ("Seattle7.SenseHat.Env", "SenseHat", {"temperature": 31.2, "humidity": 44.0, "pressure": 1012.3})}
+        "5": ("Seattle7.SenseHat.Env", "SenseHat", {"temperature": 31.2, "humidity": 44.0, "pressure": 1012.3}),
+        # [RT_COMPLIANCE_WORDS_V1] the semantic proxy's counters, as John's nodes file them: "template_hits" is no temperature
+        "6": ("New-York-2.Semantic.Templates", "Semantic", {"template_coverage": 0.999, "template_hits": 25343, "template_misses": 26})}
 def sensors(q):
     rows = [{"SensorID": int(i), "SensorName": n, "SensorType": t, "SensorAddress": "10.170.170.1" if n.startswith("Seattle7") else "10.28.28.1"}
             for i, (n, t, d) in SENS.items()]
@@ -229,8 +231,9 @@ with sync_playwright() as pw:
     tm.wait_for_function("/dispatched by EOC Desk/.test(document.querySelector('#sheet').textContent)", timeout=10000)
     plat = eoc.evaluate("Object.values(S.field).filter(b=>b.what==='platform').length")
     check(True, "18 team actions: a service request is on the EOC's Requests, its 'Dispatched' on the member's Actions; %d sensor platforms deployed (the simulated ones and this one)" % plat)
-    check("OUT OF COMPLIANCE: Seattle7" in eoc.inner_text("#status") or eoc.evaluate("!!S.compliance['Seattle7']"),
-          "19 compliance: the host with a working environmental sensor says it is out of compliance: %s" % eoc.evaluate("JSON.stringify(S.compliance)")[:160])
+    eoc.wait_for_function("!!S.compliance['Seattle7']", timeout=10000)
+    check(eoc.evaluate("Object.keys(S.compliance).join()") == "Seattle7",
+          "19 compliance: only the host with a working environmental sensor (not New-York-2, its template_hits) is out of compliance: %s" % eoc.evaluate("JSON.stringify(S.compliance)")[:160])
     if SHOTS:
         eoc.click("#sheet .sh-close"); eoc.screenshot(path=os.path.join(SHOTS, "eoc-map.png"))
         tm.screenshot(path=os.path.join(SHOTS, "team-actions.png"))
