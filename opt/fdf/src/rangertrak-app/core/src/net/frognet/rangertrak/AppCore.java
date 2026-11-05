@@ -49,7 +49,7 @@ public final class AppCore {
 
     public static final String APP = "rangertrak";
     public static final String API = "/FawcettInnovations.RINA.ram_interface.php";
-    public static final String BUILD = "rt-app-2026-11-05-r38";
+    public static final String BUILD = "rt-app-2026-11-05-r39";
 
     private final Ui ui;
     private String door = "", dev = "", name = "", role = "", team = "", user = "", mission = "";
@@ -258,12 +258,18 @@ public final class AppCore {
             // [RT_CATEGORY_IS_THE_VIEW_V1] the user's role is this view's when it is the view's name, or when the admin put it
             // in the view's category (eochq in the category EOC is an EOC): the door's op=roles says each role's category
             if (!r.equalsIgnoreCase(want)) {
-                String cat = "";
-                try { cat = Json.str(Json.obj(Json.obj(doorCall("op=roles&app=" + APP, null).get("roles")).get(r)).get("category")); } catch (Exception ignored) { }
+                String cat = "", why = "";
+                try {
+                    Map<String, Object> rs = Json.obj(doorCall("op=roles&app=" + APP, null).get("roles"));
+                    Object x = rs.get(r);
+                    if (x == null) for (Map.Entry<String, Object> e : rs.entrySet()) if (e.getKey().equalsIgnoreCase(r)) x = e.getValue();
+                    if (x == null) why = "the door's roles have no " + r + " (they are " + rs.keySet() + ")";
+                    else cat = Json.str(Json.obj(x).get("category"));
+                } catch (Exception e) { why = "the door's roles not read: " + e.getMessage(); }
                 String c = cat.toLowerCase().trim(), one = c.endsWith("s") ? c.substring(0, c.length() - 1) : c;
                 if (!(c.equals(want) || one.equals(want)))
-                    throw new Exception("user " + user + " has role '" + r + "'" + (cat.isEmpty() ? "" : " (category " + cat + ")") + ", not the "
-                            + (want.equals("eoc") ? "EOC" : want) + "'s: in the admin app, put " + r + " in the " + (want.equals("eoc") ? "EOC" : cap(want)) + " category");
+                    throw new Exception("user " + user + " has role '" + r + "' (category " + (cat.isEmpty() ? "unknown: " + why : cat) + "), not the "
+                            + (want.equals("eoc") ? "EOC" : want) + "'s: in the admin app, put " + r + " in the " + (want.equals("eoc") ? "EOC" : cap(want)) + " category (" + BUILD + ")");
             }
             role = want;                                    // the admin's role name in any case ([RT_EOC_APP_V1])
             team = "";
