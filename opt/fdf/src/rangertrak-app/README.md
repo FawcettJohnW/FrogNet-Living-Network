@@ -1,4 +1,4 @@
-# RangerTrak app (desktop and phone) -- rt-app-2026-11-05-r45
+# RangerTrak app (desktop and phone) -- rt-app-2026-11-05-r48
 
 The demo John set on 2026-11-01 (`opt/frognet_semantic/ribbit/examples/rangertrak/PLAN.md`, its first decision): the EOC
 on a Windows app, a first responder on a phone, presence with GPS, chat, a pre-populated moving world, in an app and not
@@ -46,6 +46,16 @@ role's `act`/`req`, or `RT.button`). **A new view**: `RT.role(...)` in a layer's
 `--lock=` and `--layers=`. **The admin app**: a layer's own panel is `ui-admin/layers/<name>.js` calling
 `RTA.panel(title, fn)` (none yet). Gates: `test/test_app.py` (32 checks; the Team and Public apps run with their own
 layers only), `test/test_team_host.py`, `android/typecheck.sh`.
+
+## r48: a phone that leaves the node's LAN brings up its tunnel ([TEAM_SPLIT_V1])
+
+John's Logcat (2026-11-05): connected on the node's LAN (no tunnel, [ON_THE_LAN_NO_TUNNEL_V1]), the phone moved to
+another network (10.101.113.x); the gateway was asked ("not a FrogNet node ... through its own tunnel") and then nothing
+for 40 minutes: "the door at 10.250.250.1: this device cannot reach the node". netChanged measures a change against the
+network the phone connected on, and that was set by the first network event, not by the connect: a phone whose first
+event came after it had moved took the new network for its own. startMember now sets it (lastLan) at the connect.
+r47: Diag on the phone has a FrogNet tunnel section (rtNative.tunnelState()). A phone with no invitation (a new install
+has none) off the LAN cannot join: it enrolls on the node's LAN first (scan the QR there).
 
 ## r45 / dc-door r16: a computer finds its node by name ([DOOR_SAYS_ITS_NODE_V1])
 

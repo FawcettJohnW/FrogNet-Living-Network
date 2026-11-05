@@ -289,6 +289,11 @@ public final class MainActivity extends Activity implements LocationListener {
         // [TEAM_SPLIT_V1] on its lead's hotspot a member goes the lead's way: the lead's card says whether that needs a
         // membership of its own (teamVia); the connect itself is to the lead's phone and the node, as on a node's LAN
         if (lan.isEmpty() && !tr.isEmpty()) lan = "on the team lead's hotspot (its RAM at " + tr + ")";
+        // [TEAM_SPLIT_V1] the network this connect is made on: the one a later network change is measured against. It was
+        // the first change's (lastLan null then: "the network the phone connected on"), so a phone connected on Seattle7's
+        // LAN that then walked onto another network took that one for its own and brought up no tunnel (John 2026-11-05:
+        // 10.101.113.1 "is not a FrogNet node ... through its own tunnel", then nothing; the door out of reach for 40 min)
+        lastLan = nodeLan();
         if (!lan.isEmpty()) {                           // [ON_THE_LAN_NO_TUNNEL_V1] the node routes this phone already
             final String line = pendingConnect; pendingConnect = null;
             if (line == null) return;
@@ -626,7 +631,7 @@ public final class MainActivity extends Activity implements LocationListener {
         String lan = nodeLan();
         if (lan.equals(lastLan)) return;
         boolean first = lastLan == null; lastLan = lan;
-        if (first) return;                              // the network the phone connected on
+        if (first) return;                              // no connect made yet (startMember sets the network it connects on)
         if (!lan.isEmpty()) {
             int a = lan.indexOf(" on "), b = lan.indexOf("'s LAN");
             final String node = a > 0 && b > a ? lan.substring(a + 4, b) : "";
