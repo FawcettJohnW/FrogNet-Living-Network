@@ -1,6 +1,6 @@
-// [RT_SUITE_APPS_V1] RangerTrak Telecom (the telephone company's crews; module phone): the shared module (../shared: the Android shell, the core, the RAM library, the page)
-// with its own manifest; its manifest says ROLE = phone, so it opens as a Phone unit only (it does not do the other units' work).
-//   ./gradlew :phone:assembleDebug
+// [RT_SUITE_APPS_V1] RangerTrak Telecom (the telephone company's crews; module telecom): the shared module (../shared: the Android shell, the core, the RAM library, the page)
+// with its own manifest; its manifest says ROLE = phone (the Telecom view), so it opens as a Telecom crew only (it does not do the other units' work).
+//   ./gradlew :telecom:assembleDebug
 plugins { id("com.android.application") }
 // [RT_LAYERS_V1] this app is the base (shared) and these layers: their pages (ui/layers/<name>.js, copied into this
 // app's own assets: no other app carries them) and their cores (the same names); the manifest says them (LAYERS)
@@ -8,10 +8,10 @@ val rtLayers = listOf("help", "field", "units", "ics")
 val genLayers = layout.buildDirectory.dir("generated/rt-layers")   // rt-layers-copy
 val copyLayers = tasks.register<Copy>("copyLayers") { from(file("../../ui/layers")) { include(rtLayers.map { "$it.js" }) }; into(genLayers.map { it.dir("ui/layers") }) }   // rt-layers-copy
 android {
-    namespace = "net.frognet.rangertrak.phone"
+    namespace = "net.frognet.rangertrak.telecom"
     compileSdk = 34
     defaultConfig {
-        applicationId = "net.frognet.rangertrak.phone"
+        applicationId = "net.frognet.rangertrak.telecom"
         minSdk = 29
         targetSdk = 34
         versionCode = 30

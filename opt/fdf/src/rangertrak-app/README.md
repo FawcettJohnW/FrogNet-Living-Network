@@ -1,4 +1,4 @@
-# RangerTrak app (desktop and phone) -- rt-app-2026-11-05-r40
+# RangerTrak app (desktop and phone) -- rt-app-2026-11-05-r41
 
 The demo John set on 2026-11-01 (`opt/frognet_semantic/ribbit/examples/rangertrak/PLAN.md`, its first decision): the EOC
 on a Windows app, a first responder on a phone, presence with GPS, chat, a pre-populated moving world, in an app and not
@@ -46,6 +46,12 @@ role's `act`/`req`, or `RT.button`). **A new view**: `RT.role(...)` in a layer's
 `--lock=` and `--layers=`. **The admin app**: a layer's own panel is `ui-admin/layers/<name>.js` calling
 `RTA.panel(title, fn)` (none yet). Gates: `test/test_app.py` (32 checks; the Team and Public apps run with their own
 layers only), `test/test_team_host.py`, `android/typecheck.sh`.
+
+## r41: the Android module `phone` is `telecom`
+
+John's phone ran `net.frognet.rangertrak.phone` (Logcat, 2026-11-05): the Telecom crews' app, module `phone`, picked
+as "the phone app". The module is `telecom` now (applicationId net.frognet.rangertrak.telecom; its view is still
+`phone`, labelled Telecom). The app that asks which app is the `app` module, "RangerTrak", net.frognet.rangertrak.
 
 ## r40: compliance by whole words ([RT_COMPLIANCE_WORDS_V1])
 

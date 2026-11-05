@@ -1,5 +1,5 @@
 <?xml version="1.0" encoding="utf-8"?>
-<!-- [RT_SUITE_APPS_V1] RangerTrak Telecom (module phone): RangerTrak's shell, opening as a Telecom crew (net.frognet.rangertrak.ROLE = phone) -->
+<!-- [RT_SUITE_APPS_V1] RangerTrak Telecom (module telecom): RangerTrak's shell, opening as a Telecom crew (net.frognet.rangertrak.ROLE = phone) -->
 <manifest xmlns:android="http://schemas.android.com/apk/res/android">
     <uses-permission android:name="android.permission.INTERNET" />
     <uses-permission android:name="android.permission.ACCESS_FINE_LOCATION" />

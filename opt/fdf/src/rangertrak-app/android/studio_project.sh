@@ -67,7 +67,7 @@ cat > $P/README.txt <<TXT
 RangerTrak for Android ($BUILD) -- an Android Studio project
 Open this folder in Android Studio (File > Open). Gradle syncs (it fetches Gradle 8.9 and the Android plugin 8.5.2;
 JDK 17 or newer, Android SDK 34). Run configurations: eoc (RangerTrak EOC), team (RangerTrak Team), public (RangerTrak Public), the unit apps
-ambulance, hospital, water, power, shelter, phone (RangerTrak <Unit>), admin (RangerTrak Admin), app (every view).
+app (RangerTrak: every view, asks which app -- the one to run), ambulance, hospital, water, power, shelter, telecom (RangerTrak <Unit>), admin (RangerTrak Admin).
 Each APK is the whole app: its FrogNet membership is inside it; nothing else is installed.
 Command line: ./gradlew :eoc:assembleDebug :team:assembleDebug :public:assembleDebug :ambulance:assembleDebug ... :admin:assembleDebug
   -> eoc/build/outputs/apk/debug/eoc-debug.apk, team/build/outputs/apk/debug/team-debug.apk, public/...

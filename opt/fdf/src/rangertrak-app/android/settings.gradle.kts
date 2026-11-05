@@ -8,5 +8,5 @@ include(":app")
 include(":team")       // [RT_TEAM_APP_V1] RangerTrak Team
 include(":public")     // [RT_PUBLIC_APP_V1] RangerTrak Public
 // [RT_SUITE_APPS_V1] the suite's unit apps, one per unit; [ADMIN_PHONE_APP_V1] the admin app on the phone
-include(":eoc", ":ambulance", ":hospital", ":water", ":power", ":shelter", ":phone")   // [RT_EOC_APP_V1] eoc: the EOC app
+include(":eoc", ":ambulance", ":hospital", ":water", ":power", ":shelter", ":telecom")   // [RT_EOC_APP_V1] eoc: the EOC app
 include(":admin")      // [ADMIN_PHONE_APP_V1] RangerTrak Admin on the phone
