@@ -141,6 +141,8 @@ function start() {
   if (lock) {
     S.cfg.role = lock.name; $('#roleSet').hidden = true
     document.querySelector('#connect h1').textContent = lock.title; document.title = lock.title
+    // [RT_LOCKED_APP_SAYS_SO_V1] an app built for one view says so on its first screen, and which app asks instead
+    document.querySelector('#connect h1').insertAdjacentHTML('afterend', `<div class="meta locked">This app opens as ${esc(lock.label)} only.${S.cfg.platform === 'android' ? ' The app that asks which one is <b>RangerTrak</b> (Android Studio: the <b>app</b> module).' : ' The app that asks which one is RangerTrak (RangerTrak.cmd).'}</div>`)
   }
   else pickerReady()
   if (S.cfg.build) $('#cstatus').textContent = S.cfg.build      // [APP_SAYS_ITS_BUILD_V1] which build this is, on the first screen
