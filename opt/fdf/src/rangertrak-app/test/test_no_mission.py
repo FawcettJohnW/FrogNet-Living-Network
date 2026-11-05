@@ -10,6 +10,7 @@
 #   2 each one's position is in the positions RAM and each sees the other (presence and positions)
 #   3 a message to the team from one comes to the other
 #   4 a mission an EOC starts afterwards is the mission on both (newer than the standing one)
+#   5 the EOC's login: a user whose role is in the EOC category (eochq) is the EOC; one in Ambulance is told where to put it
 import json, os, queue, socket, subprocess, sys, tempfile, threading, time
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from urllib.parse import urlparse, parse_qs
@@ -35,8 +36,13 @@ class Door(BaseHTTPRequestHandler):
     def do_GET(self):
         q = parse_qs(urlparse(self.path).query)
         if q.get("op") == ["rams"]: self.answer({"ok": True, "rams": where})
-        elif q.get("op") == ["roles"]: self.answer({"ok": True, "login": False, "roles": {"alpha": {"default": True, "ram": True}}})
+        elif q.get("op") == ["roles"]: self.answer({"ok": True, "login": False, "roles": {"alpha": {"default": True, "ram": True, "category": "Teams"},
+                                                     "eochq": {"default": False, "ram": False, "category": "EOC"}, "medic1": {"default": False, "ram": True, "category": "Ambulance"}}})
         else: self.answer({"ok": False, "error": "op"})
+    def do_POST(self):
+        b = json.loads(self.rfile.read(int(self.headers["Content-Length"])))
+        role = {"EOCLead": "eochq", "Medic": "medic1"}.get(b.get("user"))
+        self.answer({"ok": True, "role": role, "user": b.get("user")} if role and b.get("password") == "pw" else {"ok": False, "error": "that user and password are not this app's"})
 dp = free(); srv = ThreadingHTTPServer(("127.0.0.1", dp), Door); threading.Thread(target=srv.serve_forever, daemon=True).start()
 DOOR = "127.0.0.1:%d" % dp
 CP = os.pathsep.join([os.path.join(SRC, "frognet-ram-java", "build", "frognet-ram.jar"), os.path.join(APP, "build", "core"), os.path.join(APP, "build", "test")])
@@ -78,6 +84,13 @@ try:
     na = a.wait(lambda o: o.get("ev") == "mission" and str(o.get("id", "")).startswith("vashon-windstorm"))
     nb = b.wait(lambda o: o.get("ev") == "mission" and str(o.get("id", "")).startswith("vashon-windstorm"))
     check(bool(na) and bool(nb), "4 a mission started afterwards is the mission on both: %s" % (na or {}).get("id"))
+    # 5 [RT_CATEGORY_IS_THE_VIEW_V1] the EOC's user is one whose role is in the EOC category (eochq), not only one named eoc
+    e = Dev(); e.send(op="connect", door=DOOR, dev="pe", name="EOC Desk", role="eoc", user="EOCLead", password="pw")
+    ce = e.wait(lambda o: o.get("ev") in ("connected", "error"))
+    m = Dev(); m.send(op="connect", door=DOOR, dev="pm", name="Medic", role="eoc", user="Medic", password="pw")
+    cm = m.wait(lambda o: o.get("ev") in ("connected", "error"))
+    check((ce or {}).get("ev") == "connected" and (cm or {}).get("ev") == "error" and "Ambulance" in cm.get("text", "") and "EOC category" in cm.get("text", ""),
+          "5 EOCLead (role eochq, category EOC) logs in as the EOC: %s; Medic (medic1, Ambulance) does not: %r" % ((ce or {}).get("ev"), (cm or {}).get("text")))
 finally:
     for p in procs: p.terminate()
 print("RESULT", "PASS" if not FAILS else "FAIL: %d" % len(FAILS)); sys.exit(1 if FAILS else 0)

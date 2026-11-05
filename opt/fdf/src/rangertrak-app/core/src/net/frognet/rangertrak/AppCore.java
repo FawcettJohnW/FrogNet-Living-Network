@@ -49,7 +49,7 @@ public final class AppCore {
 
     public static final String APP = "rangertrak";
     public static final String API = "/FawcettInnovations.RINA.ram_interface.php";
-    public static final String BUILD = "rt-app-2026-11-05-r37";
+    public static final String BUILD = "rt-app-2026-11-05-r38";
 
     private final Ui ui;
     private String door = "", dev = "", name = "", role = "", team = "", user = "", mission = "";
@@ -255,7 +255,16 @@ public final class AppCore {
         if (v.connect.equals("login")) {     // a role activated at its user's login, read at the door (the EOC's)
             Map<String, Object> o = doorCall("op=login&app=" + APP, Json.write(Json.o("user", Json.str(m.get("user")), "password", Json.str(m.get("password")))));
             String r = Json.str(o.get("role")); user = Json.str(m.get("user"));
-            if (!r.equalsIgnoreCase(want)) throw new Exception("user " + user + " has role '" + r + "', not the " + (want.equals("eoc") ? "EOC" : want) + "'s");
+            // [RT_CATEGORY_IS_THE_VIEW_V1] the user's role is this view's when it is the view's name, or when the admin put it
+            // in the view's category (eochq in the category EOC is an EOC): the door's op=roles says each role's category
+            if (!r.equalsIgnoreCase(want)) {
+                String cat = "";
+                try { cat = Json.str(Json.obj(Json.obj(doorCall("op=roles&app=" + APP, null).get("roles")).get(r)).get("category")); } catch (Exception ignored) { }
+                String c = cat.toLowerCase().trim(), one = c.endsWith("s") ? c.substring(0, c.length() - 1) : c;
+                if (!(c.equals(want) || one.equals(want)))
+                    throw new Exception("user " + user + " has role '" + r + "'" + (cat.isEmpty() ? "" : " (category " + cat + ")") + ", not the "
+                            + (want.equals("eoc") ? "EOC" : want) + "'s: in the admin app, put " + r + " in the " + (want.equals("eoc") ? "EOC" : cap(want)) + " category");
+            }
             role = want;                                    // the admin's role name in any case ([RT_EOC_APP_V1])
             team = "";
         } else if (v.connect.equals("team")) { role = want; team = Json.str(m.get("team")); user = ""; }

@@ -1,4 +1,4 @@
-# RangerTrak app (desktop and phone) -- rt-app-2026-11-05-r37
+# RangerTrak app (desktop and phone) -- rt-app-2026-11-05-r38
 
 The demo John set on 2026-11-01 (`opt/frognet_semantic/ribbit/examples/rangertrak/PLAN.md`, its first decision): the EOC
 on a Windows app, a first responder on a phone, presence with GPS, chat, a pre-populated moving world, in an app and not
@@ -46,6 +46,13 @@ role's `act`/`req`, or `RT.button`). **A new view**: `RT.role(...)` in a layer's
 `--lock=` and `--layers=`. **The admin app**: a layer's own panel is `ui-admin/layers/<name>.js` calling
 `RTA.panel(title, fn)` (none yet). Gates: `test/test_app.py` (32 checks; the Team and Public apps run with their own
 layers only), `test/test_team_host.py`, `android/typecheck.sh`.
+
+## r38: the EOC's user is any in the EOC category ([RT_CATEGORY_IS_THE_VIEW_V1])
+
+The EOC's login took only a user whose role is named `eoc` ("EOCLead has role 'eochq', not the EOC's"). A user is the
+EOC's when its role is `eoc` or the admin put its role in the EOC category (the door's op=roles says the category); any
+other is refused with the role, its category and where to put it. Gate: test_no_mission.py 5 (eochq in EOC logs in;
+medic1 in Ambulance is told to put it in the EOC category).
 
 ## r37: a network with no mission still works ([RT_STANDING_MISSION_V1])
 
