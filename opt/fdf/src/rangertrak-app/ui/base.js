@@ -24,7 +24,7 @@ const KINDS = {
   power:     { label: 'Power',      shape: 'dia', size: 18, color: '#7e57c2', ch: 'P' },
   water:     { label: 'Water',      shape: 'dia', size: 18, color: '#0288d1', ch: 'W' },
   shelter:   { label: 'Shelters',   shape: 'sq',  size: 18, color: '#6d4c41', ch: 'S' },
-  phone:     { label: 'Phone crews', shape: 'dia', size: 18, color: '#455a64', ch: '☎' },
+  phone:     { label: 'Telecom crews', shape: 'dia', size: 18, color: '#455a64', ch: '☎' },
   host:      { label: 'Hosts',      shape: 'sq',  size: 16, color: '#263238', ch: 'N' },   // the nodes' own GPS
 }
 const TEAM_COLOR = { alpha: '#d62728', bravo: '#1f77b4', charlie: '#2ca02c', delta: '#ff7f0e' }
@@ -188,7 +188,7 @@ function roleFields() {
   $('#scanTeam').hidden = !(S.cfg.platform === 'android' && window.rtNative && window.rtNative.scanTeam)
   document.querySelectorAll('[data-field]').forEach(e => { e.hidden = e.dataset.field !== r.field })
   document.querySelector('.unit-l').textContent = r.unitLabel || 'Unit'
-  // [RT_LAYERS_V1] the unit names this view offers and its hint: its own (a Phone crew is not offered hospitals)
+  // [RT_LAYERS_V1] the unit names this view offers and its hint: its own (a Telecom crew is not offered hospitals)
   $('#connect').unit.placeholder = r.unitHint || ''
   const mine = (S.groupsByView || {})[r.name]          // [RT_CATEGORY_IS_THE_VIEW_V1] the admin's groups of this view's category
   $('#units').innerHTML = (mine && mine.length ? mine.map(capT) : (r.units || [])).map(u => `<option>${esc(u)}</option>`).join('')

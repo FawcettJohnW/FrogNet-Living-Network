@@ -10,5 +10,6 @@ RT.layer('units', (RT) => {
   unit('water', 'Water', 'Water crew or site', 'Water crew 3')
   unit('power', 'Power', 'Power crew', 'Line crew 7')
   unit('shelter', 'Shelter', 'Shelter', 'Vashon High School gym')
-  unit('phone', 'Phone', 'Phone crew', 'Phone crew 2')
+  // [RT_TELECOM_NOT_PHONE_V1] the telephone company's crews: Telecom ("RangerTrak Phone" read as the app for a phone)
+  unit('phone', 'Telecom', 'Telecom crew', 'Telecom crew 2')
 })

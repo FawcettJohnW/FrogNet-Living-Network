@@ -1,4 +1,4 @@
-# RangerTrak app (desktop and phone) -- rt-app-2026-11-05-r34
+# RangerTrak app (desktop and phone) -- rt-app-2026-11-05-r35
 
 The demo John set on 2026-11-01 (`opt/frognet_semantic/ribbit/examples/rangertrak/PLAN.md`, its first decision): the EOC
 on a Windows app, a first responder on a phone, presence with GPS, chat, a pre-populated moving world, in an app and not
@@ -24,7 +24,7 @@ by the same name. It never edits the base or another layer; the one interface it
 | `eoc` | EOC (login) | every team; reports on Requests and a notice for each; compliance (status line, map, Sensors) |
 | `team` | Team | the team picked at connect (the admin's), its own team and chat first; Host team, Team on databasehost, Team members, the lead's card |
 | `medical` | Hospital, Ambulance | the hospital's desk, Inbound, the unit panel, Hospitals; the hospital's status in its popup; transports and diversions on the EOC's Requests; ops `facility`, `transport`, `transportAction` |
-| `units` | Water, Power, Shelter, Phone | each unit's own kind, hazards, requests; the field's Actions and Requests |
+| `units` | Water, Power, Shelter, Telecom | each unit's own kind, hazards, requests; the field's Actions and Requests |
 | `public` | Public | Home (I need help, I'm safe, Find someone, Report, Hospitals & services, the survival library, FEMA); the restricted map; no chat |
 
 The apps (Android: each module's `build.gradle.kts` `rtLayers`, copied into that app's own assets and said in its
@@ -38,7 +38,7 @@ manifest's `LAYERS`; Windows: `--layers=` on the launcher, the zip carries those
 | RangerTrak Public (`public`) | help, public |
 | RangerTrak Hospital (`hospital`) | help, medical |
 | RangerTrak Ambulance (`ambulance`) | help, field, medical |
-| RangerTrak Water / Power / Shelter / Phone | help, field, units |
+| RangerTrak Water / Power / Shelter / Telecom | help, field, units |
 
 **A new screen** for a view: in its layer, `RT.screen('name', () => sheet('name', 'Title', html))`, and a way to it (the
 role's `act`/`req`, or `RT.button`). **A new view**: `RT.role(...)` in a layer's page and a `Role` in its core's `roles()`.
@@ -47,6 +47,12 @@ role's `act`/`req`, or `RT.button`). **A new view**: `RT.role(...)` in a layer's
 `RTA.panel(title, fn)` (none yet). Gates: `test/test_app.py` (32 checks; the Team and Public apps run with their own
 layers only), `test/test_team_host.py`, `android/typecheck.sh`.
 
+## r35: Telecom, not Phone ([RT_TELECOM_NOT_PHONE_V1])
+
+The telephone company's crews' view was "Phone" and its Android app "RangerTrak Phone": read as the app for a phone. It
+is Telecom (view label, its unit's label and hint, the Android app's name "RangerTrak Telecom"); its role and module are
+still `phone`. The Android app that asks which app is the `app` module, "RangerTrak".
+
 ## r34: the teams are the network's; a category is a view
 
 - [RT_TEAMS_ARE_THE_NETWORKS_V1] the page had the teams as a list of its own (Alpha, Bravo, Charlie, Delta): an EOC drew
@@ -54,7 +60,7 @@ layers only), `test/test_team_host.py`, `android/typecheck.sh`.
   door's op=roles) and every team a position names; a team with no colour of its own gets one from its name.
 - [RT_CATEGORY_IS_THE_VIEW_V1] the admin's categories are the views: the Team view's list on the connect screen is the
   groups in Teams (with a RAM), not every group with a RAM (it offered the Ambulance category's groups as teams); the
-  Ambulance, Hospital, Power, Water, Shelter and Phone views offer their own category's groups as units (a category's
+  Ambulance, Hospital, Power, Water, Shelter and Telecom views offer their own category's groups as units (a category's
   name, any case, its plural s dropped, is the view's name or label), the built-in names when the admin has none.
 - Gates: test_app 35/35 (35: teams Echo and Zulu, in no list of the page's, on the EOC's map, Layers and chat tabs).
 
@@ -71,7 +77,7 @@ in it is read without it.
 
 - **Which app?** ([RT_APP_PICKER_V1]) The RangerTrak app (every view: the Windows RangerTrak app, the phone's "app"
   module) opens on a pop-up, one button per view (RangerTrak EOC, Team, Hospital, Ambulance, Water, Power, Shelter,
-  Phone, Public), the one used last marked. The connect screen is then that app's (its title, its fields); Other app on
+  Telecom, Public), the one used last marked. The connect screen is then that app's (its title, its fields); Other app on
   it asks again. The EOC, Team and Public apps (locked to one view) do not ask. Connecting by an enrolled phone or a
   lead's card closes it.
 - **Diag** ([RT_DIAG_V1]) in the header: the core's account (`op=diag` → `ev diag`) and the page's, on one sheet, again

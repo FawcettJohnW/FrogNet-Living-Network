@@ -1,4 +1,4 @@
-// [RT_SUITE_APPS_V1] RangerTrak Phone: the shared module (../shared: the Android shell, the core, the RAM library, the page)
+// [RT_SUITE_APPS_V1] RangerTrak Telecom (the telephone company's crews; module phone): the shared module (../shared: the Android shell, the core, the RAM library, the page)
 // with its own manifest; its manifest says ROLE = phone, so it opens as a Phone unit only (it does not do the other units' work).
 //   ./gradlew :phone:assembleDebug
 plugins { id("com.android.application") }

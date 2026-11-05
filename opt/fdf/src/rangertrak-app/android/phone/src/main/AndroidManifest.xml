@@ -1,5 +1,5 @@
 <?xml version="1.0" encoding="utf-8"?>
-<!-- [RT_SUITE_APPS_V1] RangerTrak Phone: RangerTrak's shell, opening as a Phone unit (net.frognet.rangertrak.ROLE = phone) -->
+<!-- [RT_SUITE_APPS_V1] RangerTrak Telecom (module phone): RangerTrak's shell, opening as a Telecom crew (net.frognet.rangertrak.ROLE = phone) -->
 <manifest xmlns:android="http://schemas.android.com/apk/res/android">
     <uses-permission android:name="android.permission.INTERNET" />
     <uses-permission android:name="android.permission.ACCESS_FINE_LOCATION" />
@@ -12,7 +12,7 @@
     <uses-feature android:name="android.hardware.location.gps" android:required="false" />
     <!-- [RT_CALL_V1] Call opens the FrogNet Communicator (the FrogNet Member app) -->
     <queries><intent><action android:name="net.frognet.communicator.CALL" /></intent></queries>
-    <application android:label="RangerTrak Phone" android:usesCleartextTraffic="true" android:theme="@style/RtTheme">
+    <application android:label="RangerTrak Telecom" android:usesCleartextTraffic="true" android:theme="@style/RtTheme">
         <meta-data android:name="net.frognet.rangertrak.ROLE" android:value="phone" />
         <meta-data android:name="net.frognet.rangertrak.LAYERS" android:value="${rtLayers}" />   <!-- [RT_LAYERS_V1] its layers (build.gradle.kts) -->
         <activity android:name="net.frognet.rangertrak.android.MainActivity" android:exported="true"
