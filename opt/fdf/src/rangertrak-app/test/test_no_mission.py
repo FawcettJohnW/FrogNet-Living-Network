@@ -11,6 +11,7 @@
 #   3 a message to the team from one comes to the other
 #   4 a mission an EOC starts afterwards is the mission on both (newer than the standing one)
 #   6 the admin's who is on now: Pat and Lee in the mission now, team Alpha
+#   7 the sensor store where the door says it is (op=rams: sensors), no .frognet name needed
 #   5 the EOC's login: a user whose role is in the EOC category (eochq) is the EOC; one in Ambulance is told where to put it
 import json, os, queue, socket, subprocess, sys, tempfile, threading, time
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
@@ -36,7 +37,10 @@ class Door(BaseHTTPRequestHandler):
         self.send_header("Content-Length", str(len(b))); self.end_headers(); self.wfile.write(b)
     def do_GET(self):
         q = parse_qs(urlparse(self.path).query)
-        if q.get("op") == ["rams"]: self.answer({"ok": True, "rams": where})
+        if urlparse(self.path).path == "/api.php":            # [SENSORS_BY_THE_DOOR_V1] the sensor store, at the address the door says
+            self.answer({"ok": True, "rows": [{"SensorID": 1, "SensorName": "Seattle7.GPS.Position", "SensorAddress": "10.188.188.7", "SensorType": "GPS"}] if q.get("SensorType") == ["GPS"] else []})
+        elif q.get("entity") == ["sensor_data"]: self.answer({"ok": True, "row": {"jsonData": {"lat": 47.4528, "lon": -122.3325}}})
+        elif q.get("op") == ["rams"]: self.answer({"ok": True, "rams": where, "node": "Seattle7", "sensors": "http://%s/api.php" % DOOR})
         elif q.get("op") == ["roles"]: self.answer({"ok": True, "login": False, "roles": {"alpha": {"default": True, "ram": True, "category": "Teams"},
                                                      "eochq": {"default": False, "ram": False, "category": "EOC"}, "medic1": {"default": False, "ram": True, "category": "Ambulance"}}})
         else: self.answer({"ok": False, "error": "op"})
@@ -48,9 +52,9 @@ dp = free(); srv = ThreadingHTTPServer(("127.0.0.1", dp), Door); threading.Threa
 DOOR = "127.0.0.1:%d" % dp
 CP = os.pathsep.join([os.path.join(SRC, "frognet-ram-java", "build", "frognet-ram.jar"), os.path.join(APP, "build", "core"), os.path.join(APP, "build", "test")])
 class Dev:
-    def __init__(self):
+    def __init__(self, sensors=True):
         self.q = queue.Queue(); self.lines = []
-        self.p = subprocess.Popen(["java", "-Drt.sensors=http://%s/api.php" % DOOR, "-cp", CP, "CoreDriver"], stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.DEVNULL, text=True)
+        self.p = subprocess.Popen(["java"] + (["-Drt.sensors=http://%s/api.php" % DOOR] if sensors else []) + ["-cp", CP, "CoreDriver"], stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.DEVNULL, text=True)
         procs.append(self.p); threading.Thread(target=self.read, daemon=True).start()
     def read(self):
         for l in self.p.stdout:
@@ -85,6 +89,11 @@ try:
     na = a.wait(lambda o: o.get("ev") == "mission" and str(o.get("id", "")).startswith("vashon-windstorm"))
     nb = b.wait(lambda o: o.get("ev") == "mission" and str(o.get("id", "")).startswith("vashon-windstorm"))
     check(bool(na) and bool(nb), "4 a mission started afterwards is the mission on both: %s" % (na or {}).get("id"))
+    # 7 [SENSORS_BY_THE_DOOR_V1] a core told nothing of the sensor store (no rt.sensors): the door says where it is
+    t = Dev(sensors=False); t.send(op="connect", door=DOOR, dev="pt", name="Tess", role="team", team="Alpha")
+    t.wait(lambda o: o.get("ev") == "connected"); t.send(op="hosts")
+    h = t.wait(lambda o: o.get("ev") == "hosts" or (o.get("ev") == "error" and "GPS" in o.get("text", "")))
+    check((h or {}).get("ev") == "hosts", "7 the sensor store where the door says: %s" % ((h or {}).get("list") if (h or {}).get("ev") == "hosts" else (h or {}).get("text")))
     # 6 [ADMIN_ON_NOW_V1] the admin's who-is-on-now: Pat and Lee, in the mission now (4's), team Alpha
     ad = subprocess.run(["java", "-cp", CP, "AdminOnNow", DOOR, "rangertrak", "8000"], capture_output=True, text=True, timeout=60).stdout
     nows = [json.loads(l) for l in ad.splitlines() if l.startswith("{") and '"onNow"' in l]

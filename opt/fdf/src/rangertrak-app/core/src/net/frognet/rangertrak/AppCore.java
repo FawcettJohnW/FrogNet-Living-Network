@@ -49,7 +49,7 @@ public final class AppCore {
 
     public static final String APP = "rangertrak";
     public static final String API = "/FawcettInnovations.RINA.ram_interface.php";
-    public static final String BUILD = "rt-app-2026-11-05-r48";
+    public static final String BUILD = "rt-app-2026-11-05-r49";
 
     private final Ui ui;
     private String door = "", dev = "", name = "", role = "", team = "", user = "", mission = "";
@@ -243,6 +243,7 @@ public final class AppCore {
     private volatile String doorNode = "";
     private Map<String, String> ramsOf(Map<String, Object> o) {
         if (!Json.str(o.get("node")).isEmpty()) doorNode = Json.str(o.get("node"));
+        if (SENSORS_SET.isEmpty() && !Json.str(o.get("sensors")).isEmpty()) SENSORS = Json.str(o.get("sensors"));
         Map<String, String> out = new HashMap<String, String>();
         for (Map.Entry<String, Object> e : Json.obj(o.get("rams")).entrySet()) out.put(e.getKey(), Json.str(e.getValue()));
         return out;
@@ -647,7 +648,12 @@ public final class AppCore {
 
     // ------------------------------------------------------------------ sensors: every node's, as metric_upsert.sh files them
     // the network's sensor store, through this device's node (its DNS names databasehost.frognet); rt.sensors: a test's stand-in
-    private static final String SENSORS = System.getProperty("rt.sensors", "http://databasehost.frognet/api.php");
+    // [SENSORS_BY_THE_DOOR_V1] where the sensor store is: the door says (dc-door r17: databasehost.frognet as its node's
+    // /etc/hosts has it, by address). Through the tunnel the phone's DNS has no .frognet names (John 2026-11-05: "Unable
+    // to resolve host databasehost.frognet" on the phone off the LAN; on the LAN its node's DNS answered); the address
+    // routes. Until the door has said, the name.
+    private static final String SENSORS_SET = System.getProperty("rt.sensors", "");
+    private volatile String SENSORS = SENSORS_SET.isEmpty() ? "http://databasehost.frognet/api.php" : SENSORS_SET;
     private static String enc(String s) { return net.frognet.ram.RamSession.urlenc(s); }
 
     /** [RT_SENSORS_V1] the nodes that report: every node has at least its System sensor (sysperf_reporter.bash ->
@@ -663,7 +669,7 @@ public final class AppCore {
                     hosts.put(nm.substring(0, i), Json.str(r.get("SensorAddress")));
                 }
                 out("ev", "sensorHosts", "hosts", hosts);
-            } catch (Exception e) { out("ev", "error", "text", "the nodes' sensors (databasehost.frognet): " + e.getMessage()); }
+            } catch (Exception e) { out("ev", "error", "text", "the nodes' sensors (" + SENSORS + "): " + e.getMessage()); }
         } }, "sensor-hosts").start();
     }
 
@@ -682,7 +688,7 @@ public final class AppCore {
                     if (a.equals(addr) || nm.substring(0, i).equalsIgnoreCase(addr)) { sensors(nm.substring(0, i)); return; }
                 }
                 out("ev", "error", "text", "no node at " + addr + " reports its sensors (the nodes that do: " + String.join(", ", seen) + ")");
-            } catch (Exception e) { out("ev", "error", "text", "the nodes' sensors (databasehost.frognet): " + e.getMessage()); }
+            } catch (Exception e) { out("ev", "error", "text", "the nodes' sensors (" + SENSORS + "): " + e.getMessage()); }
         } }, "sensors-at").start();
     }
 
@@ -793,7 +799,7 @@ public final class AppCore {
                         + names + ")" + (nofix.isEmpty() ? "" : "; no fix: " + String.join(", ", nofix)));
             } catch (Exception e) {
                 lastHosts = Json.o("at", System.currentTimeMillis(), "from", SENSORS, "error", String.valueOf(e.getMessage()));
-                out("ev", "error", "text", "the nodes' GPS sensors (databasehost.frognet): " + e.getMessage());
+                out("ev", "error", "text", "the nodes' GPS sensors (" + SENSORS + "): " + e.getMessage());
             }
         } }, "hosts").start();
     }

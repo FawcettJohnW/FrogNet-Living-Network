@@ -242,7 +242,10 @@ window.rtDeliver = function (line) {
   const m = typeof line === 'string' ? JSON.parse(line) : line
   if (!S.ready) { early.push(m); return }
   if (m.ev === 'status') status(m.text)
-  else if (m.ev === 'error') { if (/GPS sensors/.test(m.text)) { S.hostsSaid = true; addressFix() } status('⚠ ' + m.text); if (!$('#connect').hidden) $('#cstatus').textContent = m.text }
+  else if (m.ev === 'error') { if (/GPS sensors/.test(m.text)) { S.hostsSaid = true; addressFix() }
+    // a sheet still waiting on an answer (Sensors: asking / finding the node) says the error, not "asking…" for ever
+    if (/sensors/i.test(m.text) && S.sheet === 'sens' && !$('#sheet').hidden && /asking…|finding the node/.test($('#sheet .sh-body').textContent)) $('#sheet .sh-body').innerHTML = '<div class="bad">⚠ ' + esc(m.text) + '</div>'
+    status('⚠ ' + m.text); if (!$('#connect').hidden) $('#cstatus').textContent = m.text }
   else if (m.ev === 'diag') diagSheet(m)
   else if (m.ev === 'connected') connected(m)
   else if (m.ev === 'enrollScan') enrollScan(m)
@@ -670,6 +673,7 @@ function noGps(m) {
   if (m.saved && typeof m.saved.lat === 'number') { S.addr = m.saved; addressFix(); return }
   S.noGpsWhy = m.why || 'This device has no GPS.'
   S.addrAsk = true                                      // asked once connected (the sheet needs the main screen)
+  addressFix()                                          // connected already (a phone whose GPS went off): now
 }
 // [RT_AT_ITS_NODE_V1] a device with no GPS and no address given is where its node is (the node it came in through, its
 // GPS sensor's fix), "src":"node", until an address is given: on everyone's map from the start, not on nobody's

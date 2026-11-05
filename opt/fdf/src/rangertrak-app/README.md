@@ -1,4 +1,4 @@
-# RangerTrak app (desktop and phone) -- rt-app-2026-11-05-r48
+# RangerTrak app (desktop and phone) -- rt-app-2026-11-05-r49
 
 The demo John set on 2026-11-01 (`opt/frognet_semantic/ribbit/examples/rangertrak/PLAN.md`, its first decision): the EOC
 on a Windows app, a first responder on a phone, presence with GPS, chat, a pre-populated moving world, in an app and not
@@ -46,6 +46,16 @@ role's `act`/`req`, or `RT.button`). **A new view**: `RT.role(...)` in a layer's
 `--lock=` and `--layers=`. **The admin app**: a layer's own panel is `ui-admin/layers/<name>.js` calling
 `RTA.panel(title, fn)` (none yet). Gates: `test/test_app.py` (32 checks; the Team and Public apps run with their own
 layers only), `test/test_team_host.py`, `android/typecheck.sh`.
+
+## r49 / dc-door r17: the sensor store by the door's address ([SENSORS_BY_THE_DOOR_V1])
+
+Off the LAN, through the tunnel, the phone could not reach the sensors (John 2026-11-05 Logcat: "Unable to resolve host
+databasehost.frognet"): the phone's DNS is its carrier's, and .frognet names are the nodes' (/etc/hosts). The door says
+where the sensor store is, `sensors` in op=rams (http://<databasehost.frognet's address on that node>/api.php; the
+default vhost serves api.php by address), and the core uses it. A Sensors sheet waiting on an answer shows the error
+instead of "finding the node" for ever. Through the tunnel that address must route (fdf-tun drops a destination no scope
+routes, and says so in Logcat: "no scope routes A.B.C.D"). Node update: dc/ram.php r17 (with fdf-app r16). Gate:
+test_no_mission.py 7. A device told it has no GPS while connected is asked at once (test_app 26).
 
 ## r48: a phone that leaves the node's LAN brings up its tunnel ([TEAM_SPLIT_V1])
 
