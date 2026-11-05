@@ -266,7 +266,7 @@ window.rtDeliver = function (line) {
   else if (m.ev === 'hosts') { S.gps = {}; for (const h of m.list || []) S.gps['gps:' + h.name] = Object.assign({ kind: 'host' }, h); redraw() }
   for (const f of (RT.evs[m.ev] || [])) f(m)                     // [RT_LAYERS_V1] the layers' events
 }
-function status(t) { $('#status').textContent = t; $('#dot').classList.toggle('up', !/FAILING|cannot|⚠/.test(t)); if (/FAILING|cannot|⚠|not /.test(t)) said(t) }
+function status(t) { $('#status').textContent = t; $('#dot').classList.toggle('up', !/FAILING|cannot|⚠/.test(t)); if (/FAILING|cannot|⚠|not |page error/.test(t)) said(t) }
 // ------------------------------------------------------------ [RT_DIAG_V1] Diagnostics: the core's account (op=diag) and the page's
 // own (the map, this device's fixes, what went wrong lately), on one sheet, again whenever the world, a message or an error
 // comes while it is open. Nothing to run anywhere: the app says it.
@@ -323,6 +323,7 @@ function connected(m) {
     window.addEventListener('resize', fit)
   }
   for (const k in KINDS) S.on[k] = r.kinds === 'all' || (r.kinds || []).includes(k)
+  S.on.host = true                                      // [RT_HOSTS_ALWAYS_V1] the nodes are on every view's map, from the start
   S.on.lkp = !r.only
   // (John, 2026-11-01) the EOC starts with the map, teams and resources on it; the chat is a button away. A team member
   // starts with only their own team on the map ([TEAM_VIEW_IS_THE_TEAM_V1]); the others are added from Layers
@@ -372,9 +373,19 @@ function shown(b) {
   if (b.kind === 'team') return !!S.on.team && S.teamsOn.has(String(b.team || '').toLowerCase())
   return S.on[b.kind] !== undefined ? S.on[b.kind] : S.on.team
 }
+// [RT_MARKER_INFO_V1] a marker, selected: what it is, where, since when, through which node -- and the Sensors of that
+// platform (a node: its own; anyone else: the node it is on, by its address)
 function popupHtml(id, b, lkp) {
   const bits = [b.status, b.beds !== undefined ? b.beds + ' beds available' : '', b.severity, b.customers_out ? b.customers_out + ' customers out' : '', b.to ? 'to ' + b.to : '']
+  const kind = (KINDS[b.kind] || {}).label || b.kind || ''
+  const at = b.at ? new Date(b.at * 1000).toLocaleTimeString() : b.fixAt ? new Date(b.fixAt).toLocaleTimeString() : ''
+  const isHost = b.kind === 'host' || String(id).startsWith('gps:')
+  const via = !isHost && b.via ? String(b.via) : ''
+  const info = [kind, typeof b.lat === 'number' ? b.lat.toFixed(5) + ', ' + b.lng.toFixed(5) : '', b.acc ? '±' + Math.round(b.acc) + ' m' : '', b.src && b.src !== 'gps' ? b.src : '',
+                at ? (isHost ? 'fix ' : 'updated ') + at : '', isHost && b.address ? b.address : '', via ? 'through ' + via : ''].filter(Boolean)
+  const sens = isHost ? `<button onclick="sensorsOf('${esc(b.name)}')">Sensors</button>` : via ? `<button onclick="sensorsAt('${esc(via)}')">Sensors of its node</button>` : ''
   return `<b>${esc(b.name)}</b>${b.team ? ' · ' + esc(b.team) : ''}<br>${esc(bits.filter(Boolean).join(' · '))}` +
+    `<div class="pinfo">${esc(info.join(' · '))}</div>` + (sens ? '<div class="pbtns">' + sens + '</div>' : '') +
     (lkp ? `<br><i>last known position, ${Math.round((Date.now() - lkp.t) / 60000)} min ago</i>` : '') +
     (talkable(id, b) && !lkp ? `<br><button onclick="openPop('${esc(id)}')">Chat</button>` : '') +
     RT.fire('popup', id, b, lkp).join('')
@@ -441,7 +452,7 @@ function envText(c) { return c.sensors.map(x => Object.entries(x.readings).map((
 function visibleInView(b) { const o = RT.me().only; return !o || o.includes(b.kind) }
 function layersPanel() {
   const p = $('#layers'), r = RT.me(); p.innerHTML = ''
-  const kinds = Object.keys(KINDS).filter(k => !r.only || r.only.includes(k))
+  const kinds = Object.keys(KINDS).filter(k => !r.only || r.only.includes(k) || k === 'host')
   if (!r.only) {                                  // the teams, one by one: a member adds others from here
     const h = document.createElement('div'); h.className = 'lh'; h.textContent = 'Teams'; p.appendChild(h)
     for (const t of knownTeams()) {
@@ -568,6 +579,8 @@ function here() { if (myFix) return { lat: myFix.lat, lng: myFix.lon }; const c 
 window.setStatus = (st) => { S.myStatus = st; send({ op: 'status', status: st }); refreshSheet('status') }
 
 // ------------------------------------------------------------ [RT_SENSORS_V1] every node's sensors, as they file them
+window.sensorsOf = (host) => { map.closePopup(); sheet('sens', 'Sensors: ' + host, '<div class="meta">asking…</div>'); send({ op: 'sensors', host }) }
+window.sensorsAt = (addr) => { map.closePopup(); sheet('sens', 'Sensors', '<div class="meta">finding the node at ' + esc(addr) + '…</div>'); send({ op: 'sensorsAt', addr }) }
 $('#sensBtn').onclick = () => { sheet('sens', 'Sensors', '<div class="meta">asking the nodes…</div>'); send({ op: 'sensorHosts' }) }
 function sensorHosts(h) {
   const names = Object.keys(h).sort()

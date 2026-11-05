@@ -147,3 +147,6 @@ table.rl td { padding: 5px 6px; border-bottom: 1px solid #1f2a24; vertical-align
 .diag { display: grid; gap: 6px; font-size: 13px; overflow-wrap: anywhere; } .diag h3 { margin: 8px 0 2px; font-size: 14px; }
 .diag .dt { width: 100%; border-collapse: collapse; } .diag .dt th, .diag .dt td { text-align: left; vertical-align: top; padding: 3px 5px; border-bottom: 1px solid var(--bd); }
 .diag .ok { color: #3fb36b; font-weight: 600; } .diag .bad { color: #ff6b6b; font-weight: 600; }
+
+/* [RT_MARKER_INFO_V1] */
+.leaflet-popup-content .pinfo { color: #555; font-size: 12px; margin-top: 3px; } .leaflet-popup-content .pbtns { margin-top: 6px; display: flex; gap: 6px; flex-wrap: wrap; }

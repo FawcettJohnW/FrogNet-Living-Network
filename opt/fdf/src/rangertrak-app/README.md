@@ -1,4 +1,4 @@
-# RangerTrak app (desktop and phone) -- rt-app-2026-11-05-r35
+# RangerTrak app (desktop and phone) -- rt-app-2026-11-05-r36
 
 The demo John set on 2026-11-01 (`opt/frognet_semantic/ribbit/examples/rangertrak/PLAN.md`, its first decision): the EOC
 on a Windows app, a first responder on a phone, presence with GPS, chat, a pre-populated moving world, in an app and not
@@ -46,6 +46,16 @@ role's `act`/`req`, or `RT.button`). **A new view**: `RT.role(...)` in a layer's
 `--lock=` and `--layers=`. **The admin app**: a layer's own panel is `ui-admin/layers/<name>.js` calling
 `RTA.panel(title, fn)` (none yet). Gates: `test/test_app.py` (32 checks; the Team and Public apps run with their own
 layers only), `test/test_team_host.py`, `android/typecheck.sh`.
+
+## r36: the nodes always on the map; a marker says what it is and opens its node's Sensors
+
+- [RT_HOSTS_ALWAYS_V1] Hosts (the nodes, from their GPS sensors) is on in every view from the start, and in every
+  view's Layers (a view that shows only its own kinds too).
+- [RT_MARKER_INFO_V1] a marker, selected: its name, team, status, what it is, where (and ±m), since when, through which
+  node; **Sensors** on a node opens that node's sensors; **Sensors of its node** on anyone else's opens the sensors of
+  the node it is on (`op=sensorsAt`: the node whose System sensor says that address).
+- Gates: test_app 36/36 (36: Seattle7 on the Team member's map from the start, selected, its Sensors listed). Checks
+  16, 10, 4 and 30 leave the nodes out of their people counts; 31 reads the page error from the said list.
 
 ## r35: Telecom, not Phone ([RT_TELECOM_NOT_PHONE_V1])
 

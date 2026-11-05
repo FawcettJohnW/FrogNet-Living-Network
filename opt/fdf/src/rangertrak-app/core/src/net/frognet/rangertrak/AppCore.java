@@ -49,7 +49,7 @@ public final class AppCore {
 
     public static final String APP = "rangertrak";
     public static final String API = "/FawcettInnovations.RINA.ram_interface.php";
-    public static final String BUILD = "rt-app-2026-11-05-r35";
+    public static final String BUILD = "rt-app-2026-11-05-r36";
 
     private final Ui ui;
     private String door = "", dev = "", name = "", role = "", team = "", user = "", mission = "";
@@ -123,6 +123,7 @@ public final class AppCore {
             else if (op.equals("hosts")) hosts();
             else if (op.equals("sensorHosts")) sensorHosts();
             else if (op.equals("sensors")) sensors(Json.str(m.get("host")));
+            else if (op.equals("sensorsAt")) sensorsAt(Json.str(m.get("addr")));
             else if (op.equals("sensor")) sensor(Json.str(m.get("id")), Json.str(m.get("name")));
             else if (op.equals("status")) myStatus(Json.str(m.get("status")));
             else if (op.equals("compliance")) compliance();
@@ -632,6 +633,25 @@ public final class AppCore {
                 out("ev", "sensorHosts", "hosts", hosts);
             } catch (Exception e) { out("ev", "error", "text", "the nodes' sensors (databasehost.frognet): " + e.getMessage()); }
         } }, "sensor-hosts").start();
+    }
+
+    /** [RT_MARKER_INFO_V1] the sensors of the node at ADDR (a marker's "through" address): the node whose System sensor
+     *  says that address */
+    private void sensorsAt(final String addr0) {
+        new Thread(new Runnable() { public void run() {
+            try {
+                String addr = addr0.replaceAll("^https?://", "").replaceAll("[:/].*$", "");
+                Map<String, Object> o = Json.obj(Json.parse(http("GET", SENSORS + "?entity=sensors&action=list&SensorType=System", null)));
+                java.util.Set<String> seen = new java.util.TreeSet<String>();
+                for (Object r0 : Json.arr(o.get("rows"))) {
+                    Map<String, Object> r = Json.obj(r0); String nm = Json.str(r.get("SensorName"));
+                    int i = nm.indexOf(".System."); if (i <= 0) continue;
+                    String a = Json.str(r.get("SensorAddress")); seen.add(nm.substring(0, i) + " " + a);
+                    if (a.equals(addr) || nm.substring(0, i).equalsIgnoreCase(addr)) { sensors(nm.substring(0, i)); return; }
+                }
+                out("ev", "error", "text", "no node at " + addr + " reports its sensors (the nodes that do: " + String.join(", ", seen) + ")");
+            } catch (Exception e) { out("ev", "error", "text", "the nodes' sensors (databasehost.frognet): " + e.getMessage()); }
+        } }, "sensors-at").start();
     }
 
     private void sensors(final String host) {

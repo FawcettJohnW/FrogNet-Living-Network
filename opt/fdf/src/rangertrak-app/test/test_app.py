@@ -148,13 +148,13 @@ with sync_playwright() as pw:
     tm.click("#connect button"); tm.wait_for_selector("#main:not([hidden])", timeout=8000)
     tm.wait_for_function("Object.keys(S.markers).length >= 4", timeout=15000)
     tk = tm.evaluate("[...new Set(Object.keys(S.markers).map(id=>(S.pos[id]||S.who[id]||{}).kind))]")
-    tt = tm.evaluate("[...new Set(Object.keys(S.markers).map(id=>(S.pos[id]||{}).team))]")
+    tt = tm.evaluate("[...new Set(Object.keys(S.markers).filter(id=>!id.startsWith('gps:') && (S.pos[id]||{}).kind!=='host').map(id=>(S.pos[id]||{}).team))]")
     check(tt == ["Alpha"], "16 the Team view starts with only its own team on the map: teams %s" % tt)
     tm.click("#layersBtn")
     front = tm.evaluate("(()=>{$('#chat').hidden=false;const r=$('#layers').getBoundingClientRect();const e=document.elementFromPoint(r.left+r.width/2,r.top+r.height/2);return !!e.closest('#layers')})()")
     tm.evaluate("$('#chat').hidden=true"); tm.click("#layersBtn")
     check(front, "17 Layers opens in front of the chat")
-    check(set(tk) <= {"team", "eoc"} and tm.evaluate("S.tab") == "team:Alpha" and tm.evaluate("$('#to').value") == "team:Alpha",
+    check(set(tk) <= {"team", "eoc", "host"} and tm.evaluate("S.tab") == "team:Alpha" and tm.evaluate("$('#to').value") == "team:Alpha",
           "10 the Team view opens on the teams only (%s) and on its own team's chat (%s)" % (tk, tm.evaluate("S.tab")))
     tm.evaluate("send({op:'fix',lat:47.6205,lng:-122.3493,acc:8})")          # the phone's GPS: the Space Needle
     tm.click("#chatBtn"); tm.evaluate("$('#to').value='team:Alpha'"); tm.fill("#text", "Alpha 9 on scene at the Center"); tm.click("#sayForm button")
@@ -181,7 +181,7 @@ with sync_playwright() as pw:
     pb.wait_for_selector("#connect:not([hidden])"); pb.click("#connect button"); pb.wait_for_selector("#main:not([hidden])", timeout=8000)
     home_ok = pb.is_visible("#home") and pb.evaluate("document.querySelectorAll('#home [data-go]').length") == 8
     pb.click("[data-go=map]"); pb.wait_for_function("Object.keys(S.markers).length > 10", timeout=15000)
-    pk = pb.evaluate("[...new Set(Object.keys(S.markers).map(id=>id.startsWith('help:')?'help':id.startsWith('field:')?(S.field[id.slice(6)]||{}).what:(S.pos[id]||{}).kind))]")
+    pk = pb.evaluate("[...new Set(Object.keys(S.markers).filter(id=>!id.startsWith('gps:') && (S.pos[id]||{}).kind!=='host').map(id=>id.startsWith('help:')?'help':id.startsWith('field:')?(S.field[id.slice(6)]||{}).what:(S.pos[id]||{}).kind))]")
     check(set(pk) <= {"hospital", "fire", "power", "help", "hazard"} and pb.is_hidden("#chatBtn"), "4 the public's map: kinds %s (no people's positions), chat hidden" % pk)
     if SHOTS: pb.screenshot(path=os.path.join(SHOTS, "public-phone.png"))
 
@@ -281,7 +281,7 @@ with sync_playwright() as pw:
     t_ok = ta.is_hidden("#roleSet") and ta.inner_text("#connect h1") == "RangerTrak Team" and "rt-app-" in ta.inner_text("#cstatus")
     ta.select_option("[name=team]", "Bravo"); ta.click("#connect button"); ta.wait_for_selector("#main:not([hidden])", timeout=8000)
     ta.wait_for_function("S.role==='team' && S.team==='Bravo' && Object.keys(S.markers).length >= 4", timeout=15000)
-    tt2 = ta.evaluate("[...new Set(Object.keys(S.markers).map(id=>(S.pos[id]||{}).team))]")
+    tt2 = ta.evaluate("[...new Set(Object.keys(S.markers).filter(id=>!id.startsWith('gps:') && (S.pos[id]||{}).kind!=='host').map(id=>(S.pos[id]||{}).team))]")
     ta.click("#misBtn"); back1 = ta.evaluate("rtBack()"); closed = ta.is_hidden("#sheet"); back2 = ta.evaluate("rtBack()")
     tl = ta.evaluate("RT.loaded.join()")
     check(t_ok and tt2 == ["Bravo"] and back1 and closed and back2 is False and tl == "help,field,team",
@@ -292,7 +292,7 @@ with sync_playwright() as pw:
     pa.click("#connect button"); pa.wait_for_selector("#home:not([hidden])", timeout=8000)
     pa.click("[data-go=map]"); pb_back = pa.evaluate("rtBack()"); home_again = pa.is_visible("#home")
     pa.evaluate("setTimeout(()=>{ nosuchfunction() }, 0)"); time.sleep(0.3)
-    err = pa.inner_text("#status")
+    err = pa.evaluate("S.errs.join(' | ')")                   # (the status line: whatever came last; the page error is in the said list)
     pl = pa.evaluate("RT.loaded.join()")
     check(p_ok and pb_back and home_again and "page error" in err and pl == "help,public",
           "31 the Public app (layers " + pl + "): no view to choose (titled RangerTrak Public), opens on its home; Back from the map goes Home; a page error is said on the status line: '%s'" % err[:80])
@@ -307,6 +307,19 @@ with sync_playwright() as pw:
     check("DOWN" not in dg and _re.search(r"In the positions RAM: yes", dg) and _re.search(r"came back yes", dg) and "Last position sent to the core" in dg,
           "34 [RT_DIAG_V1] the Team member's Diagnostics: no follower down, its position in the positions RAM, its message came back: %s" % " | ".join(l for l in dg.splitlines() if l.startswith(("In the positions", "Last message", "Last position")))[:300])
     if SHOTS: tm.screenshot(path=os.path.join(SHOTS, "diag-phone.png"))
+    # [RT_HOSTS_ALWAYS_V1] [RT_MARKER_INFO_V1] the Team member's map has the nodes from the start; Seattle7's marker, selected,
+    # says what it is and offers its Sensors, which list Seattle7's
+    tm.click("#sheet .sh-close")
+    try: tm.wait_for_function("!!S.markers['gps:Seattle7']", timeout=10000); hostOn = True
+    except Exception: hostOn = False
+    info = ""; sl = ""
+    if hostOn:
+        tm.evaluate("S.markers['gps:Seattle7'].openPopup()"); tm.wait_for_selector(".leaflet-popup-content .pbtns button", timeout=5000)
+        info = tm.inner_text(".leaflet-popup-content"); tm.evaluate("document.querySelector('.leaflet-popup-content .pbtns button').click()")
+        tm.wait_for_function("/Sensors: Seattle7/.test($('#sheet .sh-title').textContent) && /SenseHat/.test($('#sheet').textContent)", timeout=10000); sl = tm.inner_text("#sheet .sh-body")
+        tm.click("#sheet .sh-close")
+    check(hostOn and tm.evaluate("S.on.host") and "Hosts" in info and "47.44730" in info and "Perf" in sl and "Env" in sl,
+          "36 the Team member's map has the nodes from the start (Hosts on: %s); Seattle7 selected: %r; its Sensors: %r" % (hostOn, info.replace("\n", " ")[:120], sl.replace("\n", " ")[:120]))
     # [RT_TEAMS_ARE_THE_NETWORKS_V1] a team the page does not name (Echo: the admin's fifth; Zulu: in no list at all) is on
     # the EOC's map, its Layers and its chat tabs, from the network
     sys.path.insert(0, os.path.join(FDF, "lib", "python")); import fdfram
