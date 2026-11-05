@@ -49,12 +49,17 @@ public final class AppCore {
 
     public static final String APP = "rangertrak";
     public static final String API = "/FawcettInnovations.RINA.ram_interface.php";
-    public static final String BUILD = "rt-app-2026-11-04-r28";
+    public static final String BUILD = "rt-app-2026-11-04-r29";
 
     private final Ui ui;
     private String door = "", dev = "", name = "", role = "", team = "", user = "", mission = "";
     private Map<String, String> rams = new HashMap<String, String>();
-    private volatile Follower general, mis, dm, positions, msgs, helpF, reports, fieldF, facF, trF, callF, logF;
+    private volatile Follower general, mis, dm, positions, msgs, callF, logF;
+    // [RT_LAYERS_V1] this app's layers (help, field, eoc, team, medical, units, public ...): the views they add, their
+    // followers (started with every mission, stopped with it), their ops
+    private final List<Layer> layers;
+    private final Map<String, Layer.Role> views = new java.util.LinkedHashMap<String, Layer.Role>();
+    private final List<Follower> layerF = new java.util.concurrent.CopyOnWriteArrayList<Follower>();
     private String status = "available";
     private final Map<String, Follower> teams = new HashMap<String, Follower>();
     private final Map<String, Boolean> seen = new HashMap<String, Boolean>();   // message ids shown
@@ -71,7 +76,35 @@ public final class AppCore {
     private volatile Follower hostF;
     private volatile String leadVia = "";
 
-    public AppCore(Ui ui) { this.ui = ui; }
+    /** every layer there is (the app with every view) */
+    public AppCore(Ui ui) { this(ui, null); }
+    /** [RT_LAYERS_V1] the base and these layers (comma-separated names, ui/layers' names; null or "": every one) */
+    public AppCore(Ui ui, String layerNames) {
+        this.ui = ui; this.layers = net.frognet.rangertrak.layer.Layers.of(layerNames);
+        for (Layer l : layers) views.putAll(l.roles());
+    }
+    private Layer.Role view() { Layer.Role r = views.get(role); return r == null ? new Layer.Role("public", "", false) : r; }
+    private boolean pub() { return view().connect.equals("public"); }
+    private boolean isTeam() { return view().connect.equals("team"); }
+    /** what a layer reaches of this core */
+    private final Layer.Here here = new Layer.Here() {
+        public String mission() { return mission; } public String dev() { return dev; } public String name() { return name; }
+        public String role() { return role; } public String team() { return team; } public boolean isPublic() { return pub(); }
+        public void out(Object... kv) { AppCore.this.out(kv); } public void say(String t) { AppCore.this.say(t); }
+        public Follower follow(String label, String service, String variable, Runnable r) {
+            String[] g = hp(rams.get("general"));
+            Follower.Log lg = new Follower.Log() { public void say(String l) { onSessionLine(l); } };
+            Follower f = variable == null ? new Follower(label, g[0], Integer.parseInt(g[1]), API, service, lg, null, r)
+                                          : new Follower(label, g[0], Integer.parseInt(g[1]), API, service, variable, lg, null, r);
+            layerF.add(f); return f;
+        }
+        public void writeOnce(String service, String variable, String instance, Map<String, Object> bag) throws Exception {
+            String[] g = hp(rams.get("general"));
+            net.frognet.ram.RamSession s = new net.frognet.ram.RamSession(g[0], Integer.parseInt(g[1]), 5000);
+            try { s.call("POST", API + "?op=write", Json.write(Json.o("service", service, "variable", variable, "instance", instance, "bag", bag)), 10); }
+            finally { s.close(); }
+        }
+    };
 
     private void out(Object... kv) { ui.deliver(Json.write(Json.o(kv))); }
     private void say(String t) { out("ev", "status", "text", t); }
@@ -87,24 +120,20 @@ public final class AppCore {
             else if (op.equals("say")) send(Json.str(m.get("to")), Json.str(m.get("text")));
             else if (op.equals("fix")) position(m);
             else if (op.equals("hosts")) hosts();
-            else if (op.equals("help")) help(m);
-            else if (op.equals("helpAction")) helpAction(m);
-            else if (op.equals("report")) report(m);
             else if (op.equals("sensorHosts")) sensorHosts();
             else if (op.equals("sensors")) sensors(Json.str(m.get("host")));
             else if (op.equals("sensor")) sensor(Json.str(m.get("id")), Json.str(m.get("name")));
-            else if (op.equals("field")) field(m);
-            else if (op.equals("fieldAction")) fieldAction(m);
             else if (op.equals("status")) myStatus(Json.str(m.get("status")));
             else if (op.equals("compliance")) compliance();
-            else if (op.equals("facility")) facility(m);
-            else if (op.equals("transport")) transport(m);
-            else if (op.equals("transportAction")) transportAction(m);
             else if (op.equals("call")) call(m);
             else if (op.equals("teamHost")) teamHost(m);
             else if (op.equals("teamPlace")) teamPlace(m);
             else if (op.equals("door")) redoor(Json.str(m.get("door")).trim());
-            else out("ev", "error", "text", "unknown op " + op);
+            else {                                          // [RT_LAYERS_V1] a layer's op
+                boolean done = false;
+                for (Layer l : layers) if (l.handle(op, m, here)) { done = true; break; }
+                if (!done) out("ev", "error", "text", "unknown op " + op + " (this app's layers: " + layerNames() + ")");
+            }
         } catch (Exception e) { out("ev", "error", "text", op + ": " + e.getMessage()); }
     }
 
@@ -163,7 +192,7 @@ public final class AppCore {
      *  (id: from its name and the time; "at": now, so it is the mission now on every device). (rt-mission, settings, <id>) */
     private void missionSet(Map<String, Object> m) throws Exception {
         if (mis == null) throw new Exception("not connected");
-        if (role.equals("public")) throw new Exception("the public view sees the mission; it does not set it");
+        if (pub()) throw new Exception("the public view sees the mission; it does not set it");
         Map<String, Object> b = Json.obj(m.get("bag"));
         String id = Json.str(m.get("id"));
         long now = System.currentTimeMillis() / 1000;
@@ -214,25 +243,28 @@ public final class AppCore {
         return out;
     }
 
+    private String layerNames() { StringBuilder b = new StringBuilder(); for (Layer l : layers) b.append(b.length() > 0 ? "," : "").append(l.name()); return b.toString(); }
     private void connect(Map<String, Object> m) throws Exception {
         door = Json.str(m.get("door")).trim(); dev = Json.str(m.get("dev")); name = Json.str(m.get("name"));
         String want = Json.str(m.get("role"));
         say("connecting to the node at " + door + " (" + BUILD + ")");
-        if (want.equals("eoc")) {          // the EOC's role is activated at its user's login, read at the door
+        Layer.Role v = views.get(want);                 // [RT_LAYERS_V1] a view one of this app's layers adds
+        if (v == null) throw new Exception("this app has no " + want + " view (its layers: " + layerNames() + ")");
+        if (v.connect.equals("login")) {     // a role activated at its user's login, read at the door (the EOC's)
             Map<String, Object> o = doorCall("op=login&app=" + APP, Json.write(Json.o("user", Json.str(m.get("user")), "password", Json.str(m.get("password")))));
-            role = Json.str(o.get("role")); user = Json.str(m.get("user"));
-            if (!role.equalsIgnoreCase("eoc")) throw new Exception("user " + user + " has role '" + role + "', not the EOC's");
-            role = "eoc";                                   // the admin's role name in any case ([RT_EOC_APP_V1])
+            String r = Json.str(o.get("role")); user = Json.str(m.get("user"));
+            if (!r.equalsIgnoreCase(want)) throw new Exception("user " + user + " has role '" + r + "', not the " + (want.equals("eoc") ? "EOC" : want) + "'s");
+            role = want;                                    // the admin's role name in any case ([RT_EOC_APP_V1])
             team = "";
-        } else if (want.equals("team")) { role = "team"; team = Json.str(m.get("team")); user = ""; }
-        else if (UNIT_ROLES.contains(want)) { role = want; team = Json.str(m.get("unit")); user = ""; }   // [RT_SUITE_APPS_V1] a unit's app
-        else { role = "public"; team = ""; user = ""; }
+        } else if (v.connect.equals("team")) { role = want; team = Json.str(m.get("team")); user = ""; }
+        else if (v.connect.equals("unit")) { role = want; team = Json.str(m.get("unit")); user = ""; }   // [RT_SUITE_APPS_V1] a unit's app
+        else { role = want; team = ""; user = ""; }
         teamRam = Json.str(m.get("teamRam")).trim();
         doorRams = servedRams(); rams = withTeamRams(doorRams);
         if (!rams.containsKey("general")) throw new Exception("RangerTrak's general RAM is not served on this network yet");
         start();
         out("ev", "connected", "role", role, "team", team, "user", user, "rams", new HashMap<String, Object>(rams), "build", BUILD);
-        if (!role.equals("public")) probeSensors();
+        if (!pub()) probeSensors();
     }
 
     /** [RT_SENSORS_V1] said once at connect: whether this device reaches the network's sensor store, and how many nodes
@@ -256,9 +288,10 @@ public final class AppCore {
     private static String[] hp(String a) { int c = a.lastIndexOf(':'); return new String[]{a.substring(0, c), a.substring(c + 1)}; }
 
     private void stopAll() {
-        for (Follower f : new Follower[]{general, mis, dm, positions, msgs, helpF, reports, fieldF, facF, trF, callF, logF, hostF}) if (f != null) f.stop();
+        for (Follower f : new Follower[]{general, mis, dm, positions, msgs, callF, logF, hostF}) if (f != null) f.stop();
         for (Follower f : teams.values()) f.stop();
-        teams.clear(); general = mis = dm = positions = msgs = helpF = reports = fieldF = facF = trF = callF = logF = hostF = null;
+        for (Follower f : layerF) f.stop();
+        teams.clear(); layerF.clear(); general = mis = dm = positions = msgs = callF = logF = hostF = null;
     }
 
     /** the followers, on the RAMs where they are served now; ours go with them */
@@ -267,7 +300,7 @@ public final class AppCore {
         String[] g = hp(rams.get("general"));
         Follower.Log lg = new Follower.Log() { public void say(String l) { onSessionLine(l); } };
         mis = new Follower("mission", g[0], Integer.parseInt(g[1]), API, "rt-mission", "settings", lg, null, new Runnable() { public void run() { onMission(); } });
-        if (role.equals("public")) return;   // the public reads the world only (no chat)
+        if (pub()) return;   // the public reads the world only (no chat)
         hostF = new Follower("team hosts", g[0], Integer.parseInt(g[1]), API, "rt-team-host", lg, null, new Runnable() { public void run() { onHosts(); } });
         startTeams();
     }
@@ -281,7 +314,7 @@ public final class AppCore {
             String k = e.getKey();
             if (k.equals("general")) continue;      // the door says the app's RAMs by their names: general, and one per team
             String t = k;
-            if (role.equals("eoc") || t.equalsIgnoreCase(team)) {
+            if (view().allTeams || t.equalsIgnoreCase(team)) {
                 String[] a = hp(e.getValue());
                 final String tn = t;
                 teams.put(t, new Follower("team " + t, a[0], Integer.parseInt(a[1]), API, "rt-team", lg, null,
@@ -329,7 +362,7 @@ public final class AppCore {
     /** the lead's phone serves its team's RAM now (the app started it): its members are told (the card in that RAM, read
      *  by a member's app on the hotspot before it connects), the EOC by the lead's cell */
     private void teamHost(Map<String, Object> m) throws Exception {
-        if (!role.equals("team") || team.isEmpty()) throw new Exception("only a team's phone hosts its team");
+        if (!isTeam() || team.isEmpty()) throw new Exception("only a team's phone hosts its team");
         int port = (int) Json.num(m.get("port")); String addr = Json.str(m.get("addr"));
         if (port <= 0) throw new Exception("no port for the team's RAM");
         hosting = "127.0.0.1:" + port; hostAddr = addr.isEmpty() ? "" : addr + ":" + port;
@@ -360,7 +393,7 @@ public final class AppCore {
     private void teamPlace(Map<String, Object> m) throws Exception {
         String at = Json.str(m.get("at"));
         if (!at.equals("databasehost")) throw new Exception("teamPlace: at databasehost (hosting here is Host team)");
-        if (!role.equals("team") || team.isEmpty()) throw new Exception("only a team's lead places its team");
+        if (!isTeam() || team.isEmpty()) throw new Exception("only a team's lead places its team");
         place(m, at);
         Follower h = hostF;
         if (h != null && !hosting.isEmpty()) h.write("host", team.toLowerCase(), Json.o("team", cap(team), "ram", "", "dev", dev, "name", name, "at", System.currentTimeMillis() / 1000), true);
@@ -396,41 +429,27 @@ public final class AppCore {
         mission = best;
         String[] g = hp(rams.get("general"));
         Follower.Log lg = new Follower.Log() { public void say(String l) { onSessionLine(l); } };
-        for (Follower x : new Follower[]{general, positions, msgs, dm, helpF, reports, fieldF, facF, trF, callF, logF}) if (x != null) x.stop();
+        for (Follower x : new Follower[]{general, positions, msgs, dm, callF, logF}) if (x != null) x.stop();
+        for (Follower x : layerF) x.stop();
+        layerF.clear();
         general = new Follower("presence", g[0], Integer.parseInt(g[1]), API, "rt-who", lg, null, new Runnable() { public void run() { world(general, null); } });
         // rt-who and rt-pos and rt-msg: one follower each would be three sessions; the library follows one service, so
         // the world is two followers on the general RAM (presence + position) and the messages a third
         positions = new Follower("positions", g[0], Integer.parseInt(g[1]), API, "rt-pos", lg, null,
                 new Runnable() { public void run() { world(general, null); } });
-        // [RT_HELP_V1] help requests, as DisasterComm's help page keeps them: (help, request, <rid>) the registrant's own
-        // record (status open / safe / resolved: "safe" is how a person says they are safe); (help, action, <rid>~<dev>)
-        // a responder's or the EOC's action on it. Not own: a request stays when the phone that made it is gone.
-        helpF = new Follower("help", g[0], Integer.parseInt(g[1]), API, "help", lg, null, new Runnable() { public void run() { onHelp(); } });
-        // [RT_FIELD_V1] what teams do in the field: (rt-field, <mission>, <dev>.<ms>) a deployed sensor platform, a
-        // request for services, a hazard, a searched area -- its writer's record, not own (it stays when the phone goes);
-        // (rt-field, <mission>.act, <item>~<dev>) the EOC's or a team's action on one (acknowledged, dispatched, done)
-        // [RT_FACILITY_V1] each hospital's own status (beds by type, diversion, power, water, oxygen, staff, needs):
-        // (rt-facility, <mission>, <facility>), written by whoever runs that facility's desk, not own (it stays);
-        // [RT_TRANSPORT_V1] each patient transport, (rt-transport, <mission>, <dev>.<ms>), the unit's record, and the
-        // hospital's acknowledgement (rt-transport, <mission>.act, <id>~<dev>)
-        facF = new Follower("facilities", g[0], Integer.parseInt(g[1]), API, "rt-facility", mission, lg, null, new Runnable() { public void run() { onFacilities(); } });
-        trF = new Follower("transports", g[0], Integer.parseInt(g[1]), API, "rt-transport", lg, null, new Runnable() { public void run() { onTransports(); } });
         // [RT_CALL_V1] a call to this device: (rt-call, <mission>.<dev>, <from>.<ms>), in the callee's own variable
-        if (!role.equals("public"))
+        if (!pub())
             callF = new Follower("calls", g[0], Integer.parseInt(g[1]), API, "rt-call", mission + "." + dev, lg, null, new Runnable() { public void run() { onCalls(); } });
         // [RT_RADIO_LOG_IN_THE_APP_V1] the radio log's entries (RangerTrak's own app, /rt/log.html: scribes and field phones),
         // (rt-log, <mission>.<opPeriod>, <dev>.<seq>), in the same general RAM: the EOC and the teams see them as they are
         // typed. Read only here: an entry's message number is its post's (ICS-309), made by the radio log.
-        if (!role.equals("public"))
+        if (!pub())
             logF = new Follower("radio log", g[0], Integer.parseInt(g[1]), API, "rt-log", lg, null, new Runnable() { public void run() { onLog(); } });
-        fieldF = new Follower("field", g[0], Integer.parseInt(g[1]), API, "rt-field", lg, null, new Runnable() { public void run() { onField(); } });
-        if (!role.equals("public")) {
-            reports = new Follower("reports", g[0], Integer.parseInt(g[1]), API, "rt-report", mission, lg, null, new Runnable() { public void run() { onReports(); } });
-        }
-        if (!role.equals("public")) {
+        if (!pub()) {
             msgs = new Follower("messages", g[0], Integer.parseInt(g[1]), API, "rt-msg", mission, lg, null, new Runnable() { public void run() { onMsgs(); } });
             dm = new Follower("direct", g[0], Integer.parseInt(g[1]), API, "rt-dm", mission + "." + dev, lg, null, new Runnable() { public void run() { onDm(); } });
         }
+        for (Layer l : layers) l.start(here);           // [RT_LAYERS_V1] the layers' families, in this mission
         out("ev", "mission", "id", mission, "name", Json.str(f.get(mission).get("name")), "bag", f.get(mission), "all", new HashMap<String, Object>(f));
         writeOwn();
     }
@@ -440,20 +459,20 @@ public final class AppCore {
      *  each follower runs it when its session comes up (onUp), and a change of status or fix writes it now */
     private void writeOwn() {
         Follower g = general, p = positions;
-        if (g == null || role.equals("public")) return;
+        if (g == null || pub()) return;
         g.onUp(new Runnable() { public void run() { writePresence(); } });
         if (p != null) p.onUp(new Runnable() { public void run() { Map<String, Object> f = fix; if (f != null && positions != null) positions.write(mission, dev, f, true); } });
     }
     private void writePresence() {
         Follower g = general; if (g == null) return;
-        g.write(mission, dev, Json.o("name", name, "kind", kindOf(), "team", role.equals("team") ? team : "", "unit", team, "host", "", "station", dev, "via", door,
+        g.write(mission, dev, Json.o("name", name, "kind", kindOf(), "team", isTeam() ? team : "", "unit", team, "host", "", "station", dev, "via", door,
                 "status", status, "app", BUILD), true);
     }
 
     private void position(Map<String, Object> m) {
         out("ev", "myfix", "lat", Json.dbl(m.get("lat")), "lng", Json.dbl(m.get("lng")), "src", Json.str(m.get("src")));   // the page's "use my location"
-        if (role.equals("public") || positions == null) return;          // the public's position is not published
-        fix = Json.o("name", name, "kind", kindOf(), "team", role.equals("team") ? team : "", "unit", team, "lat", Json.dbl(m.get("lat")),
+        if (pub() || positions == null) return;          // the public's position is not published
+        fix = Json.o("name", name, "kind", kindOf(), "team", isTeam() ? team : "", "unit", team, "lat", Json.dbl(m.get("lat")),
                 "lng", Json.dbl(m.get("lng")), "acc", Json.dbl(m.get("acc")), "at", System.currentTimeMillis() / 1000, "via", door, "status", status,
                 "src", Json.str(m.get("src")).isEmpty() ? "gps" : Json.str(m.get("src")));   // [RT_NO_GPS_V1] "address": typed, not measured
         positions.write(mission, dev, fix, true);
@@ -495,7 +514,7 @@ public final class AppCore {
     }
 
     private void send(String to, String text) throws Exception {
-        if (role.equals("public")) throw new Exception("the public view sends nothing");
+        if (pub()) throw new Exception("the public view sends nothing");
         long ms = System.currentTimeMillis();
         Map<String, Object> b = Json.o("from", dev, "name", name, "text", text, "at", ms / 1000);
         String inst = dev + "." + ms;
@@ -514,17 +533,8 @@ public final class AppCore {
         }
     }
 
-    // ------------------------------------------------------------------ help, safe, reports (the public's own records)
-    private void onHelp() {
-        if (helpF == null) return;
-        out("ev", "help", "requests", new HashMap<String, Object>(helpF.family("request")), "actions", new HashMap<String, Object>(helpF.family("action")));
-    }
-
-    private String kindOf() { return role.equals("eoc") ? "eoc" : role.equals("hospital") ? "staff" : UNIT_ROLES.contains(role) ? role : "team"; }
-    /** [RT_SUITE_APPS_V1] the suite's unit apps (John 2026-11-04: Team, Ambulance, Hospital, Shelter, Power, Water and
-     *  others, separate because that is how people think of them): each connects as its unit (a hospital, Medic 12, the
-     *  Power crew), reads the general AppRam, and is restricted by what it is */
-    static final java.util.Set<String> UNIT_ROLES = new java.util.HashSet<String>(java.util.Arrays.asList("hospital", "ambulance", "water", "power", "shelter", "phone"));
+    /** [RT_LAYERS_V1] this device's kind on the map: its view's (the layer that adds it says) */
+    private String kindOf() { String k = view().kind; return k.isEmpty() ? role : k; }
 
     private void onLog() {
         Follower f = logF, mf = mis; if (f == null || mf == null) return;
@@ -534,30 +544,6 @@ public final class AppCore {
         String v = mission + "." + (op.isEmpty() ? "1" : op);
         out("ev", "radiolog", "op", op.isEmpty() ? "1" : op, "entries", new HashMap<String, Object>(f.family(v)));
     }
-    private void onFacilities() { if (facF != null) out("ev", "facilities", "list", new HashMap<String, Object>(facF.family(mission))); }
-    private void onTransports() {
-        if (trF == null) return;
-        out("ev", "transports", "items", new HashMap<String, Object>(trF.family(mission)), "acts", new HashMap<String, Object>(trF.family(mission + ".act")));
-    }
-    private void facility(Map<String, Object> m) throws Exception {
-        if (facF == null) throw new Exception("not connected");
-        Map<String, Object> b = Json.obj(m.get("bag")); b.put("by", name); b.put("at", System.currentTimeMillis() / 1000);
-        if (!facF.write(mission, Json.str(m.get("id")), b, false)) throw new Exception("not connected");
-        say("published the status of " + Json.str(b.get("name")));
-    }
-    private void transport(Map<String, Object> m) throws Exception {
-        if (trF == null) throw new Exception("not connected");
-        long ms = System.currentTimeMillis();
-        Map<String, Object> b = Json.obj(m.get("bag")); b.put("by", dev); b.put("unit", team.isEmpty() ? name : team); b.put("name", name); b.put("at", ms / 1000);
-        if (!trF.write(mission, dev + "." + ms, b, false)) throw new Exception("not connected");
-        say("transport to " + Json.str(b.get("to")) + " sent: the hospital sees it now");
-    }
-    private void transportAction(Map<String, Object> m) throws Exception {
-        if (trF == null) throw new Exception("not connected");
-        Map<String, Object> b = Json.o("action", Json.str(m.get("action")), "unit", team.isEmpty() ? name : team, "note", Json.str(m.get("note")), "at", System.currentTimeMillis() / 1000);
-        if (!trF.write(mission + ".act", Json.str(m.get("id")) + "~" + dev, b, false)) throw new Exception("not connected");
-    }
-
     // ------------------------------------------------------------------ [RT_CALL_V1] Call: the Communicator, both ends
     private final Map<String, Boolean> callsSeen = new HashMap<String, Boolean>();
     private void call(Map<String, Object> m) throws Exception {
@@ -581,64 +567,11 @@ public final class AppCore {
         }
     }
 
-    private void onField() {
-        if (fieldF == null) return;
-        out("ev", "field", "items", new HashMap<String, Object>(fieldF.family(mission)), "acts", new HashMap<String, Object>(fieldF.family(mission + ".act")));
-    }
-
-    private void field(Map<String, Object> m) throws Exception {
-        if (role.equals("public") || fieldF == null) throw new Exception("field actions are the teams' and the EOC's");
-        long ms = System.currentTimeMillis();
-        Map<String, Object> b = Json.obj(m.get("bag"));
-        b.put("by", dev); b.put("name", name); b.put("team", team); b.put("at", ms / 1000);
-        if (!fieldF.write(mission, dev + "." + ms, b, false)) throw new Exception("not connected");
-        say("sent: " + Json.str(b.get("what")) + " " + Json.str(b.get("type")));
-    }
-
-    private void fieldAction(Map<String, Object> m) throws Exception {
-        if (role.equals("public") || fieldF == null) throw new Exception("not connected");
-        Map<String, Object> b = Json.o("action", Json.str(m.get("action")), "unit", name, "note", Json.str(m.get("note")), "at", System.currentTimeMillis() / 1000);
-        if (!fieldF.write(mission + ".act", Json.str(m.get("id")) + "~" + dev, b, false)) throw new Exception("not connected");
-    }
-
     /** this member's status (available, en route, on scene, needs assistance, out of service): part of its own presence */
     private void myStatus(String st) {
         status = st;
         writePresence();
         if (fix != null && positions != null) { fix.put("status", st); positions.write(mission, dev, fix, true); }
-    }
-
-    private void onReports() {
-        if (reports == null) return;
-        out("ev", "reports", "list", new HashMap<String, Object>(reports.family(mission)));
-    }
-
-    private void help(Map<String, Object> m) throws Exception {
-        String rid = Json.str(m.get("rid"));
-        if (rid.isEmpty() || helpF == null) throw new Exception("not connected");
-        Map<String, Object> b = Json.obj(m.get("bag")); b.put("by", dev); b.put("at", System.currentTimeMillis() / 1000);
-        if (!helpF.write("request", rid, b, false)) throw new Exception("not connected");
-        say("published: " + Json.str(b.get("status")).replace("open", "a request for help") + " for " + Json.str(b.get("name")));
-    }
-
-    private void helpAction(Map<String, Object> m) throws Exception {
-        if (role.equals("public") || helpF == null) throw new Exception("only responders and the EOC act on requests");
-        String rid = Json.str(m.get("rid"));
-        Map<String, Object> b = Json.o("action", Json.str(m.get("action")), "unit", name, "note", Json.str(m.get("note")), "at", System.currentTimeMillis() / 1000);
-        if (!helpF.write("action", rid + "~" + dev, b, false)) throw new Exception("not connected");
-    }
-
-    private void report(Map<String, Object> m) throws Exception {
-        long ms = System.currentTimeMillis();
-        Map<String, Object> b = Json.o("from", dev, "name", name, "category", Json.str(m.get("category")), "text", Json.str(m.get("text")),
-                "at", ms / 1000);
-        if (m.get("lat") instanceof Number) { b.put("lat", Json.dbl(m.get("lat"))); b.put("lng", Json.dbl(m.get("lng"))); }
-        // the public has no reports follower (it reads none): the write goes on the help session, to rt-report
-        String[] g = hp(rams.get("general"));
-        net.frognet.ram.RamSession s = new net.frognet.ram.RamSession(g[0], Integer.parseInt(g[1]), 5000);
-        try { s.call("POST", API + "?op=write", Json.write(Json.o("service", "rt-report", "variable", mission, "instance", dev + "." + ms, "bag", b)), 10); }
-        finally { s.close(); }
-        say("your report is with the EOC");
     }
 
     // ------------------------------------------------------------------ sensors: every node's, as metric_upsert.sh files them
@@ -826,7 +759,8 @@ public final class AppCore {
 
     private List<Follower> followers() {
         List<Follower> out = new ArrayList<Follower>();
-        for (Follower f : new Follower[]{general, mis, dm, positions, msgs, helpF, reports, fieldF, facF, trF, callF, logF, hostF}) if (f != null) out.add(f);
+        for (Follower f : new Follower[]{general, mis, dm, positions, msgs, callF, logF, hostF}) if (f != null) out.add(f);
+        out.addAll(layerF);
         out.addAll(teams.values());
         return out;
     }

@@ -97,7 +97,12 @@ def sensors(q):
 dp = free(); door = ThreadingHTTPServer(("127.0.0.1", dp), Door); threading.Thread(target=door.serve_forever, daemon=True).start()
 DOOR = "127.0.0.1:%d" % dp
 
-sim = subprocess.Popen([os.path.join(FDF, "bin", "rt-sim"), "--tick", "1"], env=dict(os.environ, FDF_VAR=T + "/var", FDF_PY=os.path.join(FDF, "lib", "python")),
+# [APP_SERVICES_V1] rt-sim finds the general AppRam as a node does: its AppHost in /etc/hosts (FDF_HOSTS) and its port
+# in the app's configuration (FDF_APPS/rangertrak.json)
+os.makedirs(T + "/apps", exist_ok=True)
+open(T + "/hosts", "w").write("127.0.0.1 rangertrakHost.frognet\n")
+json.dump({"rams": ["general"], "ports": {"general": int(where["rangertrak.general"].split(":")[1])}}, open(T + "/apps/rangertrak.json", "w"))
+sim = subprocess.Popen([os.path.join(FDF, "bin", "rt-sim"), "--tick", "1"], env=dict(os.environ, FDF_VAR=T + "/var", FDF_HOSTS=T + "/hosts", FDF_APPS=T + "/apps", FDF_PY=os.path.join(FDF, "lib", "python")),
                        stdout=open(T + "/sim.log", "w"), stderr=subprocess.STDOUT)
 CP = os.pathsep.join([os.path.join(SRC, "frognet-ram-java", "build", "frognet-ram.jar"), os.path.join(APP, "build", "core"), os.path.join(APP, "build", "test")])
 dev = {}
@@ -105,7 +110,9 @@ for d, name, role, team, *lock in (("eoc1", "EOC Desk", "eoc", ""), ("alpha9", "
                               ("hosp1", "Charge Nurse", "hospital", ""), ("med12", "Medic 12 crew", "ambulance", ""),
                               ("teamapp", "Lee (Bravo)", "team", "Bravo", "team"), ("pubapp", "Resident", "public", "", "public")):
     p = free(); dev[d] = p
-    procs.append(subprocess.Popen(["java", "-Drt.sensors=http://127.0.0.1:%d/api.php" % dp, "-cp", CP, "DevHost", os.path.join(APP, "ui"), str(p), d, name, DOOR, role, team] + lock,
+    # [RT_LAYERS_V1] the Team app and the Public app as they are built: the base and their own layers only
+    lay = {"teamapp": "help,field,team", "pubapp": "help,public"}.get(d, "")
+    procs.append(subprocess.Popen(["java", "-Drt.sensors=http://127.0.0.1:%d/api.php" % dp, "-Drt.layers=" + lay, "-cp", CP, "DevHost", os.path.join(APP, "ui"), str(p), d, name, DOOR, role, team] + lock,
                                   stdout=open(T + "/dev-%s.log" % d, "w"), stderr=subprocess.STDOUT))
 time.sleep(2.5)
 
@@ -273,8 +280,9 @@ with sync_playwright() as pw:
     ta.wait_for_function("S.role==='team' && S.team==='Bravo' && Object.keys(S.markers).length >= 4", timeout=15000)
     tt2 = ta.evaluate("[...new Set(Object.keys(S.markers).map(id=>(S.pos[id]||{}).team))]")
     ta.click("#misBtn"); back1 = ta.evaluate("rtBack()"); closed = ta.is_hidden("#sheet"); back2 = ta.evaluate("rtBack()")
-    check(t_ok and tt2 == ["Bravo"] and back1 and closed and back2 is False,
-          "30 the Team app: no view to choose (titled RangerTrak Team, its build on the first screen), opens on its own team (%s); Back closes the open sheet, then has nothing to close" % tt2)
+    tl = ta.evaluate("RT.loaded.join()")
+    check(t_ok and tt2 == ["Bravo"] and back1 and closed and back2 is False and tl == "help,field,team",
+          "30 the Team app (layers " + tl + "): no view to choose (titled RangerTrak Team, its build on the first screen), opens on its own team (%s); Back closes the open sheet, then has nothing to close" % tt2)
     if SHOTS: ta.screenshot(path=os.path.join(SHOTS, "team-app-phone.png"))
     pa = open_dev("pubapp", 412, 860)
     p_ok = pa.is_hidden("#roleSet") and pa.inner_text("#connect h1") == "RangerTrak Public" and pa.is_hidden(".for-team") and pa.is_hidden(".for-eoc")
@@ -282,8 +290,9 @@ with sync_playwright() as pw:
     pa.click("[data-go=map]"); pb_back = pa.evaluate("rtBack()"); home_again = pa.is_visible("#home")
     pa.evaluate("setTimeout(()=>{ nosuchfunction() }, 0)"); time.sleep(0.3)
     err = pa.inner_text("#status")
-    check(p_ok and pb_back and home_again and "page error" in err,
-          "31 the Public app: no view to choose (titled RangerTrak Public), opens on its home; Back from the map goes Home; a page error is said on the status line: '%s'" % err[:80])
+    pl = pa.evaluate("RT.loaded.join()")
+    check(p_ok and pb_back and home_again and "page error" in err and pl == "help,public",
+          "31 the Public app (layers " + pl + "): no view to choose (titled RangerTrak Public), opens on its home; Back from the map goes Home; a page error is said on the status line: '%s'" % err[:80])
     if SHOTS: pa.screenshot(path=os.path.join(SHOTS, "public-app-phone.png"))
     # [RT_RADIO_LOG_IN_THE_APP_V1] a scribe's entry, as the radio log app writes it (rt.js logEntry), on the EOC's Radio log
     sys.path.insert(0, os.path.join(FDF, "lib", "python")); import fnw1

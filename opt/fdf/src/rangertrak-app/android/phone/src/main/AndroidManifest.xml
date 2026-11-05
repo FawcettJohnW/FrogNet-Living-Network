@@ -14,6 +14,7 @@
     <queries><intent><action android:name="net.frognet.communicator.CALL" /></intent></queries>
     <application android:label="RangerTrak Phone" android:usesCleartextTraffic="true" android:theme="@style/RtTheme">
         <meta-data android:name="net.frognet.rangertrak.ROLE" android:value="phone" />
+        <meta-data android:name="net.frognet.rangertrak.LAYERS" android:value="${rtLayers}" />   <!-- [RT_LAYERS_V1] its layers (build.gradle.kts) -->
         <activity android:name="net.frognet.rangertrak.android.MainActivity" android:exported="true"
             android:configChanges="orientation|screenSize|keyboardHidden" android:windowSoftInputMode="adjustResize">
             <intent-filter>

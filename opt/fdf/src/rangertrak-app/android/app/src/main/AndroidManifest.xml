@@ -13,6 +13,7 @@
     <queries><intent><action android:name="net.frognet.communicator.CALL" /></intent></queries>
     <!-- the node's door (ram.php) and its RAMs are plain HTTP/TCP on the node's own network -->
     <application android:label="RangerTrak" android:usesCleartextTraffic="true" android:theme="@style/RtTheme">
+        <meta-data android:name="net.frognet.rangertrak.LAYERS" android:value="${rtLayers}" />   <!-- [RT_LAYERS_V1] its layers (build.gradle.kts) -->
         <activity android:name=".MainActivity" android:exported="true" android:configChanges="orientation|screenSize|keyboardHidden" android:windowSoftInputMode="adjustResize">
             <intent-filter>
                 <action android:name="android.intent.action.MAIN" />

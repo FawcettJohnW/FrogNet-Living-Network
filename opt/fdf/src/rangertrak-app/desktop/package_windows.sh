@@ -13,7 +13,7 @@ D=$(cd "$(dirname "$0")/.." && pwd); OUT=${1:?usage: package_windows.sh OUTDIR};
 ADMIN=${2:-}
 BUILD=$(sed -n 's/.*BUILD = "\(rt-app-[^"]*\)".*/\1/p' $D/core/src/net/frognet/rangertrak/AppCore.java)
 NAME=RangerTrak
-LOCK=""; [ "$ADMIN" = eoc ] && { NAME=RangerTrak-EOC; LOCK=eoc; }
+LOCK=""; LAYERS=""; [ "$ADMIN" = eoc ] && { NAME=RangerTrak-EOC; LOCK=eoc; LAYERS=help,field,eoc,medical; }   # [RT_LAYERS_V1] the EOC app's layers
 if [ "$ADMIN" = admin ]; then BUILD=$(sed -n 's/.*BUILD = "\(rt-admin-[^"]*\)".*/\1/p' $D/core/src/net/frognet/rangertrak/admin/AdminCore.java); NAME=RangerTrak-Admin; fi
 T=$(mktemp -d); R=$T/$NAME; mkdir -p $R/lib $T/fx
 "$D/build.sh" >/dev/null
@@ -42,8 +42,10 @@ TXT
 (cd $T && zip -qr "$OUT/$NAME-windows-x64-$BUILD.zip" $NAME); ls -la "$OUT/$NAME-windows-x64-$BUILD.zip"; rm -rf $T; exit 0
 fi
 cp -r $D/ui $R/ui
+# [RT_LAYERS_V1] an app carries its own layers only (the client: every one)
+if [ -n "$LAYERS" ]; then for f in $R/ui/layers/*.js; do n=$(basename $f .js); case ",$LAYERS," in *",$n,"*) ;; *) rm $f;; esac; done; fi
 if [ "$LOCK" = eoc ]; then
-printf '@echo off\r\nrem RangerTrak EOC, powered by the FrogNet Living Network (%s)\r\nstart "" "%%~dp0runtime\\bin\\javaw.exe" -cp "%%~dp0lib\\*" net.frognet.rangertrak.desktop.Launcher --ui="%%~dp0ui" --lock=eoc %%*\r\n' "$BUILD" > $R/RangerTrakEOC.cmd
+printf '@echo off\r\nrem RangerTrak EOC, powered by the FrogNet Living Network (%s)\r\nstart "" "%%~dp0runtime\\bin\\javaw.exe" -cp "%%~dp0lib\\*" net.frognet.rangertrak.desktop.Launcher --ui="%%~dp0ui" --lock=eoc --layers=%s %%*\r\n' "$BUILD" "$LAYERS" > $R/RangerTrakEOC.cmd
 cat > $R/README.txt <<TXT
 RangerTrak EOC for Windows ($BUILD), powered by the FrogNet Living Network
 Unzip anywhere (e.g. C:\RangerTrakEOC) and double-click RangerTrakEOC.cmd. Nothing is installed.

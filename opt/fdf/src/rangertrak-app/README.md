@@ -1,17 +1,59 @@
-# RangerTrak app (desktop and phone) -- rt-app-2026-11-02-r17
+# RangerTrak app (desktop and phone) -- rt-app-2026-11-04-r29
 
 The demo John set on 2026-11-01 (`opt/frognet_semantic/ribbit/examples/rangertrak/PLAN.md`, its first decision): the EOC
 on a Windows app, a first responder on a phone, presence with GPS, chat, a pre-populated moving world, in an app and not
 a browser. Three views: **EOC** (the big map, everything on it, chat beside it), **Team** (teams colour-coded; double-click
 a member, or tap it and Chat, to talk to that one or to the whole team) and **Public** (hospitals, fires, outages; no chat).
 
+## An app is the base and its layers ([RT_LAYERS_V1], r29)
+
+John 2026-11-04: "go all OO ... A top level presentation and a low level base layer, and each role adds a ui to the base
+user and admin apps" -- for adding new screens and apps. The **base** is what every app has: the connect screen, the map,
+the chat, the mission, the radio log, sensors, Call, follow-me, the no-GPS address, Back (`ui/base.js`); presence and
+positions, chat, the team RAMs and hosting a team, the mission, Call, the radio log, sensors (`core/.../AppCore.java`).
+A **layer** adds views (roles), screens, map kinds, header buttons, sections of another layer's screen, the core's events it
+shows, and its own ops and families -- on the page (`ui/layers/<name>.js`) and in the core (`core/.../layer/<Name>Layer.java`),
+by the same name. It never edits the base or another layer; the one interface it builds on is `RT` (page: `RT.role`,
+`RT.screen`, `RT.section`, `RT.on`, `RT.kind`, `RT.button`, `RT.hook`; documented at the top of `base.js`) and
+`Layer` / `Layer.Here` (core: `roles()`, `start(here)`, `handle(op, m, here)`; `here.follow(...)` for its families).
+
+| layer | views | what it adds |
+| --- | --- | --- |
+| `help` | -- | help requests and reports to the EOC: on the map, the Requests screen (On the way, Resolved); ops `help`, `helpAction`, `report` |
+| `field` | -- | team actions: status, sensor platforms, service requests, hazards, searched areas (Actions screen; service requests on Requests); ops `field`, `fieldAction` |
+| `eoc` | EOC (login) | every team; reports on Requests and a notice for each; compliance (status line, map, Sensors) |
+| `team` | Team | the team picked at connect (the admin's), its own team and chat first; Host team, Team on databasehost, Team members, the lead's card |
+| `medical` | Hospital, Ambulance | the hospital's desk, Inbound, the unit panel, Hospitals; the hospital's status in its popup; transports and diversions on the EOC's Requests; ops `facility`, `transport`, `transportAction` |
+| `units` | Water, Power, Shelter, Phone | each unit's own kind, hazards, requests; the field's Actions and Requests |
+| `public` | Public | Home (I need help, I'm safe, Find someone, Report, Hospitals & services, the survival library, FEMA); the restricted map; no chat |
+
+The apps (Android: each module's `build.gradle.kts` `rtLayers`, copied into that app's own assets and said in its
+manifest's `LAYERS`; Windows: `--layers=` on the launcher, the zip carries those layers only):
+
+| app | layers |
+| --- | --- |
+| RangerTrak (every view; Windows client, Android `app`) | help, field, eoc, team, medical, units, public |
+| RangerTrak EOC (`eoc`, `RangerTrakEOC.cmd`) | help, field, eoc, medical |
+| RangerTrak Team (`team`) | help, field, team |
+| RangerTrak Public (`public`) | help, public |
+| RangerTrak Hospital (`hospital`) | help, medical |
+| RangerTrak Ambulance (`ambulance`) | help, field, medical |
+| RangerTrak Water / Power / Shelter / Phone | help, field, units |
+
+**A new screen** for a view: in its layer, `RT.screen('name', () => sheet('name', 'Title', html))`, and a way to it (the
+role's `act`/`req`, or `RT.button`). **A new view**: `RT.role(...)` in a layer's page and a `Role` in its core's `roles()`.
+**A new app**: an Android module (copy `water/`: its id, label, `ROLE`, `rtLayers`) or a Windows launcher line with
+`--lock=` and `--layers=`. **The admin app**: a layer's own panel is `ui-admin/layers/<name>.js` calling
+`RTA.panel(title, fn)` (none yet). Gates: `test/test_app.py` (32 checks; the Team and Public apps run with their own
+layers only), `test/test_team_host.py`, `android/typecheck.sh`.
+
 ## How it is built
 
 | piece | where | what it is |
 | --- | --- | --- |
 | the RAM library | `../frognet-ram-java` | the FNW1 session, the follower (held reads), JSON; abstracted from the kart app. A write with `own=true` goes with its session |
-| the core | `core/` (`AppCore`) | the node's door (`/dc/ram.php`: `op=rams` where the app's RAMs are served now, `op=login` for the EOC), the followers, this device's own writes. Java 8: the same code on both platforms |
-| the page | `ui/` | the screens (Leaflet 1.9.4 from npm, beside them). Talks to the core only by JSON lines: `rtNative.send(line)` out, `rtDeliver(line)` in |
+| the core | `core/` (`AppCore`, the base; `Layer`, `layer/*Layer.java`) | the node's door (`/dc/ram.php`: `op=rams` where the app's RAMs are served now, `op=login` for the EOC), the followers, this device's own writes. Java 8: the same code on both platforms |
+| the page | `ui/` (`base.js`, the base; `layers/*.js`) | the screens (Leaflet 1.9.4 from npm, beside them). Talks to the core only by JSON lines: `rtNative.send(line)` out, `rtDeliver(line)` in |
 | desktop | `desktop/` | a JavaFX window around the page; `package_windows.sh` makes `RangerTrak-windows-x64-<build>.zip` (its own Java runtime and JavaFX; unzip and run `RangerTrak.cmd`) |
 | phone | `android/` | a WebView around the same page, the phone's GPS (every fix is the device's own position). Android Studio, or `./gradlew :app:assembleDebug` |
 | the world | `../fdf-source/fdf/bin/rt-sim` | 80 simulated instances (teams, ambulances, boats, victims, hospitals, fires, outages, hosts) in the Seattle metro area and Vashon, each on its own session |

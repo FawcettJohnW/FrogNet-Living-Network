@@ -388,13 +388,14 @@ public final class MainActivity extends Activity implements LocationListener {
                 android.util.Log.i("RangerTrak", m.message() + " (" + m.sourceId() + ":" + m.lineNumber() + ")"); return true;
             }
         });
+        android.util.Log.i("RangerTrak", "[RT_LAYERS_V1] layers " + meta("net.frognet.rangertrak.LAYERS"));
         core = new AppCore(new AppCore.Ui() {
             public void deliver(final String line) {
                 if (line.contains("\"ev\":\"status\"") || line.contains("\"ev\":\"error\"")) android.util.Log.i("RangerTrak", line);   // [APP_LOGS_WHAT_IT_SAYS_V1]
                 if (line.contains("\"ev\":\"teamVia\"")) { try { Map<String, Object> v = Json.obj(Json.parse(line)); teamVia(Json.str(v.get("via")), Json.str(v.get("join"))); } catch (IllegalArgumentException ignored) { } return; }
                 web.post(new Runnable() { public void run() { web.evaluateJavascript("rtDeliver(" + Json.quote(line) + ")", null); } });
             }
-        });
+        }, meta("net.frognet.rangertrak.LAYERS"));   // [RT_LAYERS_V1] the core's layers: the page's
         web.addJavascriptInterface(new Bridge(), "rtNative");
         web.setWebViewClient(new WebViewClient() {
             @Override public void onPageFinished(WebView v, String url) {
@@ -427,14 +428,26 @@ public final class MainActivity extends Activity implements LocationListener {
         // whose gateway is the lead's phone: there the node is the one the lead's card names)
         if (!gw.isEmpty() && !nodeLan().isEmpty()) door = gw;
         // [RT_TEAM_APP_V1] an APK built for one role (the Team app: meta-data net.frognet.rangertrak.ROLE = team) opens as it
-        String lock = "";
+        String lock = meta("net.frognet.rangertrak.ROLE");
+        return Json.o("dev", dev, "name", name, "door", door, "role", lock.isEmpty() ? prefs.getString("role", "team") : lock,
+                "team", prefs.getString("team", "Alpha"), "platform", "android", "lock", lock, "build", AppCore.BUILD, "layers", layerList(),
+                "invited", invitedAs(), "lan", nodeLan(), "enrolled", enrolledCfg());
+    }
+
+    /** this app's manifest meta-data NAME ("" : none) */
+    private String meta(String name) {
         try {
             Bundle md = getPackageManager().getApplicationInfo(getPackageName(), PackageManager.GET_META_DATA).metaData;
-            if (md != null) lock = String.valueOf(md.getString("net.frognet.rangertrak.ROLE", ""));
-        } catch (PackageManager.NameNotFoundException ignored) { }
-        return Json.o("dev", dev, "name", name, "door", door, "role", lock.isEmpty() ? prefs.getString("role", "team") : lock,
-                "team", prefs.getString("team", "Alpha"), "platform", "android", "lock", lock, "build", AppCore.BUILD,
-                "invited", invitedAs(), "lan", nodeLan(), "enrolled", enrolledCfg());
+            Object v = md == null ? null : md.get(name);
+            return v == null ? "" : String.valueOf(v);
+        } catch (PackageManager.NameNotFoundException e) { return ""; }
+    }
+    /** [RT_LAYERS_V1] this app's layers (its manifest's LAYERS, from its build.gradle.kts): the page loads them, the core
+     *  makes them */
+    private java.util.List<Object> layerList() {
+        java.util.List<Object> l = new java.util.ArrayList<Object>();
+        for (String n : meta("net.frognet.rangertrak.LAYERS").split(",")) if (!n.trim().isEmpty()) l.add(n.trim());
+        return l;
     }
 
     /** [ENROLL_V1] who enrolling made this phone's user, for the page ({} : not enrolled) */

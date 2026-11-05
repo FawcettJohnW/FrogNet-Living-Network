@@ -13,7 +13,8 @@ if (!File(fn, "member/src/main/kotlin/com/fawcettinnovations/fdf/member/Member.k
     throw GradleException("no FrogNet member source at $fn (frognet-android, beside rangertrak-app in opt/fdf/src)")
 val ui = file("../../ui")
 val genAssets = layout.buildDirectory.dir("generated/rt-assets")
-val copyUi = tasks.register<Copy>("copyUi") { from(ui); into(genAssets.map { it.dir("ui") }) }
+// [RT_LAYERS_V1] the base page only: each app copies its own layers (ui/layers) into its own assets
+val copyUi = tasks.register<Copy>("copyUi") { from(ui) { exclude("layers/**") }; into(genAssets.map { it.dir("ui") }) }
 android {
     namespace = "net.frognet.rangertrak.shared"
     compileSdk = 34

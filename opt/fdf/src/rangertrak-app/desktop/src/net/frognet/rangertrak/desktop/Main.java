@@ -158,7 +158,7 @@ public final class Main extends Application {
         WebView v = new WebView(); web = v.getEngine();
         core = new AppCore(line -> Platform.runLater(() -> {
             try { web.executeScript("rtDeliver(" + Json.quote(line) + ")"); } catch (Exception e) { System.err.println("page: " + e); }
-        }));
+        }), layers());                                   // [RT_LAYERS_V1] the core's layers: the page's
         web.getLoadWorker().stateProperty().addListener((o, was, now) -> {
             if (now != Worker.State.SUCCEEDED) return;
             ((JSObject) web.executeScript("window")).setMember("rtNative", bridge);
@@ -173,7 +173,7 @@ public final class Main extends Application {
         stage.setScene(new Scene(v, 1280, 820));
         stage.setOnCloseRequest(e -> { core.close(); Platform.exit(); System.exit(0); });
         stage.show();
-        System.out.println("RangerTrak desktop " + AppCore.BUILD + ", page " + ui);
+        System.out.println("RangerTrak desktop " + AppCore.BUILD + ", page " + ui + ", layers " + (layers().isEmpty() ? "all" : layers()));
     }
 
     // ------------------------------------------------------------------ this computer's settings
@@ -190,8 +190,13 @@ public final class Main extends Application {
         if (Json.str(s.get("door")).isEmpty()) s.put("door", gateway());
         s.put("platform", "desktop");
         if (!lock().isEmpty()) { s.put("lock", lock()); s.put("role", lock()); }   // [RT_EOC_APP_V1] --lock=eoc: the EOC app
+        java.util.List<Object> ls = new java.util.ArrayList<Object>();
+        for (String n : layers().split(",")) if (!n.trim().isEmpty()) ls.add(n.trim());
+        s.put("layers", ls);                              // [RT_LAYERS_V1] the page loads these (none named: every one)
         return s;
     }
+    /** [RT_LAYERS_V1] this app's layers (--layers=help,field,eoc,medical: the EOC app's), or "" for every one */
+    private String layers() { return getParameters() == null ? "" : getParameters().getNamed().getOrDefault("layers", ""); }
     /** [RT_EOC_APP_V1] the one view this app opens as (--lock=eoc: RangerTrak EOC), or "" for every view */
     private String lock() { return getParameters() == null ? "" : getParameters().getNamed().getOrDefault("lock", "");
     }

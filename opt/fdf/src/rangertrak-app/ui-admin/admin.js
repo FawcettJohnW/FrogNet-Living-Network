@@ -8,8 +8,24 @@ const send = (o) => window.rtNative.send(JSON.stringify(o))
 const A = { cur: null, edit: null, pw: {}, dirty: false, sent: 0, state: null, tab: '' }
 const DEF_CAT = 'Teams'   // [CATEGORIES_V1] a role from a configuration made before categories
 
+// [RT_LAYERS_V1] a layer's own panel in the admin app: RTA.panel(title, fn) -- fn(state) is its section's html, drawn
+// again with every state the core says. An admin app is this page and the admin parts of its layers (cfg.layers;
+// ui-admin/layers/<name>.js, for a layer that has one).
+const RTA = { panels: [], panel(title, fn) { RTA.panels.push({ title, fn }) } }
+window.RTA = RTA
+function panels() {
+  for (const [i, p] of RTA.panels.entries()) {
+    let s = document.getElementById('rta-' + i)
+    if (!s) { s = document.createElement('section'); s.id = 'rta-' + i; document.querySelector('#main main').appendChild(s) }
+    s.innerHTML = '<h2>' + esc(p.title) + '</h2>' + (p.fn(A.state) || '')
+  }
+}
 window.rtInit = function (cfg) {
   cfg = cfg || {}
+  for (const n of (cfg.layers || []).filter(n => /^[a-z0-9_-]+$/.test(n))) {
+    const sc = document.createElement('script'); sc.src = 'layers/' + n + '.js'; sc.onerror = () => sc.remove()   // a layer with no admin part
+    document.body.appendChild(sc)
+  }
   const f = $('#connect'); f.door.value = cfg.door || ''; f.app.value = cfg.app || 'rangertrak'; f.user.value = cfg.user || ''
   setTimeout(() => { $('#splash').classList.add('gone'); f.hidden = false; (f.user.value ? f.password : f.door).focus() }, 1200)
 }
@@ -62,7 +78,7 @@ function state(m) {
   A.state = m; A.cur = m.current
   if (!A.dirty) { A.edit = fromCurrent(A.cur); A.pw = {}; draw() }
   else dirtyLine()        // the edit against the new current: an edit the members have since adopted is no change any more
-  members(m); groups(m)
+  members(m); groups(m); panels()
 }
 // [GROUPS_NOW_V1] each group (a role), its tab, where its lead placed it, where its RAM is served now, its lead(s)
 function groups(m) {

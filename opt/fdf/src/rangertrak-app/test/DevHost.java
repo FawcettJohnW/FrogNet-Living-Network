@@ -19,12 +19,12 @@ public class DevHost {
         Path ui = Paths.get(a[0]); int port = Integer.parseInt(a[1]);
         String init = "{\"dev\":\"" + a[2] + "\",\"name\":\"" + a[3] + "\",\"door\":\"" + a[4] + "\",\"role\":\"" + (a.length > 5 ? a[5] : "team")
                 + "\",\"team\":\"" + (a.length > 6 ? a[6] : "Alpha") + "\",\"platform\":\"devhost\""
-                + (a.length > 7 ? ",\"lock\":\"" + a[7] + "\"" : "") + ",\"build\":\"" + net.frognet.rangertrak.AppCore.BUILD + "\"}";   // LOCK: the Team / Public app
+                + (a.length > 7 ? ",\"lock\":\"" + a[7] + "\"" : "") + layersJson() + ",\"build\":\"" + net.frognet.rangertrak.AppCore.BUILD + "\"}";   // LOCK: the Team / Public app
         boolean admin = "admin".equals(System.getProperty("rt.core"));
         java.util.function.Consumer<String> core;
         if (admin) { net.frognet.rangertrak.admin.AdminCore c = new net.frognet.rangertrak.admin.AdminCore(l -> { synchronized (lines) { lines.add(l); lines.notifyAll(); } }); core = c::handle; }
-        else { AppCore c = new AppCore(l -> { synchronized (lines) { lines.add(l); lines.notifyAll(); } }); core = c::handle; }
-        String js = admin ? "admin.js" : "app.js";
+        else { AppCore c = new AppCore(l -> { synchronized (lines) { lines.add(l); lines.notifyAll(); } }, System.getProperty("rt.layers", "")); core = c::handle; }
+        String js = admin ? "admin.js" : "base.js";   // [RT_LAYERS_V1] the base; it loads the layers
         HttpServer s = HttpServer.create(new InetSocketAddress("127.0.0.1", port), 0);
         s.setExecutor(java.util.concurrent.Executors.newCachedThreadPool());
         s.createContext("/send", x -> { String l = new String(x.getRequestBody().readAllBytes(), StandardCharsets.UTF_8);
@@ -49,6 +49,11 @@ public class DevHost {
                 "for(const l of r){n++;rtDeliver(l)}}catch(e){await new Promise(z=>setTimeout(z,500))}}})()</script>").getBytes(StandardCharsets.UTF_8);
             x.getResponseHeaders().set("Content-Type", type); x.sendResponseHeaders(200, b.length); x.getResponseBody().write(b); x.close(); });
         s.start(); System.out.println("devhost on " + port); System.out.flush();
+    }
+    /** [RT_LAYERS_V1] -Drt.layers=help,field,team: the app as built with these layers (its page and its core); none: every one */
+    static String layersJson() {
+        String l = System.getProperty("rt.layers", ""); if (l.isEmpty()) return "";
+        return ",\"layers\":[\"" + String.join("\",\"", l.split(",")) + "\"]";
     }
     static void reply(HttpExchange x, int c, String t, String type) throws IOException {
         byte[] b = t.getBytes(StandardCharsets.UTF_8); x.getResponseHeaders().set("Content-Type", type); x.sendResponseHeaders(c, b.length);

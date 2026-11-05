@@ -1,8 +1,8 @@
 <!doctype html>
 <!-- Copyright (C) 2016-2026 Fawcett Innovations LLC. SPDX-License-Identifier: GPL-2.0-only
      index.html -- [RT_APP_UI_V1] the RangerTrak app's screens, the same on the desktop and the phone: the splash, the
-     connect screen, and three views -- EOC (the big map, everything on it, chat beside it), Team (teams colour-coded;
-     double-click a member to talk to them or to their team) and Public (hospitals, fires, outages). The app's core
+     connect screen, the map, the chat. [RT_LAYERS_V1] The views (EOC, Team, Hospital, Ambulance, the units, Public) and
+     their screens are the layers' (layers/*.js), which base.js loads: an app is the base and its layers. The app's core
      (AppCore.java) talks to this page by JSON lines: rtNative.send(line) out, rtDeliver(line) in. -->
 <html lang="en"><head><meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1">
@@ -16,23 +16,14 @@
   <label>Node <input name="door" placeholder="the node this device is on, e.g. 10.170.170.1" required></label>
   <label>Your name <input name="name" required></label>
   <fieldset class="roles" id="roleSet"><legend>View</legend>
-    <label><input type="radio" name="role" value="eoc"> EOC</label>
-    <label><input type="radio" name="role" value="team" checked> Team</label>
-    <label><input type="radio" name="role" value="hospital"> Hospital</label>
-    <label><input type="radio" name="role" value="ambulance"> Ambulance</label>
-    <label><input type="radio" name="role" value="water"> Water</label>
-    <label><input type="radio" name="role" value="power"> Power</label>
-    <label><input type="radio" name="role" value="shelter"> Shelter</label>
-    <label><input type="radio" name="role" value="phone"> Phone</label>
-    <label><input type="radio" name="role" value="public"> Public</label>
+    <!-- [RT_LAYERS_V1] one radio per view this app has: its layers add them -->
   </fieldset>
-  <div class="for-unit"><label><span class="unit-l">Unit</span> <input name="unit" list="units" placeholder="Harborview, or Medic 12"></label>
+  <div class="for-unit" data-field="unit" hidden><label><span class="unit-l">Unit</span> <input name="unit" list="units" placeholder="Harborview, or Medic 12"></label>
     <datalist id="units"><option>Harborview</option><option>Swedish First Hill</option><option>Virginia Mason</option><option>UW Medical Center</option>
       <option>UW Northwest</option><option>Swedish Ballard</option><option>Seattle Children's</option><option>Highline (Burien)</option>
       <option>Valley Medical (Renton)</option><option>Overlake (Bellevue)</option><option>EvergreenHealth (Kirkland)</option><option>Vashon Health Center</option>
       <option>Medic 1</option><option>Medic 12</option><option>Medic 21</option><option>Aid 31</option></datalist></div>
-  <div class="for-team"><label>Team <select name="team"><option>Alpha</option><option>Bravo</option><option>Charlie</option><option>Delta</option></select></label></div>
-  <div class="for-eoc"><label>User <input name="user" autocomplete="username"></label>
+  <div class="for-eoc" data-field="login" hidden><label>User <input name="user" autocomplete="username"></label>
     <label>Password <input name="password" type="password" autocomplete="current-password"></label></div>
   <div class="for-invite" hidden><label>FrogNet invitation <input name="invite" placeholder="fdfinv1.… (pasted once; kept on this phone)" autocomplete="off"></label>
     <div class="meta inv-say"></div></div>
@@ -47,15 +38,11 @@
 <div id="main" hidden>
   <header><span class="brand-s">RangerTrak</span> <span id="mission"></span> <span id="who"></span>
     <span id="dot" title=""></span>
-    <button id="homeBtn" type="button" hidden>Home</button>
     <button id="misBtn" type="button" hidden>Mission</button>
     <button id="logBtn" type="button" hidden>Radio log</button>
     <button id="actBtn" type="button" hidden>Actions</button>
     <button id="reqBtn" type="button" hidden>Requests</button>
     <button id="sensBtn" type="button" hidden>Sensors</button>
-    <button id="hostBtn" type="button" hidden title="the team's RAM on this phone: it goes where the lead goes">Host team</button>
-    <button id="placeBtn" type="button" hidden title="the team's RAM on databasehost: it stays when the lead leaves">Team on databasehost</button>
-    <button id="membersBtn" type="button" hidden>Team members</button>
     <button id="layersBtn" type="button">Layers</button>
     <button id="chatBtn" type="button">Chat</button></header>
   <div id="map"></div>
@@ -70,25 +57,6 @@
     <form><select class="pto"></select><input class="ptext" placeholder="message" autocomplete="off"><button>Send</button>
     <button type="button" class="pclose">Close</button></form>
     <div class="pvideo"></div></div>
-  <section id="home" hidden>
-    <div class="hero">
-      <div class="hero-t"><div class="hero-k">RangerTrak</div><div class="hero-m" id="heroMission">connected</div></div>
-      <div class="hero-s" id="heroSummary"></div>
-    </div>
-    <div class="callout">In danger right now? <b>Call 911</b> if you can. If you can't, ask for help here: responders see it at once.</div>
-    <div class="primary">
-      <button class="act red" data-go="needhelp"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 2 1 21h22L12 2zm1 15h-2v-2h2v2zm0-4h-2V9h2v4z"/></svg><b>I need help</b><span>medical · trapped · water · shelter</span></button>
-      <button class="act green" data-go="safe"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M9 16.2 4.8 12l-1.4 1.4L9 19 21 7l-1.4-1.4z"/></svg><b>I'm safe</b><span>tell family and responders</span></button>
-    </div>
-    <div class="cards">
-      <button class="card2" data-go="find"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M15.5 14h-.8l-.3-.3A6.5 6.5 0 1 0 14 15.5l.3.3v.8l5 5 1.5-1.5-5-5zm-6 0A4.5 4.5 0 1 1 14 9.5 4.5 4.5 0 0 1 9.5 14z"/></svg><b>Find someone</b><span>who has checked in, by name</span></button>
-      <button class="card2" data-go="report"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8l-6-6zm2 16H8v-2h8v2zm0-4H8v-2h8v2zm-3-5V3.5L18.5 9H13z"/></svg><b>Report to the EOC</b><span>damage · hazards · what you see</span></button>
-      <button class="card2" data-go="places"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M19 3H5a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2V5a2 2 0 0 0-2-2zm-2 10h-4v4h-2v-4H7v-2h4V7h2v4h4v2z"/></svg><b>Hospitals &amp; services</b><span>beds · fires · power outages</span></button>
-      <button class="card2" data-go="library"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M18 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V4a2 2 0 0 0-2-2zM6 4h5v8l-2.5-1.5L6 12V4z"/></svg><b>Survival library</b><span>first aid · water · shelter · safety</span></button>
-      <button class="card2" data-go="fema"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 1 3 5v6c0 5.6 3.8 10.7 9 12 5.2-1.3 9-6.4 9-12V5l-9-4z"/></svg><b>Contact FEMA</b><span>apply for disaster assistance</span></button>
-      <button class="card2 mapcard" data-go="map"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M20.5 3l-.2.1L15 5.1 9 3 3.4 4.9a.5.5 0 0 0-.4.5V20.5a.5.5 0 0 0 .5.5l.2-.1L9 18.9l6 2.1 5.6-1.9a.5.5 0 0 0 .4-.5V3.5a.5.5 0 0 0-.5-.5zM15 19l-6-2.1V5l6 2.1V19z"/></svg><b>Map</b><span>hospitals, hazards and help near you</span></button>
-    </div>
-  </section>
   <section id="sheet" hidden><div class="sh-head"><b class="sh-title"></b><button type="button" class="sh-close">Close</button></div><div class="sh-body"></div></section>
   <div id="status"></div>
   <div id="notices"></div>
@@ -101,5 +69,5 @@ if (/JavaFX/.test(navigator.userAgent)) window.L_DISABLE_3D = true
 <script src="leaflet/leaflet.js"></script>
 <script src="qrcode.js"></script>
 <script src="frogqr.js"></script>
-<script src="app.js"></script>
+<script src="base.js"></script>   <!-- [RT_LAYERS_V1] the base; it loads the app's layers (layers/*.js) -->
 </body></html>

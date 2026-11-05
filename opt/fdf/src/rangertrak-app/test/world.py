@@ -44,7 +44,12 @@ class Door(BaseHTTPRequestHandler):      # ram.php's op=rams and op=login, as th
 dp = free(); door = ThreadingHTTPServer(("127.0.0.1", dp), Door); threading.Thread(target=door.serve_forever, daemon=True).start()
 DOOR = "127.0.0.1:%d" % dp
 
-sim = subprocess.Popen([os.path.join(FDF, "bin", "rt-sim"), "--tick", "1"], env=dict(os.environ, FDF_VAR=T + "/var", FDF_PY=os.path.join(FDF, "lib", "python")),
+# [APP_SERVICES_V1] rt-sim finds the general AppRam as a node does: its AppHost in /etc/hosts (FDF_HOSTS) and its port
+# in the app's configuration (FDF_APPS/rangertrak.json)
+os.makedirs(T + "/apps", exist_ok=True)
+open(T + "/hosts", "w").write("127.0.0.1 rangertrakHost.frognet\n")
+json.dump({"rams": ["general"], "ports": {"general": int(where["rangertrak.general"].split(":")[1])}}, open(T + "/apps/rangertrak.json", "w"))
+sim = subprocess.Popen([os.path.join(FDF, "bin", "rt-sim"), "--tick", "1"], env=dict(os.environ, FDF_VAR=T + "/var", FDF_HOSTS=T + "/hosts", FDF_APPS=T + "/apps", FDF_PY=os.path.join(FDF, "lib", "python")),
                        stdout=open(T + "/sim.log", "w"), stderr=subprocess.STDOUT)
 open(OUT, "w").write(DOOR)
 print("door", DOOR, "world", T, flush=True)

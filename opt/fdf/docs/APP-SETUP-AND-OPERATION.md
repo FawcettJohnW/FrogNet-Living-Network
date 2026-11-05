@@ -151,6 +151,13 @@ built on the same platform with the RangerTrak app.
 The device remains a device; it never becomes a Linux fabric member. Its app participation follows the same
 write-first, read-second rule.
 
+**An app is a base and its layers** ([RT_LAYERS_V1], built, rt-app r29; John 2026-11-04: "a top level presentation and
+a low level base layer, and each role adds a ui to the base user and admin apps"). RangerTrak's base (page `ui/base.js`,
+core `AppCore`) is what every app has; each layer (`ui/layers/<name>.js` and `layer/<Name>Layer.java`: help, field, eoc,
+team, medical, units, public) adds its views, screens, map kinds and ops through one interface (`RT` on the page, `Layer`
+in the core), and an app names its layers (Android `rtLayers` in the module, Windows `--layers=`), carrying only those.
+The table of layers and apps, and how to add a screen, a view or an app: `rangertrak-app/README.md`.
+
 **Every app is self-contained: it is its own FrogNet member** ([APP_IS_SELF_CONTAINED_V1], built; it replaces
 [BASE_APP_V1], the hidden Disaster Area base). **John (2026-11-04):** "we aren't going to have the user install 2
 things, on any platform. All apps are fully self contained entities." On Android each RangerTrak app (EOC, Team,
