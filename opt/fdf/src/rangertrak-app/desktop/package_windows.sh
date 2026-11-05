@@ -13,7 +13,7 @@ D=$(cd "$(dirname "$0")/.." && pwd); OUT=${1:?usage: package_windows.sh OUTDIR};
 ADMIN=${2:-}
 BUILD=$(sed -n 's/.*BUILD = "\(rt-app-[^"]*\)".*/\1/p' $D/core/src/net/frognet/rangertrak/AppCore.java)
 NAME=RangerTrak
-LOCK=""; LAYERS=""; [ "$ADMIN" = eoc ] && { NAME=RangerTrak-EOC; LOCK=eoc; LAYERS=help,field,eoc,medical; }   # [RT_LAYERS_V1] the EOC app's layers
+LOCK=""; LAYERS=""; [ "$ADMIN" = eoc ] && { NAME=RangerTrak-EOC; LOCK=eoc; LAYERS=help,field,eoc,medical,ics; }   # [RT_LAYERS_V1] the EOC app's layers
 if [ "$ADMIN" = admin ]; then BUILD=$(sed -n 's/.*BUILD = "\(rt-admin-[^"]*\)".*/\1/p' $D/core/src/net/frognet/rangertrak/admin/AdminCore.java); NAME=RangerTrak-Admin; fi
 T=$(mktemp -d); R=$T/$NAME; mkdir -p $R/lib $T/fx
 "$D/build.sh" >/dev/null

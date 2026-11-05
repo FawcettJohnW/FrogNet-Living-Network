@@ -9,7 +9,7 @@ import java.util.List;
 
 /** [RT_LAYERS_V1] the core's layers by name, as an app lists them (the page's ui/layers/<name>.js are the same names) */
 public final class Layers {
-    public static final String ALL = "help,field,eoc,team,medical,units,public";
+    public static final String ALL = "help,field,eoc,team,medical,units,public,ics";
     public static List<Layer> of(String names) {
         List<Layer> out = new ArrayList<Layer>();
         for (String n : (names == null || names.trim().isEmpty() ? ALL : names).split(",")) {
@@ -21,6 +21,7 @@ public final class Layers {
             else if (n.equals("medical")) out.add(new MedicalLayer());
             else if (n.equals("units")) out.add(new UnitsLayer());
             else if (n.equals("public")) out.add(new PublicLayer());
+            else if (n.equals("ics")) out.add(new IcsLayer());
             else if (!n.isEmpty()) throw new IllegalArgumentException("no layer " + n + " (the layers: " + ALL + ")");
         }
         return out;

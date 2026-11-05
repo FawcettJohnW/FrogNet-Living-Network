@@ -4,7 +4,7 @@
 plugins { id("com.android.application") }
 // [RT_LAYERS_V1] this app is the base (shared) and these layers: their pages (ui/layers/<name>.js, copied into this
 // app's own assets: no other app carries them) and their cores (the same names); the manifest says them (LAYERS)
-val rtLayers = listOf("help", "field", "medical")
+val rtLayers = listOf("help", "field", "medical", "ics")
 val genLayers = layout.buildDirectory.dir("generated/rt-layers")   // rt-layers-copy
 val copyLayers = tasks.register<Copy>("copyLayers") { from(file("../../ui/layers")) { include(rtLayers.map { "$it.js" }) }; into(genLayers.map { it.dir("ui/layers") }) }   // rt-layers-copy
 android {

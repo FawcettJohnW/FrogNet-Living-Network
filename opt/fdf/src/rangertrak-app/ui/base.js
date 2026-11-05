@@ -83,7 +83,7 @@ window.RT = RT
 // ------------------------------------------------------------ start: the native side calls rtInit once the page loads
 // [RT_LAYERS_V1] the app's layers first (cfg.layers, in that order; every one there is when it names none), then the
 // connect screen with the views they add
-const ALL_LAYERS = ['help', 'field', 'eoc', 'team', 'medical', 'units', 'public']
+const ALL_LAYERS = ['help', 'field', 'eoc', 'team', 'medical', 'units', 'public', 'ics']
 window.rtInit = function (cfg) {
   S.cfg = cfg || {}
   const names = (S.cfg.layers && S.cfg.layers.length ? S.cfg.layers : ALL_LAYERS).filter(n => /^[a-z0-9_-]+$/.test(n))

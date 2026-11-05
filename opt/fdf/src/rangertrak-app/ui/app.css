@@ -122,3 +122,13 @@ table.rl td { padding: 5px 6px; border-bottom: 1px solid #1f2a24; vertical-align
 .mem-add { display: grid; grid-template-columns: 1fr 1fr auto; gap: 6px; margin: 10px 0; } .mem-add input, .mem-at select { min-width: 0; }
 .mem-qr svg { width: min(340px, 86vw); height: auto; display: block; margin: 10px auto; border-radius: 10px; }
 .mem-qr .who { text-align: center; font-weight: 700; } .mem-at { margin: 8px 0; color: var(--mu); }
+/* [RT_ICS_BOARDS_V1] the boards */
+#sheet .board { display: block; width: 100%; text-align: left; margin: 4px 0; padding: 8px }
+#sheet table.ics { width: 100%; border-collapse: collapse; font-size: 13px; margin-top: 6px }
+#sheet table.ics th, #sheet table.ics td { border-bottom: 1px solid #ddd; padding: 4px 6px; text-align: left; vertical-align: top }
+#sheet table.ics tr[onclick] { cursor: pointer }
+#sheet table.ics.rec th { width: 40%; color: #555; font-weight: 600 }
+#sheet .icsform label, #sheet .icsupd label { display: block; margin: 6px 0 }
+#sheet .icsform input:not([type=checkbox]), #sheet .icsform select, #sheet .icsform textarea,
+#sheet .icsupd input:not([type=checkbox]), #sheet .icsupd select, #sheet .icsupd textarea { display: block; width: 100%; box-sizing: border-box }
+#sheet label.chk { display: flex; gap: 6px; align-items: center }
