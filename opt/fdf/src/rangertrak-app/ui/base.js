@@ -707,9 +707,11 @@ function addressFix() {
   if (nd && typeof nd.lat === 'number' && (!S.nodeFixed || S.nodeFixed !== nd.lat + ',' + nd.lng)) {
     S.nodeFixed = nd.lat + ',' + nd.lng
     send({ op: 'fix', lat: nd.lat, lng: nd.lng, acc: 0, src: 'node' })
-    status('this device has no GPS: on the map at its node, ' + nd.name + ' (Where am I? on the Diag sheet sets an address)')
+    status('on the map at ' + nd.name + ', by its GPS (Diag, Where am I? sets another position)')
   }
-  if (S.addrAsk && (S.hostsSaid || !S.on.host)) { S.addrAsk = false; addressSheet(S.noGpsWhy) }   // asked once the nodes are known: it says which node you are at
+  // [RT_AT_ITS_NODE_V1] a node with a GPS fix is this device's position: nothing to ask (Diag's Where am I? still sets an
+  // address); asked only when its node has no fix, once the nodes are known
+  if (S.addrAsk && (S.hostsSaid || !S.on.host)) { S.addrAsk = false; if (!S.nodeFixed) addressSheet(S.noGpsWhy) }
 }
 
 // ------------------------------------------------------------ [RT_MISSION_V1] see, update and start the mission

@@ -6,8 +6,7 @@
 # test_nogps_page.py -- [RT_NO_GPS_V1] [RT_AT_ITS_NODE_V1] a computer (no GPS) in the page, as the desktop app now runs it
 # (ev nogps at load): its core's lines given (rtDeliver), its lines to the core read back (rtNative.send):
 #   1 connected, with no address saved: it is at its node (the door says Seattle7; its GPS sensor's address is not the
-#     door's: every node's LAN door is 10.170.170.1) -- op fix src node --
-#     and asks Where are you?
+#     door's: every node's LAN door is 10.170.170.1) -- op fix src node -- and is not asked (Diag's Where am I? asks)
 #   2 "47.5, -122.3" typed: op fix src address, and the address saved (rtNative.saveAddress)
 #   3 the next start with that address saved: op fix src address straight away, no question
 #   4 a door that does not say its node: not on the map, and Where are you? says why (the nodes with a fix named)
@@ -38,8 +37,9 @@ with sync_playwright() as pw:
     start(pg, None)
     f = fixes(pg)
     asked = pg.is_visible("#sheet") and "Where are you" in pg.inner_text("#sheet")
-    check(bool(f) and f[-1].get("src") == "node" and abs(f[-1]["lat"] - 47.4473) < 1e-6 and asked and "Seattle7" in pg.inner_text("#sheet"),
-          "1 no address: at its node Seattle7 (%s); asked Where are you? %s" % (f[-1] if f else None, asked))
+    check(bool(f) and f[-1].get("src") == "node" and abs(f[-1]["lat"] - 47.4473) < 1e-6 and not asked and "Seattle7" in pg.inner_text("#status"),
+          "1 no address: at its node Seattle7 by its GPS (%s), not asked (%s): %r" % (f[-1] if f else None, asked, pg.inner_text("#status")))
+    pg.evaluate("addressSheet('Where is this device?')")       # Diag's Where am I?
     pg.fill(".af [name=a]", "47.5, -122.3"); pg.click(".af .go")
     f = fixes(pg)
     check(f[-1].get("src") == "address" and f[-1]["lat"] == 47.5 and pg.evaluate("SAVED") == {"lat": 47.5, "lng": -122.3, "label": "47.5, -122.3"},
