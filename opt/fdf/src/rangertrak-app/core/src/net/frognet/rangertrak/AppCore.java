@@ -49,7 +49,7 @@ public final class AppCore {
 
     public static final String APP = "rangertrak";
     public static final String API = "/FawcettInnovations.RINA.ram_interface.php";
-    public static final String BUILD = "rt-app-2026-11-04-r25";
+    public static final String BUILD = "rt-app-2026-11-04-r26";
 
     private final Ui ui;
     private String door = "", dev = "", name = "", role = "", team = "", user = "", mission = "";
@@ -217,7 +217,8 @@ public final class AppCore {
         if (want.equals("eoc")) {          // the EOC's role is activated at its user's login, read at the door
             Map<String, Object> o = doorCall("op=login&app=" + APP, Json.write(Json.o("user", Json.str(m.get("user")), "password", Json.str(m.get("password")))));
             role = Json.str(o.get("role")); user = Json.str(m.get("user"));
-            if (!role.equals("eoc")) throw new Exception("user " + user + " has role '" + role + "', not the EOC's");
+            if (!role.equalsIgnoreCase("eoc")) throw new Exception("user " + user + " has role '" + role + "', not the EOC's");
+            role = "eoc";                                   // the admin's role name in any case ([RT_EOC_APP_V1])
             team = "";
         } else if (want.equals("team")) { role = "team"; team = Json.str(m.get("team")); user = ""; }
         else if (UNIT_ROLES.contains(want)) { role = want; team = Json.str(m.get("unit")); user = ""; }   // [RT_SUITE_APPS_V1] a unit's app

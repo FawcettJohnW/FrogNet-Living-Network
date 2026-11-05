@@ -42,7 +42,7 @@ window.rtInit = function (cfg) {
   const f = $('#connect')
   f.door.value = S.cfg.door || ''; f.name.value = S.cfg.name || ''
   // [RT_TEAM_APP_V1] [RT_PUBLIC_APP_V1] an app built for one view (the Team app, the Public app) opens as that view only
-  const LOCKED = { team: 'RangerTrak Team', public: 'RangerTrak Public', ambulance: 'RangerTrak Ambulance', hospital: 'RangerTrak Hospital',
+  const LOCKED = { eoc: 'RangerTrak EOC', team: 'RangerTrak Team', public: 'RangerTrak Public', ambulance: 'RangerTrak Ambulance', hospital: 'RangerTrak Hospital',
                    water: 'RangerTrak Water', power: 'RangerTrak Power', shelter: 'RangerTrak Shelter', phone: 'RangerTrak Phone' }   // [RT_SUITE_APPS_V1]
   if (LOCKED[S.cfg.lock]) {
     S.cfg.role = S.cfg.lock; $('#roleSet').hidden = true

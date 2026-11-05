@@ -169,7 +169,7 @@ public final class Main extends Application {
         });
         web.setOnAlert(e -> System.out.println("page: " + e.getData()));
         web.load(Paths.get(ui, "index.html").toUri().toString());
-        stage.setTitle("RangerTrak — powered by the FrogNet Living Network");
+        stage.setTitle(("eoc".equals(lock()) ? "RangerTrak EOC" : "RangerTrak") + " — powered by the FrogNet Living Network");   // [RT_EOC_APP_V1]
         stage.setScene(new Scene(v, 1280, 820));
         stage.setOnCloseRequest(e -> { core.close(); Platform.exit(); System.exit(0); });
         stage.show();
@@ -189,7 +189,11 @@ public final class Main extends Application {
         if (Json.str(s.get("name")).isEmpty()) try { s.put("name", InetAddress.getLocalHost().getHostName()); } catch (Exception ignored) { }
         if (Json.str(s.get("door")).isEmpty()) s.put("door", gateway());
         s.put("platform", "desktop");
+        if (!lock().isEmpty()) { s.put("lock", lock()); s.put("role", lock()); }   // [RT_EOC_APP_V1] --lock=eoc: the EOC app
         return s;
+    }
+    /** [RT_EOC_APP_V1] the one view this app opens as (--lock=eoc: RangerTrak EOC), or "" for every view */
+    private String lock() { return getParameters() == null ? "" : getParameters().getNamed().getOrDefault("lock", "");
     }
 
     private void save(Map<String, Object> m) {

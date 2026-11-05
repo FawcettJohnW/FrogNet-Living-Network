@@ -70,7 +70,7 @@ printf '/build\n*/build\n.gradle\n.idea\nlocal.properties\n*.iml\n' > $P/.gitign
 cat > $P/README.txt <<TXT
 RangerTrak for Android ($BUILD) -- an Android Studio project
 Open this folder in Android Studio (File > Open). Gradle syncs (it fetches Gradle 8.9 and the Android plugin 8.5.2;
-JDK 17 or newer, Android SDK 34). Run configurations: team (RangerTrak Team), public (RangerTrak Public), the unit apps
+JDK 17 or newer, Android SDK 34). Run configurations: eoc (RangerTrak EOC), team (RangerTrak Team), public (RangerTrak Public), the unit apps
 ambulance, hospital, water, power, shelter, phone (RangerTrak <Unit>), admin (RangerTrak Admin), app (every view),
 base (Disaster Area: the FrogNet membership every RangerTrak app uses; install it too -- it has no icon).
 Command line: ./gradlew :base:assembleDebug :team:assembleDebug :public:assembleDebug :ambulance:assembleDebug ... :admin:assembleDebug
