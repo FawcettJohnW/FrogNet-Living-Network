@@ -1,4 +1,4 @@
-# RangerTrak app (desktop and phone) -- rt-app-2026-11-05-r42
+# RangerTrak app (desktop and phone) -- rt-app-2026-11-05-r44
 
 The demo John set on 2026-11-01 (`opt/frognet_semantic/ribbit/examples/rangertrak/PLAN.md`, its first decision): the EOC
 on a Windows app, a first responder on a phone, presence with GPS, chat, a pre-populated moving world, in an app and not
@@ -46,6 +46,19 @@ role's `act`/`req`, or `RT.button`). **A new view**: `RT.role(...)` in a layer's
 `--lock=` and `--layers=`. **The admin app**: a layer's own panel is `ui-admin/layers/<name>.js` calling
 `RTA.panel(title, fn)` (none yet). Gates: `test/test_app.py` (32 checks; the Team and Public apps run with their own
 layers only), `test/test_team_host.py`, `android/typecheck.sh`.
+
+## r44 / admin r11: a computer is on everyone's map; the admin says who is on now
+
+- [RT_NO_GPS_V1] [RT_AT_ITS_NODE_V1] the Windows app never said it had no GPS (only Android did): it sent no position,
+  and a Team on Windows was on no map but its own (John 2026-11-05: Bravo on the phone showed; Alpha on Windows did
+  not). Now the desktop says `nogps` at load (with the address saved in its settings, `addr`); a device with no GPS
+  and no address is at its node -- the GPS fix of the node its door is ("src":"node") -- and is asked Where are you?
+  (an address, or "latitude, longitude"; saved, `rtNative.saveAddress`). Diag's "Where am I?" asks again. Gate:
+  `test/test_nogps_page.py` (3).
+- [ADMIN_ON_NOW_V1] the admin follows the general RAM as the apps do (the newest mission, its rt-who) and Groups now
+  has On now per group (a device's team or unit), with the devices in no group (and the group they say) under it.
+  Gates: test_no_mission.py 6 (the admin core sees Pat and Lee, team Alpha, in the mission now: `test/AdminOnNow.java`);
+  test_admin_page.py 6.
 
 ## r42: the Android project applies its own updates ([RT_ANDROID_UPDATE_APPLIES_ITSELF_V1])
 

@@ -89,5 +89,11 @@ with sync_playwright() as pw:
     want = "fdfenroll1 http://10.170.170.1/dc/ram.php rangertrak kim"
     if SHOTS: open(os.path.join(SHOTS, name), "wb").write(base64.b64decode(b64))
     check(name == "RangerTrak-rangertrak-kim.png" and got == want and not errs, "5 saved %s (%d bytes): reads %r; page errors %s" % (name, len(b64) * 3 // 4, got, errs))
+    # 6 [ADMIN_ON_NOW_V1] who is on now, in its group's row; one in no group said so
+    deliver({"ev": "onNow", "mission": "standing", "who": {"pa": {"name": "Pat", "kind": "team", "team": "Alpha", "via": "10.170.170.1"},
+                                                          "px": {"name": "Win PC", "kind": "team", "team": "Zulu"}}})
+    row = pg.evaluate("[...document.querySelectorAll('#groups tr')].map(t=>t.innerText).find(t=>/^alpha/.test(t)) || ''")
+    on = pg.inner_text("#onNow")
+    check("Pat" in row and "2 on now" in on and "Win PC" in on and "no such group" in on, "6 alpha's row: %r; %r" % (row.replace("\t", " | ")[:120], on[:160]))
     br.close()
 print("RESULT", "PASS" if not FAILS else "FAIL: %d" % len(FAILS)); sys.exit(1 if FAILS else 0)

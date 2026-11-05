@@ -44,6 +44,7 @@ window.rtDeliver = function (line) {
     $('#status').textContent = 'connected (' + m.build + ')'
     A.door = m.door; A.app = m.app; send({ op: 'saves' })
   } else if (m.ev === 'state') state(m)
+  else if (m.ev === 'onNow') { A.now = m; if (A.last) groups(A.last) }
   else if (m.ev === 'saves') saves(m)
   else if (m.ev === 'restored') restored(m)
   else if (m.ev === 'saved') $('#status').textContent = 'saved ' + m.path
@@ -83,7 +84,15 @@ function state(m) {
 }
 // [GROUPS_NOW_V1] each group (a role), its tab, where its lead placed it, where its RAM is served now, its lead(s)
 function groups(m) {
+  A.last = m
   const c = m.current || {}, served = m.served || {}, places = c.places || {}, rams = new Set(c.rams || [])
+  // [ADMIN_ON_NOW_V1] each device on now, in the group it says (a team view's team, a unit's unit), any case
+  const now = (A.now || {}).who || {}, inGroup = {}, others = []
+  for (const [d, w] of Object.entries(now)) {
+    const g = [w.team, w.unit].map(x => String(x || '').toLowerCase()).find(x => x && (c.roles || {})[x] !== undefined)
+    const tag = `${esc(w.name || d)} <span class="mu">${esc(w.kind || '')}${w.via ? ' via ' + esc(w.via) : ''}</span>`
+    if (g) (inGroup[g] = inGroup[g] || []).push(tag); else others.push(tag + (w.team || w.unit ? ` <span class="mu">(says ${esc(w.team || w.unit)}: no such group)</span>` : ''))
+  }
   const leads = {}; for (const [u, x] of Object.entries(c.users || {})) if ((x || {}).lead) (leads[x.role] = leads[x.role] || []).push(u)
   const rows = Object.entries(c.roles || {}).sort((a, b) => ((a[1] || {}).category || DEF_CAT).localeCompare((b[1] || {}).category || DEF_CAT) || a[0].localeCompare(b[0]))
   $('#groups').innerHTML = rows.map(([r, x]) => {
@@ -92,8 +101,12 @@ function groups(m) {
       : p.at === 'here' ? `on its lead's device <span class="mu">${esc(p.guid || '')}, placed by ${esc(p.user || '')}</span>`
       : p.at === 'databasehost' ? `on databasehost <span class="mu">placed by ${esc(p.user || '')}</span>` : 'on databasehost <span class="mu">(the app\'s selection)</span>'
     const at = !own ? '' : served[r] ? `<span class="ok">${esc(served[r])}</span>` : (p.at === 'here' ? '<span class="mu">on the lead\'s device (not a member)</span>' : '<span class="bad">nobody</span>')
-    return `<tr><td><b>${esc(r)}</b></td><td>${esc((x || {}).category || DEF_CAT)}</td><td>${lives}</td><td>${at}</td><td>${esc((leads[r] || []).join(', ')) || '<span class="mu">none</span>'}</td></tr>`
-  }).join('') || '<tr><td colspan="5" class="mu">no groups</td></tr>'
+    return `<tr><td><b>${esc(r)}</b></td><td>${esc((x || {}).category || DEF_CAT)}</td><td>${lives}</td><td>${at}</td><td>${esc((leads[r] || []).join(', ')) || '<span class="mu">none</span>'}</td>
+      <td>${(inGroup[r] || []).join('<br>') || '<span class="mu">nobody</span>'}</td></tr>`
+  }).join('') || '<tr><td colspan="6" class="mu">no groups</td></tr>'
+  const n = A.now
+  $('#onNow').innerHTML = !n ? 'Who is on now: asking…' : !n.mission ? 'Who is on now: no mission on this network yet (the first app to connect starts Standing operations)'
+    : `Mission <b>${esc(n.mission)}</b> · ${Object.keys(now).length} on now` + (others.length ? ' · in no group: ' + others.join(' · ') : '')
 }
 // [CATEGORY_DIALOG_V1] the page: a card per category (its groups, its users); a category opens as a pop-up (drawCat)
 const usersOf = (e, r) => Object.entries(e.users).filter(([, x]) => x.role === r)

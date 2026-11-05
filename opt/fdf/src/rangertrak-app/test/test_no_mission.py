@@ -10,6 +10,7 @@
 #   2 each one's position is in the positions RAM and each sees the other (presence and positions)
 #   3 a message to the team from one comes to the other
 #   4 a mission an EOC starts afterwards is the mission on both (newer than the standing one)
+#   6 the admin's who is on now: Pat and Lee in the mission now, team Alpha
 #   5 the EOC's login: a user whose role is in the EOC category (eochq) is the EOC; one in Ambulance is told where to put it
 import json, os, queue, socket, subprocess, sys, tempfile, threading, time
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
@@ -84,6 +85,12 @@ try:
     na = a.wait(lambda o: o.get("ev") == "mission" and str(o.get("id", "")).startswith("vashon-windstorm"))
     nb = b.wait(lambda o: o.get("ev") == "mission" and str(o.get("id", "")).startswith("vashon-windstorm"))
     check(bool(na) and bool(nb), "4 a mission started afterwards is the mission on both: %s" % (na or {}).get("id"))
+    # 6 [ADMIN_ON_NOW_V1] the admin's who-is-on-now: Pat and Lee, in the mission now (4's), team Alpha
+    ad = subprocess.run(["java", "-cp", CP, "AdminOnNow", DOOR, "rangertrak", "8000"], capture_output=True, text=True, timeout=60).stdout
+    nows = [json.loads(l) for l in ad.splitlines() if l.startswith("{") and '"onNow"' in l]
+    last = nows[-1] if nows else {}
+    check(last.get("mission") == (na or {}).get("id") and {"pa", "pb"} <= set(last.get("who", {})) and last["who"]["pa"].get("team") == "Alpha",
+          "6 the admin's on now: mission %s, %s" % (last.get("mission"), {d: (w.get("name"), w.get("team")) for d, w in last.get("who", {}).items()}))
     # 5 [RT_CATEGORY_IS_THE_VIEW_V1] the EOC's user is one whose role is in the EOC category (eochq), not only one named eoc
     e = Dev(); e.send(op="connect", door=DOOR, dev="pe", name="EOC Desk", role="eoc", user="EOCLead", password="pw")
     ce = e.wait(lambda o: o.get("ev") in ("connected", "error"))

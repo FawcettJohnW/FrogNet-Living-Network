@@ -51,7 +51,7 @@ import java.util.Map;
  */
 public final class AdminCore {
     public interface Ui { void deliver(String json); }
-    public static final String BUILD = "rt-admin-2026-11-05-r10";
+    public static final String BUILD = "rt-admin-2026-11-05-r11";
 
     private final Ui ui;
     private volatile String door = "", app = "", user = "";
@@ -135,7 +135,7 @@ public final class AdminCore {
 
     // ------------------------------------------------------------------ connect, read, apply
     private void connect(Map<String, Object> m) throws Exception {
-        stopWatch();
+        stopWatch(); stopOnNow();
         door = Json.str(m.get("door")).trim(); app = Json.str(m.get("app")).trim(); user = Json.str(m.get("user")).trim();
         key = null;
         if (door.isEmpty() || app.isEmpty()) throw new Exception("the node and the app are needed");
@@ -156,7 +156,47 @@ public final class AdminCore {
         out("ev", "connected", "app", app, "user", user, "door", door, "build", BUILD);
         deliverState(st);
         startWatch();
+        startOnNow();
     }
+
+    // ------------------------------------------------------------ [ADMIN_ON_NOW_V1] who is on now
+    // The admin's groups said where each one lives and is served, not who is in it: a team brought up on Windows did not
+    // show (John 2026-11-05). The admin follows the app's general RAM as the apps do -- the mission (rt-mission, settings:
+    // the newest by its at), then its presence (rt-who, <mission>: one tuple per device on now, its session's: gone when
+    // the device is) -- and says it: ev onNow {mission, who: {dev: {name, kind, team, unit, via, status, app}}}.
+    private volatile net.frognet.ram.Follower nowMis, nowWho;
+    private volatile String nowMission = "";
+    private void startOnNow() {
+        stopOnNow();
+        new Thread(new Runnable() { public void run() {
+            try {
+                Map<String, Object> o = door("op=rams&app=" + URLEncoder.encode(app, "UTF-8"), null, 10000);
+                String g = Json.str(Json.obj(o.get("rams")).get("general"));
+                if (g.isEmpty()) { out("ev", "error", "text", "who is on now: the door says no general RAM for " + app); return; }
+                final String h = g.substring(0, g.lastIndexOf(':')); final int pt = Integer.parseInt(g.substring(g.lastIndexOf(':') + 1));
+                final net.frognet.ram.Follower.Log lg = new net.frognet.ram.Follower.Log() { public void say(String l) { if (l.contains("FAIL")) out("ev", "error", "text", "who is on now: " + l); } };
+                nowMis = new net.frognet.ram.Follower("admin-mission", h, pt, API, "rt-mission", "settings", lg, null, new Runnable() { public void run() {
+                    net.frognet.ram.Follower f = nowMis; if (f == null) return;
+                    String best = ""; Map<String, Map<String, Object>> ms = f.family("settings");
+                    for (String k : ms.keySet())
+                        if (best.isEmpty() || Json.num(ms.get(k).get("at")) > Json.num(ms.get(best).get("at")) || (Json.num(ms.get(k).get("at")) == Json.num(ms.get(best).get("at")) && k.compareTo(best) > 0)) best = k;
+                    if (best.isEmpty()) { out("ev", "onNow", "mission", "", "who", Json.o()); return; }
+                    if (best.equals(nowMission) && nowWho != null) return;
+                    nowMission = best; final String mis = best;
+                    if (nowWho != null) nowWho.stop();
+                    nowWho = new net.frognet.ram.Follower("admin-who", h, pt, API, "rt-who", mis, lg, null, new Runnable() { public void run() {
+                        net.frognet.ram.Follower w = nowWho; if (w == null || !mis.equals(nowMission)) return;
+                        out("ev", "onNow", "mission", mis, "at", g, "who", new java.util.HashMap<String, Object>(w.family(mis)));
+                    } });
+                } });
+            } catch (Exception e) { out("ev", "error", "text", "who is on now: " + e.getMessage()); }
+        } }, "admin-on-now").start();
+    }
+    private void stopOnNow() {
+        net.frognet.ram.Follower a = nowMis, b = nowWho; nowMis = null; nowWho = null; nowMission = "";
+        if (a != null) a.stop(); if (b != null) b.stop();
+    }
+    static final String API = "/FawcettInnovations.RINA.ram_interface.php";
 
     /** every member's configuration and answer; the current configuration is the newest seq among them */
     private Map<String, Object> read(boolean held) throws Exception {
@@ -197,7 +237,7 @@ public final class AdminCore {
         watcher = t; t.setDaemon(true); t.start();
     }
     private void stopWatch() { Thread t = watcher; watcher = null; if (t != null) t.interrupt(); }
-    public void close() { stopWatch(); }
+    public void close() { stopWatch(); stopOnNow(); }
 
     // ------------------------------------------------------------------ [ASSIGNMENTS_SAVE_V1] save and restore, by hand
     private static final String[] KEPT = { "rams", "ports", "partition", "login", "roles", "categories", "users", "select" };

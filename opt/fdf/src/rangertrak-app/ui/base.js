@@ -242,7 +242,7 @@ window.rtDeliver = function (line) {
   const m = typeof line === 'string' ? JSON.parse(line) : line
   if (!S.ready) { early.push(m); return }
   if (m.ev === 'status') status(m.text)
-  else if (m.ev === 'error') { status('⚠ ' + m.text); if (!$('#connect').hidden) $('#cstatus').textContent = m.text }
+  else if (m.ev === 'error') { if (/GPS sensors/.test(m.text)) { S.hostsSaid = true; addressFix() } status('⚠ ' + m.text); if (!$('#connect').hidden) $('#cstatus').textContent = m.text }
   else if (m.ev === 'diag') diagSheet(m)
   else if (m.ev === 'connected') connected(m)
   else if (m.ev === 'enrollScan') enrollScan(m)
@@ -265,7 +265,7 @@ window.rtDeliver = function (line) {
   else if (m.ev === 'radiolog') { S.rlog = m; if (S.sheet === 'rlog' && !$('#sheet').hidden) radioLog() }
   else if (m.ev === 'nogps') noGps(m)
   else if (m.ev === 'geocoded') geocoded(m)
-  else if (m.ev === 'hosts') { S.gps = {}; for (const h of m.list || []) S.gps['gps:' + h.name] = Object.assign({ kind: 'host' }, h); redraw() }
+  else if (m.ev === 'hosts') { S.hostsSaid = true; S.gps = {}; for (const h of m.list || []) S.gps['gps:' + h.name] = Object.assign({ kind: 'host' }, h); redraw(); addressFix() }
   for (const f of (RT.evs[m.ev] || [])) f(m)                     // [RT_LAYERS_V1] the layers' events
 }
 function status(t) { $('#status').textContent = t; $('#dot').classList.toggle('up', !/FAILING|cannot|⚠/.test(t)); if (/FAILING|cannot|⚠|not |page error/.test(t)) said(t) }
@@ -292,7 +292,7 @@ function diagSheet(d) {
     <h3>Where this device reads and writes</h3>
     <table class="dt"><tr><th>Follower</th><th>RAM at</th><th>State</th><th>Sessions</th><th>Writes</th><th>Holds</th></tr>${fs || '<tr><td colspan="6" class="bad">no followers: not connected</td></tr>'}</table>
     <h3>This device</h3>
-    <div>${gps ? `Phone GPS: permission ${yes(gps.permission)}, GPS on ${yes(gps.gpsOn)}, fixes ${gps.fixes}${gps.last ? `, last ${gps.last.lat.toFixed(5)},${gps.last.lng.toFixed(5)} ±${Math.round(gps.last.acc)} m, ${gps.last.ageS} s ago` : ' <span class="bad">(none yet)</span>'}` : 'No GPS on this device (a typed address is its position)'}</div>
+    <div>${gps ? `Phone GPS: permission ${yes(gps.permission)}, GPS on ${yes(gps.gpsOn)}, fixes ${gps.fixes}${gps.last ? `, last ${gps.last.lat.toFixed(5)},${gps.last.lng.toFixed(5)} ±${Math.round(gps.last.acc)} m, ${gps.last.ageS} s ago` : ' <span class="bad">(none yet)</span>'}` : `No GPS on this device: its position is ${S.addr ? 'the address ' + esc(S.addr.label || '') : S.nodeFixed ? 'its node\'s, ' + esc((myNode() || {}).name || '') : '<span class="bad">none yet</span>'} <button type="button" onclick="addressSheet('Where is this device?')">Where am I?</button>`}</div>
     <div>Last position sent to the core: ${lf ? `${t(lf.at)} ${Number(lf.lat).toFixed(5)},${Number(lf.lng).toFixed(5)} (${esc(lf.src)}); written to ${esc(lf.to)}: ${yes(lf.written)}` : '<span class="bad">none</span>'}</div>
     <div>In the positions RAM: ${yes(me.inPositions)}${me.readBack ? ' ' + j({ lat: me.readBack.lat, lng: me.readBack.lng, kind: me.readBack.kind }) : ''} · present: ${yes(me.inPresence)}</div>
     <div>Last message: ${ls ? `${t(ls.at)} to ${esc(ls.to)}; written ${yes(ls.written)}; came back ${yes(ls.cameBack)}` : 'none sent'}</div>
@@ -661,10 +661,18 @@ function followMe() {
 function noGps(m) {
   S.noGps = true
   if (m.saved && typeof m.saved.lat === 'number') { S.addr = m.saved; addressFix(); return }
-  addressSheet(m.why || 'This device has no GPS.')
+  S.noGpsWhy = m.why || 'This device has no GPS.'
+  S.addrAsk = true                                      // asked once connected (the sheet needs the main screen)
+}
+// [RT_AT_ITS_NODE_V1] a device with no GPS and no address given is where its node is (the node it came in through, its
+// GPS sensor's fix), "src":"node", until an address is given: on everyone's map from the start, not on nobody's
+function myNode() {
+  const via = String(($('#connect').door || {}).value || S.cfg.door || '').replace(/^https?:\/\//, '').replace(/[:/].*$/, '')
+  return Object.values(S.gps).find(g => via && (g.address === via || String(g.name).toLowerCase() === via.toLowerCase()))
 }
 function addressSheet(why) {
-  sheet('addr', 'Where are you?', `<form class="af mf"><div>${esc(why)} Enter the street address where you are; it is your position on everyone's map.</div>
+  const nd = myNode()
+  sheet('addr', 'Where are you?', `<form class="af mf"><div>${esc(why)} ${nd ? `Until you say, you are on everyone's map at your node, <b>${esc(nd.name)}</b>. ` : ''}Enter the street address where you are (or "latitude, longitude"); it is your position on everyone's map.</div>
     <label>Street address<input name="a" placeholder="17631 Vashon Hwy SW, Vashon, WA" value="${esc((S.addr || {}).label || '')}" required></label>
     <button class="go">Use this address</button><div class="meta as"></div></form>`)
   document.querySelector('.af').onsubmit = (e) => {
@@ -682,7 +690,17 @@ function geocoded(m) {
   $('#sheet').hidden = true; S.sheet = ''
   addressFix()
 }
-function addressFix() { if (S.noGps && S.addr && S.role) send({ op: 'fix', lat: S.addr.lat, lng: S.addr.lng, acc: 0, src: 'address' }) }
+function addressFix() {
+  if (!S.noGps || !S.role) return
+  if (S.addr) { send({ op: 'fix', lat: S.addr.lat, lng: S.addr.lng, acc: 0, src: 'address' }); return }
+  const nd = myNode()
+  if (nd && typeof nd.lat === 'number' && (!S.nodeFixed || S.nodeFixed !== nd.lat + ',' + nd.lng)) {
+    S.nodeFixed = nd.lat + ',' + nd.lng
+    send({ op: 'fix', lat: nd.lat, lng: nd.lng, acc: 0, src: 'node' })
+    status('this device has no GPS: on the map at its node, ' + nd.name + ' (Where am I? on the Diag sheet sets an address)')
+  }
+  if (S.addrAsk && (S.hostsSaid || !S.on.host)) { S.addrAsk = false; addressSheet(S.noGpsWhy) }   // asked once the nodes are known: it says which node you are at
+}
 
 // ------------------------------------------------------------ [RT_MISSION_V1] see, update and start the mission
 const MIS_FIELDS = [['name', 'Name'], ['event', 'Event / incident'], ['opPeriod', 'Operational period'], ['start', 'Start'], ['end', 'End'],

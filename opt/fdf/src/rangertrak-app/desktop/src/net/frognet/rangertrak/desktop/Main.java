@@ -42,6 +42,10 @@ public final class Main extends Application {
             } catch (Exception ignored) { }
             new Thread(() -> core.handle(line), "core").start();
         }
+        /** [RT_NO_GPS_V1] the address the user gave: this computer's position from now on */
+        public void saveAddress(String json) {
+            try { Map<String, Object> s = settings(); s.put("addr", Json.obj(Json.parse(json))); write(s, settingsFile()); } catch (Exception e) { System.err.println("address: " + e); }
+        }
         /** [RT_CALL_V1] the page's Call: what this computer's Communicator can use, then the Communicator itself */
         public void comms(String json) { Main.this.comms(json); }
         /** [RT_MAP_SAYS_V1] the page's own account of its map, in this window's log */
@@ -165,6 +169,11 @@ public final class Main extends Application {
             if (now != Worker.State.SUCCEEDED) return;
             ((JSObject) web.executeScript("window")).setMember("rtNative", bridge);
             web.executeScript("rtInit(" + Json.write(settings()) + ")");
+            // [RT_NO_GPS_V1] a computer has no GPS: the page uses the address saved here, or the node's own position
+            // ([RT_AT_ITS_NODE_V1]) until one is given. Before r44 the desktop never said so: it had no position at all,
+            // and nobody else's map drew it (John 2026-11-05: a Team on Windows, on no one's map but its own)
+            Object addr = settings().get("addr");
+            web.executeScript("rtDeliver(" + Json.quote(Json.write(Json.o("ev", "nogps", "why", "This computer has no GPS.", "saved", addr instanceof Map ? addr : null))) + ")");
             // --connect: straight in with this computer's saved node, name and view (Team and Public; the EOC logs in)
             if (getParameters().getRaw().contains("--connect"))
                 web.executeScript("setTimeout(()=>document.querySelector('#connect button').click(),2000)");
@@ -214,7 +223,7 @@ public final class Main extends Application {
         for (String k : new String[]{"door", "name", "role", "team", "unit"}) s.put(k, Json.str(m.get(k)));
         write(s, settingsFile());
     }
-    private static final String[] KEPT = {"dev", "door", "name", "role", "team", "unit", "comms", "commsApp"};
+    private static final String[] KEPT = {"dev", "door", "name", "role", "team", "unit", "comms", "commsApp", "addr"};
     /** [RT_APP_SETTINGS_APART_V1] each app its own file: settings.json the RangerTrak app's, settings-eoc.json the EOC app's
      *  (its own device id too: both may run on one computer) */
     private String settingsFile() { return lock().isEmpty() ? "settings.json" : "settings-" + lock().replaceAll("[^a-z0-9_-]", "") + ".json"; }
