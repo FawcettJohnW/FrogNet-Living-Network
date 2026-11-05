@@ -1,4 +1,4 @@
-# RangerTrak app (desktop and phone) -- rt-app-2026-11-05-r36
+# RangerTrak app (desktop and phone) -- rt-app-2026-11-05-r37
 
 The demo John set on 2026-11-01 (`opt/frognet_semantic/ribbit/examples/rangertrak/PLAN.md`, its first decision): the EOC
 on a Windows app, a first responder on a phone, presence with GPS, chat, a pre-populated moving world, in an app and not
@@ -46,6 +46,18 @@ role's `act`/`req`, or `RT.button`). **A new view**: `RT.role(...)` in a layer's
 `--lock=` and `--layers=`. **The admin app**: a layer's own panel is `ui-admin/layers/<name>.js` calling
 `RTA.panel(title, fn)` (none yet). Gates: `test/test_app.py` (32 checks; the Team and Public apps run with their own
 layers only), `test/test_team_host.py`, `android/typecheck.sh`.
+
+## r37: a network with no mission still works ([RT_STANDING_MISSION_V1])
+
+Everything a device follows -- presence, positions, messages, direct messages, calls, the radio log, the layers' families
+-- is in the mission, and the core started none of it until a mission tuple `(rt-mission, settings, <id>)` was in the
+general RAM. Only rt-sim (the tests) and an EOC's Mission > Start wrote one; on John's network (2026-11-05, Diag:
+"mission none", only the mission, team-hosts and team followers) nobody had, so no device wrote or read a position or
+a message: no markers, chat going nowhere. Now a core whose mission follower is up and holds no mission writes the
+standing mission, `(rt-mission, settings, standing)` {name "Standing operations", at -1}, the same tuple from every
+device, and says so; any mission an EOC starts is newer and every device moves to it. Gate: `test/test_no_mission.py
+FDF_RAM` (4: no mission, the standing one followed by two cores; each sees the other's position and presence; a team
+message arrives; a mission started afterwards is the mission on both). test_app 36/36.
 
 ## r36: the nodes always on the map; a marker says what it is and opens its node's Sensors
 

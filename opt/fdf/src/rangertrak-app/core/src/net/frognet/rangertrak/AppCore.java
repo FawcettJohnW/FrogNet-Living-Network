@@ -49,7 +49,7 @@ public final class AppCore {
 
     public static final String APP = "rangertrak";
     public static final String API = "/FawcettInnovations.RINA.ram_interface.php";
-    public static final String BUILD = "rt-app-2026-11-05-r36";
+    public static final String BUILD = "rt-app-2026-11-05-r37";
 
     private final Ui ui;
     private String door = "", dev = "", name = "", role = "", team = "", user = "", mission = "";
@@ -301,6 +301,7 @@ public final class AppCore {
         stopAll();
         String[] g = hp(rams.get("general"));
         Follower.Log lg = new Follower.Log() { public void say(String l) { onSessionLine(l); } };
+        standingAsked = false;
         mis = new Follower("mission", g[0], Integer.parseInt(g[1]), API, "rt-mission", "settings", lg, null, new Runnable() { public void run() { onMission(); } });
         if (pub()) return;   // the public reads the world only (no chat)
         hostF = new Follower("team hosts", g[0], Integer.parseInt(g[1]), API, "rt-team-host", lg, null, new Runnable() { public void run() { onHosts(); } });
@@ -421,12 +422,25 @@ public final class AppCore {
 
     /** [RT_MISSION_V1] the mission now: the one started last ("at", its start; a mission with none is older than any
      *  with one, then by id). Every mission and the current one's settings go to the page on every change. */
+    private volatile boolean standingAsked = false;
     private static double startedAt(Map<String, Object> b) { return b == null ? -1 : Json.num(b.get("at")); }
     private void onMission() {
         String best = ""; Map<String, Map<String, Object>> f = mis.family("settings");
         for (String k : f.keySet())
             if (best.isEmpty() || startedAt(f.get(k)) > startedAt(f.get(best)) || (startedAt(f.get(k)) == startedAt(f.get(best)) && k.compareTo(best) > 0)) best = k;
-        if (best.isEmpty()) return;
+        if (best.isEmpty()) {
+            // [RT_STANDING_MISSION_V1] no mission in the general RAM (no EOC has started one): nothing followed it -- no
+            // presence, no positions, no chat, on every device (John 2026-11-05: no markers, chat going nowhere). The
+            // standing mission is written instead, the same tuple by every device (id standing, at -1: any mission an EOC
+            // starts is newer and every device moves to it); the follower's change brings it here again.
+            if (mis.up() && !standingAsked) {
+                standingAsked = true;
+                if (mis.write("settings", "standing", Json.o("name", "Standing operations", "event", "Standing operations", "opPeriod", 1, "at", -1, "by", "RangerTrak (no mission started)"), false))
+                    say("no mission had been started on this network: Standing operations is the mission until the EOC starts one");
+                else out("ev", "error", "text", "no mission on this network, and the standing mission could not be written (no session to the general RAM)");
+            }
+            return;
+        }
         if (best.equals(mission)) { onLog(); out("ev", "mission", "id", mission, "name", Json.str(f.get(mission).get("name")), "bag", f.get(mission), "all", new HashMap<String, Object>(f)); return; }
         mission = best;
         String[] g = hp(rams.get("general"));
