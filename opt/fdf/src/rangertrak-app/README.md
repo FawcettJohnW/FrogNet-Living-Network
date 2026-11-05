@@ -1,4 +1,4 @@
-# RangerTrak app (desktop and phone) -- rt-app-2026-11-05-r38
+# RangerTrak app (desktop and phone) -- rt-app-2026-11-05-r40
 
 The demo John set on 2026-11-01 (`opt/frognet_semantic/ribbit/examples/rangertrak/PLAN.md`, its first decision): the EOC
 on a Windows app, a first responder on a phone, presence with GPS, chat, a pre-populated moving world, in an app and not
@@ -46,6 +46,15 @@ role's `act`/`req`, or `RT.button`). **A new view**: `RT.role(...)` in a layer's
 `--lock=` and `--layers=`. **The admin app**: a layer's own panel is `ui-admin/layers/<name>.js` calling
 `RTA.panel(title, fn)` (none yet). Gates: `test/test_app.py` (32 checks; the Team and Public apps run with their own
 layers only), `test/test_team_host.py`, `android/typecheck.sh`.
+
+## r40: compliance by whole words ([RT_COMPLIANCE_WORDS_V1])
+
+The compliance check matched "temp" anywhere in a reading's name, so the semantic proxy's `template_hits`,
+`template_misses` and `template_coverage` put every node out of compliance (John 2026-11-05). A reading is
+environmental when a word of its name (split at `_`, `-`, `.` and case changes) is temp, temperature, humid(ity), rh,
+pressure, baro, pm1, pm2, pm25, pm10, aqi, co2, eco2, voc, tvoc, gas, radiation, cpm, usv, water, smoke or lux. r39: a
+refused EOC login says the role's category (or why it is not known) and the build. Gates: test_app 36/36 (19: New-York-2
+files the template counters; only Seattle7, its SenseHat, is out of compliance; 10 leaves the nodes out of its kinds).
 
 ## r38: the EOC's user is any in the EOC category ([RT_CATEGORY_IS_THE_VIEW_V1])
 

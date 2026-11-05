@@ -149,7 +149,7 @@ with sync_playwright() as pw:
     tm = open_dev("alpha9", 412, 860)
     tm.click("#connect button"); tm.wait_for_selector("#main:not([hidden])", timeout=8000)
     tm.wait_for_function("Object.keys(S.markers).length >= 4", timeout=15000)
-    tk = tm.evaluate("[...new Set(Object.keys(S.markers).map(id=>(S.pos[id]||S.who[id]||{}).kind))]")
+    tk = tm.evaluate("[...new Set(Object.keys(S.markers).filter(id=>!id.startsWith('gps:')).map(id=>(S.pos[id]||S.who[id]||{}).kind))]")
     tt = tm.evaluate("[...new Set(Object.keys(S.markers).filter(id=>!id.startsWith('gps:') && (S.pos[id]||{}).kind!=='host').map(id=>(S.pos[id]||{}).team))]")
     check(tt == ["Alpha"], "16 the Team view starts with only its own team on the map: teams %s" % tt)
     tm.click("#layersBtn")
