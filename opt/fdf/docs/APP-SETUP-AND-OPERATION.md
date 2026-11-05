@@ -67,6 +67,11 @@ every member holds a read on that family already).
   password is asked once (or `--admin USER:PASSWORD`), checked against the check value there, and the key kept here:
   this member can then verify the admin app's changes. This member saves it as its own copy, the one it writes again
   after a failover.
+- **Refused in the admin app's Members** ([ADMIN_REKEY_V1], fdf-app r16): that member keeps a different admin key (it
+  was installed, or its copy from before r47 migrated, under another admin password than the admin app logs in
+  with), so it does not adopt the Admin's change. On that member: `fdf-app install APP --admin USER:PASSWORD` with
+  the admin app's password: checked against the check value, the key replaced, what it serves and its Teams' places
+  kept, the configuration adopted. Apply again in the admin app.
 - **Not found**: the app's first install. The arguments (`fdf-app config`'s) if given; otherwise the questions: the
   teams (each with its own RAM), the other roles, each role's category and whether a client may take it with no login,
   users (password asked twice, kept as a verifier), login required, relocate or fail, and the app's administrator.

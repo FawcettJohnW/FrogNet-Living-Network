@@ -60,7 +60,7 @@ test), FDF_FACTS, FDF_APPS (/opt/fdf/apps), FDF_VAR (/opt/fdf/var), FDF_BIN (/op
 """
 import hashlib, hmac, json, os, queue, random, signal, socket, subprocess, sys, threading, time
 
-BUILD_TAG = "fdf-app-2026-11-04-r15"
+BUILD_TAG = "fdf-app-2026-11-05-r16"
 LIB = os.environ.get("FDF_PY") or os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "lib", "python")
 sys.path.insert(0, LIB)
 import fdfram  # noqa: E402
@@ -282,7 +282,10 @@ def checked(app, bag, mine):
     key = bytes.fromhex(((mine.get("admin") or {}).get("key")) or "")
     if key:
         if not hmac.compare_digest(hmac.new(key, ("%s\n%d" % (text, seq)).encode(), hashlib.sha256).hexdigest(), str(bag.get("mac") or "")):
-            return None, "the mac is not this app's admin key's: refused"
+            # [ADMIN_REKEY_V1] the key kept here is another admin password's (set at this machine's install, or its copy from
+            # before r47): the Admin's change is not adopted until this machine is given the admin's password
+            return None, ("refused: this machine keeps a different admin key (another admin password than the admin app's); "
+                          "on it: fdf-app install %s --admin %s:PASSWORD" % (app, (bag.get("admin") or {}).get("user") or "USER"))
     elif bag.get("mac"):
         return None, "signed by an admin, and this machine has no admin key (fdf-app install %s --admin USER:PASSWORD)" % app
     n = parse_text(text)
@@ -735,6 +738,12 @@ def install(argv):
             c = {k: mine0[k] for k in ("rams", "partition", "login", "roles", "categories", "users", "admin", "select", "serve", "places") if k in mine0}
             c["app"] = app
             return first_install(app, c, rm) or restart_service()
+        pub = bag.get("admin") or {}
+        if given_admin and pub.get("user"):          # [ADMIN_REKEY_V1] the admin's key replaces the one kept here
+            a = _admin_for(app, pub, given_admin)
+            if a is None:
+                print("fdf-app: nothing changed"); return 2
+            mine0 = dict(mine0, admin=a)
         cfg, why = checked(app, bag, mine0)
         if cfg is None:
             print("fdf-app: the configuration in databasehost-control %s: nothing changed" % why); return 2
@@ -759,7 +768,9 @@ def install(argv):
     cfg0 = parse_text(bag.get("config")) or {}
     print("fdf-app: %s is set up on this network (its configuration, seq %s, in databasehost-control %s):" % (app, bag.get("seq"), rm.hostport))
     _show(app, dict(cfg0, admin=bag.get("admin") or {}))    # the admin is the tuple's (its salt and check value), not the text's
-    mine = {}
+    # [ADMIN_REKEY_V1] installed already and run again with --admin: the key is replaced, what this machine serves and its
+    # Teams' places are kept
+    mine = {k: mine0[k] for k in ("serve", "places", "places_signed") if k in (mine0 or {})}
     pub = bag.get("admin") or {}
     if pub.get("user"):
         if not given_admin and not tty:

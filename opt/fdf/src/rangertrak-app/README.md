@@ -1,4 +1,4 @@
-# RangerTrak app (desktop and phone) -- rt-app-2026-11-04-r30
+# RangerTrak app (desktop and phone) -- rt-app-2026-11-05-r31
 
 The demo John set on 2026-11-01 (`opt/frognet_semantic/ribbit/examples/rangertrak/PLAN.md`, its first decision): the EOC
 on a Windows app, a first responder on a phone, presence with GPS, chat, a pre-populated moving world, in an app and not
@@ -46,6 +46,22 @@ role's `act`/`req`, or `RT.button`). **A new view**: `RT.role(...)` in a layer's
 `--lock=` and `--layers=`. **The admin app**: a layer's own panel is `ui-admin/layers/<name>.js` calling
 `RTA.panel(title, fn)` (none yet). Gates: `test/test_app.py` (32 checks; the Team and Public apps run with their own
 layers only), `test/test_team_host.py`, `android/typecheck.sh`.
+
+## r31 / admin r10: categories as pop-ups, groups added with their leads, QR codes saved
+
+- **The admin app** ([CATEGORY_DIALOG_V1], rt-admin r10): a card per category; a category opens as a pop-up with its
+  groups. Each group: own RAM, no login, Remove group, and its users with Lead, a new password, QR, remove, and an Add
+  user row (name, password, lead). **Add group** takes the group's lead and the lead's password (or names a user there
+  is, who moves to it): the lead comes with the group. Add category opens its pop-up. There is no Group dropdown on a
+  user any more; a user whose group was removed is listed under "Users with no group", moved to a group from there or
+  removed. "Other RAMs" is gone from the screen (a configuration's RAMs that are no group are kept as they are).
+- **QR save** ([QR_SAVE_V1]): Save image on a user's QR makes a PNG (the code, the user's name, its group and the door
+  under it) and hands it to the app, `rtNative.saveFile(name, base64)`: a save dialog on Windows (Pictures first),
+  Pictures/RangerTrak on the phone (MediaStore, no permission).
+- Gates: `test/test_admin_page.py` (5: the cards; Power with crew1 and its lead pat applied; lou added with a
+  password and lead; a removed group's users moved; the saved PNG read by zxing as kim's enrollment line).
+  `test/test_admin.py` is stale since r47 (its members are installed the pre-r47 way). test_app 32/32; typecheck PASS.
+- rt-app r31 carries the ics layer (r30's boards) and `[RT_MAP_SAYS_V1]` in the installed builds.
 
 ## r30: the gateway is a node when its door answers ([GATEWAY_IS_A_NODE_V1])
 

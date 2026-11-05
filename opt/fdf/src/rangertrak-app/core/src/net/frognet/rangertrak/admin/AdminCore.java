@@ -51,7 +51,7 @@ import java.util.Map;
  */
 public final class AdminCore {
     public interface Ui { void deliver(String json); }
-    public static final String BUILD = "rt-admin-2026-11-05-r9";
+    public static final String BUILD = "rt-admin-2026-11-05-r10";
 
     private final Ui ui;
     private volatile String door = "", app = "", user = "";

@@ -49,6 +49,19 @@ section h3 { margin: 12px 0 4px; font-size: 15px; }
 footer { position: fixed; left: 0; right: 0; bottom: 0; background: var(--pn); border-top: 1px solid var(--bd); padding: 12px 20px; display: flex; gap: 12px; align-items: center; z-index: 2; flex-wrap: wrap; }
 footer #changes { flex: 1; color: var(--mu); min-width: 200px; } footer #changes.dirty { color: var(--wa); }
 #status { color: var(--mu); font-size: 13px; padding: 0 20px; }
+/* [CATEGORY_DIALOG_V1] */
+.cats { display: grid; grid-template-columns: repeat(auto-fill, minmax(220px, 1fr)); gap: 10px; }
+.catcard { display: grid; gap: 4px; text-align: left; padding: 12px 14px; border-radius: 10px; background: var(--pn2); }
+.catcard b { font-size: 16px; } .catcard .gl { font-size: 13px; overflow-wrap: anywhere; }
+#lost .urow { display: flex; gap: 10px; align-items: center; padding: 6px 0; flex-wrap: wrap; }
+.dlg { position: fixed; inset: 0; background: rgba(0,0,0,.65); display: grid; place-items: start center; overflow-y: auto; z-index: 8; padding: 4vh 12px; }
+.dlg > .card { background: var(--pn); border: 1px solid var(--bd); border-radius: 14px; padding: 16px 18px; width: min(920px, 100%); display: grid; gap: 10px; }
+.dlg .dh, .dlg .dfoot, .grp .gh { display: flex; gap: 10px; align-items: center; flex-wrap: wrap; } .dlg .sp { flex: 1; }
+.dlg h2 { margin: 0; font-size: 20px; } .dlg .why { margin: 0; }
+.grp { border: 1px solid var(--bd); border-radius: 10px; padding: 10px 12px; margin-bottom: 10px; background: #131b17; }
+.grp .gh b { font-size: 16px; } .grp tr.nu td { border-bottom: 0; } .grp td input[type=text], .grp td input[type=password] { width: 100%; }
+.newgroup { border-top: 1px solid var(--bd); padding-top: 4px; } .newgroup .add input[type=text], .newgroup .add input[type=password] { flex: 1; }
+.dfoot { border-top: 1px solid var(--bd); padding-top: 10px; }
 @media (max-width: 860px) { main { grid-template-columns: 1fr; padding: 12px 12px 140px; } header { padding: 10px 12px; } .hide-s { display: none; } }
 </style></head><body>
 <div id="splash"><div class="b">RangerTrak Admin</div><div class="s">powered by the FrogNet Living Network</div></div>
@@ -70,28 +83,18 @@ footer #changes { flex: 1; color: var(--mu); min-width: 200px; } footer #changes
   <main>
     <section class="wide">
       <h2>Categories and groups</h2><!-- [CATEGORIES_V1] -->
-      <p class="why">One tab per category the event uses (Teams, Power, Water, Ambulance, Hospitals ...). In a
-        category, each <b>group</b> is the equivalent of a team, for the thing it services, with its own RAM (its chat and
-        its members' data) when ticked; a group clients may take <b>with no login</b> is a default screen. Its users are below,
-        each with a role activated when they log in; a user who <b>leads</b> its group signs up its own members from its device.</p>
-      <div class="tabs" id="tabs"></div>
+      <p class="why">One card per category the event uses (Teams, Power, Water, Ambulance, Hospitals ...). Open one to
+        manage its groups: each group is a team for what the category services, added with its lead, and its users added,
+        given passwords and QR codes there.</p>
+      <!-- [CATEGORY_DIALOG_V1] each category opens as a pop-up: its groups, each group's users and lead -->
+      <div class="cats" id="cats"></div><div id="lost"></div>
       <div class="add"><input type="text" id="newCat" placeholder="new category, e.g. Power"><button type="button" id="addCat">Add category</button></div>
-      <h3 id="tabTitle"></h3>
-      <table><thead><tr><th>Group</th><th class="c">Own RAM</th><th class="c">No login</th><th></th></tr></thead><tbody id="roles"></tbody></table>
-      <div class="add"><input type="text" id="newRole" placeholder="new group in this category, e.g. echo or crew1"><label class="mu"><input type="checkbox" id="newTeam" checked> own RAM</label>
-        <label class="mu"><input type="checkbox" id="newDef" checked> no login</label><button type="button" id="addRole">Add group</button></div>
-      <p class="why" style="margin-top:14px">A password is kept only as a verifier, made on this computer; leave it blank to keep the one they have.
-        <b>QR</b> shows the user's enrollment code: they scan it with the app and type their password, and the device joins.</p>
-      <table><thead><tr><th>User</th><th>Group</th><th class="c">Leads</th><th>New password</th><th></th><th></th></tr></thead><tbody id="users"></tbody></table>
-      <div class="add"><input type="text" id="newUser" placeholder="new user in this category, e.g. KJ7ABC"><button type="button" id="addUser">Add user</button></div>
     </section>
     <section>
       <h2>Behaviour</h2>
       <div class="opt"><input type="checkbox" id="login"><div><b>Login required</b><span>Every client logs in; no role is taken without a user.</span></div></div>
       <div class="opt"><input type="radio" name="part" value="relocate" id="pRel"><div><b>Relocate when the primary is unreachable</b><span>A reachable member with the app serves its RAMs on its side of a split.</span></div></div>
       <div class="opt"><input type="radio" name="part" value="fail" id="pFail"><div><b>Fail when the primary is unreachable</b><span>The app stops on a side that cannot see the primary.</span></div></div>
-      <div class="opt"><div><b>Other RAMs</b><span>RAMs that are not a team's (the general RAM is always there).</span>
-        <div class="add"><input type="text" id="extraRams" placeholder="e.g. hospitals, logistics"></div></div></div>
     </section>
     <section class="wide">
       <h2>Groups now</h2>
@@ -127,10 +130,24 @@ footer #changes { flex: 1; color: var(--mu); min-width: 200px; } footer #changes
   </main>
   <footer><div id="changes">No changes.</div><button type="button" id="revert">Revert</button><button type="button" class="go" id="apply" disabled>Apply to the network</button></footer>
 </div>
+<!-- [CATEGORY_DIALOG_V1] a category: its groups; in each, its users (lead, password, QR); a group is added with its lead -->
+<div id="cat" class="dlg" hidden><div class="card wide">
+  <div class="dh"><h2 id="catTitle"></h2><span class="sp"></span><button type="button" id="catDel" class="x" title="remove this empty category">Remove category</button><button type="button" id="catClose">Close</button></div>
+  <p class="why">Each <b>group</b> is a team for what this category services. <b>Own RAM</b>: its own chat and members' data.
+    <b>No login</b>: clients may take it without a user. Its <b>lead</b> signs up its own members from their device.
+    A password is kept only as a verifier, made on this computer; blank keeps the one a user has.</p>
+  <div id="catGroups"></div>
+  <div class="newgroup"><h3>Add a group</h3>
+    <div class="add"><input type="text" id="newRole" placeholder="group, e.g. echo or crew1">
+      <label class="mu"><input type="checkbox" id="newTeam" checked> own RAM</label><label class="mu"><input type="checkbox" id="newDef"> no login</label></div>
+    <div class="add"><input type="text" id="newLead" placeholder="its lead (a user name, e.g. KJ7ABC)"><input type="password" id="newLeadPw" placeholder="the lead's password" autocomplete="new-password">
+      <button type="button" class="go" id="addRole">Add group</button></div></div>
+  <div class="dfoot"><span id="catChanges" class="mu"></span><span class="sp"></span><button type="button" class="go" id="catApply">Apply to the network</button></div>
+</div></div>
 <div id="qr" hidden><div class="card"><div id="qrImg"></div><div id="qrWho"></div>
   <div class="mu">A computer enrolls with this line (setup.cmd &lt;the line&gt;): <code id="qrLine" style="user-select:all;word-break:break-all"></code></div>
   <label class="mu">Address the phone reaches this node's door at <input type="text" id="qrDoor"></label>
-  <div class="add"><button type="button" id="qrClose">Close</button></div></div></div>
+  <div class="add"><button type="button" id="qrSave">Save image</button><button type="button" id="qrClose">Close</button></div></div></div>
 <script src="qrcode.js"></script>
 <script src="frogqr.js"></script>
 <script src="admin.js"></script>

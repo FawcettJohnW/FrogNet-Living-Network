@@ -3,7 +3,11 @@
 package net.frognet.rangertrak.admin.android;
 
 import android.app.Activity;
+import android.content.ContentValues;
 import android.content.SharedPreferences;
+import android.net.Uri;
+import android.provider.MediaStore;
+import android.util.Base64;
 import android.os.Bundle;
 import android.util.Log;
 import android.webkit.JavascriptInterface;
@@ -13,6 +17,7 @@ import android.webkit.WebViewClient;
 import net.frognet.ram.Json;
 import net.frognet.rangertrak.admin.AdminCore;
 import java.io.File;
+import java.io.OutputStream;
 import java.util.Map;
 
 /**
@@ -35,6 +40,24 @@ public final class AdminActivity extends Activity {
                          .putString("user", Json.str(m.get("user"))).apply();
             } catch (Exception ignored) { }
             new Thread(new Runnable() { public void run() { core.handle(line); } }, "admin-core").start();
+        }
+        // [QR_SAVE_V1] a user's enrollment QR as a PNG in Pictures/RangerTrak (the gallery: print it, share it)
+        @JavascriptInterface public void saveFile(final String name, final String base64) {
+            String say;
+            try {
+                ContentValues v = new ContentValues();
+                v.put(MediaStore.Images.Media.DISPLAY_NAME, name);
+                v.put(MediaStore.Images.Media.MIME_TYPE, "image/png");
+                v.put(MediaStore.Images.Media.RELATIVE_PATH, "Pictures/RangerTrak");
+                Uri u = getContentResolver().insert(MediaStore.Images.Media.EXTERNAL_CONTENT_URI, v);
+                if (u == null) throw new Exception("the gallery gave no place for it");
+                try (OutputStream o = getContentResolver().openOutputStream(u)) { o.write(Base64.decode(base64, Base64.DEFAULT)); }
+                say = Json.write(Json.o("ev", "saved", "path", "Pictures/RangerTrak/" + name));
+            } catch (Exception e) {
+                say = Json.write(Json.o("ev", "error", "text", name + " not saved: " + e.getMessage()));
+            }
+            final String line = say;
+            runOnUiThread(new Runnable() { public void run() { web.evaluateJavascript("rtDeliver(" + Json.quote(line) + ")", null); } });
         }
     }
 
