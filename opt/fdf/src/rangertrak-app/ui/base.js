@@ -292,7 +292,7 @@ function diagSheet(d) {
     <h3>Where this device reads and writes</h3>
     <table class="dt"><tr><th>Follower</th><th>RAM at</th><th>State</th><th>Sessions</th><th>Writes</th><th>Holds</th></tr>${fs || '<tr><td colspan="6" class="bad">no followers: not connected</td></tr>'}</table>
     <h3>This device</h3>
-    <div>${gps ? `Phone GPS: permission ${yes(gps.permission)}, GPS on ${yes(gps.gpsOn)}, fixes ${gps.fixes}${gps.last ? `, last ${gps.last.lat.toFixed(5)},${gps.last.lng.toFixed(5)} ±${Math.round(gps.last.acc)} m, ${gps.last.ageS} s ago` : ' <span class="bad">(none yet)</span>'}` : `No GPS on this device: its position is ${S.addr ? 'the address ' + esc(S.addr.label || '') : S.nodeFixed ? 'its node\'s, ' + esc((myNode() || {}).name || '') : '<span class="bad">none yet</span>'} <button type="button" onclick="addressSheet('Where is this device?')">Where am I?</button>`}</div>
+    <div>${gps ? `Phone GPS: permission ${yes(gps.permission)}, GPS on ${yes(gps.gpsOn)}, fixes ${gps.fixes}${gps.last ? `, last ${gps.last.lat.toFixed(5)},${gps.last.lng.toFixed(5)} ±${Math.round(gps.last.acc)} m, ${gps.last.ageS} s ago` : ' <span class="bad">(none yet)</span>'}` : `This device has no GPS of its own: its position is ${S.addr ? 'the address ' + esc(S.addr.label || '') : S.nodeFixed ? 'its node\'s, ' + esc((myNode() || {}).name || '') + ' (its GPS)' : '<span class="bad">none</span>: ' + nodeWhy()} <button type="button" onclick="addressSheet('Where is this device?')">Where am I?</button>`}</div>
     <div>Last position sent to the core: ${lf ? `${t(lf.at)} ${Number(lf.lat).toFixed(5)},${Number(lf.lng).toFixed(5)} (${esc(lf.src)}); written to ${esc(lf.to)}: ${yes(lf.written)}` : '<span class="bad">none</span>'}</div>
     <div>In the positions RAM: ${yes(me.inPositions)}${me.readBack ? ' ' + j({ lat: me.readBack.lat, lng: me.readBack.lng, kind: me.readBack.kind }) : ''} · present: ${yes(me.inPresence)}</div>
     <div>Last message: ${ls ? `${t(ls.at)} to ${esc(ls.to)}; written ${yes(ls.written)}; came back ${yes(ls.cameBack)}` : 'none sent'}</div>
@@ -307,6 +307,7 @@ function diagSheet(d) {
 function refreshSheet(what) { if (!$('#sheet').hidden) RT.fire('refresh', what) }
 
 function connected(m) {
+  S.doorNode = m.node || ''                            // [DOOR_SAYS_ITS_NODE_V1] the node the door is (dc-door r16 on)
   if ($('#pick')) $('#pick').hidden = true     // [RT_APP_PICKER_V1] connected (an enrolled phone, a lead's card): the question is answered
   S.role = m.role; S.team = m.team || ''; S.connectedAt = Date.now()
   const r = RT.me()
@@ -668,11 +669,20 @@ function noGps(m) {
 // GPS sensor's fix), "src":"node", until an address is given: on everyone's map from the start, not on nobody's
 function myNode() {
   const via = String(($('#connect').door || {}).value || S.cfg.door || '').replace(/^https?:\/\//, '').replace(/[:/].*$/, '')
-  return Object.values(S.gps).find(g => via && (g.address === via || String(g.name).toLowerCase() === via.toLowerCase()))
+  const nm = String(S.doorNode || '').toLowerCase()
+  return Object.values(S.gps).find(g => nm && String(g.name).toLowerCase() === nm) ||
+         Object.values(S.gps).find(g => via && (g.address === via || String(g.name).toLowerCase() === via.toLowerCase()))
+}
+// why this device is not at its node: said, not left to guess
+function nodeWhy() {
+  const with_ = Object.values(S.gps).map(g => g.name).join(', ') || 'none'
+  return !S.hostsSaid ? 'the nodes\' GPS not asked yet'
+    : !S.doorNode ? `the node at ${esc(S.cfg.door || '')} does not say which node it is (its door is older than dc-door r16), so it is not matched to a node with a GPS fix (${esc(with_)})`
+    : `${esc(S.doorNode)} has no GPS fix in the nodes' GPS sensors (with a fix: ${esc(with_)})`
 }
 function addressSheet(why) {
   const nd = myNode()
-  sheet('addr', 'Where are you?', `<form class="af mf"><div>${esc(why)} ${nd ? `Until you say, you are on everyone's map at your node, <b>${esc(nd.name)}</b>. ` : ''}Enter the street address where you are (or "latitude, longitude"); it is your position on everyone's map.</div>
+  sheet('addr', 'Where are you?', `<form class="af mf"><div>${esc(why)} ${nd ? `Until you say, you are on everyone's map at your node, <b>${esc(nd.name)}</b> (its GPS). ` : `You are not on the map: ${nodeWhy()}. `}Enter the street address where you are (or "latitude, longitude"); it is your position on everyone's map.</div>
     <label>Street address<input name="a" placeholder="17631 Vashon Hwy SW, Vashon, WA" value="${esc((S.addr || {}).label || '')}" required></label>
     <button class="go">Use this address</button><div class="meta as"></div></form>`)
   document.querySelector('.af').onsubmit = (e) => {

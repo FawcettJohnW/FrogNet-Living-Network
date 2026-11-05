@@ -48,7 +48,7 @@
 // the network, typed by nobody. A device this node gave no lease has none here, and is told so.
 header('Content-Type: application/json');
 // [DOOR_SAYS_ITS_BUILD_V1] every answer says which door answered: the header, and "door" in the admin and roles answers
-const DOOR_BUILD = 'dc-door-2026-11-04-r15';
+const DOOR_BUILD = 'dc-door-2026-11-05-r16';
 header('X-FDF-Door: ' . DOOR_BUILD);
 set_time_limit(0);
 $env = '. ' . escapeshellarg(dirname(__DIR__, 2) . '/fdf.env') . ' && exec "$FDF_BIN"/ram ';
@@ -310,7 +310,9 @@ if ($op === 'read') {
         }
     }
     $cfg = app_tuple($app);
-    echo json_encode(['ok' => true, 'rams' => (object)$out, 'places' => (object)(is_array($cfg) ? $cfg['places'] : []), 'door' => DOOR_BUILD] + ($up !== '' ? ['up' => $up] : []));
+    // [DOOR_SAYS_ITS_NODE_V1] which node this door is (its hostname: the name its sensors are filed under, Seattle7.GPS.Position):
+    // every node's LAN door is 10.170.170.1, so an app on a node's LAN cannot tell its node by the address
+    echo json_encode(['ok' => true, 'rams' => (object)$out, 'places' => (object)(is_array($cfg) ? $cfg['places'] : []), 'door' => DOOR_BUILD, 'node' => gethostname()] + ($up !== '' ? ['up' => $up] : []));
 } elseif ($op === 'roles' || ($op === 'admin' && $_SERVER['REQUEST_METHOD'] === 'GET')) {
     $app = $_GET['app'] ?? '';
     if (!preg_match('/^[A-Za-z0-9_-]{1,40}$/', $app)) fail(400, 'app needed');
@@ -324,7 +326,7 @@ if ($op === 'read') {
             if (!in_array($c, $cats, true)) $cats[] = $c;
             $roles[$r] = ['default' => !empty($x['default']), 'ram' => in_array($r, $best['rams'] ?? [], true), 'category' => $c];
         }
-        echo json_encode(['ok' => true, 'door' => DOOR_BUILD, 'roles' => $roles, 'categories' => $cats, 'rams' => $best['rams'] ?? [], 'served' => (object)$served, 'login' => !empty($best['login']), 'seq' => intval($best['seq'] ?? 0)], JSON_UNESCAPED_SLASHES);
+        echo json_encode(['ok' => true, 'door' => DOOR_BUILD, 'node' => gethostname(), 'roles' => $roles, 'categories' => $cats, 'rams' => $best['rams'] ?? [], 'served' => (object)$served, 'login' => !empty($best['login']), 'seq' => intval($best['seq'] ?? 0)], JSON_UNESCAPED_SLASHES);
         exit;
     }
     // the admin's view: held until an installed machine answers, its capability comes or goes, or the configuration

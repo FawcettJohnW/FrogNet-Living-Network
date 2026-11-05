@@ -173,7 +173,7 @@ public final class Main extends Application {
             // ([RT_AT_ITS_NODE_V1]) until one is given. Before r44 the desktop never said so: it had no position at all,
             // and nobody else's map drew it (John 2026-11-05: a Team on Windows, on no one's map but its own)
             Object addr = settings().get("addr");
-            web.executeScript("rtDeliver(" + Json.quote(Json.write(Json.o("ev", "nogps", "why", "This computer has no GPS.", "saved", addr instanceof Map ? addr : null))) + ")");
+            web.executeScript("rtDeliver(" + Json.quote(Json.write(Json.o("ev", "nogps", "why", "This computer has no GPS of its own.", "saved", addr instanceof Map ? addr : null))) + ")");
             // --connect: straight in with this computer's saved node, name and view (Team and Public; the EOC logs in)
             if (getParameters().getRaw().contains("--connect"))
                 web.executeScript("setTimeout(()=>document.querySelector('#connect button').click(),2000)");

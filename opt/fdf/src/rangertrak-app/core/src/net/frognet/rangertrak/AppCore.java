@@ -49,7 +49,7 @@ public final class AppCore {
 
     public static final String APP = "rangertrak";
     public static final String API = "/FawcettInnovations.RINA.ram_interface.php";
-    public static final String BUILD = "rt-app-2026-11-05-r44";
+    public static final String BUILD = "rt-app-2026-11-05-r45";
 
     private final Ui ui;
     private String door = "", dev = "", name = "", role = "", team = "", user = "", mission = "";
@@ -239,7 +239,10 @@ public final class AppCore {
     private Map<String, String> servedRams(String until, int waitS) throws Exception {
         return ramsOf(doorCall("op=rams&app=" + APP + (until.isEmpty() ? "" : "&until=" + until + "&wait_s=" + waitS), null, waitS * 1000 + 10000));
     }
-    private static Map<String, String> ramsOf(Map<String, Object> o) {
+    /** [DOOR_SAYS_ITS_NODE_V1] the node the door is (dc-door r16 on: its hostname, the name its sensors are filed under) */
+    private volatile String doorNode = "";
+    private Map<String, String> ramsOf(Map<String, Object> o) {
+        if (!Json.str(o.get("node")).isEmpty()) doorNode = Json.str(o.get("node"));
         Map<String, String> out = new HashMap<String, String>();
         for (Map.Entry<String, Object> e : Json.obj(o.get("rams")).entrySet()) out.put(e.getKey(), Json.str(e.getValue()));
         return out;
@@ -280,7 +283,7 @@ public final class AppCore {
         doorRams = servedRams(); rams = withTeamRams(doorRams);
         if (!rams.containsKey("general")) throw new Exception("RangerTrak's general RAM is not served on this network yet");
         start();
-        out("ev", "connected", "role", role, "team", team, "user", user, "rams", new HashMap<String, Object>(rams), "build", BUILD);
+        out("ev", "connected", "role", role, "team", team, "user", user, "rams", new HashMap<String, Object>(rams), "build", BUILD, "node", doorNode);
         if (!pub()) probeSensors();
     }
 
@@ -373,7 +376,7 @@ public final class AppCore {
             if (now.equals(rams)) return;
             say("[TEAM_HOST_V1] the teams' RAMs now: " + now);
             rams = now; startTeams();
-            out("ev", "connected", "role", role, "team", team, "user", user, "rams", new HashMap<String, Object>(rams), "build", BUILD);
+            out("ev", "connected", "role", role, "team", team, "user", user, "rams", new HashMap<String, Object>(rams), "build", BUILD, "node", doorNode);
         }
     }
 
@@ -432,7 +435,7 @@ public final class AppCore {
         Map<String, Object> cd = card; if (cd != null) cd.put("door", d);
         doorRams = servedRams(); rams = withTeamRams(doorRams); mission = "";
         start();
-        out("ev", "connected", "role", role, "team", team, "user", user, "rams", new HashMap<String, Object>(rams), "build", BUILD);
+        out("ev", "connected", "role", role, "team", team, "user", user, "rams", new HashMap<String, Object>(rams), "build", BUILD, "node", doorNode);
     }
 
     /** [RT_MISSION_V1] the mission now: the one started last ("at", its start; a mission with none is older than any
@@ -531,7 +534,7 @@ public final class AppCore {
         if (general != null) me.put("inPresence", general.family(mission).containsKey(dev));
         Map<String, Object> said = lastSay == null ? null : new HashMap<String, Object>(lastSay);
         if (said != null) { synchronized (seen) { said.put("cameBack", seen.containsKey(Json.str(said.get("id")))); } }
-        out("ev", "diag", "build", BUILD, "door", door, "role", role, "view", view().connect, "team", team, "mission", mission, "name", name,
+        out("ev", "diag", "build", BUILD, "door", door, "node", doorNode, "role", role, "view", view().connect, "team", team, "mission", mission, "name", name,
                 "layers", layerNames(), "rams", new HashMap<String, Object>(rams), "doorRams", new HashMap<String, Object>(doorRams),
                 "followers", fs, "me", me, "lastSay", said, "hosts", lastHosts, "at", System.currentTimeMillis());
     }
@@ -842,7 +845,7 @@ public final class AppCore {
                         if (!now.equals(rams)) {
                             say("the app's RAMs moved: " + now); doorRams = door0; rams = now; mission = "";
                             synchronized (AppCore.this) { start(); }
-                            out("ev", "connected", "role", role, "team", team, "user", user, "rams", new HashMap<String, Object>(rams), "build", BUILD);
+                            out("ev", "connected", "role", role, "team", team, "user", user, "rams", new HashMap<String, Object>(rams), "build", BUILD, "node", doorNode);
                             return;
                         }
                         String u = Json.str(o.get("up"));

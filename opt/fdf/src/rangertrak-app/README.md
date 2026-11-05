@@ -1,4 +1,4 @@
-# RangerTrak app (desktop and phone) -- rt-app-2026-11-05-r44
+# RangerTrak app (desktop and phone) -- rt-app-2026-11-05-r45
 
 The demo John set on 2026-11-01 (`opt/frognet_semantic/ribbit/examples/rangertrak/PLAN.md`, its first decision): the EOC
 on a Windows app, a first responder on a phone, presence with GPS, chat, a pre-populated moving world, in an app and not
@@ -46,6 +46,15 @@ role's `act`/`req`, or `RT.button`). **A new view**: `RT.role(...)` in a layer's
 `--lock=` and `--layers=`. **The admin app**: a layer's own panel is `ui-admin/layers/<name>.js` calling
 `RTA.panel(title, fn)` (none yet). Gates: `test/test_app.py` (32 checks; the Team and Public apps run with their own
 layers only), `test/test_team_host.py`, `android/typecheck.sh`.
+
+## r45 / dc-door r16: a computer finds its node by name ([DOOR_SAYS_ITS_NODE_V1])
+
+r44 matched a computer to its node by the door's address against the GPS sensor's SensorAddress; every node's LAN door
+is 10.170.170.1 and the sensor's address is the node's FrogNet host path (or eth0), so it never matched: Seattle7's GPS
+had a fix and the Windows apps said they were on no map. The door (dc/ram.php, dc-door r16) says which node it is,
+`node` (its hostname, the name its sensors are filed under) in op=rams and op=roles; the core passes it on
+(`connected`, Diag) and the page matches the node by that name. A door that does not say it is said so, with the nodes
+that have a fix. Node update: /opt/fdf/www/dc/ram.php (with fdf-app r16). Gate: test_nogps_page.py 4.
 
 ## r44 / admin r11: a computer is on everyone's map; the admin says who is on now
 
