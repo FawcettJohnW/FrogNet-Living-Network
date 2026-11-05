@@ -13,6 +13,7 @@ import json, os, sys, tempfile
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import zxing_read  # noqa: E402
 from playwright.sync_api import sync_playwright
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__))); import header_menu  # noqa: E402,F401  [RT_HEADER_MENU_V1]
 
 APP = zxing_read.APP
 fails = []
@@ -48,7 +49,7 @@ with tempfile.TemporaryDirectory() as tmp, sync_playwright() as pw:
           and c.get("user") == "kim" and c.get("password") == "kim-2026" and c.get("invite") == "",
           "3 enrolled: the page connects as kim, Team Echo, at the door: %s" % {k: c.get(k) for k in ("door", "name", "role", "team", "user")})
     pg.evaluate("rtDeliver(JSON.stringify({ev: 'connected', role: 'team', team: 'Echo', build: 'test'}))")
-    btn = pg.is_visible("#membersBtn")
+    btn = pg.evaluate("!document.querySelector('#membersBtn').hidden")   # (under ☰ on a phone: [RT_HEADER_MENU_V1])
     pg.click("#membersBtn")
     addrs = [{"label": "this phone's hotspot", "addr": "192.168.43.1"}, {"label": "FrogNet (the Internet)", "addr": "10.253.1.1"}]
     pg.evaluate("a => rtDeliver(JSON.stringify({ev: 'members', app: 'rangertrak', team: 'echo', members: ['ann'], addrs: a, port: 21801, sponsoring: true}))", addrs)

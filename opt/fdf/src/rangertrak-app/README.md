@@ -1,4 +1,4 @@
-# RangerTrak app (desktop and phone) -- rt-app-2026-11-05-r49
+# RangerTrak app (desktop and phone) -- rt-app-2026-11-05-r50
 
 The demo John set on 2026-11-01 (`opt/frognet_semantic/ribbit/examples/rangertrak/PLAN.md`, its first decision): the EOC
 on a Windows app, a first responder on a phone, presence with GPS, chat, a pre-populated moving world, in an app and not
@@ -46,6 +46,14 @@ role's `act`/`req`, or `RT.button`). **A new view**: `RT.role(...)` in a layer's
 `--lock=` and `--layers=`. **The admin app**: a layer's own panel is `ui-admin/layers/<name>.js` calling
 `RTA.panel(title, fn)` (none yet). Gates: `test/test_app.py` (32 checks; the Team and Public apps run with their own
 layers only), `test/test_team_host.py`, `android/typecheck.sh`.
+
+## r50: ☰ on a phone ([RT_HEADER_MENU_V1])
+
+A phone's header cut its buttons off (John 2026-11-05: no Chat). The header measures itself: the buttons that do not
+fit go under ☰ (last first), Chat and ☰ stay; again when a layer shows or hides a button and on every resize. A desktop
+has no ☰. "Team on databasehost" is "Team on the SystemRam". Gates: `test/test_header_page.py` (2: a 360-px phone as a
+team lead, Chat in the header, the rest under ☰, Diag and Layers from it; a desktop with every button). The page tests
+reach a button under ☰ as a person does (`test/header_menu.py`). test_app 36/36.
 
 ## r49 / dc-door r17: the sensor store by the door's address ([SENSORS_BY_THE_DOOR_V1])
 

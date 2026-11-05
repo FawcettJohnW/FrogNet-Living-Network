@@ -40,8 +40,8 @@ RT.layer('team', (RT) => {
   })
   RT.button('hostBtn', 'Host team', () => { status("hosting the team: turn on this phone's hotspot if it is not on, then come back"); window.rtNative.teamHost() },
             "the team's RAM on this phone: it goes where the lead goes")
-  RT.button('placeBtn', 'Team on databasehost', () => { status("the team's RAM moves to databasehost: it stays there when you leave"); window.rtNative.teamPlace('databasehost') },
-            "the team's RAM on databasehost: it stays when the lead leaves")
+  RT.button('placeBtn', 'Team on the SystemRam', () => { status("the team's RAM moves to the SystemRam: it stays there when you leave"); window.rtNative.teamPlace('databasehost') },
+            "the team's RAM on the SystemRam: it stays when the lead leaves")
 
   // ------------------------------------------------------------ [ENROLL_V1] the lead's Team members
   // The lead names each member (a callsign) and a password; this phone keeps only verifiers and sponsors the team: a member

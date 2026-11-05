@@ -92,6 +92,27 @@ const RT = {
   me() { return RT.roles[S.role] || {} },
 }
 window.RT = RT
+// [RT_HEADER_MENU_V1] a header too narrow for its buttons (a phone): the ones that do not fit go into ☰, last first; Chat
+// and ☰ stay in the header. Measured, not guessed by width: a layer's buttons come and go, and so does what fits.
+function fitHeader() {
+  const h = document.querySelector('header'), mb = $('#menuBtn'), menu = $('#menu')
+  for (const b of [...menu.children]) h.insertBefore(b, mb)                       // all back, in their order
+  const movable = () => [...h.querySelectorAll('button')].filter(b => b !== mb && b.id !== 'chatBtn' && !b.hidden)
+  mb.hidden = true
+  if (h.scrollWidth <= h.clientWidth + 1) { menu.hidden = true; return }
+  mb.hidden = false
+  let m = movable()
+  while (h.scrollWidth > h.clientWidth + 1 && m.length) { menu.insertBefore(m.pop(), menu.firstChild) }
+  if (!menu.children.length) mb.hidden = true
+}
+let fitting = false
+const refit = () => { if (fitting) return; fitting = true; requestAnimationFrame(() => { fitHeader(); fitting = false }) }
+window.addEventListener('resize', refit)
+new MutationObserver(refit).observe(document.querySelector('header'), { subtree: true, attributes: true, attributeFilter: ['hidden'], childList: true })
+$('#menuBtn').onclick = (e) => { e.stopPropagation(); $('#menu').hidden = !$('#menu').hidden }
+$('#menu').addEventListener('click', () => { $('#menu').hidden = true })
+document.addEventListener('click', (e) => { if (!$('#menu').hidden && !e.target.closest('#menu')) $('#menu').hidden = true })
+RT.hook('connected', refit)
 // [RT_TEAMS_ARE_THE_NETWORKS_V1] the admin's teams: every role with its own RAM that is not another view's
 // [RT_CATEGORY_IS_THE_VIEW_V1] the admin's categories are the views: a group in Teams is a team (the Team view's list),
 // one in Ambulance an ambulance unit (the Ambulance view's list), Hospitals a hospital, Power, Water, Shelter, Phone ...

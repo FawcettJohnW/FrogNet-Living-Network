@@ -37,6 +37,7 @@ import json, os, socket, subprocess, sys, tempfile, threading, time
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from urllib.parse import urlparse, parse_qs
 from playwright.sync_api import sync_playwright
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__))); import header_menu  # noqa: E402,F401  [RT_HEADER_MENU_V1]
 
 HOST = sys.argv[1]; SHOTS = sys.argv[2] if len(sys.argv) > 2 else ""
 HERE = os.path.dirname(os.path.abspath(__file__)); APP = os.path.dirname(HERE)
@@ -344,7 +345,7 @@ with sync_playwright() as pw:
              "dev": "scribe1", "by": "Vashon post"}, wait=True); ls.close()
     eoc.evaluate("$('#sheet').hidden=true"); eoc.click("#logBtn")
     eoc.wait_for_function("/KJ7ABC/.test(document.querySelector('#sheet').textContent)", timeout=10000)
-    check("Burton dock" in eoc.inner_text("#sheet") and tm.is_visible("#logBtn"),
+    check("Burton dock" in eoc.inner_text("#sheet") and tm.evaluate("!$('#logBtn').hidden"),
           "29 a scribe's radio log entry (KJ7ABC, urgent, Burton dock) on the EOC's Radio log as it is written; the team has the Radio log too")
     if SHOTS: eoc.screenshot(path=os.path.join(SHOTS, "eoc-radiolog.png"))
     # [RT_MISSION_V1] the mission
