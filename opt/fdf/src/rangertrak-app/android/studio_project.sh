@@ -6,7 +6,10 @@
 set -eu
 D=$(cd "$(dirname "$0")" && pwd); APP=$(dirname "$D"); OUT=${1:?usage: studio_project.sh OUTDIR}; mkdir -p "$OUT"
 BUILD=$(sed -n 's/.*BUILD = "\(rt-app-[^"]*\)".*/\1/p' $APP/core/src/net/frognet/rangertrak/AppCore.java)
-N=RangerTrak-Android-Studio-$BUILD; T=$(mktemp -d); P=$T/$N; mkdir -p $P
+# [RT_ANDROID_STABLE_ROOT_V1] one root, every build (as the Windows zips: RangerTrak\, RangerTrak-EOC\): the project is
+# RangerTrak-Android-Studio\ whatever build; the zip's name carries the build (unique downloads). An update zip has the
+# same root, so unzipped next to the project it lands in it.
+R=RangerTrak-Android-Studio; N=$R-$BUILD; T=$(mktemp -d); P=$T/$R; mkdir -p $P
 (cd $D && tar cf - --exclude=build --exclude=.gradle --exclude=local.properties --exclude=build_apk.sh --exclude=studio_project.sh --exclude=studio_update.sh --exclude=teamram --exclude=typecheck.sh .) | (cd $P && tar xf -)
 cp -r $APP/core/src $P/shared/src/core; cp -r $APP/../frognet-ram-java/src $P/shared/src/ram
 mkdir -p $P/shared/src/main/assets; cp -r $APP/ui $P/shared/src/main/assets/ui     # the page: plain assets, no copy step
@@ -76,4 +79,4 @@ shared/src/main/assets/ui), and one module per app (its manifest: id, name, view
 On the phone: join the node's Wi-Fi; Node is filled from the gateway. The build is on the first screen; page errors
 show on the status line and in Logcat (tag RangerTrak).
 TXT
-(cd $T && zip -qr "$OUT/$N.zip" $N); ls -la "$OUT/$N.zip"; rm -rf $T
+(cd $T && zip -qr "$OUT/$N.zip" $R); ls -la "$OUT/$N.zip"; rm -rf $T

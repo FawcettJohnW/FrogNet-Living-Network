@@ -1,4 +1,4 @@
-# RangerTrak app (desktop and phone) -- rt-app-2026-11-05-r50
+# RangerTrak app (desktop and phone) -- rt-app-2026-11-05-r51
 
 The demo John set on 2026-11-01 (`opt/frognet_semantic/ribbit/examples/rangertrak/PLAN.md`, its first decision): the EOC
 on a Windows app, a first responder on a phone, presence with GPS, chat, a pre-populated moving world, in an app and not
@@ -46,6 +46,17 @@ role's `act`/`req`, or `RT.button`). **A new view**: `RT.role(...)` in a layer's
 `--lock=` and `--layers=`. **The admin app**: a layer's own panel is `ui-admin/layers/<name>.js` calling
 `RTA.panel(title, fn)` (none yet). Gates: `test/test_app.py` (32 checks; the Team and Public apps run with their own
 layers only), `test/test_team_host.py`, `android/typecheck.sh`.
+
+## r51: one root for every Android zip ([RT_ANDROID_STABLE_ROOT_V1])
+
+The full project unzipped to RangerTrak-Android-Studio-<build>\ (a new folder each build) and an update zip had no root
+at all, so unzipped beside the project it spilled app\, shared\, settings.gradle.kts ... into the folder above (John
+2026-11-05). Every Android zip now has the one root RangerTrak-Android-Studio\, as the Windows zips have theirs
+(RangerTrak\, RangerTrak-EOC\); the zip's name carries the build. An update unzipped next to the project lands in it;
+the build's self-apply ([RT_ANDROID_UPDATE_APPLIES_ITSELF_V1]) takes both the rooted zips and the bare r42..r50 ones.
+Tested with Gradle 8.14 on stand-ins: a rooted r52 "(1)" zip over r41 (REMOVED.txt applied); an r51 update unzipped by
+hand next to the project. A project carrying the r42..r50 script cannot take a rooted zip (it would write it under
+RangerTrak-Android-Studio\ inside itself): the r51 script must come in by hand once.
 
 ## r50: ☰ on a phone ([RT_HEADER_MENU_V1])
 

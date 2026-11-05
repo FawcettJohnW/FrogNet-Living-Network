@@ -21,6 +21,10 @@ fun rtNewer(a: String, b: String): Boolean {          // a newer than b
     val x = rtKey(a) ?: return false; val y = rtKey(b) ?: return true
     return if (x.first != y.first) x.first > y.first else x.second > y.second
 }
+// [RT_ANDROID_STABLE_ROOT_V1] an update's entries are under RangerTrak-Android-Studio/ (r51 on), or bare (r42..r50)
+val rtRootDir = "RangerTrak-Android-Studio/"
+fun rtRel(name: String): String = if (name.startsWith(rtRootDir)) name.substring(rtRootDir.length) else name
+fun rtEntry(zf: ZipFile, rel: String) = zf.getEntry(rtRootDir + rel) ?: zf.getEntry(rel)
 fun rtBuildOf(text: String): String = Regex("""BUILD = "(rt-app-[^"]+)"""").find(text)?.groupValues?.get(1) ?: ""
 
 if (rtCore.isFile) {
@@ -31,9 +35,9 @@ if (rtCore.isFile) {
     for (z in zips) {
         try {
             ZipFile(z).use { zf ->
-                val core = zf.getEntry("shared/src/core/net/frognet/rangertrak/AppCore.java")
+                val core = rtEntry(zf, "shared/src/core/net/frognet/rangertrak/AppCore.java")
                 val b = if (core != null) rtBuildOf(zf.getInputStream(core).reader().readText()) else (rtBuildRe.find(z.name)?.value ?: "")
-                val base = zf.getEntry("BASE.txt")?.let { zf.getInputStream(it).reader().readText().trim() } ?: ""
+                val base = rtEntry(zf, "BASE.txt")?.let { zf.getInputStream(it).reader().readText().trim() } ?: ""
                 if (b.isNotEmpty() && rtNewer(b, here) && (best == null || rtNewer(b, bestBuild))) { best = z; bestBuild = b; bestBase = base }
             }
         } catch (e: Exception) { println("RangerTrak: ${z.path} is not a readable update zip (${e.message}): not applied") }
@@ -45,12 +49,13 @@ if (rtCore.isFile) {
         var n = 0
         ZipFile(z).use { zf ->
             for (e in zf.entries()) {
-                if (e.isDirectory || e.name == "README.txt" || e.name == "BASE.txt" || e.name == "REMOVED.txt") continue
-                val out = File(rtRoot, e.name).canonicalFile
+                val rel = rtRel(e.name)
+                if (e.isDirectory || rel.isEmpty() || rel == "README.txt" || rel == "BASE.txt" || rel == "REMOVED.txt") continue
+                val out = File(rtRoot, rel).canonicalFile
                 if (!out.path.startsWith(rtRoot.canonicalPath + File.separator)) continue      // nothing outside this project
                 out.parentFile.mkdirs(); zf.getInputStream(e).use { i -> out.outputStream().use { o -> i.copyTo(o) } }; n++
             }
-            zf.getEntry("REMOVED.txt")?.let { r ->
+            rtEntry(zf, "REMOVED.txt")?.let { r ->
                 for (p in zf.getInputStream(r).reader().readLines().map { it.trim() }.filter { it.isNotEmpty() }) {
                     val f = File(rtRoot, p).canonicalFile
                     if (f.path.startsWith(rtRoot.canonicalPath + File.separator) && f.delete()) n++
