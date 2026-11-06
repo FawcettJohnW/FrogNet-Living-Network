@@ -31,6 +31,9 @@ _l.space_stats.restype = _p; _l.space_stats.argtypes = [_p]
 _l.space_free.argtypes = [_p]
 
 
+_KEEP = []
+
+
 class RamError(RuntimeError):
     pass
 
@@ -52,7 +55,6 @@ class Space:
         self.h = _l.space_open(where.encode(), vendor.encode(), ctypes.byref(err))
         if not self.h:
             _fail(err, "open %s-ram at %s" % (vendor, where))
-        self._keep = []                                  # the follows' callbacks live as long as the session
 
     def write(self, space, topic, inst, bag):
         err = ctypes.c_void_p()
@@ -72,7 +74,7 @@ class Space:
         def end(_ctx, why):
             if ended: ended(why.decode())
         cb, ce = ON_ROWS(rows), ON_END(end)
-        self._keep += [cb, ce]
+        _KEEP.extend([cb, ce])      # the library's follow thread may call them until the process ends: never freed
         err = ctypes.c_void_p()
         if _l.space_follow(self.h, space.encode(), topic.encode(), int(after), cb, ce, None, ctypes.byref(err)) != 0:
             _fail(err, "follow %s/%s" % (space, topic))

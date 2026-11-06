@@ -204,4 +204,6 @@ if __name__ == "__main__":
     a = ap.parse_args()
     if os.geteuid() != 0:
         sys.exit("run.py: as root (network namespaces)")
-    sys.exit(0 if run(a.cond, a.traffic, a.seed, a.minutes, a.stress, a.out) else 1)
+    rc = 0 if run(a.cond, a.traffic, a.seed, a.minutes, a.stress, a.out) else 1
+    sys.stdout.flush(); sys.stderr.flush()
+    os._exit(rc)                  # the control region's follow threads are the library's: nothing to finalize under them
