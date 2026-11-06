@@ -156,7 +156,9 @@ def control(plan, out):
         d = os.path.join(out, k); os.makedirs(d, exist_ok=True)
         for kind, rows in c.fetch(v.get("chunks", [])).items():
             json.dump(rows, open(os.path.join(d, kind + ".json"), "w"))
-    ok = not missing and all(v.get("ok") for v in res.values())
+    # a baseline run is ok when every agent reported without an error; under stress the errors ARE what is measured
+    # (a revoked participant's reads fail; a server change ends every held read): there, every agent reporting is ok
+    ok = not missing and (bool(plan["stress"]) or all(v.get("ok") for v in res.values()))
     json.dump({"plan": plan, "t0": t0, "advertised": have, "results": res, "missing": missing, "stress_events": events, "ok": ok,
                "server_usage": (res.get("srv") or {}).get("server_usage"), "links": (res.get("rt") or {}).get("links")},
               open(os.path.join(out, "controller.json"), "w"), indent=1)
@@ -174,6 +176,7 @@ def run(cond, traffic, seed, minutes, stress=None, out=None):
     print("[run] %s: %s (%.1f min)%s -> %s" % (BUILD, rid, minutes, ", stress " + stress if stress else "", out), flush=True)
     json.dump(versions(), open(os.path.join(out, "run.json"), "w"), indent=1)
     ok, procs = False, []
+    home = os.open("/proc/self/ns/net", os.O_RDONLY)          # this process's own network, to come back to
     try:
         bed.up(wg=cond in ("C", "D", "Dall"), netem=st.get("netem"))
         cdir = os.path.join(out, "certs")
@@ -191,6 +194,7 @@ def run(cond, traffic, seed, minutes, stress=None, out=None):
     except Exception as e:
         print("[run] FAILED: %s" % e, flush=True)
     finally:
+        os.setns(home, os.CLONE_NEWNET); os.close(home)       # out of ov-ctl before the bed comes down with it
         for p in procs:
             if p.poll() is None: p.terminate()
         bed.down()

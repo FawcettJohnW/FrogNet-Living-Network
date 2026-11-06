@@ -110,6 +110,7 @@ class Agent:
         self.truth, self.o3, self.o4 = self.data["truth"], self.data["o3"], (self.data["o4"] if self.name == "p1" else None)
         self.errors, self.seen, self.mine, self.fol = [], set(), set(), []
         self.stop, self.rearm, self.epoch = threading.Event(), threading.Condition(), 0
+        self.moving, self.moved = threading.Event(), threading.Event()
         self.cap = self.srv = None; self.used = []; self.extra = {}
 
     def say(self, m):
@@ -121,12 +122,15 @@ class Agent:
     # ---- the control region
     def main(self):
         self.say("%s; ribbit lib %s; python %s" % (BUILD, ram.LIB, sys.version.split()[0]))
-        self.ctl.put("obsvis", "adv", self.name, {"build": BUILD, "pid": os.getpid(), "addr": bed.ADDR(self.name)}, own=True)
+        self.ctl.put("obsvis", "adv", self.name, {"build": BUILD, "pid": os.getpid(), "addr": bed.ADDR(self.name) if self.name in bed.K else "router"}, own=True)
         after = -1
         while True:                                          # ONE held read: every word of the controller's
+            ctl = self.ctl
             try:
-                rows = self.ctl.get_after("obsvis", "ctl", after, HOLD_S)
+                rows = ctl.get_after("obsvis", "ctl", after, HOLD_S)
             except ram.RamError as e:
+                if self.moving.is_set():                     # [stress 3] this agent is moving: its new session, same place
+                    self.moved.wait(); continue
                 self.say("the control region ended: %s" % e); os._exit(3)
             for r in rows:
                 after = max(after, int(r["id"]))
@@ -188,10 +192,10 @@ class Agent:
             return None
         if c == "B":
             conf = os.path.join(self.outdir, "mosquitto.conf")
-            open(conf, "w").write("per_listener_settings false\nallow_anonymous true\npersistence false\nlog_dest stdout\nlog_type all\n"
+            open(conf, "w").write("user root\nper_listener_settings false\nallow_anonymous true\npersistence false\nlog_dest stdout\nlog_type all\n"
                                   "connection_messages true\nlog_timestamp true\nlog_timestamp_format %%s\nlistener 8883 %s\n"
                                   "cafile %s/ca.crt\ncertfile %s/srv.crt\nkeyfile %s/srv.key\ntls_version tlsv1.3\n" % (bed.ADDR("srv"), d, d, d))
-            s = Child(["mosquitto", "-c", conf], "Opening ipv4 listen socket on port 8883", os.path.join(self.outdir, "o3-mosquitto.log"))
+            s = Child(["mosquitto", "-c", conf], " running", os.path.join(self.outdir, "o3-mosquitto.log"))
         else:
             s = Child([os.path.join(HERE, "build", "chat-ram"), "--listen", "0.0.0.0:8811"], "answering",
                       os.path.join(self.outdir, "srv-chat-ram-%d.log" % n))
@@ -207,7 +211,14 @@ class Agent:
             for p in v["who"]: bed.revoke(p)
             self.ctl.put("obsvis", "ready", "srv." + w, {"ok": True, "what": w, "t": time.time()})
         elif v["do"] == "move" and me:
+            self.moving.set()
             bed.move(self.name)
+            self.ctl = ram.Ram(bed.CTL, 8899)                # its sessions from the old address are gone with it
+            self.moved.set()
+            if self.cond in ("C", "D", "Dall"):              # its own sessions to the server again, its reads re-armed
+                getattr(self, "reconnect_" + self.cond)()
+                with self.rearm:
+                    self.epoch += 1000; self.rearm.notify_all()
             self.truth(ev="moved", c=self.name, to=bed.ADDR(self.name, 3))
             self.ctl.put("obsvis", "ready", self.name + "." + w, {"ok": True, "what": w, "t": time.time()})
 
@@ -272,10 +283,10 @@ class Agent:
 
     # ---- [stress 2] a fresh server: re-arm and re-write own state
     def server_changed(self, v):
+        getattr(self, "reconnect_" + self.cond)()          # the new session first: a reader woken below uses it
         with self.rearm:
             self.epoch = int(v["epoch"]); self.rearm.notify_all()
         self.truth(ev="server", epoch=self.epoch, c=self.name)
-        getattr(self, "reconnect_" + self.cond)()
 
     def wait_epoch(self, seen):
         with self.rearm:

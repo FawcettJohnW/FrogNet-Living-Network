@@ -134,10 +134,13 @@ def wg_pub(n):
 
 def move(p):
     """[stress 3] p's address changes from 10.77.K.2 to 10.77.K.3 (its WireGuard endpoint roams with it)"""
+    sh("sysctl", "-qw", "net.ipv4.conf.eth0.promote_secondaries=1", ns=p)   # the new address stays when the old goes
     sh("ip", "addr", "add", ADDR(p, 3) + "/29", "dev", "eth0", ns=p)
-    sh("ip", "route", "replace", "default", "via", ADDR(p, 1), "src", ADDR(p, 3), ns=p)
     sh("ip", "addr", "del", ADDR(p) + "/29", "dev", "eth0", ns=p)
+    sh("ip", "route", "replace", "default", "via", ADDR(p, 1), "src", ADDR(p, 3), ns=p)
     sh("ss", "-K", "src", ADDR(p), ns=p, check=False)
+    if os.path.exists("/var/run/wireguard/%s.sock" % WGIF(p)):            # its tunnel's socket bound again: from the new address
+        sh("wg", "set", WGIF(p), "listen-port", str(51900 + K[p]), ns=p)
 
 
 def revoke(p):
