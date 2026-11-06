@@ -230,20 +230,24 @@ $('#connect').onsubmit = (e) => {
 $('#scanTeam').onclick = () => { $('#cstatus').textContent = 'scan the frog QR code your admin or team lead shows you'; window.rtNative.scanTeam() }
 // [ENROLL_V1] scanned: who this code is for and where; the password, then Join
 function enrollScan(m) {
-  S.enrollLine = m.line
-  if (m.signIn) {                                       // [ENROLL_KEY_V1] the lead's one-time code: nothing to type
-    $('#cstatus').textContent = 'signing in as ' + m.user + '…'; S.enrollPw = ''
-    window.rtNative.enroll(JSON.stringify({ line: m.line, password: '' })); return
-  }
-  $('#enrollWho').textContent = m.user + ' · ' + m.app + ' · ' + m.url.replace(/^https?:\/\//, '').replace(/\/.*/, '')
-  $('#enrollBox').hidden = false; $('#enrollPw').value = ''; $('#enrollPw').focus()
-  $('#cstatus').textContent = 'type ' + m.user + "'s password"
+  S.enrollLine = m.line; S.enrollTeam = m.team ? m : null
+  // [TEAM_JOIN_V1] a team's QR: the call sign is yours, the password the team's
+  $('#enrollCallL').hidden = !m.team; $('#enrollCall').value = ''
+  $('#enrollWho').textContent = (m.team ? 'Team · ' : m.user + ' · ') + m.app + ' · ' + m.url.replace(/^https?:\/\//, '').replace(/\/.*/, '')
+  $('#enrollBox').hidden = false; $('#enrollPw').value = ''; (m.team ? $('#enrollCall') : $('#enrollPw')).focus()
+  $('#cstatus').textContent = m.team ? 'your call sign and the team password' : 'type ' + m.user + "'s password"
 }
 $('#enrollGo').onclick = () => {
   if (!S.enrollLine) return
+  let line = S.enrollLine
+  if (S.enrollTeam) {
+    const cs = $('#enrollCall').value.trim().toUpperCase()
+    if (!/^[A-Z0-9/._-]{1,30}$/.test(cs)) { $('#cstatus').textContent = 'a call sign: letters, digits, / . _ -'; return }
+    line = FrogQR.enrollLine(S.enrollTeam.url, S.enrollTeam.app, cs)
+  }
   $('#cstatus').textContent = 'joining…'; $('#enrollGo').disabled = true
   S.enrollPw = $('#enrollPw').value   // [PASSWORD_NOT_LOGGED_V1] kept here for the connect: the native side never says it back (its lines are in Logcat)
-  window.rtNative.enroll(JSON.stringify({ line: S.enrollLine, password: S.enrollPw }))
+  window.rtNative.enroll(JSON.stringify({ line, password: S.enrollPw }))
 }
 // [ENROLL_V1] enrolled: this phone is a member of the region now; the app connects as the user, in its role (the
 // admin's role names are any case): a view this app has by that name, else a team (the team layer's)

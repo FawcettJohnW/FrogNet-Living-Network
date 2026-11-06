@@ -39,18 +39,18 @@ final class Enrolled {
         Map<String, Object> m = new LinkedHashMap<String, Object>(members(c)); m.put(name, Json.o("verifier", verifier));
         prefs(c).edit().putString("members", Json.write(m)).apply();
     }
-    /** [ENROLL_KEY_V1] a one-time sign-in key for NAME: its verifier and until when (never the key), on its record */
-    static synchronized void putKey(Context c, String name, Map<String, Object> verifier, long until) {
-        Map<String, Object> m = new LinkedHashMap<String, Object>(members(c)); Object r = m.get(name);
-        if (!(r instanceof Map)) return;
-        Map<String, Object> rec = new LinkedHashMap<String, Object>(Json.obj(r)); rec.put("key", Json.o("verifier", verifier, "until", until)); m.put(name, rec);
-        prefs(c).edit().putString("members", Json.write(m)).apply();
+    /** [TEAM_JOIN_V1] the team's password, set by the lead: its verifier, never the password ("" clears it: no one joins) */
+    static synchronized void setTeamPassword(Context c, String pw) throws Exception {
+        prefs(c).edit().putString("teamVerifier", pw.isEmpty() ? "" : Json.write(net.frognet.ram.Enroll.verifier(pw))).apply();
     }
-    static synchronized void clearKey(Context c, String name) {
-        Map<String, Object> m = new LinkedHashMap<String, Object>(members(c)); Object r = m.get(name);
-        if (!(r instanceof Map)) return;
-        Map<String, Object> rec = new LinkedHashMap<String, Object>(Json.obj(r)); rec.remove("key"); m.put(name, rec);
-        prefs(c).edit().putString("members", Json.write(m)).apply();
+    static Map<String, Object> teamVerifier(Context c) {
+        String v = prefs(c).getString("teamVerifier", ""); if (v.isEmpty()) return null;
+        try { return Json.obj(Json.parse(v)); } catch (IllegalArgumentException e) { return null; }
+    }
+    /** [TEAM_JOIN_V1] joined by the team's password: a member, with no password of its own */
+    static synchronized void joined(Context c, String name) {
+        Map<String, Object> m = new LinkedHashMap<String, Object>(members(c)); if (m.containsKey(name)) return;
+        m.put(name, Json.o("joined", "team password", "at", System.currentTimeMillis() / 1000)); prefs(c).edit().putString("members", Json.write(m)).apply();
     }
     static synchronized void removeMember(Context c, String name) {
         Map<String, Object> m = new LinkedHashMap<String, Object>(members(c)); m.remove(name);

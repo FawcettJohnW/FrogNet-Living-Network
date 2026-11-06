@@ -39,35 +39,32 @@ import java.util.Map;
  * record the door and fdf-app keep.
  */
 public final class Enroll {
-    public static final String BUILD = "frognet-enroll-2026-11-05-r3";
+    public static final String BUILD = "frognet-enroll-2026-11-05-r4";
     public static final String PREFIX = "fdfenroll1";
     private Enroll() { }
 
-    /** a scanned enrollment line: url, app, user -- and [ENROLL_KEY_V1] a one-time key, when the lead's QR signs the user in
-     *  by itself ("fdfenroll1 URL APP USER KEY": no password typed; the key works once, for a short time) */
+    /** a scanned enrollment line: url, app, user. [TEAM_JOIN_V1] USER "*" is a team's QR (one for the whole team): the one
+     *  who scans it gives their own call sign and the team's password (one, the lead's) */
     public static final class Line {
-        public final String url, app, user, key;
-        Line(String url, String app, String user) { this(url, app, user, ""); }
-        Line(String url, String app, String user, String key) { this.url = url; this.app = app; this.user = user; this.key = key == null ? "" : key; }
-        public String toString() { return PREFIX + " " + esc(url) + " " + esc(app) + " " + esc(user) + (key.isEmpty() ? "" : " " + esc(key)); }
+        public final String url, app, user;
+        Line(String url, String app, String user) { this.url = url; this.app = app; this.user = user; }
+        public String toString() { return PREFIX + " " + esc(url) + " " + esc(app) + " " + esc(user); }
+        /** [TEAM_JOIN_V1] a team's QR: the name is the joiner's */
+        public boolean team() { return user.equals(TEAM); }
+        public Line as(String name) { return new Line(url, app, name); }
     }
-    /** [ENROLL_KEY_V1] a new one-time key: 128 random bits, URL-safe */
-    public static String newKey() {
-        byte[] b = new byte[16]; new java.security.SecureRandom().nextBytes(b);
-        return java.util.Base64.getUrlEncoder().withoutPadding().encodeToString(b);
-    }
+    public static final String TEAM = "*";
     private static String esc(String p) { return p.replace("%", "%25").replace(" ", "%20"); }
     public static Line line(String url, String app, String user) { return new Line(url, app, user); }
-    public static Line line(String url, String app, String user, String key) { return new Line(url, app, user, key); }
     /** the line a QR carried, or null when TEXT is not one */
     public static Line parse(String text) {
         if (text == null) return null;
         String[] p = text.trim().split(" ");
-        if ((p.length != 4 && p.length != 5) || !p[0].equals(PREFIX)) return null;
+        if (p.length != 4 || !p[0].equals(PREFIX)) return null;
         try {
             String u = URLDecoder.decode(p[1].replace("+", "%2B"), "UTF-8"), a = URLDecoder.decode(p[2].replace("+", "%2B"), "UTF-8"),
-                   n = URLDecoder.decode(p[3].replace("+", "%2B"), "UTF-8"), k = p.length == 5 ? URLDecoder.decode(p[4].replace("+", "%2B"), "UTF-8") : "";
-            return u.isEmpty() || n.isEmpty() ? null : new Line(u, a, n, k);
+                   n = URLDecoder.decode(p[3].replace("+", "%2B"), "UTF-8");
+            return u.isEmpty() || n.isEmpty() ? null : new Line(u, a, n);
         } catch (Exception e) { return null; }
     }
 
@@ -75,7 +72,8 @@ public final class Enroll {
     /** POST {user, password} to the sponsor; the answer, or an Exception saying the sponsor's why */
     public static Map<String, Object> enroll(Line l, String password) throws Exception {
         String url = l.url + (l.url.contains("?") ? "&" : "?") + "op=enroll&app=" + URLEncoder.encode(l.app, "UTF-8");
-        Map<String, Object> a = post(url, Json.write(l.key.isEmpty() ? Json.o("user", l.user, "password", password) : Json.o("user", l.user, "key", l.key)), 60000);
+        if (l.team()) throw new Exception("a team's QR: give your own call sign (Line.as)");
+        Map<String, Object> a = post(url, Json.write(Json.o("user", l.user, "password", password)), 60000);
         if (!Json.str(a.get("invite")).startsWith("fdfinv1.")) throw new Exception("the sponsor at " + l.url + " gave no invitation");
         return a;
     }
@@ -127,8 +125,10 @@ public final class Enroll {
     // ------------------------------------------------------------------ a sponsor on a device: a team lead's
     /** what a Sponsor needs from the app that runs it */
     public interface Team {
-        /** [ENROLL_KEY_V1] the member's one-time key was used: it is gone (the record's "key" removed) */
-        default void keyUsed(String user) { }
+        /** [TEAM_JOIN_V1] the team's password (the lead sets it): its verifier, or null when the team has none */
+        default Map<String, Object> teamVerifier() { return null; }
+        /** [TEAM_JOIN_V1] USER joined by the team's password: a member of the team now (no password of its own) */
+        default void joined(String user) { }
         /** the member's record, {verifier: ...}, or null: who may enroll here */
         Map<String, Object> member(String name);
         /** the member's invitation to the region: asked of the app's door as the lead (op=identity) */
@@ -200,16 +200,14 @@ public final class Enroll {
             try { in = Json.obj(Json.parse(body)); } catch (IllegalArgumentException e) { throw new Refused(400, "a JSON body {user, password} is needed"); }
             String user = Json.str(in.get("user")).trim();
             Map<String, Object> m = team.member(user);
-            // [ENROLL_KEY_V1] the password, or the one-time key the lead's QR carried: its verifier, until its time, once
-            Map<String, Object> k = m != null && m.get("key") instanceof Map ? Json.obj(m.get("key")) : null;
-            boolean byKey = k != null && !Json.str(in.get("key")).isEmpty() && System.currentTimeMillis() < (long) Json.num(k.get("until"))
-                    && check(Json.obj(k.get("verifier")), Json.str(in.get("key")));
-            if (!Json.str(in.get("key")).isEmpty() && !byKey) {
-                team.log("[ENROLL_KEY_V1] " + from + " gave a sign-in code for " + user + " that is not this team's now (used, expired or another's)");
-                throw new Refused(403, "that sign-in code is used or expired: ask the lead for a new one");
-            }
-            if (byKey) team.keyUsed(user);
-            else if (m == null || !check(Json.obj(m.get("verifier")), Json.str(in.get("password")))) {
+            // [TEAM_JOIN_V1] the team's password (one, the lead's) with the joiner's own call sign -- new, or one that joined that
+            // way; never a member the lead made with a password of its own -- or a member's own password
+            boolean own = m != null && m.get("verifier") instanceof Map;
+            Map<String, Object> tv = team.teamVerifier();
+            boolean byTeam = !own && (m == null || m.get("joined") != null) && tv != null && !user.isEmpty() && !user.equals(TEAM)
+                    && user.matches("[A-Za-z0-9/._-]{1,30}") && check(tv, Json.str(in.get("password")));
+            if (byTeam && m == null) { team.joined(user); team.log("[TEAM_JOIN_V1] " + user + " joined " + role + " by the team's password (" + from + ")"); }
+            if (!byTeam && (!own || !check(Json.obj(m.get("verifier")), Json.str(in.get("password"))))) {
                 team.log("[ENROLL_V1] " + from + " gave a user and password that are not a member of " + role + " (" + user + ")");
                 throw new Refused(403, "that user and password are not a member of " + role + "'s team");
             }

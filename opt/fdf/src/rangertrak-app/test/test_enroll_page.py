@@ -3,7 +3,7 @@
 # test_enroll_page.py -- [ENROLL_V1] the phone's page (ui/), in Chromium, with the Android side stood in for by a
 # recording rtNative (the native side's events are delivered as MainActivity delivers them):
 #   1 Scan to join is on the first screen of an Android phone
-#   6 a scanned sign-in code (the lead's one-time key, [ENROLL_KEY_V1]) enrolls at once, nothing typed
+#   6 [TEAM_JOIN_V1] the team's QR scanned asks a call sign and the team password; Join enrolls the call sign
 #   2 a scanned code (enrollScan) asks for that user's password; Join hands the line and the password to the native side
 #   3 enrolled (lead of echo, the door): the page connects as that user, Team view, team Echo, the door, the password
 #   4 the lead's Team members button; the members sheet (members): adding a member hands its name and password to the
@@ -27,7 +27,7 @@ STUB = """window.__sent = []; window.rtNative = {
   enroll: j => __sent.push(['enroll', JSON.parse(j)]), teamMembers: () => __sent.push(['members']),
   addMember: (n, p) => __sent.push(['add', n, p]), removeMember: n => __sent.push(['remove', n]),
   teamHost: () => __sent.push(['host']),
-  memberKey: n => { window.__k = (window.__k || 0) + 1; return 'Key' + __k + '-' + n } }"""   # [ENROLL_KEY_V1] a new one-time key per QR
+  setTeamPassword: p => __sent.push(['teamPw', p]) }"""
 with tempfile.TemporaryDirectory() as tmp, sync_playwright() as pw:
     b = pw.chromium.launch(); pg = b.new_page(viewport={"width": 420, "height": 860})
     pg.add_init_script(STUB)
@@ -54,24 +54,30 @@ with tempfile.TemporaryDirectory() as tmp, sync_playwright() as pw:
     btn = pg.evaluate("!document.querySelector('#membersBtn').hidden")   # (under ☰ on a phone: [RT_HEADER_MENU_V1])
     pg.click("#membersBtn")
     addrs = [{"label": "this phone's hotspot", "addr": "192.168.43.1"}, {"label": "FrogNet (the Internet)", "addr": "10.253.1.1"}]
-    pg.evaluate("a => rtDeliver(JSON.stringify({ev: 'members', app: 'rangertrak', team: 'echo', members: ['ann'], addrs: a, port: 21801, sponsoring: true}))", addrs)
-    pg.fill("#memName", "KJ7ABC"); pg.fill("#memPw", "frog"); pg.click("#memAdd")
-    added = ["add", "KJ7ABC", "frog"] in pg.evaluate("__sent")
-    pg.evaluate("a => rtDeliver(JSON.stringify({ev: 'members', app: 'rangertrak', team: 'echo', members: ['ann', 'KJ7ABC'], addrs: a, port: 21801, sponsoring: true}))", addrs)
-    pg.click("[data-memqr=KJ7ABC]"); pg.wait_for_selector("#memQr svg", timeout=3000)
+    # [TEAM_JOIN_V1] one QR, one password: no QR until the lead sets the password; then the team's QR, at the address chosen
+    pg.evaluate("a => rtDeliver(JSON.stringify({ev: 'members', app: 'rangertrak', team: 'echo', members: [], addrs: a, port: 21801, sponsoring: true, teamPassword: false}))", addrs)
+    noQr = pg.locator("#memQr svg").count() == 0 and "set the team password" in pg.inner_text("#memQr")
+    pg.fill("#teamPw", "echo-2026"); pg.click("#teamPwSet")
+    setPw = ["teamPw", "echo-2026"] in pg.evaluate("__sent")
+    pg.evaluate("a => rtDeliver(JSON.stringify({ev: 'members', app: 'rangertrak', team: 'echo', members: ['KJ7ABC'], addrs: a, port: 21801, sponsoring: true, teamPassword: true}))", addrs)
+    pg.wait_for_selector("#memQr svg", timeout=3000)
     q1 = os.path.join(tmp, "q1.png"); pg.locator("#memQr svg").screenshot(path=q1)
     pg.select_option("#memAt", "10.253.1.1"); pg.wait_for_function("document.querySelector('#memQr .who').textContent.includes('10.253.1.1')", timeout=3000)
     q2 = os.path.join(tmp, "q2.png"); pg.locator("#memQr svg").screenshot(path=q2)
     got = zxing_read.read([q1, q2])
-    w1 = "fdfenroll1 http://192.168.43.1:21801/enroll rangertrak KJ7ABC Key1-KJ7ABC"; w2 = "fdfenroll1 http://10.253.1.1:21801/enroll rangertrak KJ7ABC Key2-KJ7ABC"
-    check(btn and ["members"] in pg.evaluate("__sent") and added and got.get(q1) == w1 and got.get(q2) == w2,
-          "4 the lead's Team members: button %s, add handed over %s; KJ7ABC's QR reads %r, then %r" % (btn, added, got.get(q1), got.get(q2)))
+    w1 = "fdfenroll1 http://192.168.43.1:21801/enroll rangertrak *"; w2 = "fdfenroll1 http://10.253.1.1:21801/enroll rangertrak *"
+    joined = "KJ7ABC" in pg.inner_text("#sheet")
+    check(btn and ["members"] in pg.evaluate("__sent") and noQr and setPw and got.get(q1) == w1 and got.get(q2) == w2 and joined,
+          "4 the lead's team: no QR before the password %s; the password handed over %s; the team's QR reads %r, then %r; KJ7ABC listed %s" % (noQr, setPw, got.get(q1), got.get(q2), joined))
     pg.click("#sheet .sh-close")
-    # 6 [ENROLL_KEY_V1] a scanned sign-in code (the lead's one-time key): no password asked, the enroll goes at once
+    # 6 [TEAM_JOIN_V1] the team's QR scanned: a call sign and the team password; Join enrolls the call sign
     pg.evaluate("__sent.length = 0")
-    pg.evaluate("l => rtDeliver(JSON.stringify({ev: 'enrollScan', line: l, url: 'http://192.168.43.1:21801/enroll', app: 'rangertrak', user: 'KJ7ABC', signIn: true}))", w1)
+    pg.evaluate("l => rtDeliver(JSON.stringify({ev: 'enrollScan', line: l, url: 'http://192.168.43.1:21801/enroll', app: 'rangertrak', user: '*', team: true}))", w1)
+    asks = pg.is_visible("#enrollCall") and pg.is_visible("#enrollPw")
+    pg.fill("#enrollCall", "w7new"); pg.fill("#enrollPw", "echo-2026"); pg.click("#enrollGo")
     sent6 = [x for x in pg.evaluate("__sent") if x[0] == "enroll"]
-    check(sent6 == [["enroll", {"line": w1, "password": ""}]] and pg.is_hidden("#enrollBox"), "6 a sign-in code: enrolled at once, nothing typed: %s" % sent6)
+    check(asks and sent6 == [["enroll", {"line": "fdfenroll1 http://192.168.43.1:21801/enroll rangertrak W7NEW", "password": "echo-2026"}]],
+          "6 the team's QR: asks a call sign and the password (%s); Join enrolls %s" % (asks, sent6))
     # 5 a refused enrollment (a fresh page)
     pg.goto("file://" + os.path.join(APP, "ui", "index.html"))
     pg.evaluate("rtInit({dev: 'p2', name: 'P', door: '', role: 'team', team: 'Alpha', platform: 'android', lock: '', build: 'test', invited: '', lan: '', enrolled: {}})")

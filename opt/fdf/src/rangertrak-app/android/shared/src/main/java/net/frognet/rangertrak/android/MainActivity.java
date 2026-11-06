@@ -157,17 +157,13 @@ public final class MainActivity extends Activity implements LocationListener {
                 runOnUiThread(new Runnable() { public void run() { members(false); } });
             } }, "add-member").start();
         }
-        /** [ENROLL_KEY_V1] a one-time sign-in key for NAME, for the lead's QR: the member scans it and is signed in and given
-         *  its own FrogNet invitation (its WireGuard key, its tunnel through this hotspot), nothing typed. Kept here: the key's
-         *  verifier, until 15 minutes from now, once; a new QR makes a new key */
-        @JavascriptInterface public String memberKey(String name) {
-            if (!Enrolled.of(MainActivity.this).lead || Enrolled.members(MainActivity.this).get(name) == null) return "";
-            try {
-                String k = net.frognet.ram.Enroll.newKey();
-                Enrolled.putKey(MainActivity.this, name, net.frognet.ram.Enroll.verifier(k), System.currentTimeMillis() + 15 * 60 * 1000L);
-                android.util.Log.i("Enroll", "[ENROLL_KEY_V1] a one-time sign-in code for " + name + ", 15 minutes");
-                return k;
-            } catch (Exception e) { deliver(Json.o("ev", "error", "text", "no sign-in code for " + name + ": " + e.getMessage())); return ""; }
+        /** [TEAM_JOIN_V1] the team's password (one, the lead's): whoever has it and the team's QR joins with their own call
+         *  sign; "" clears it (no one joins) */
+        @JavascriptInterface public void setTeamPassword(String pw) {
+            if (!Enrolled.of(MainActivity.this).lead) return;
+            try { Enrolled.setTeamPassword(MainActivity.this, pw); note("[TEAM_JOIN_V1] the team's password " + (pw.isEmpty() ? "cleared: no one joins the team now" : "set: the team's QR and it let a member join"));
+                  runOnUiThread(new Runnable() { public void run() { members(false); } }); }
+            catch (Exception e) { deliver(Json.o("ev", "error", "text", "the team's password was not set: " + e.getMessage())); }
         }
         @JavascriptInterface public void removeMember(String name) { Enrolled.removeMember(MainActivity.this, name); runOnUiThread(new Runnable() { public void run() { members(false); } }); }
         /** [CHAT_NOTICE_V1] a message the user cannot see: a phone notification while the app is not in front */
@@ -749,7 +745,7 @@ public final class MainActivity extends Activity implements LocationListener {
         String e = Member.edge(this); if (!e.isEmpty()) addrs.add(Json.o("label", "FrogNet (the Internet)", "addr", e));
         java.util.List<Object> names = new java.util.ArrayList<Object>(Enrolled.members(this).keySet());
         deliver(Json.o("ev", "members", "app", me.app, "team", me.role, "members", names, "addrs", addrs, "port", TeamHostService.SPONSOR_PORT,
-                "sponsoring", TeamHostService.sponsorState().isEmpty() || start));
+                "sponsoring", TeamHostService.sponsorState().isEmpty() || start, "teamPassword", Enrolled.teamVerifier(this) != null));   // [TEAM_JOIN_V1]
     }
     /** this phone's address on the Wi-Fi it is a client of ("" : none) */
     private String wifiAddr() {
@@ -783,7 +779,7 @@ public final class MainActivity extends Activity implements LocationListener {
         net.frognet.ram.Enroll.Line l = net.frognet.ram.Enroll.parse(q);
         if (l == null) { deliver(Json.o("ev", "error", "text", "that is not an enrollment code (it says " + (q.length() > 40 ? q.substring(0, 40) + "…" : q) + ")")); return; }
         note("[ENROLL_V1] scanned: " + l.user + " in " + l.app + " at " + l.url);
-        deliver(Json.o("ev", "enrollScan", "line", q.trim(), "url", l.url, "app", l.app, "user", l.user, "signIn", !l.key.isEmpty()));
+        deliver(Json.o("ev", "enrollScan", "line", q.trim(), "url", l.url, "app", l.app, "user", l.user, "team", l.team()));   // [TEAM_JOIN_V1]
     }
 
     // ------------------------------------------------------------------ GPS: every fix is this device's own position

@@ -43,9 +43,12 @@ RT.layer('team', (RT) => {
   RT.button('placeBtn', 'Team on the SystemRam', () => { status("the team's RAM moves to the SystemRam: it stays there when you leave"); window.rtNative.teamPlace('databasehost') },
             "the team's RAM on the SystemRam: it stays when the lead leaves")
 
-  // ------------------------------------------------------------ [ENROLL_V1] the lead's Team members
-  // The lead names each member (a callsign) and a password; this phone keeps only verifiers and sponsors the team: a member
-  // scans the member's frog QR (this phone's address, the name) and types the password, and gets its own invitation.
+  // ------------------------------------------------------------ [TEAM_JOIN_V1] the lead's team: one QR, one password
+  // (John 2026-11-05: "One qr code for the whole team, and one password"; members give their own call signs.) The lead sets
+  // the team's password (this phone keeps its verifier, never the password) and shows the team's QR ("fdfenroll1 URL APP *":
+  // this phone's sponsor, at an address a member can reach). A member joins the lead's hotspot (Android's own hotspot QR),
+  // scans the team's QR, gives a call sign and the team's password, and is in -- its own FrogNet invitation (its WireGuard
+  // key: its tunnel through the hotspot) given with it. Who joined is listed; the lead can remove one.
   RT.button('membersBtn', 'Team members', () => window.rtNative.teamMembers())
   RT.hook('connected', () => { $('#membersBtn').hidden = !(S.cfg.enrolled && S.cfg.enrolled.lead && window.rtNative && window.rtNative.teamMembers) })
   function membersPanel(m) {
@@ -53,31 +56,27 @@ RT.layer('team', (RT) => {
     const x = S.mem || { members: [], addrs: [] }
     const at = S.memAt && x.addrs.some(a => a.addr === S.memAt) ? S.memAt : ((x.addrs[0] || {}).addr || '')
     S.memAt = at
-    const rows = x.members.map(n => `<div class="mem-row"><b>${esc(n)}</b><button type="button" data-memqr="${esc(n)}">QR</button><button type="button" data-memdel="${esc(n)}">✕</button></div>`).join('') || '<div class="meta">no members yet</div>'
+    const rows = x.members.map(n => `<div class="mem-row"><b>${esc(n)}</b><button type="button" data-memdel="${esc(n)}" title="remove ${esc(n)}">✕</button></div>`).join('') || '<div class="meta">no one has joined yet</div>'
     const sel = x.addrs.length ? `<div class="mem-at">Members reach this phone at <select id="memAt">${x.addrs.map(a => `<option value="${esc(a.addr)}"${a.addr === at ? ' selected' : ''}>${esc(a.label)}: ${esc(a.addr)}</option>`).join('')}</select></div>`
-      : '<div class="mem-at">⚠ this phone has no address a member can reach: turn on its hotspot, or join Wi-Fi</div>'
-    sheet('members', 'Team ' + cap(x.team || '') + ' members', `${x.sponsoring ? '' : '<div class="meta">⚠ not sponsoring yet</div>'}
-      <div class="mem-add"><input id="memName" placeholder="name or callsign" autocomplete="off"><input id="memPw" type="password" placeholder="password" autocomplete="new-password"><button type="button" id="memAdd">Add</button></div>
-      ${rows}${sel}<div class="mem-qr" id="memQr"></div>`)
-    if ($('#memAt')) $('#memAt').onchange = (e) => { S.memAt = e.target.value; if (S.memQr) memQr(S.memQr) }
-    $('#memAdd').onclick = () => { const n = $('#memName').value.trim(), p = $('#memPw').value; if (!n || !p) return; status('adding ' + n + '…'); window.rtNative.addMember(n, p) }
-    if (S.memQr && x.members.includes(S.memQr)) memQr(S.memQr)
+      : '<div class="mem-at">⚠ this phone has no address a member can reach: turn on its hotspot (the team\'s Wi-Fi)</div>'
+    sheet('members', 'Team ' + cap(x.team || ''), `${x.sponsoring ? '' : '<div class="meta">⚠ not sponsoring yet</div>'}
+      <div class="mem-add"><input id="teamPw" type="password" placeholder="${x.teamPassword ? 'team password: set (type to change)' : 'the team password'}" autocomplete="new-password"><button type="button" id="teamPwSet">${x.teamPassword ? 'Change' : 'Set'}</button></div>
+      ${sel}<div class="mem-qr" id="memQr"></div><h3>Joined</h3>${rows}`)
+    if ($('#memAt')) $('#memAt').onchange = (e) => { S.memAt = e.target.value; teamQr() }
+    $('#teamPwSet').onclick = () => { const p = $('#teamPw').value; if (!p) return; status('setting the team password…'); window.rtNative.setTeamPassword(p) }
+    teamQr()
   }
-  function memQr(n) {
-    S.memQr = n; const x = S.mem || {}
+  function teamQr() {
+    const x = S.mem || {}
+    if (!x.teamPassword) { $('#memQr').innerHTML = '<div class="meta">set the team password: then the team\'s QR is here</div>'; return }
     if (!S.memAt) { $('#memQr').innerHTML = '<div class="meta">no address to put in the code</div>'; return }
     const url = 'http://' + S.memAt + ':' + x.port + '/enroll'
-    // [ENROLL_KEY_V1] the code signs N in by itself: a one-time key (15 minutes, once) this phone keeps the verifier of;
-    // N's phone joins this phone's hotspot (Android's own QR, on the Hotspot screen), scans this, and is in -- its own
-    // FrogNet invitation (its WireGuard key) given with it, its tunnel through this hotspot
-    const key = window.rtNative.memberKey ? window.rtNative.memberKey(n) : ''
-    $('#memQr').innerHTML = FrogQR.svg(FrogQR.enrollLine(url, x.app, n, key), { px: 340 }) + `<div class="who">${esc(n)} · ${esc(S.memAt)}</div>` +
-      (key ? `<div class="meta">Signs ${esc(n)} in: once, for 15 minutes (QR again for a new one). ${esc(n)}'s phone joins this phone's hotspot first (its QR is on the Hotspot screen), then Scan to join.</div>` : '')
+    $('#memQr').innerHTML = FrogQR.svg(FrogQR.enrollLine(url, x.app, '*'), { px: 340 }) +
+      `<div class="who">Team ${esc(cap(x.team || ''))} · ${esc(S.memAt)}</div><div class="meta">A member joins this phone's hotspot (its QR is on the Hotspot screen), scans this, and gives a call sign and the team password.</div>`
   }
   document.addEventListener('click', (e) => {
     const t = e.target
-    if (t.dataset && t.dataset.memqr) memQr(t.dataset.memqr)
-    else if (t.dataset && t.dataset.memdel) { if (S.memQr === t.dataset.memdel) S.memQr = ''; window.rtNative.removeMember(t.dataset.memdel) }
+    if (t.dataset && t.dataset.memdel) window.rtNative.removeMember(t.dataset.memdel)
   })
   RT.on('members', membersPanel)
 })
