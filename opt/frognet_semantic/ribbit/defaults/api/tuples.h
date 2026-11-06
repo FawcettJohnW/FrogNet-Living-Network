@@ -27,7 +27,10 @@ int64_t tuples_put(tuples_client* c, const char* service, const char* var, const
 char* tuples_get_all(tuples_client* c, const char* service, int fresh_s, double wait_s, int min_rows, const char* var,
                      char** err);
 int tuples_remove(tuples_client* c, const char* service, const char* var, const char* scope, char** err);  /* 1, 0, -1 */
-int tuples_remove_id(tuples_client* c, int64_t id, char** err);                                           /* 0, -1 */
+int tuples_remove_id(tuples_client* c, const char* service, const char* var, int64_t id, char** err);     /* 0, -1 */
+/* a held read: the tuples of (service, var) written after the write-order id `after` (-1: all), held up to wait_s until
+ * one is; the same JSON array as tuples_get_all. Its largest id is the next call's `after`. */
+char* tuples_get_after(tuples_client* c, const char* service, const char* var, double wait_s, int64_t after, char** err);
 char* tuples_my_ip(tuples_client* c, char** err);
 void tuples_free(char* s);
 

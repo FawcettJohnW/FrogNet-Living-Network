@@ -38,7 +38,8 @@ _lib.tuples_close.argtypes = [_p]
 _lib.tuples_put.restype = ctypes.c_int64; _lib.tuples_put.argtypes = [_p, _c, _c, _c, _c, ctypes.c_int, _e]
 _lib.tuples_get_all.restype = _p;   _lib.tuples_get_all.argtypes = [_p, _c, ctypes.c_int, ctypes.c_double, ctypes.c_int, _c, _e]
 _lib.tuples_remove.restype = ctypes.c_int;    _lib.tuples_remove.argtypes = [_p, _c, _c, _c, _e]
-_lib.tuples_remove_id.restype = ctypes.c_int; _lib.tuples_remove_id.argtypes = [_p, ctypes.c_int64, _e]
+_lib.tuples_remove_id.restype = ctypes.c_int; _lib.tuples_remove_id.argtypes = [_p, _c, _c, ctypes.c_int64, _e]
+_FAMILY = {}   # [FAMILY_LOG_V1] id -> (service, var) of the rows this module returned: a removal names its family
 _lib.tuples_my_ip.restype = _p;     _lib.tuples_my_ip.argtypes = [_p, _e]
 _lib.tuples_free.argtypes = [_p]
 
@@ -164,6 +165,8 @@ def _rows(service: str, dbhost, fresh_s: int, wait_s: float, min_rows: int, name
     if not p:
         _raise(err, "get_all %s" % service)
     rows = json.loads(_take(p))
+    for r in rows:
+        _FAMILY[int(r["id"])] = (service, r["var"])
     if scope is not None:
         rows = [r for r in rows if r["scope"] == scope]
     return rows
@@ -195,7 +198,10 @@ def _values_raw(service: str, dbhost: str = DEFAULT_DBHOST, name_like: Optional[
 def _delete_by_id(dbhost: str, sensor_id: Any, timeout=DEFAULT_TIMEOUT) -> bool:
     h = _client(dbhost)
     err = ctypes.c_void_p()
-    return _lib.tuples_remove_id(h, int(sensor_id), ctypes.byref(err)) == 0
+    fam = _FAMILY.get(int(sensor_id))
+    if fam is None:
+        raise RuntimeError("_delete_by_id %s: a row this client has not read (a removal names its family)" % sensor_id)
+    return _lib.tuples_remove_id(h, fam[0].encode(), fam[1].encode(), int(sensor_id), ctypes.byref(err)) == 0
 
 def delete(service: str, var: str, scope: str, dbhost: str = DEFAULT_DBHOST) -> bool:
     h = _client(dbhost)
