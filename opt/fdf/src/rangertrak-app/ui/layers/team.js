@@ -81,8 +81,9 @@ RT.layer('team', (RT) => {
     const x = S.mem || {}
     if (!x.teamPassword) { $('#memQr').innerHTML = '<div class="meta">set the team password: then the team\'s QR is here</div>'; return }
     if (!S.memAt) { $('#memQr').innerHTML = '<div class="meta">no address to put in the code</div>'; return }
+    if (!x.key) { $('#memQr').innerHTML = '<div class="meta">the team\'s sponsor has no key yet: its QR is here when it has</div>'; return }   // [SEALED_ENROLL_V1]
     const url = 'http://' + S.memAt + ':' + x.port + '/enroll'
-    $('#memQr').innerHTML = FrogQR.svg(FrogQR.enrollLine(url, x.app, '*'), { px: 340 }) +
+    $('#memQr').innerHTML = FrogQR.svg(FrogQR.enrollLine(url, x.app, '*', x.key), { px: 340 }) +   // [SEALED_ENROLL_V1] the sponsor key's fingerprint
       `<div class="who">Team ${esc(cap(x.team || ''))} · ${esc(S.memAt)}</div><div class="meta">A member joins this phone's hotspot (its QR is on the Hotspot screen), scans this, and gives a call sign and the team password.</div>`
   }
   document.addEventListener('click', (e) => {

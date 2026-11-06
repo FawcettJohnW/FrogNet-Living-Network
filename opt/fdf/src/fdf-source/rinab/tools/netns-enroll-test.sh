@@ -10,7 +10,8 @@
 #   A  198.18.0.1   the hub (region D), its RAM 10.253.253.254:8840, fdf-identity --serve, fdf-client + fdf-app serve
 #                   (rangertrak: team echo; kim leads it; EOCAdmin), the door at 198.18.0.1:8088
 #   q1 198.18.0.3   kim's phone: scans the admin's QR (fdfenroll1 <door> rangertrak kim), types kim's password
-#   q2 198.18.0.5   ann's phone: scans kim's QR (fdfenroll1 http://198.18.0.3:21801/enroll rangertrak ann)
+#   q2 198.18.0.5   ann's phone: scans kim's QR (fdfenroll1 http://198.18.0.3:21801/enroll rangertrak ann FP: kim's
+#                   sponsor key's fingerprint, [SEALED_ENROLL_V1]; what goes between the phones is sealed to that key)
 # Checks:
 #   1  a wrong password at the door is refused, and said
 #   2  kim enrolls at the door: role echo, lead, an fdfinv1 invitation; the region admitted rangertrak-kim
@@ -120,7 +121,8 @@ check $(grep -q "joined the region at" $T/q1/member.log && NS q1 wg show fdf-q1 
 # 4 kim's phone sponsors ann
 ( EJ q1 sponsor 21801 rangertrak echo $DOOR kim kim-2026 ann:ann-2026 >> $T/q1/sponsor.log 2>&1 ) & echo $! >> $T/svc.pids
 for i in $(seq 100); do grep -q "enrolling rangertrak echo's members" $T/q1/sponsor.log && break; sleep 0.1; done
-L_ann="fdfenroll1 http://198.18.0.3:21801/enroll rangertrak ann"
+KEY_kim=$(grep -o "its QR's key [^ ]*" $T/q1/sponsor.log | head -1 | cut -d' ' -f4)   # [SEALED_ENROLL_V1] what kim's QR carries: its key's fingerprint
+L_ann="fdfenroll1 http://198.18.0.3:21801/enroll rangertrak ann $KEY_kim"
 EJ q2 enroll "$L_ann" nope > $T/q2-bad.json 2>&1; BAD2=$?
 check $([ $BAD2 = 3 ] && grep -q "not a member of echo" $T/q2-bad.json && [ ! -f $T/A/admitted/rangertrak-echo-ann.json ] && echo 0 || echo 1) \
   "4 a wrong password at kim's phone is refused (exit $BAD2), the door not asked: $(cut -c1-110 $T/q2-bad.json)"
@@ -167,7 +169,8 @@ check $(echo "$L11" | grep -q '"role":"Red Cross"' && echo "$L11b" | grep -q '"o
 # 12 members join Red Cross by its team QR and team password, each with its own call sign
 ( EJ q1 sponsor 21802 rangertrak "Red Cross" $DOOR "Red Cross" teams-2026 '*:rc-team' >> $T/q1/sponsor-rc.log 2>&1 ) & echo $! >> $T/svc.pids
 for i in $(seq 100); do grep -q "enrolling rangertrak" $T/q1/sponsor-rc.log && break; sleep 0.1; done
-L_rc="fdfenroll1 http://198.18.0.3:21802/enroll rangertrak *"
+KEY_rc=$(grep -o "its QR's key [^ ]*" $T/q1/sponsor-rc.log | head -1 | cut -d' ' -f4)
+L_rc="fdfenroll1 http://198.18.0.3:21802/enroll rangertrak * $KEY_rc"
 EJ q2 enroll "$L_rc" nope dan > $T/dan-bad.json 2>&1; BAD12=$?
 EJ q2 enroll "$L_rc" rc-team dan > $T/dan.json 2>$T/dan.err
 INV12=$(J invite < $T/dan.json 2>/dev/null)

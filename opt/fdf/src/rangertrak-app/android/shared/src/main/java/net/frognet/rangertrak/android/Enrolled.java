@@ -52,6 +52,18 @@ final class Enrolled {
         Map<String, Object> m = new LinkedHashMap<String, Object>(members(c)); if (m.containsKey(name)) return;
         m.put(name, Json.o("joined", "team password", "at", System.currentTimeMillis() / 1000)); prefs(c).edit().putString("members", Json.write(m)).apply();
     }
+    /** [SEALED_ENROLL_V1] the lead's sponsor key pair (P-256): made the first time it sponsors and kept here (the private
+     *  key as PKCS8), so a team QR already shown stays good; a new lead (cleared preferences) makes a new one */
+    static synchronized java.security.KeyPair sponsorKey(Context c) throws Exception {
+        SharedPreferences p = prefs(c);
+        String pub = p.getString("sponsorPub", ""), priv = p.getString("sponsorPriv", "");
+        if (!pub.isEmpty() && !priv.isEmpty()) {
+            try { return net.frognet.ram.Enroll.Seal.pair(pub, priv); } catch (Exception e) { android.util.Log.i("Enroll", "[SEALED_ENROLL_V1] the kept sponsor key does not read (" + e + "): a new one"); }
+        }
+        java.security.KeyPair kp = net.frognet.ram.Enroll.Seal.newPair();
+        p.edit().putString("sponsorPub", net.frognet.ram.Enroll.Seal.publicOf(kp)).putString("sponsorPriv", net.frognet.ram.Enroll.Seal.privateOf(kp)).commit();
+        return kp;
+    }
     static synchronized void removeMember(Context c, String name) {
         Map<String, Object> m = new LinkedHashMap<String, Object>(members(c)); m.remove(name);
         prefs(c).edit().putString("members", Json.write(m)).apply();

@@ -744,7 +744,10 @@ public final class MainActivity extends Activity implements LocationListener {
         else { String w = wifiAddr(); if (!w.isEmpty()) addrs.add(Json.o("label", "this Wi-Fi", "addr", w)); }
         String e = Member.edge(this); if (!e.isEmpty()) addrs.add(Json.o("label", "FrogNet (the Internet)", "addr", e));
         java.util.List<Object> names = new java.util.ArrayList<Object>(Enrolled.members(this).keySet());
-        deliver(Json.o("ev", "members", "app", me.app, "team", me.role, "members", names, "addrs", addrs, "port", TeamHostService.SPONSOR_PORT,
+        String key;                                       // [SEALED_ENROLL_V1] the sponsor key's fingerprint: the team QR's fifth part
+        try { key = net.frognet.ram.Enroll.Seal.fingerprint(net.frognet.ram.Enroll.Seal.publicOf(Enrolled.sponsorKey(this))); }
+        catch (Exception x) { deliver(Json.o("ev", "error", "text", "the team's sponsor key: " + x)); return; }
+        deliver(Json.o("ev", "members", "key", key, "app", me.app, "team", me.role, "members", names, "addrs", addrs, "port", TeamHostService.SPONSOR_PORT,
                 "sponsoring", TeamHostService.sponsorState().isEmpty() || start, "teamPassword", Enrolled.teamVerifier(this) != null));   // [TEAM_JOIN_V1]
     }
     /** this phone's address on the Wi-Fi it is a client of ("" : none) */
@@ -779,7 +782,7 @@ public final class MainActivity extends Activity implements LocationListener {
         net.frognet.ram.Enroll.Line l = net.frognet.ram.Enroll.parse(q);
         if (l == null) { deliver(Json.o("ev", "error", "text", "that is not an enrollment code (it says " + (q.length() > 40 ? q.substring(0, 40) + "…" : q) + ")")); return; }
         note("[ENROLL_V1] scanned: " + l.user + " in " + l.app + " at " + l.url);
-        deliver(Json.o("ev", "enrollScan", "line", q.trim(), "url", l.url, "app", l.app, "user", l.user, "team", l.team()));   // [TEAM_JOIN_V1]
+        deliver(Json.o("ev", "enrollScan", "line", q.trim(), "url", l.url, "app", l.app, "user", l.user, "team", l.team(), "key", l.key));   // [TEAM_JOIN_V1] [SEALED_ENROLL_V1]
     }
 
     // ------------------------------------------------------------------ GPS: every fix is this device's own position

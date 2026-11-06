@@ -266,7 +266,7 @@ $('#enrollGo').onclick = () => {
     const raw = $('#enrollCall').value.trim(), cs = S.enrollEoc ? raw : raw.toUpperCase()
     if (S.enrollEoc ? !/^[A-Za-z0-9][A-Za-z0-9 ._-]{0,39}$/.test(cs) : !/^[A-Z0-9/._-]{1,30}$/.test(cs)) {
       $('#cstatus').textContent = S.enrollEoc ? "a team's name: letters, digits, space . _ - (at most 40)" : 'a call sign: letters, digits, / . _ -'; return }
-    line = FrogQR.enrollLine(S.enrollTeam.url, S.enrollTeam.app, cs)
+    line = FrogQR.enrollLine(S.enrollTeam.url, S.enrollTeam.app, cs, S.enrollTeam.key)   // [SEALED_ENROLL_V1] the lead's key stays in the line
   }
   $('#cstatus').textContent = 'joining…'; $('#enrollGo').disabled = true
   S.enrollPw = $('#enrollPw').value   // [PASSWORD_NOT_LOGGED_V1] kept here for the connect: the native side never says it back (its lines are in Logcat)

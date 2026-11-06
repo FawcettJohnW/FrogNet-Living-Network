@@ -224,6 +224,7 @@ fun keptInvite(given: String?): Invite? {
 // logged. The door answers with this computer's own invitation, which is kept as `keep-invite` keeps one.
 fun enroll(line: String): Invite? {
     val p = line.trim().split(Regex("\\s+"))
+    if (p.size == 5 && p[0] == "fdfenroll1") error("a team lead's QR: join with the phone app")   // [SEALED_ENROLL_V1] sealed to the lead's key
     if (p.size != 4 || p[0] != "fdfenroll1") error("not an enrollment line (fdfenroll1 URL APP USER): the admin tool shows it beside the user's QR")
     val (url, app, user) = p.drop(1).map { java.net.URLDecoder.decode(it.replace("+", "%2B"), "UTF-8") }
     val con = System.console() ?: error("the password is typed in a terminal: run this from one")

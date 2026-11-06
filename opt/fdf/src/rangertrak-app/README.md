@@ -1,4 +1,4 @@
-# RangerTrak app (desktop and phone) -- rt-app-2026-11-06-r53
+# RangerTrak app (desktop and phone) -- rt-app-2026-11-06-r54
 
 The demo John set on 2026-11-01 (`opt/frognet_semantic/ribbit/examples/rangertrak/PLAN.md`, its first decision): the EOC
 on a Windows app, a first responder on a phone, presence with GPS, chat, a pre-populated moving world, in an app and not
@@ -46,6 +46,27 @@ role's `act`/`req`, or `RT.button`). **A new view**: `RT.role(...)` in a layer's
 `--lock=` and `--layers=`. **The admin app**: a layer's own panel is `ui-admin/layers/<name>.js` calling
 `RTA.panel(title, fn)` (none yet). Gates: `test/test_app.py` (32 checks; the Team and Public apps run with their own
 layers only), `test/test_team_host.py`, `android/typecheck.sh`.
+
+## r54: the joiner-to-lead hop is sealed ([SEALED_ENROLL_V1])
+
+The lead's hotspot is shared by everyone with the team's Wi-Fi password, so a member's team password going up and its
+invitation coming back are sealed (frognet-enroll r5, `Enroll.Seal`): an ephemeral P-256 key, ECDH with the lead's
+sponsor key, HKDF-SHA256 (salt SHA-256(epk || key), info `fdfenroll1 seal <app>`), AES-256-GCM (AAD `req <app>` /
+`ans <app>`). Nothing changes for the user: scan, call sign, team password.
+- The team's QR is `fdfenroll1 URL APP * FP`: FP is the first 16 bytes of SHA-256 of the sponsor key's compressed point,
+  base64url, 22 characters. The device asks the lead's phone for its key (`op=key`), takes it only when its fingerprint
+  is the QR's, and seals to it. (The key itself in the QR, 44 characters compressed or 122 as X.509, made the code QR
+  version 9 or 10, where the frog missed turned, tilted, small or blurred codes a plain code of the same line read; at
+  version 8, which the fingerprint keeps even at a 15-character address, it misses none.)
+- The lead's key is made the first time it sponsors and kept (`rt-enroll`: `sponsorPub`, `sponsorPriv` as PKCS8): a QR
+  already shown stays good. The Sponsor takes sealed requests only (an unsealed one: 400, said), seals every answer after
+  opening one, refusals too, and refuses a request more than 300 s off its clock or whose epk it saw in the last 10 min.
+- Door lines (four parts: the EOC's own LAN, the lead's Join EOC) are as they were. fdf-member-kt refuses a team lead's
+  QR ("join with the phone app").
+- Tests: EnrollTest (sealed round trip; a relay between device and lead catches neither the password, the call sign nor
+  the invitation; unsealed refused; another key's fingerprint refused; a replay refused, the door not asked);
+  netns-enroll-test (ann and dan join by sealed team QRs); test_enroll_page (five parts, kept through the call sign);
+  test_frogqr (the fingerprinted lines at 600 px and at 340 CSS px on a 3x screen).
 
 ## r53: teams join the EOC; every connected kind is shown ([CHILDREN_JOIN_V1], [ADMIN_TREE_V1], [MAP_KINDS_DISCOVERED_V1])
 

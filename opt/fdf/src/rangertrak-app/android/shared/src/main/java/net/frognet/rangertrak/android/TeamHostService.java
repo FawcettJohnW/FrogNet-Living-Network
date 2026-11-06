@@ -77,8 +77,8 @@ public final class TeamHostService extends Service {
                 public void log(String line) { Log.i("Enroll", line); }
                 public java.util.Map<String, Object> teamVerifier() { return Enrolled.teamVerifier(ctx); }    // [TEAM_JOIN_V1]
                 public void joined(String n) { Enrolled.joined(ctx, n); }
-            });
-        } catch (java.io.IOException e) { Log.i("Enroll", "[ENROLL_V1] the sponsor did not start on port " + SPONSOR_PORT + ": " + e); }
+            }, Enrolled.sponsorKey(ctx));                     // [SEALED_ENROLL_V1] the lead's kept key: its QR stays good
+        } catch (Exception e) { Log.i("Enroll", "[ENROLL_V1] the sponsor did not start on port " + SPONSOR_PORT + ": " + e); }
     }
     /** "" when this phone sponsors its team; else why not */
     public static String sponsorState() { return sponsor != null ? "" : "not sponsoring"; }
