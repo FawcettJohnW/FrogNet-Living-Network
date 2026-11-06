@@ -1,4 +1,4 @@
-# RangerTrak app (desktop and phone) -- rt-app-2026-11-05-r52
+# RangerTrak app (desktop and phone) -- rt-app-2026-11-06-r53
 
 The demo John set on 2026-11-01 (`opt/frognet_semantic/ribbit/examples/rangertrak/PLAN.md`, its first decision): the EOC
 on a Windows app, a first responder on a phone, presence with GPS, chat, a pre-populated moving world, in an app and not
@@ -46,6 +46,27 @@ role's `act`/`req`, or `RT.button`). **A new view**: `RT.role(...)` in a layer's
 `--lock=` and `--layers=`. **The admin app**: a layer's own panel is `ui-admin/layers/<name>.js` calling
 `RTA.panel(title, fn)` (none yet). Gates: `test/test_app.py` (32 checks; the Team and Public apps run with their own
 layers only), `test/test_team_host.py`, `android/typecheck.sh`.
+
+## r53: teams join the EOC; every connected kind is shown ([CHILDREN_JOIN_V1], [ADMIN_TREE_V1], [MAP_KINDS_DISCOVERED_V1])
+
+John 2026-11-06: "The teams aren't allocated beforehand. They are discovered" and "Creating a team is a matter of
+installing the team app, firing up the admin console for it, and hitting the Join EOC button, with the team name. It
+needs the eoc teams password, set up in the eoc admin page, and it becomes an entity."
+- The EOC's admin (rt-admin r13) sets **the EOC's teams password** ("Teams join the EOC") and shows **the EOC's QR**
+  (`fdfenroll1 http://<door>/dc/ram.php rangertrak *`). Only its verifier is kept (`join` in the app's configuration;
+  `fdf-app config --join PASSWORD` on a node, fdf-app r17).
+- A lead's phone: **Join EOC** on the first screen (the Node field's door), or Scan to join the EOC's QR: the team's name
+  (anything: letters, digits, space . _ -, 40) and the teams password. The door (dc-door r18) writes the team as an
+  entity, `(fdf-app, child, rangertrak.<name>)`, makes the lead's invitation, and from then lists it in op=roles
+  (category Teams) and op=admin (`children`). The lead logs in with the team's name and the teams password; the team
+  lives on its lead's phone (it cannot be placed on databasehost). Its members join it by the team's QR and password.
+- The admin's **Connected now** is a tree: the mission, each category, each group (the admin's and the joined teams), and
+  every device on now in it of whatever kind it says; then anyone in no group. The lead's Team members sheet lists who is
+  on now in the team, any kind.
+- The map draws **any kind** that appears in the world, known to a layer or not (a plain marker, its initial, its own
+  colour, on), and Layers and the legend are built from what is present. Team names are capitalized per word (Red Cross).
+- Tests: netns-enroll-test 10-12 (the real door, fdf-identity, a sponsor); test_enroll_page 7; test_admin_page 7;
+  test_kinds_page (new).
 
 ## r52: the team's Wi-Fi is the lead's hotspot, and the lead's QR signs a member in
 

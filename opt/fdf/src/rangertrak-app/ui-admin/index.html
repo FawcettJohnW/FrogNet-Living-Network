@@ -63,6 +63,7 @@ footer #changes { flex: 1; color: var(--mu); min-width: 200px; } footer #changes
 .newgroup { border-top: 1px solid var(--bd); padding-top: 4px; } .newgroup .add input[type=text], .newgroup .add input[type=password] { flex: 1; }
 .dfoot { border-top: 1px solid var(--bd); padding-top: 10px; }
 @media (max-width: 860px) { main { grid-template-columns: 1fr; padding: 12px 12px 140px; } header { padding: 10px 12px; } .hide-s { display: none; } }
+  ul.tree, ul.tree ul { list-style: none; margin: 0; padding-left: 18px; border-left: 1px solid #ccd; } ul.tree { padding-left: 4px; border: 0 } ul.tree li { margin: 3px 0 }
 </style></head><body>
 <div id="splash"><div class="b">RangerTrak Admin</div><div class="s">powered by the FrogNet Living Network</div></div>
 
@@ -111,6 +112,8 @@ footer #changes { flex: 1; color: var(--mu); min-width: 200px; } footer #changes
         they do: a lead moving its group, someone coming or going, a RAM moving.</p>
       <table class="t"><thead><tr><th>Group</th><th>Category</th><th>Lives</th><th>Served at</th><th>Lead</th><th>On now</th></tr></thead><tbody id="groups"></tbody></table>
       <div id="onNow" class="mu"></div>
+      <h3>Connected now</h3>
+      <div id="onTree"></div>   <!-- [ADMIN_TREE_V1] the mission, its categories, their groups, each device on now -->
     </section>
     <section>
       <h2>Where each RAM is served</h2>

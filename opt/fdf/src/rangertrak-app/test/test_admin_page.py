@@ -12,6 +12,10 @@
 #     says so; a new user with no password is not added
 #   4 a group removed: its users are under "Users with no group", moved to another group from there
 #   5 the QR's Save image: rtNative.saveFile gets a PNG named for the user, which zxing reads as the user's enrollment line
+#   6 who is on now, in its group's row; one in no group said so
+#   7 [CHILDREN_JOIN_V1][ADMIN_TREE_V1] a team that joined the EOC (Red Cross) is a group (its row, "joined"); Connected now
+#     is a tree: the mission, Teams, alpha with Pat, Red Cross with Dan (team) and a drone (a kind no list here has);
+#     in no group, Win PC
 import base64, json, os, sys
 from playwright.sync_api import sync_playwright
 HERE = os.path.dirname(os.path.abspath(__file__)); APP = os.path.dirname(HERE)
@@ -95,5 +99,19 @@ with sync_playwright() as pw:
     row = pg.evaluate("[...document.querySelectorAll('#groups tr')].map(t=>t.innerText).find(t=>/^alpha/.test(t)) || ''")
     on = pg.inner_text("#onNow")
     check("Pat" in row and "2 on now" in on and "Win PC" in on and "no such group" in on, "6 alpha's row: %r; %r" % (row.replace("\t", " | ")[:120], on[:160]))
+    # 7 a team that joined, and the tree of who is connected
+    deliver({"ev": "state", "current": CUR, "configs": [], "applied": [], "served": {}, "children": {"Red Cross": {"name": "Red Cross", "kind": "team", "at": 1793900000, "from": "10.170.170.40"}}})
+    deliver({"ev": "onNow", "mission": "standing", "who": {"pa": {"name": "Pat", "kind": "team", "team": "Alpha", "via": "10.170.170.1"},
+                                                          "dn": {"name": "Dan", "kind": "team", "team": "Red Cross"}, "dr": {"name": "Drone 1", "kind": "drone", "unit": "red cross"},
+                                                          "px": {"name": "Win PC", "kind": "team", "team": "Zulu"}}})
+    rc = pg.evaluate("[...document.querySelectorAll('#groups tr')].map(t=>t.innerText).find(t=>/^Red Cross/.test(t)) || ''")
+    tr = pg.evaluate("""(() => { const li = [...document.querySelectorAll('#onTree li')]; const f = (t) => li.find(l => l.firstElementChild && l.firstElementChild.textContent === t);
+      const kids = (l) => l ? [...l.querySelectorAll(':scope > ul > li > b')].map(b => b.textContent) : [];
+      return { top: kids(document.querySelector('#onTree > ul > li')), teams: kids(f('Teams')), alpha: kids(f('alpha')), rc: kids(f('Red Cross')), out: kids(f('In no group')),
+               drone: (f('Drone 1') || {}).textContent || '' } })()""")
+    if SHOTS: pg.locator("#onTree").screenshot(path=os.path.join(SHOTS, "admin-tree.png"))
+    check("joined" in rc and "Dan" in rc and tr["top"] == ["Teams", "In no group"] and tr["teams"] == ["alpha", "bravo", "eoc", "Red Cross"]
+          and tr["alpha"] == ["Pat"] and sorted(tr["rc"]) == ["Dan", "Drone 1"] and "drone" in tr["drone"] and tr["out"] == ["Win PC"] and not errs,
+          "7 Red Cross's row %r; the tree %s; errors %s" % (rc.replace("\t", " | ")[:140], tr, errs))
     br.close()
 print("RESULT", "PASS" if not FAILS else "FAIL: %d" % len(FAILS)); sys.exit(1 if FAILS else 0)

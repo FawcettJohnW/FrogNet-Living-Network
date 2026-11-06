@@ -88,9 +88,14 @@ function groups(m) {
   A.last = m
   const c = m.current || {}, served = m.served || {}, places = c.places || {}, rams = new Set(c.rams || [])
   // [ADMIN_ON_NOW_V1] each device on now, in the group it says (a team view's team, a unit's unit), any case
-  const now = (A.now || {}).who || {}, inGroup = {}, others = []
+  // [CHILDREN_JOIN_V1] the teams that joined the EOC (named by their joiners) are groups too: Teams, led from their lead's phone
+  const kids = m.children || {}, kidOf = {}
+  for (const [n, k] of Object.entries(kids)) kidOf[n.toLowerCase()] = Object.assign({ name: n }, k || {})
+  const groupOf = (x) => (c.roles || {})[x] !== undefined || kidOf[x] ? x : ''
+  const now = (A.now || {}).who || {}, inGroup = {}, others = [], devsIn = {}, devsOut = []
   for (const [d, w] of Object.entries(now)) {
-    const g = [w.team, w.unit].map(x => String(x || '').toLowerCase()).find(x => x && (c.roles || {})[x] !== undefined)
+    const g = [w.team, w.unit].map(x => String(x || '').toLowerCase()).find(x => x && groupOf(x))
+    if (g) (devsIn[g] = devsIn[g] || []).push([d, w]); else devsOut.push([d, w])
     const tag = `${esc(w.name || d)} <span class="mu">${esc(w.kind || '')}${w.via ? ' via ' + esc(w.via) : ''}</span>`
     if (g) (inGroup[g] = inGroup[g] || []).push(tag); else others.push(tag + (w.team || w.unit ? ` <span class="mu">(says ${esc(w.team || w.unit)}: no such group)</span>` : ''))
   }
@@ -104,10 +109,30 @@ function groups(m) {
     const at = !own ? '' : served[r] ? `<span class="ok">${esc(served[r])}</span>` : (p.at === 'here' ? '<span class="mu">on the lead\'s device (not a member)</span>' : '<span class="bad">nobody</span>')
     return `<tr><td><b>${esc(r)}</b></td><td>${esc((x || {}).category || DEF_CAT)}</td><td>${lives}</td><td>${at}</td><td>${esc((leads[r] || []).join(', ')) || '<span class="mu">none</span>'}</td>
       <td>${(inGroup[r] || []).join('<br>') || '<span class="mu">nobody</span>'}</td></tr>`
-  }).join('') || '<tr><td colspan="6" class="mu">no groups</td></tr>'
+  }).join('') + Object.entries(kidOf).filter(([k]) => (c.roles || {})[k] === undefined).sort().map(([k, x]) =>
+    `<tr><td><b>${esc(x.name)}</b> <span class="mu">joined</span></td><td>Teams</td><td>on its lead's phone <span class="mu">joined the EOC ${x.at ? esc(new Date(x.at * 1000).toLocaleString()) : ''}${x.from ? ' from ' + esc(x.from) : ''}</span></td>
+      <td><span class="mu">its lead's phone</span></td><td>${esc(x.name)} <span class="mu">(by the teams password)</span></td><td>${(inGroup[k] || []).join('<br>') || '<span class="mu">nobody</span>'}</td></tr>`).join('')
+    || '<tr><td colspan="6" class="mu">no groups</td></tr>'
+  tree(c, kidOf, leads, devsIn, devsOut)
   const n = A.now
   $('#onNow').innerHTML = !n ? 'Who is on now: asking…' : !n.mission ? 'Who is on now: no mission on this network yet (the first app to connect starts Standing operations)'
     : `Mission <b>${esc(n.mission)}</b> · ${Object.keys(now).length} on now` + (others.length ? ' · in no group: ' + others.join(' · ') : '')
+}
+// [ADMIN_TREE_V1] (John 2026-11-06: "Admin apps should show connected children of all types") who is connected, as a
+// tree: the mission; each category; each group in it (the admin's and the teams that joined), its kind, its lead; each
+// device on now in it, of whatever kind it says it is (a team member, an EOC desk, a unit, a plug-in's); then anyone on
+// now in no group. Kinds are what the devices say, not a list kept here.
+function tree(c, kidOf, leads, devsIn, devsOut) {
+  const n = A.now || {}, dev = ([d, w]) => `<li><b>${esc(w.name || d)}</b> <span class="mu">${esc(w.kind || '?')}${w.via ? ' via ' + esc(w.via) : ''}${w.status ? ' · ' + esc(w.status) : ''}</span></li>`
+  const cats = {}
+  for (const [r, x] of Object.entries(c.roles || {})) (cats[(x || {}).category || DEF_CAT] = cats[(x || {}).category || DEF_CAT] || []).push([r, r, 'group', (leads[r] || []).join(', ')])
+  for (const [k, x] of Object.entries(kidOf)) if ((c.roles || {})[k] === undefined) (cats.Teams = cats.Teams || []).push([k, x.name, (x.kind || 'team') + ', joined', x.name])
+  const body = Object.keys(cats).sort().map(cat => `<li><b>${esc(cat)}</b><ul>` + cats[cat].sort((a, b) => a[1].localeCompare(b[1])).map(([k, name, kind, lead]) => {
+    const ds = devsIn[k] || []
+    return `<li><b>${esc(name)}</b> <span class="mu">${esc(kind)} · lead ${esc(lead || 'none')} · ${ds.length} on now</span>${ds.length ? '<ul>' + ds.map(dev).join('') + '</ul>' : ''}</li>`
+  }).join('') + '</ul></li>').join('')
+  const out = devsOut.length ? `<li><b>In no group</b><ul>${devsOut.map(dev).join('')}</ul></li>` : ''
+  $('#onTree').innerHTML = `<ul class="tree"><li><b>${esc(n.mission ? 'Mission ' + n.mission : 'No mission yet')}</b> <span class="mu">${Object.keys(n.who || {}).length} on now</span><ul>${body}${out}</ul></li></ul>`
 }
 // [CATEGORY_DIALOG_V1] the page: a card per category (its groups, its users); a category opens as a pop-up (drawCat)
 const usersOf = (e, r) => Object.entries(e.users).filter(([, x]) => x.role === r)

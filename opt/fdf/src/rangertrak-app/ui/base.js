@@ -35,6 +35,14 @@ const TEAM_MORE = ['#9467bd', '#8c564b', '#e377c2', '#17becf', '#bcbd22', '#7f7f
 function teamColor(t) { t = String(t || '').toLowerCase(); if (TEAM_COLOR[t]) return TEAM_COLOR[t]; let h = 0; for (const c of t) h = (h * 31 + c.charCodeAt(0)) >>> 0; return TEAM_MORE[h % TEAM_MORE.length] }
 const capT = (t) => t ? t[0].toUpperCase() + t.slice(1) : t
 function knownTeams() { return [...S.teamNames].sort() }
+// [MAP_KINDS_DISCOVERED_V1] (John 2026-11-06: "Admin apps should show connected children of all types. Maps too") a kind
+// no layer of this app knows (a plug-in's, a child's) is drawn the moment it appears: a plain marker, its initial, a
+// colour of its own; it is on, and it is in Layers and the legend like any other. Says true when it was new.
+function addKind(k) {
+  if (!k || KINDS[k]) return false
+  KINDS[k] = { label: capT(String(k).replace(/[-_]/g, ' ')), shape: '', size: 16, color: teamColor('kind:' + k), ch: String(k)[0].toUpperCase(), found: true }
+  S.on[k] = true; return true
+}
 function addTeam(t) {
   t = String(t || '').toLowerCase(); if (!t || S.teamNames.has(t)) return false
   S.teamNames.add(t); if (RT.me().teams === 'all' && !S.teamsOff.has(t)) S.teamsOn.add(t)
@@ -379,7 +387,7 @@ function connected(m) {
     if (window.ResizeObserver) new ResizeObserver(fit).observe(document.getElementById('map'))
     window.addEventListener('resize', fit)
   }
-  for (const k in KINDS) S.on[k] = r.kinds === 'all' || (r.kinds || []).includes(k)
+  for (const k in KINDS) S.on[k] = !!KINDS[k].found || r.kinds === 'all' || (r.kinds || []).includes(k)   // [MAP_KINDS_DISCOVERED_V1] a found kind: on
   S.on.host = true                                      // [RT_HOSTS_ALWAYS_V1] the nodes are on every view's map, from the start
   S.on.lkp = !r.only
   // (John, 2026-11-01) the EOC starts with the map, teams and resources on it; the chat is a button away. A team member
@@ -420,8 +428,10 @@ function world(who, pos) {
   for (const id in S.pos) if (!pos[id] && S.pos[id]) S.lkp[id] = { b: S.pos[id], t: now }   // it left: its last known position
   for (const id in pos) delete S.lkp[id]
   const before = Object.keys(S.who).join(); S.who = who; S.pos = pos; RT.fire('world')
-  let more = false; for (const id in pos) { const b = pos[id]; if (b && b.kind === 'team' && addTeam(b.team)) more = true }
+  let more = false; for (const id in pos) { const b = pos[id]; if (b && (b.kind === 'team' ? addTeam(b.team) : addKind(b.kind))) more = true }
   if (more) teamsChanged()
+  const kinds = [...new Set(Object.values(pos).filter(Boolean).map(b => b.kind))].sort().join()
+  if (kinds !== S.kindsSeen) { S.kindsSeen = kinds; if (map && !more) legend() }
   if (Object.keys(who).join() !== before && map) toList()
   redraw()
 }
@@ -514,7 +524,7 @@ function layersPanel() {
     const h = document.createElement('div'); h.className = 'lh'; h.textContent = 'Teams'; p.appendChild(h)
     for (const t of knownTeams()) {
       const l = document.createElement('label')
-      l.innerHTML = `<input type="checkbox" ${S.teamsOn.has(t) ? 'checked' : ''}> <i style="background:${teamColor(t)}"></i> ${esc(capT(t))}`
+      l.innerHTML = `<input type="checkbox" ${S.teamsOn.has(t) ? 'checked' : ''}> <i style="background:${teamColor(t)}"></i> ${esc(cap(t))}`
       l.querySelector('input').onchange = (e) => { if (e.target.checked) { S.teamsOn.add(t); S.teamsOff.delete(t) } else { S.teamsOn.delete(t); S.teamsOff.add(t) } redraw() }
       p.appendChild(l)
     }
@@ -528,14 +538,16 @@ function layersPanel() {
   }
 }
 $('#layersBtn').onclick = () => { $('#layers').hidden = !$('#layers').hidden }
+// [MAP_KINDS_DISCOVERED_V1] the legend is what is on this network: its teams, then each other kind present (not a fixed list)
 function legend() {
   const r = RT.me()
-  $('#legend').innerHTML = r.legend !== undefined ? r.legend : knownTeams().map(t => `<span><i style="background:${teamColor(t)}"></i>${esc(capT(t))}</span>`).join('') +
-    '<span><i style="background:#e23b3b;border-radius:2px"></i>Ambulance</span><span><i style="background:#f2c200"></i>Victim</span>'
+  const present = [...new Set(Object.values(S.pos).filter(b => b && b.kind && b.kind !== 'team' && b.kind !== 'host' && visibleInView(b)).map(b => b.kind))].sort()
+  $('#legend').innerHTML = r.legend !== undefined ? r.legend : knownTeams().map(t => `<span><i style="background:${teamColor(t)}"></i>${esc(cap(t))}</span>`).join('') +
+    present.map(k => { const d = KINDS[k] || {}; return `<span><i style="background:${d.color || '#888'}${d.shape === 'sq' ? ';border-radius:2px' : ''}"></i>${esc(d.label || k)}</span>` }).join('')
 }
 
 // ------------------------------------------------------------ chat
-function teamsHere() { return RT.me().teams === 'all' ? knownTeams().map(capT) : (S.team ? [S.team] : []) }
+function teamsHere() { return RT.me().teams === 'all' ? knownTeams().map(cap) : (S.team ? [S.team] : []) }
 function tabs() {
   const t = $('#tabs'); t.innerHTML = ''
   for (const [k, n] of [['all', 'Everyone']].concat(teamsHere().map(x => ['team:' + x, x])).concat([['dev', 'Direct']])) {

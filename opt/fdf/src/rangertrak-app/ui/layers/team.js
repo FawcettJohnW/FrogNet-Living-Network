@@ -61,11 +61,22 @@ RT.layer('team', (RT) => {
       : '<div class="mem-at">⚠ this phone has no address a member can reach: turn on its hotspot (the team\'s Wi-Fi)</div>'
     sheet('members', 'Team ' + cap(x.team || ''), `${x.sponsoring ? '' : '<div class="meta">⚠ not sponsoring yet</div>'}
       <div class="mem-add"><input id="teamPw" type="password" placeholder="${x.teamPassword ? 'team password: set (type to change)' : 'the team password'}" autocomplete="new-password"><button type="button" id="teamPwSet">${x.teamPassword ? 'Change' : 'Set'}</button></div>
-      ${sel}<div class="mem-qr" id="memQr"></div><h3>Joined</h3>${rows}`)
+      ${sel}<div class="mem-qr" id="memQr"></div><h3>Joined</h3>${rows}<h3>On now</h3><div id="memNow"></div>`)
+    memNow()
     if ($('#memAt')) $('#memAt').onchange = (e) => { S.memAt = e.target.value; teamQr() }
     $('#teamPwSet').onclick = () => { const p = $('#teamPw').value; if (!p) return; status('setting the team password…'); window.rtNative.setTeamPassword(p) }
     teamQr()
   }
+  // [ADMIN_TREE_V1] the team's admin likewise: everyone on now in this team, of whatever kind it says (a member, a unit,
+  // a plug-in's device), from the world, as it changes
+  function memNow() {
+    const el = $('#memNow'); if (!el) return
+    const t = String((S.mem || {}).team || S.team || '').toLowerCase()
+    const on = Object.entries(S.who || {}).map(([id, w]) => [id, Object.assign({}, S.pos[id] || {}, w || {})])
+      .filter(([, w]) => [w.team, w.unit].some(x => String(x || '').toLowerCase() === t))
+    el.innerHTML = on.map(([id, w]) => `<div class="mem-row"><b>${esc(w.name || id)}</b> <span class="meta">${esc(w.kind || '?')}${w.via ? ' via ' + esc(w.via) : ''}</span></div>`).join('') || '<div class="meta">no one on now</div>'
+  }
+  RT.hook('world', memNow)
   function teamQr() {
     const x = S.mem || {}
     if (!x.teamPassword) { $('#memQr').innerHTML = '<div class="meta">set the team password: then the team\'s QR is here</div>'; return }

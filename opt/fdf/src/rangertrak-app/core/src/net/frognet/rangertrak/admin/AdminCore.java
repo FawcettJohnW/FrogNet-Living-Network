@@ -51,7 +51,7 @@ import java.util.Map;
  */
 public final class AdminCore {
     public interface Ui { void deliver(String json); }
-    public static final String BUILD = "rt-admin-2026-11-06-r12";
+    public static final String BUILD = "rt-admin-2026-11-06-r13";
 
     private final Ui ui;
     private volatile String door = "", app = "", user = "";
@@ -221,7 +221,8 @@ public final class AdminCore {
         return st;
     }
     private void deliverState(Map<String, Object> st) {
-        out("ev", "state", "configs", st.get("configs"), "applied", st.get("applied"), "served", st.get("served"), "current", current, "sent", sent);
+        out("ev", "state", "configs", st.get("configs"), "applied", st.get("applied"), "served", st.get("served"), "current", current, "sent", sent,
+            "children", st.get("children") == null ? Json.o() : st.get("children"));   // [CHILDREN_JOIN_V1] the teams that joined
     }
     private void startWatch() {
         final Thread t = new Thread(new Runnable() { public void run() {

@@ -69,8 +69,10 @@ with tempfile.TemporaryDirectory() as tmp, sync_playwright() as pw:
     got = zxing_read.read([q1, q2])
     w1 = "fdfenroll1 http://192.168.43.1:21801/enroll rangertrak *"; w2 = "fdfenroll1 http://10.253.1.1:21801/enroll rangertrak *"
     joined = "KJ7ABC" in pg.inner_text("#sheet")
+    pg.evaluate("rtDeliver(JSON.stringify({ev: 'world', who: {d9: {name: 'Drone 9'}, x1: {name: 'Other'}}, pos: {d9: {kind: 'drone', unit: 'echo', name: 'Drone 9'}, x1: {kind: 'team', team: 'Alpha', name: 'Other'}}}))")
+    nowEcho = pg.inner_text("#memNow"); joined = joined and "Drone 9" in nowEcho and "drone" in nowEcho and "Other" not in nowEcho
     check(btn and ["members"] in pg.evaluate("__sent") and noQr and setPw and got.get(q1) == w1 and got.get(q2) == w2 and joined,
-          "4 the lead's team: no QR before the password %s; the password handed over %s; the team's QR reads %r, then %r; KJ7ABC listed %s" % (noQr, setPw, got.get(q1), got.get(q2), joined))
+          "4 the lead's team: no QR before the password %s; the password handed over %s; the team's QR reads %r, then %r; KJ7ABC listed, on now Drone 9 (drone), not Alpha's %s" % (noQr, setPw, got.get(q1), got.get(q2), joined))
     pg.click("#sheet .sh-close")
     # 6 [TEAM_JOIN_V1] the team's QR scanned: a call sign and the team password; Join enrolls the call sign
     pg.evaluate("__sent.length = 0; $('#main').hidden = true; $('#connect').hidden = false")   # a joining phone: its first screen
