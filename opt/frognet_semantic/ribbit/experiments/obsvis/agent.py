@@ -10,7 +10,7 @@
 #               (obsvis, ready, NAME[.N])   a step done: prepared, server (re)started
 #               (obsvis, result, NAME)      its data's index: {chunks: [var ...], ok, errors}
 #               (obsvis, <var>, data)       its data, ~200 KB a tuple (a reply frame is at most 1 MB)
-#   it holds    ONE read on (obsvis, ctl), the controller's words, each a scope:
+#   it follows  ONE family, (obsvis, ctl): the controller's words, each an instance (a standing follow, ribbit::Space):
 #               prepare  the plan: srv starts the server under test; p1 and srv start their captures; pN set up
 #               go       t0: participants run the seeded workload until t0 + dur, then report
 #               step-N   a stress step: server (srv restarts chat-ram), move (p6, p7 move themselves), revoke (srv)
@@ -24,16 +24,20 @@
 # Captures (p1: O1, srv: O2): tcpdump -s 96 on eth0, the control region's address left out; the pcap is kept in DIR and
 # its packet headers come back as records [t, src, dst, proto, sport, dport, ip_len].
 # Conditions: A direct TLS 1.3 to each follower; B Mosquitto, topic chat/<recipient>, TLS 1.3 on 8883; C chat-ram, the
-# chat example's own schema and client (ChatServer.<recipient>.<producer>); D chat-ram, own truth (Chat.<producer>.out,
-# one held read per producer followed); Dall chat-ram, read-all (Chat.Out.<producer>, one held read, filtered here).
+# chat example's own schema and client (ChatServer.<recipient>.<producer>, its held reads); D and D-all on ribbit::Space,
+# the one publish/subscribe library the conversions (MQTT, Redis) are built on: each write is the producer's own cell in
+# its ring (as the MQTT conversion's publishes: <writer>.<n mod RING>) and each consumer holds standing follows --
+#   D      own truth: (Chat, <producer>, <producer>.<n mod RING>); a follow on each producer followed
+#   Dall   read-all:  (Chat, Out, <producer>.<n mod RING>); one follow on (Chat, Out), filtered here
 import argparse, json, os, signal, socket, ssl, struct, subprocess, sys, threading, time
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, HERE); sys.path.insert(0, os.path.join(HERE, "build"))
 import bed, ram, workload  # noqa: E402
 
-BUILD = "obsvis-agent-2026-11-06-r2"
+BUILD = "obsvis-agent-2026-11-06-r3"
 HOLD_S = 30.0
+RING = 64                  # a producer's cells: write n is <producer>.<n mod RING>
 CHUNK = 200000
 HZ = os.sysconf("SC_CLK_TCK")
 
@@ -104,8 +108,9 @@ class Agent:
     def __init__(self, a):
         self.name, self.outdir = a.name, a.out
         self.part = self.name in workload.PARTS
-        h, p = a.ctl.rsplit(":", 1)
-        self.ctl = ram.Ram(h, int(p))
+        self.ctl_at = a.ctl
+        self.ctl = ram.Space(a.ctl)
+        self.ctl_after, self.done = 0, threading.Event()
         self.data = {"truth": Rec(), "o3": Rec(), "o4": Rec()}
         self.truth, self.o3, self.o4 = self.data["truth"], self.data["o3"], (self.data["o4"] if self.name == "p1" else None)
         self.errors, self.seen, self.mine, self.fol = [], set(), set(), []
@@ -122,22 +127,24 @@ class Agent:
     # ---- the control region
     def main(self):
         self.say("%s; ribbit lib %s; python %s" % (BUILD, ram.LIB, sys.version.split()[0]))
-        self.ctl.put("obsvis", "adv", self.name, {"build": BUILD, "pid": os.getpid(), "addr": bed.ADDR(self.name) if self.name in bed.K else "router"}, own=True)
-        after = -1
-        while True:                                          # ONE held read: every word of the controller's
-            ctl = self.ctl
-            try:
-                rows = ctl.get_after("obsvis", "ctl", after, HOLD_S)
-            except ram.RamError as e:
-                if self.moving.is_set():                     # [stress 3] this agent is moving: its new session, same place
-                    self.moved.wait(); continue
-                self.say("the control region ended: %s" % e); os._exit(3)
+        self.ctl.write("obsvis", "adv", self.name, {"build": BUILD, "pid": os.getpid(), "addr": bed.ADDR(self.name) if self.name in bed.K else "router"})
+        self.follow_ctl()
+        self.done.wait()
+        self.say("done"); os._exit(0)
+
+    def follow_ctl(self):
+        """ONE standing follow on the controller's words; each word is handled on a thread of its own"""
+        def on(rows):
             for r in rows:
-                after = max(after, int(r["id"]))
-                w, v = r["scope"], r["value"]
-                if w == "done":
-                    self.say("done"); os._exit(0)
-                threading.Thread(target=self.word, args=(w, v), daemon=True).start()
+                self.ctl_after = max(self.ctl_after, int(r["id"]))
+                if r["gone"] or r["bag"] is None: continue
+                if r["instance"] == "done": self.done.set(); return
+                threading.Thread(target=self.word, args=(r["instance"], r["bag"]), daemon=True).start()
+        def ended(why):
+            if self.moving.is_set():                           # [stress 3] this agent is moving: its new session follows on
+                return
+            self.say("the control region ended: %s" % why); os._exit(3)
+        self.ctl.follow("obsvis", "ctl", on, after=self.ctl_after, ended=ended)
 
     def word(self, w, v):
         try:
@@ -158,11 +165,11 @@ class Agent:
             for it in items:
                 buf.append(it)
                 if len(json.dumps(buf)) > CHUNK:
-                    var = "data.%s.%s.%d" % (self.name, k, n); self.ctl.put("obsvis", var, "data", {"k": k, "rows": buf}); idx.append(var)
+                    var = "data.%s.%s.%d" % (self.name, k, n); self.ctl.write("obsvis", var, "data", {"k": k, "items": buf}); idx.append(var)
                     buf, n = [], n + 1
             if buf:
-                var = "data.%s.%s.%d" % (self.name, k, n); self.ctl.put("obsvis", var, "data", {"k": k, "rows": buf}); idx.append(var)
-        self.ctl.put("obsvis", "result", self.name, dict({"ok": not self.errors, "errors": self.errors[:20], "n_err": len(self.errors),
+                var = "data.%s.%s.%d" % (self.name, k, n); self.ctl.write("obsvis", var, "data", {"k": k, "items": buf}); idx.append(var)
+        self.ctl.write("obsvis", "result", self.name, dict({"ok": not self.errors, "errors": self.errors[:20], "n_err": len(self.errors),
                                                           "build": BUILD, "chunks": idx}, **(extra or {})))
         self.say("reported: %d chunk(s), %d error(s)" % (len(idx), len(self.errors)))
 
@@ -183,7 +190,7 @@ class Agent:
             if self.cond == "A": self.listen_A()
             self.say("run %s: condition %s, %s, seed %d; follows %s; followed by %s" % (plan["run"], self.cond, self.kind, self.seed,
                      sorted(self.mine), self.fol))
-        self.ctl.put("obsvis", "ready", self.name, {"ok": True, "what": "prepare"})
+        self.ctl.write("obsvis", "ready", self.name, {"ok": True, "what": "prepare"})
 
     # ---- the server under test (srv)
     def start_server(self, n):
@@ -206,21 +213,23 @@ class Agent:
         me = self.name in v.get("who", ["srv"] if v["do"] in ("server", "revoke") else [])
         if v["do"] == "server" and self.name == "srv":
             self.used.append(self.srv.stop()); self.srv = self.start_server(len(self.used))
-            self.ctl.put("obsvis", "ready", "srv." + w, {"ok": True, "what": w, "t": time.time()})
+            self.ctl.write("obsvis", "ready", "srv." + w, {"ok": True, "what": w, "t": time.time()})
         elif v["do"] == "revoke" and self.name == "srv":
             for p in v["who"]: bed.revoke(p)
-            self.ctl.put("obsvis", "ready", "srv." + w, {"ok": True, "what": w, "t": time.time()})
+            self.ctl.write("obsvis", "ready", "srv." + w, {"ok": True, "what": w, "t": time.time()})
         elif v["do"] == "move" and me:
             self.moving.set()
             bed.move(self.name)
-            self.ctl = ram.Ram(bed.CTL, 8899)                # its sessions from the old address are gone with it
+            self.ctl = ram.Space(self.ctl_at)                # its sessions from the old address are gone with it
+            self.follow_ctl()
             self.moved.set()
             if self.cond in ("C", "D", "Dall"):              # its own sessions to the server again, its reads re-armed
                 getattr(self, "reconnect_" + self.cond)()
                 with self.rearm:
                     self.epoch += 1000; self.rearm.notify_all()
+            self.moving.clear()
             self.truth(ev="moved", c=self.name, to=bed.ADDR(self.name, 3))
-            self.ctl.put("obsvis", "ready", self.name + "." + w, {"ok": True, "what": w, "t": time.time()})
+            self.ctl.write("obsvis", "ready", self.name + "." + w, {"ok": True, "what": w, "t": time.time()})
 
     def finish_side(self, v):
         if self.part and self.name != "p1":
@@ -269,7 +278,7 @@ class Agent:
         if self.name == "p1":
             self.p1_run_done = True
             if not getattr(self, "p1_cap_done", False):
-                self.ctl.put("obsvis", "ready", "p1.run", {"ok": True, "what": "run"}); return
+                self.ctl.write("obsvis", "ready", "p1.run", {"ok": True, "what": "run"}); return
         self.report()
 
     def recv(self, m, how="recv"):
@@ -367,7 +376,7 @@ class Agent:
         import chat
         self.chat = chat; self.cl = chat.Client(bed.WG("srv"), 8811)
         threading.Thread(target=self.read_C, daemon=True).start()
-        if self.o4 is not None: self.insider("ChatServer")
+        if self.o4 is not None: self.insider("ChatServer")   # the insider's read: ribbit::Space, the whole service
 
     def reconnect_C(self):
         self.cl = self.chat.Client(bed.WG("srv"), 8811)
@@ -394,67 +403,65 @@ class Agent:
             self.cl.send(j, self.name, body)
             self.o3(conn=bed.WG(self.name), op="put", svc="ChatServer", var=j, scope=self.name, bytes=len(body), again=again)
 
-    # ================================================================== D: chat-ram, own truth
+    # ================================================================== D: own truth, on ribbit::Space
+    def families(self):
+        return [("Chat", p) for p in sorted(self.mine)] if self.cond == "D" else [("Chat", "Out")]
+
     def up_D(self):
-        self.r = ram.Ram(bed.WG("srv"), 8811)
-        for p in sorted(self.mine):               # one held read per producer followed
-            threading.Thread(target=self.read_D, args=(p,), daemon=True).start()
-        if self.o4 is not None: self.insider("Chat")
+        self.r = ram.Space("%s:8811" % bed.WG("srv")); self.n = 0
+        for sp, topic in self.families():                  # standing follows, from now on: the memory streams each batch
+            self.follow_D(sp, topic)
+        if self.o4 is not None: self.insider("Chat" if self.cond != "C" else "ChatServer")
+
+    up_Dall = up_D
+
+    def follow_D(self, sp, topic):
+        me = bed.WG(self.name)
+        self.o3(conn=me, op="follow", svc=sp, var=topic, scope="*", bytes=0)
+        def on(rows):
+            live = [r for r in rows if not r["gone"] and r["bag"]]
+            if not live: return
+            self.o3(conn=me, op="release", svc=sp, var=topic, scope="*", bytes=sum(len(json.dumps(r["bag"])) for r in live), rows=len(live))
+            for r in live:
+                if "m" in r["bag"]: self.recv(r["bag"])
+        def ended(why):
+            if not self.stop.is_set(): self.err("follow %s/%s ended: %s" % (sp, topic, why))
+        self.r.follow(sp, topic, on, after=-1, ended=ended)
 
     def reconnect_D(self):
-        self.r = ram.Ram(bed.WG("srv"), 8811)
+        """a fresh server (or this participant moved): its session again, its follows again, its own state again"""
+        self.r = ram.Space("%s:8811" % bed.WG("srv"))
+        for sp, topic in self.families():
+            self.follow_D(sp, topic)
         if getattr(self, "last", None): getattr(self, "send_" + self.cond)(self.last, again=True)
-
-    def read_D(self, var):
-        after, ep = -1, self.epoch
-        while not self.stop.is_set():
-            self.o3(conn=bed.WG(self.name), op="park", svc="Chat", var=var, scope="*", bytes=0)
-            try:
-                rows = self.r.get_after("Chat", var, after, HOLD_S)
-            except ram.RamError as e:
-                if self.stop.is_set(): return
-                self.err("held read Chat.%s ended: %s" % (var, e)); ep = self.wait_epoch(ep); after = -1; continue
-            self.o3(conn=bed.WG(self.name), op="release", svc="Chat", var=var, scope="*",
-                    bytes=sum(len(json.dumps(r["value"])) for r in rows), rows=len(rows))
-            for r in rows:
-                after = max(after, int(r["id"]))
-                if "m" in r["value"]: self.recv(r["value"])
-
-    def send_D(self, body, again=False):
-        self.last = body
-        self.r.put("Chat", self.name, "out", json.loads(body))
-        self.o3(conn=bed.WG(self.name), op="put", svc="Chat", var=self.name, scope="out", bytes=len(body), again=again)
-
-    # ================================================================== D-all: chat-ram, read-all
-    def up_Dall(self):
-        self.r = ram.Ram(bed.WG("srv"), 8811)
-        threading.Thread(target=self.read_D, args=("Out",), daemon=True).start()
-        if self.o4 is not None: self.insider("Chat")
 
     reconnect_Dall = reconnect_D
 
+    def send_D(self, body, again=False):
+        self.last = body
+        slot = "%s.%d" % (self.name, self.n % RING); self.n += 1
+        self.r.write("Chat", self.name, slot, json.loads(body))
+        self.o3(conn=bed.WG(self.name), op="put", svc="Chat", var=self.name, scope=slot, bytes=len(body), again=again)
+
     def send_Dall(self, body, again=False):
         self.last = body
-        self.r.put("Chat", "Out", self.name, json.loads(body))
-        self.o3(conn=bed.WG(self.name), op="put", svc="Chat", var="Out", scope=self.name, bytes=len(body), again=again)
+        slot = "%s.%d" % (self.name, self.n % RING); self.n += 1
+        self.r.write("Chat", "Out", slot, json.loads(body))
+        self.o3(conn=bed.WG(self.name), op="put", svc="Chat", var="Out", scope=slot, bytes=len(body), again=again)
 
-    # ================================================================== O4: the insider reads the whole service
+    # ================================================================== O4: the insider follows the whole service
     def insider(self, svc):
-        ins = ram.Ram(bed.WG("srv"), 8811)
-        def rd():
-            after = -1
-            while not self.stop.is_set():
-                try:
-                    rows = ins.get_after(svc, "", after, HOLD_S)
-                except ram.RamError as e:
-                    self.o4(src="ram", error=str(e)); return
-                for r in rows:
-                    after = max(after, int(r["id"])); v = r["value"]; f = v.get("f") or v.get("from")
-                    if svc == "ChatServer":
-                        try: f = json.loads(v.get("text", "{}")).get("f", f)
-                        except ValueError: pass
-                    self.o4(src="ram", svc=svc, var=r["var"], scope=r["scope"], f=f, bytes=len(json.dumps(v)))
-        threading.Thread(target=rd, daemon=True).start()
+        ins = ram.Space("%s:8811" % bed.WG("srv")); self.ins = ins
+        def on(rows):
+            for r in rows:
+                v = r["bag"]
+                if r["gone"] or not v: continue
+                f = v.get("f") or v.get("from")
+                if svc == "ChatServer":
+                    try: f = json.loads(v.get("text", "{}")).get("f", f)
+                    except ValueError: pass
+                self.o4(src="ram", svc=svc, var=r["topic"], scope=r["instance"], f=f, bytes=len(json.dumps(v)))
+        ins.follow(svc, "", on, after=-1, ended=lambda why: self.o4(src="ram", error=why))
 
 
 if __name__ == "__main__":

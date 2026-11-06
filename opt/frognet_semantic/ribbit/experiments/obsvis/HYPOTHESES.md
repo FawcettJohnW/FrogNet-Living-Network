@@ -1,7 +1,8 @@
 # Observer-visibility experiment: pre-registered hypotheses
 
 Recorded 2026-11-06, before any held-out seed (7-10) ran. This file is committed to the repository before the matrix
-runs; its commit time is the record.
+runs; its commit time is the record. Revised the same day, still before any held-out seed ran, only to describe D and
+D-all as rebuilt on ribbit::Space; the hypotheses themselves are unchanged.
 
 ## The question
 
@@ -11,8 +12,11 @@ participants) under five builds of one messaging workload:
 - A: direct TLS 1.3, each producer to each of its followers
 - B: stock Mosquitto, topic `chat/<recipient>`, TLS 1.3 on 8883
 - C: chat-ram, the chat example's own schema (`ChatServer.<recipient>.<producer>`), over WireGuard (wireguard-go)
-- D: chat-ram, own truth (`Chat.<producer>.out`, one held read per producer followed), over WireGuard
-- D-all: chat-ram, read-all (`Chat.Out.<producer>`, every consumer one held read, filtered locally), over WireGuard
+- D: chat-ram on ribbit::Space (the one publish/subscribe library the MQTT and Redis conversions use), own truth: each
+  producer writes its own ring cells, `Chat.<producer>.<producer>.<n mod 64>`, and each consumer holds a standing follow
+  on each producer it follows. Over WireGuard.
+- D-all: the same library, read-all: `Chat.Out.<producer>.<n mod 64>`. Every consumer holds one standing follow on
+  `Chat.Out` and filters locally. Over WireGuard.
 
 ## Observers
 

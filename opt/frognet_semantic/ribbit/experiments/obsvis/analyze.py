@@ -15,7 +15,7 @@
 # Per pair (i, j) -- "j follows i" -- features: timing (the share of i's upstream events followed within w by a
 # downstream event to j, and that share's expectation were they independent; w in 10 ms, 50 ms, 200 ms, 1 s, 2 s),
 # packet-size bins (lagged co-occurrence, 200 ms), and the keys an observer can read (O3, O4: puts/publishes by i
-# addressed to j, held reads by j on i's variable; O1: packets between p1 and another participant's address).
+# addressed to j, follows by j on i's family; O1: packets between p1 and another participant's address).
 # Attackers: timing correlation alone (w chosen on the training seeds), and a logistic regression on every feature
 # (trained on the training seeds, scored on the held-out ones). AUC with a 95% bootstrap CI (1000 draws: seeds, then
 # pairs within them, resampled).
@@ -127,7 +127,7 @@ def features(R, cond):
                 if cond == "C" and e["var"] in PARTS: key[(who, e["var"])] = key.get((who, e["var"]), 0) + 1
             elif e["op"] == "release" and e.get("rows"):
                 o3d.setdefault(who, []).append((e["t"], e["bytes"]))
-            elif e["op"] == "park" and cond == "D" and e["var"] in PARTS:
+            elif e["op"] in ("park", "follow") and cond == "D" and e["var"] in PARTS:   # D: j follows i's family
                 key[(e["var"], who)] = key.get((e["var"], who), 0) + 1
     T3 = timing_feats(o3u, o3d, SCOPE["O3"])
     kt = max(1, sum(key.values()))
@@ -245,7 +245,7 @@ def main():
         p = c["plan"]
         runs.setdefault((p["cond"], p["traffic"], p.get("stress_name")), []).append((int(p["seed"]), run, c.get("ok")))
     rng = np.random.default_rng(20261106)
-    report = {"build": "obsvis-analyze-2026-11-06-r2", "train": sorted(TR), "test": sorted(TE), "cells": []}
+    report = {"build": "obsvis-analyze-2026-11-06-r3", "train": sorted(TR), "test": sorted(TE), "cells": []}
     for (cond, traffic, stress), rs in sorted(runs.items(), key=lambda x: (x[0][2] or "", x[0][1], x[0][0])):
         tr, te, cost, failed = {o: [] for o in SCOPE}, {o: [] for o in SCOPE}, [], []
         for seed, run, ok in sorted(rs):

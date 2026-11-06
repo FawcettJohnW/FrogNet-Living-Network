@@ -16,7 +16,7 @@
 #   bed.py up [--wg] [--netem "delay 100ms" ...]     bed.py down
 import argparse, ctypes, ctypes.util, os, subprocess, sys
 
-BUILD = "obsvis-bed-2026-11-06-r1"
+BUILD = "obsvis-bed-2026-11-06-r2"
 PARTS = ["p%d" % i for i in range(1, 9)]
 K = dict({p: int(p[1:]) for p in PARTS}, srv=20, ctl=30)
 NS = lambda n: "ov-" + n
@@ -32,7 +32,7 @@ class Inotify:
     def __init__(self, d):
         self.libc = ctypes.CDLL(ctypes.util.find_library("c") or "libc.so.6", use_errno=True)
         self.fd = self.libc.inotify_init1(0o2000000)
-        if self.fd < 0 or self.libc.inotify_add_watch(self.fd, d.encode(), 0x8 | 0x80 | 0x100 | 0x200 | 0x40) < 0:
+        if self.fd < 0 or self.libc.inotify_add_watch(self.fd, d.encode(), 0x2 | 0x8 | 0x80 | 0x100 | 0x200 | 0x40) < 0:
             raise OSError(ctypes.get_errno(), "inotify " + d)
     def read(self):
         os.read(self.fd, 65536)
@@ -92,18 +92,21 @@ def wg_up():
         keys[n] = (priv, pub)
     for n in PARTS + ["srv"]:
         # wireguard-go in the foreground, its own session: its daemon mode (WG_PROCESS_FOREGROUND=0) leaves no device
-        # behind in this kernel's namespaces. Ready when its control socket appears (inotify: no polling).
+        # behind in this kernel's namespaces. Ready when it says its control socket listens ("UAPI listener started":
+        # the socket file exists a moment before it listens) -- its log watched with inotify, no polling.
         sock = "/var/run/wireguard/%s.sock" % WGIF(n)
         if os.path.exists(sock):
             os.unlink(sock)
         os.makedirs("/var/run/wireguard", exist_ok=True)
-        w = Inotify("/var/run/wireguard")
-        log = open("/run/ov-wg-%s.log" % n, "w")
+        lf = "/run/ov-wg-%s.log" % n
+        open(lf, "w").close()
+        w = Inotify("/run")
+        log = open(lf, "a")
         pr = subprocess.Popen(["ip", "netns", "exec", NS(n), "wireguard-go", "-f", WGIF(n)], stdin=subprocess.DEVNULL,
-                              stdout=log, stderr=log, start_new_session=True)
-        while not os.path.exists(sock):
+                              stdout=log, stderr=log, start_new_session=True, env=dict(os.environ, LOG_LEVEL="verbose"))
+        while "UAPI listener started" not in open(lf).read():
             if pr.poll() is not None:
-                raise RuntimeError("wireguard-go in %s ended: %s" % (n, open("/run/ov-wg-%s.log" % n).read().strip()))
+                raise RuntimeError("wireguard-go in %s ended: %s" % (n, open(lf).read().strip()))
             w.read()
         w.close()
         kf = "/run/ov-wg-%s.key" % n
