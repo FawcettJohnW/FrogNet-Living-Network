@@ -67,7 +67,12 @@ RT.layer('team', (RT) => {
     S.memQr = n; const x = S.mem || {}
     if (!S.memAt) { $('#memQr').innerHTML = '<div class="meta">no address to put in the code</div>'; return }
     const url = 'http://' + S.memAt + ':' + x.port + '/enroll'
-    $('#memQr').innerHTML = FrogQR.svg(FrogQR.enrollLine(url, x.app, n), { px: 340 }) + `<div class="who">${esc(n)} · ${esc(S.memAt)}</div>`
+    // [ENROLL_KEY_V1] the code signs N in by itself: a one-time key (15 minutes, once) this phone keeps the verifier of;
+    // N's phone joins this phone's hotspot (Android's own QR, on the Hotspot screen), scans this, and is in -- its own
+    // FrogNet invitation (its WireGuard key) given with it, its tunnel through this hotspot
+    const key = window.rtNative.memberKey ? window.rtNative.memberKey(n) : ''
+    $('#memQr').innerHTML = FrogQR.svg(FrogQR.enrollLine(url, x.app, n, key), { px: 340 }) + `<div class="who">${esc(n)} · ${esc(S.memAt)}</div>` +
+      (key ? `<div class="meta">Signs ${esc(n)} in: once, for 15 minutes (QR again for a new one). ${esc(n)}'s phone joins this phone's hotspot first (its QR is on the Hotspot screen), then Scan to join.</div>` : '')
   }
   document.addEventListener('click', (e) => {
     const t = e.target

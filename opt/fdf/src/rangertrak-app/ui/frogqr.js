@@ -82,13 +82,14 @@
 
   function esc(p) { return String(p).replace(/%/g, '%25').replace(/ /g, '%20'); }
   // [ENROLL_V1] the enrollment line for URL, APP and USER
-  function enrollLine(url, app, user) { return 'fdfenroll1 ' + [url, app, user].map(esc).join(' '); }
+  // [ENROLL_KEY_V1] KEY (optional): a one-time sign-in key from the team lead's phone -- the code signs its user in by itself
+  function enrollLine(url, app, user, key) { return 'fdfenroll1 ' + [url, app, user].concat(key ? [key] : []).map(esc).join(' '); }
   // ... and back: {url, app, user}, or null when LINE is not one
   function parseEnroll(line) {
     var p = String(line || '').trim().split(' ');
-    if (p.length !== 4 || p[0] !== 'fdfenroll1') return null;
+    if ((p.length !== 4 && p.length !== 5) || p[0] !== 'fdfenroll1') return null;
     try { p = p.map(decodeURIComponent); } catch (x) { return null; }
-    return p[1] && p[3] ? { url: p[1], app: p[2], user: p[3] } : null;
+    return p[1] && p[3] ? { url: p[1], app: p[2], user: p[3], key: p[4] || '' } : null;
   }
   root.FrogQR = { BUILD: BUILD, svg: svg, enrollLine: enrollLine, parseEnroll: parseEnroll };
 })(typeof window !== 'undefined' ? window : globalThis);

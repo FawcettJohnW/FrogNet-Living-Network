@@ -39,6 +39,19 @@ final class Enrolled {
         Map<String, Object> m = new LinkedHashMap<String, Object>(members(c)); m.put(name, Json.o("verifier", verifier));
         prefs(c).edit().putString("members", Json.write(m)).apply();
     }
+    /** [ENROLL_KEY_V1] a one-time sign-in key for NAME: its verifier and until when (never the key), on its record */
+    static synchronized void putKey(Context c, String name, Map<String, Object> verifier, long until) {
+        Map<String, Object> m = new LinkedHashMap<String, Object>(members(c)); Object r = m.get(name);
+        if (!(r instanceof Map)) return;
+        Map<String, Object> rec = new LinkedHashMap<String, Object>(Json.obj(r)); rec.put("key", Json.o("verifier", verifier, "until", until)); m.put(name, rec);
+        prefs(c).edit().putString("members", Json.write(m)).apply();
+    }
+    static synchronized void clearKey(Context c, String name) {
+        Map<String, Object> m = new LinkedHashMap<String, Object>(members(c)); Object r = m.get(name);
+        if (!(r instanceof Map)) return;
+        Map<String, Object> rec = new LinkedHashMap<String, Object>(Json.obj(r)); rec.remove("key"); m.put(name, rec);
+        prefs(c).edit().putString("members", Json.write(m)).apply();
+    }
     static synchronized void removeMember(Context c, String name) {
         Map<String, Object> m = new LinkedHashMap<String, Object>(members(c)); m.remove(name);
         prefs(c).edit().putString("members", Json.write(m)).apply();

@@ -231,6 +231,10 @@ $('#scanTeam').onclick = () => { $('#cstatus').textContent = 'scan the frog QR c
 // [ENROLL_V1] scanned: who this code is for and where; the password, then Join
 function enrollScan(m) {
   S.enrollLine = m.line
+  if (m.signIn) {                                       // [ENROLL_KEY_V1] the lead's one-time code: nothing to type
+    $('#cstatus').textContent = 'signing in as ' + m.user + '…'; S.enrollPw = ''
+    window.rtNative.enroll(JSON.stringify({ line: m.line, password: '' })); return
+  }
   $('#enrollWho').textContent = m.user + ' · ' + m.app + ' · ' + m.url.replace(/^https?:\/\//, '').replace(/\/.*/, '')
   $('#enrollBox').hidden = false; $('#enrollPw').value = ''; $('#enrollPw').focus()
   $('#cstatus').textContent = 'type ' + m.user + "'s password"
@@ -319,6 +323,7 @@ function diagSheet(d) {
     ${tun ? `<h3>FrogNet tunnel</h3>
     <div>This app's tunnel: ${tun.running ? '<span class="ok">up</span>' : '<span class="bad">not running</span>'}${tun.vpnUp ? ' · a VPN network is up' : ''}${tun.otherTunnel ? ' · another FrogNet app\'s tunnel is up' : ''} · invitation ${tun.invited ? 'yes (' + esc(tun.what) + ')' : '<span class="bad">NO</span>'}</div>
     <div>On a node's LAN: ${tun.nodeLan ? esc(tun.nodeLan) + ' (no tunnel needed: the node routes this phone)' : 'no'}${tun.lanShape && !tun.nodeLan ? ' · node-shaped LAN ' + esc(tun.lanShape) : ''} · gateways asked: ${esc(JSON.stringify(tun.gateways))}</div>
+    <div>Team Wi-Fi (this phone's hotspot): ${tun.hotspot ? '<span class="ok">on</span> at ' + esc(tun.hotspot) : tun.hosting ? '<span class="bad">OFF while this phone hosts the team</span>' : 'off'}${tun.hosting ? ' · hosting the team' : ''} · other interfaces: ${esc((tun.ifaces || []).map(i => i.name + ' ' + i.addr + (i.hotspot ? ' (hotspot)' : '')).join(', ') || 'none')}</div>
     <div class="meta">${esc(tun.networks || '')}</div>
     <div class="meta">${(tun.notes || []).map(esc).join('<br>') || 'no tunnel decision yet'}</div>` : ''}
     <h3>This device</h3>

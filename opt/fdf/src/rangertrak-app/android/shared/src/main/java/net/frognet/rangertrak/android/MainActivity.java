@@ -81,7 +81,8 @@ public final class MainActivity extends Activity implements LocationListener {
             List<String> notes; synchronized (tunnelNotes) { notes = new ArrayList<String>(tunnelNotes); }
             return Json.write(Json.o("invited", Member.has(MainActivity.this), "what", Member.has(MainActivity.this) ? Member.what(MainActivity.this) : "",
                     "running", Member.running(), "started", memberStarted, "vpnUp", vpnUp(), "otherTunnel", otherTunnel() != null,
-                    "nodeLan", lan, "lanShape", shape, "gateways", new HashMap<String, Object>(gwIsNode), "networks", nets, "notes", notes));
+                    "nodeLan", lan, "lanShape", shape, "gateways", new HashMap<String, Object>(gwIsNode), "networks", nets, "notes", notes,
+                    "hosting", hostingNow, "hotspot", hotspotAddr(), "ifaces", otherIfaces()));
         }
         /** [RT_DIAG_V1] the phone's GPS as Diagnostics shows it: permission, the GPS switched on, fixes had, the last one */
         @JavascriptInterface public String gpsState() {
@@ -155,6 +156,18 @@ public final class MainActivity extends Activity implements LocationListener {
                 note("[ENROLL_V1] member " + n + " added (its verifier kept, not its password)");
                 runOnUiThread(new Runnable() { public void run() { members(false); } });
             } }, "add-member").start();
+        }
+        /** [ENROLL_KEY_V1] a one-time sign-in key for NAME, for the lead's QR: the member scans it and is signed in and given
+         *  its own FrogNet invitation (its WireGuard key, its tunnel through this hotspot), nothing typed. Kept here: the key's
+         *  verifier, until 15 minutes from now, once; a new QR makes a new key */
+        @JavascriptInterface public String memberKey(String name) {
+            if (!Enrolled.of(MainActivity.this).lead || Enrolled.members(MainActivity.this).get(name) == null) return "";
+            try {
+                String k = net.frognet.ram.Enroll.newKey();
+                Enrolled.putKey(MainActivity.this, name, net.frognet.ram.Enroll.verifier(k), System.currentTimeMillis() + 15 * 60 * 1000L);
+                android.util.Log.i("Enroll", "[ENROLL_KEY_V1] a one-time sign-in code for " + name + ", 15 minutes");
+                return k;
+            } catch (Exception e) { deliver(Json.o("ev", "error", "text", "no sign-in code for " + name + ": " + e.getMessage())); return ""; }
         }
         @JavascriptInterface public void removeMember(String name) { Enrolled.removeMember(MainActivity.this, name); runOnUiThread(new Runnable() { public void run() { members(false); } }); }
         /** [CHAT_NOTICE_V1] a message the user cannot see: a phone notification while the app is not in front */
@@ -544,6 +557,22 @@ public final class MainActivity extends Activity implements LocationListener {
     private volatile boolean hostPending = false;
     /** the hotspot's address on this phone: an interface with an IPv4 that is none of Android's networks (Wi-Fi as a
      *  client, mobile data, the VPN) -- a tethering interface; "" when the hotspot is off */
+    private static final java.util.regex.Pattern TETHER = java.util.regex.Pattern.compile("(swlan|ap|softap|wlan[1-9]|wigig|rndis|ncm|usb|bt-pan)\\d*");
+    /** [TEAM_WIFI_V1] the interfaces Android does not list, for Diag: name, address, whether it counts as the hotspot */
+    private List<Object> otherIfaces() {
+        List<Object> out = new ArrayList<Object>();
+        android.net.ConnectivityManager cm = (android.net.ConnectivityManager) getSystemService(CONNECTIVITY_SERVICE);
+        java.util.Set<String> nets = new java.util.HashSet<String>();
+        for (android.net.Network n : cm.getAllNetworks()) { android.net.LinkProperties lp = cm.getLinkProperties(n); if (lp != null && lp.getInterfaceName() != null) nets.add(lp.getInterfaceName()); }
+        try {
+            for (java.net.NetworkInterface ni : java.util.Collections.list(java.net.NetworkInterface.getNetworkInterfaces())) {
+                if (!ni.isUp() || ni.isLoopback() || nets.contains(ni.getName())) continue;
+                for (java.net.InetAddress a : java.util.Collections.list(ni.getInetAddresses()))
+                    if (a instanceof java.net.Inet4Address) out.add(Json.o("name", ni.getName(), "addr", a.getHostAddress(), "hotspot", TETHER.matcher(ni.getName()).matches()));
+            }
+        } catch (java.net.SocketException ignored) { }
+        return out;
+    }
     private String hotspotAddr() {
         android.net.ConnectivityManager cm = (android.net.ConnectivityManager) getSystemService(CONNECTIVITY_SERVICE);
         java.util.Set<String> nets = new java.util.HashSet<String>();
@@ -551,6 +580,10 @@ public final class MainActivity extends Activity implements LocationListener {
         try {
             for (java.net.NetworkInterface ni : java.util.Collections.list(java.net.NetworkInterface.getNetworkInterfaces())) {
                 if (!ni.isUp() || ni.isLoopback() || ni.getName().startsWith("tun") || nets.contains(ni.getName())) continue;
+                // [TEAM_WIFI_V1] a tethering interface by its name (the hotspot's swlan0/ap0/wlan1/softap0, USB's rndis0/ncm0,
+                // Bluetooth's bt-pan): any other interface Android does not list (rmnet, ccmni, dummy, p2p ...) is not the
+                // team's Wi-Fi -- taking one for it said "hosting the team on this phone's hotspot" with the hotspot off
+                if (!TETHER.matcher(ni.getName()).matches()) continue;
                 for (java.net.InetAddress a : java.util.Collections.list(ni.getInetAddresses()))
                     if (a instanceof java.net.Inet4Address) return a.getHostAddress();
             }
@@ -563,14 +596,25 @@ public final class MainActivity extends Activity implements LocationListener {
         if (!lan.isEmpty()) return lan.substring(0, lan.indexOf(' '));
         return Member.edge(this);                        // [APP_IS_SELF_CONTAINED_V1] this app's edge
     }
+    /** [TEAM_WIFI_V1] the Hotspot & tethering screen (an app cannot turn the hotspot on: Android keeps that to itself):
+     *  its own screen where the phone has one by these names, the network settings where it does not */
+    private void openTethering() {
+        String[][] at = {{"com.android.settings", "com.android.settings.TetherSettings"}, {"com.android.settings", "com.android.settings.Settings$TetherSettingsActivity"},
+                         {"com.android.settings", "com.android.settings.Settings$WifiTetherSettingsActivity"}};
+        for (String[] c : at) {
+            android.content.Intent i = new android.content.Intent().setClassName(c[0], c[1]).addFlags(android.content.Intent.FLAG_ACTIVITY_NEW_TASK);
+            if (i.resolveActivity(getPackageManager()) != null) { try { startActivity(i); return; } catch (RuntimeException ignored) { } }
+        }
+        try { startActivity(new android.content.Intent(Settings.ACTION_WIRELESS_SETTINGS)); }
+        catch (android.content.ActivityNotFoundException e) { deliver(Json.o("ev", "error", "text", "no settings screen to turn the hotspot on: " + e.getMessage())); }
+    }
     private void hostTeam(String why) {
         if (!connected) { deliver(Json.o("ev", "error", "text", "connect first: the team host is a connected Team phone")); return; }
         String hs = hotspotAddr();
         if (hs.isEmpty()) {
             hostPending = true;
-            note("[TEAM_HOST_V1] turn on this phone's hotspot (Hotspot & tethering), then come back to RangerTrak");
-            try { startActivity(new android.content.Intent(Settings.ACTION_WIRELESS_SETTINGS)); }
-            catch (android.content.ActivityNotFoundException e) { deliver(Json.o("ev", "error", "text", "no settings screen to turn the hotspot on: " + e.getMessage())); }
+            note("[TEAM_WIFI_V1] the team's Wi-Fi is this phone's hotspot: turn it on (Hotspot & tethering), then come back to RangerTrak");
+            openTethering();
             return;
         }
         hostPending = false;
@@ -644,6 +688,7 @@ public final class MainActivity extends Activity implements LocationListener {
                 runOnUiThread(new Runnable() { public void run() { startMember("off the node's LAN", false); } });
             }
         }
+        if (hostingNow && hotspotAddr().isEmpty()) note("[TEAM_WIFI_V1] Team Wi-Fi is OFF: this phone hosts the team, and its members cannot reach it -- turn the hotspot on");
         if (hostingNow) runOnUiThread(new Runnable() { public void run() { hostTeam("the network changed"); } });
     }
 
@@ -738,7 +783,7 @@ public final class MainActivity extends Activity implements LocationListener {
         net.frognet.ram.Enroll.Line l = net.frognet.ram.Enroll.parse(q);
         if (l == null) { deliver(Json.o("ev", "error", "text", "that is not an enrollment code (it says " + (q.length() > 40 ? q.substring(0, 40) + "…" : q) + ")")); return; }
         note("[ENROLL_V1] scanned: " + l.user + " in " + l.app + " at " + l.url);
-        deliver(Json.o("ev", "enrollScan", "line", q.trim(), "url", l.url, "app", l.app, "user", l.user));
+        deliver(Json.o("ev", "enrollScan", "line", q.trim(), "url", l.url, "app", l.app, "user", l.user, "signIn", !l.key.isEmpty()));
     }
 
     // ------------------------------------------------------------------ GPS: every fix is this device's own position

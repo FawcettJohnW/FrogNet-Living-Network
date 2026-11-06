@@ -3,6 +3,7 @@
 # test_enroll_page.py -- [ENROLL_V1] the phone's page (ui/), in Chromium, with the Android side stood in for by a
 # recording rtNative (the native side's events are delivered as MainActivity delivers them):
 #   1 Scan to join is on the first screen of an Android phone
+#   6 a scanned sign-in code (the lead's one-time key, [ENROLL_KEY_V1]) enrolls at once, nothing typed
 #   2 a scanned code (enrollScan) asks for that user's password; Join hands the line and the password to the native side
 #   3 enrolled (lead of echo, the door): the page connects as that user, Team view, team Echo, the door, the password
 #   4 the lead's Team members button; the members sheet (members): adding a member hands its name and password to the
@@ -25,7 +26,8 @@ STUB = """window.__sent = []; window.rtNative = {
   send: l => __sent.push(['send', JSON.parse(l)]), scanTeam: () => __sent.push(['scan']),
   enroll: j => __sent.push(['enroll', JSON.parse(j)]), teamMembers: () => __sent.push(['members']),
   addMember: (n, p) => __sent.push(['add', n, p]), removeMember: n => __sent.push(['remove', n]),
-  teamHost: () => __sent.push(['host']) }"""
+  teamHost: () => __sent.push(['host']),
+  memberKey: n => { window.__k = (window.__k || 0) + 1; return 'Key' + __k + '-' + n } }"""   # [ENROLL_KEY_V1] a new one-time key per QR
 with tempfile.TemporaryDirectory() as tmp, sync_playwright() as pw:
     b = pw.chromium.launch(); pg = b.new_page(viewport={"width": 420, "height": 860})
     pg.add_init_script(STUB)
@@ -61,10 +63,15 @@ with tempfile.TemporaryDirectory() as tmp, sync_playwright() as pw:
     pg.select_option("#memAt", "10.253.1.1"); pg.wait_for_function("document.querySelector('#memQr .who').textContent.includes('10.253.1.1')", timeout=3000)
     q2 = os.path.join(tmp, "q2.png"); pg.locator("#memQr svg").screenshot(path=q2)
     got = zxing_read.read([q1, q2])
-    w1 = "fdfenroll1 http://192.168.43.1:21801/enroll rangertrak KJ7ABC"; w2 = "fdfenroll1 http://10.253.1.1:21801/enroll rangertrak KJ7ABC"
+    w1 = "fdfenroll1 http://192.168.43.1:21801/enroll rangertrak KJ7ABC Key1-KJ7ABC"; w2 = "fdfenroll1 http://10.253.1.1:21801/enroll rangertrak KJ7ABC Key2-KJ7ABC"
     check(btn and ["members"] in pg.evaluate("__sent") and added and got.get(q1) == w1 and got.get(q2) == w2,
           "4 the lead's Team members: button %s, add handed over %s; KJ7ABC's QR reads %r, then %r" % (btn, added, got.get(q1), got.get(q2)))
     pg.click("#sheet .sh-close")
+    # 6 [ENROLL_KEY_V1] a scanned sign-in code (the lead's one-time key): no password asked, the enroll goes at once
+    pg.evaluate("__sent.length = 0")
+    pg.evaluate("l => rtDeliver(JSON.stringify({ev: 'enrollScan', line: l, url: 'http://192.168.43.1:21801/enroll', app: 'rangertrak', user: 'KJ7ABC', signIn: true}))", w1)
+    sent6 = [x for x in pg.evaluate("__sent") if x[0] == "enroll"]
+    check(sent6 == [["enroll", {"line": w1, "password": ""}]] and pg.is_hidden("#enrollBox"), "6 a sign-in code: enrolled at once, nothing typed: %s" % sent6)
     # 5 a refused enrollment (a fresh page)
     pg.goto("file://" + os.path.join(APP, "ui", "index.html"))
     pg.evaluate("rtInit({dev: 'p2', name: 'P', door: '', role: 'team', team: 'Alpha', platform: 'android', lock: '', build: 'test', invited: '', lan: '', enrolled: {}})")

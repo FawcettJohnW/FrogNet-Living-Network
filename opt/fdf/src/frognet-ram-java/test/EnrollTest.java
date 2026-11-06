@@ -32,6 +32,7 @@ public class EnrollTest {
             }
             public Map<String, Object> card() { return Json.o("at", "10.170.170.1", "team", "alpha", "invite", "the card cannot set this"); }
             public void log(String line) { System.out.println("  sponsor: " + line); }
+            public void keyUsed(String n) { Map<String, Object> r = new HashMap<String, Object>(members.get(n)); r.remove("key"); members.put(n, r); }
         });
         String url = "http://127.0.0.1:" + sp.port() + "/enroll";
 
@@ -48,6 +49,23 @@ public class EnrollTest {
         check(w3.contains("not that app"), "another app: " + w3);
         check(w4.contains("did not give N2DH an invitation") && w4.contains("not answering"), "the door saying no: " + w4);
         check(asked.equals(Arrays.asList("KJ7ABC", "N2DH")), "the door was asked only for members who gave their password: " + asked);
+        // [ENROLL_KEY_V1] the lead's one-time sign-in code: the key in the line (there and back), the member signed in with
+        // no password; the same code again refused; an expired one refused; the password still works
+        String key = Enroll.newKey();
+        Map<String, Object> rec = new HashMap<String, Object>(members.get("KJ7ABC"));
+        rec.put("key", Json.o("verifier", Enroll.verifier(key), "until", System.currentTimeMillis() + 15 * 60 * 1000L)); members.put("KJ7ABC", rec);
+        Enroll.Line kl = Enroll.line(url, "rangertrak", "KJ7ABC", key), kb = Enroll.parse(kl.toString());
+        check(kb != null && kb.key.equals(key) && kl.toString().endsWith(" " + key) && key.length() == 22, "a sign-in line there and back: " + kl);
+        Map<String, Object> byKey = Enroll.enroll(kb, "");
+        String again = "", old = "";
+        try { Enroll.enroll(kb, ""); } catch (Exception e) { again = why(e); }
+        String key2 = Enroll.newKey(); rec = new HashMap<String, Object>(members.get("KJ7ABC"));
+        rec.put("key", Json.o("verifier", Enroll.verifier(key2), "until", System.currentTimeMillis() - 1000)); members.put("KJ7ABC", rec);
+        try { Enroll.enroll(Enroll.line(url, "rangertrak", "KJ7ABC", key2), ""); } catch (Exception e) { old = why(e); }
+        Map<String, Object> pw = Enroll.enroll(Enroll.line(url, "rangertrak", "KJ7ABC"), "frog-2026");
+        check(Json.str(byKey.get("invite")).equals("fdfinv1.member-KJ7ABC") && again.contains("used or expired") && old.contains("used or expired")
+              && Json.str(pw.get("invite")).equals("fdfinv1.member-KJ7ABC") && !Enroll.parse(kl.toString()).key.isEmpty() && Enroll.parse(Enroll.line(url, "rangertrak", "x").toString()).key.isEmpty(),
+              "signed in by the code, no password (" + Json.str(byKey.get("invite")) + "); again: " + again + "; expired: " + old + "; the password still: " + Json.str(pw.get("invite")));
         sp.close();
         System.out.println(fails == 0 ? "ALL PASS" : fails + " failed"); System.exit(fails == 0 ? 0 : 1);
     }

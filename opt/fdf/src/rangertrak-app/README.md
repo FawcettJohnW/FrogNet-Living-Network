@@ -1,4 +1,4 @@
-# RangerTrak app (desktop and phone) -- rt-app-2026-11-05-r51
+# RangerTrak app (desktop and phone) -- rt-app-2026-11-05-r52
 
 The demo John set on 2026-11-01 (`opt/frognet_semantic/ribbit/examples/rangertrak/PLAN.md`, its first decision): the EOC
 on a Windows app, a first responder on a phone, presence with GPS, chat, a pre-populated moving world, in an app and not
@@ -46,6 +46,20 @@ role's `act`/`req`, or `RT.button`). **A new view**: `RT.role(...)` in a layer's
 `--lock=` and `--layers=`. **The admin app**: a layer's own panel is `ui-admin/layers/<name>.js` calling
 `RTA.panel(title, fn)` (none yet). Gates: `test/test_app.py` (32 checks; the Team and Public apps run with their own
 layers only), `test/test_team_host.py`, `android/typecheck.sh`.
+
+## r52: the team's Wi-Fi is the lead's hotspot, and the lead's QR signs a member in
+
+- [TEAM_WIFI_V1] the lead's phone said "hosting the team on this phone's hotspot" with the hotspot off: the hotspot was
+  taken to be any interface Android does not list. It is a tethering interface by name now (swlan, ap, softap, wlan1-9,
+  wigig, rndis, ncm, usb, bt-pan). Host team opens the Hotspot & tethering screen itself (an app cannot turn the hotspot
+  on). While the phone hosts the team and the hotspot goes off, it says "Team Wi-Fi is OFF". Diag: Team Wi-Fi, hosting,
+  the other interfaces.
+- [ENROLL_KEY_V1] the lead's Team members QR carries a one-time sign-in key ("fdfenroll1 URL APP USER KEY"; 15 minutes,
+  once; a new QR a new key; the lead's phone keeps its verifier, never the key). The member joins the lead's hotspot
+  (Android's own hotspot QR), scans it, and is signed in with nothing typed: the sponsor checks the key, clears it, and
+  gives the member its own FrogNet invitation (its WireGuard key: its tunnel through the hotspot). A used or expired code
+  is refused ("ask the lead for a new one"); the password still works. frognet-enroll r3. Gates: EnrollTest (10:
+  there and back with the key, signed in by it, refused again and expired, the password still), test_enroll_page 6.
 
 ## r51: one root for every Android zip ([RT_ANDROID_STABLE_ROOT_V1])
 
