@@ -39,7 +39,7 @@ Where things are [APP_SERVICES_V1]:
       the service on it.
 
   fdf-app config APP RAM[,RAM...] [--partition relocate|fail] [--login] [--category NAME]... [--role NAME[:default][@CATEGORY]]...
-                 [--user USER:PASSWORD=ROLE[+lead]]... [--serve RAM[,RAM]] [--select RAM=KEY[,-KEY]...]... [--need RAM=KEY[,KEY]...]...
+                 [--user USER:PASSWORD=ROLE[+lead]]... [--join TEAMS_PASSWORD] [--serve RAM[,RAM]] [--select RAM=KEY[,-KEY]...]... [--need RAM=KEY[,KEY]...]...
                  [--admin USER:PASSWORD]
         the app's first installation by its Admin: this machine's copy (FDF_APPS/<app>.json, the admin key kept there
         only) and the app's one configuration tuple, signed, written into databasehost-control (a port picked for every
@@ -60,7 +60,7 @@ test), FDF_FACTS, FDF_APPS (/opt/fdf/apps), FDF_VAR (/opt/fdf/var), FDF_BIN (/op
 """
 import hashlib, hmac, json, os, queue, random, signal, socket, subprocess, sys, threading, time
 
-BUILD_TAG = "fdf-app-2026-11-05-r16"
+BUILD_TAG = "fdf-app-2026-11-06-r17"
 LIB = os.environ.get("FDF_PY") or os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "lib", "python")
 sys.path.insert(0, LIB)
 import fdfram  # noqa: E402
@@ -255,7 +255,7 @@ def save_installed(app, cfg):
 
 
 # ---------------------------------------------------------------- the one configuration tuple
-TEXT_KEYS = ("rams", "ports", "partition", "login", "roles", "categories", "users", "select")
+TEXT_KEYS = ("rams", "ports", "partition", "login", "roles", "categories", "users", "join", "select")
 
 
 def parse_text(text):
@@ -824,6 +824,11 @@ def main(argv):
             if not who or not pw or role not in roles:
                 print("fdf-app: --user USER:PASSWORD=ROLE[+lead], ROLE one of the --role names"); return 2
             users[who] = {"role": role, "verifier": verifier(pw), "lead": lead}   # [ENROLL_V1]
+        join = (old or {}).get("join")                # [CHILDREN_JOIN_V1] --join PASSWORD: the EOC's teams password (its verifier)
+        for pw in opt("--join")[-1:]:
+            if not pw:
+                print("fdf-app: --join PASSWORD (the EOC's teams password)"); return 2
+            join = verifier(pw)
         sel = {}                                      # [APP_SELECTION_V1] --select RAM=KEY,-KEY  --need RAM=KEY,KEY  (RAM * for all)
         for flag, part_ in (("--select", "rank"), ("--need", "need")):
             for t in opt(flag):
@@ -851,7 +856,7 @@ def main(argv):
             print("fdf-app: databasehost-control is not reachable from here (%s): nothing installed. The first FrogNetHost "
                   "makes it; install the app on a node of a network that has one" % e); return 1
         c = {"app": argv[2], "rams": rams, "partition": part, "login": "--login" in argv, "roles": roles, "categories": cats,
-             "users": users, "admin": admin, "select": sel, **({"serve": serve} if serve else {})}   # no --serve: every RAM, those the admin adds too
+             "users": users, "admin": admin, "select": sel, **({"serve": serve} if serve else {}), **({"join": join} if join else {})}   # no --serve: every RAM, those the admin adds too
         return first_install(argv[2], c, rm, old)
     if len(argv) >= 3 and argv[1] == "install":
         return install(argv)

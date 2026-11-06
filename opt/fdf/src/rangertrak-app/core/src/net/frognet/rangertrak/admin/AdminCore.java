@@ -51,7 +51,7 @@ import java.util.Map;
  */
 public final class AdminCore {
     public interface Ui { void deliver(String json); }
-    public static final String BUILD = "rt-admin-2026-11-05-r11";
+    public static final String BUILD = "rt-admin-2026-11-06-r12";
 
     private final Ui ui;
     private volatile String door = "", app = "", user = "";
@@ -330,7 +330,12 @@ public final class AdminCore {
             while (p == 0 || (!had.containsKey(r) && used.contains(p))) p = 20000 + rnd.nextInt(65535 - 20000 + 1);
             used.add(p); ports.put(Json.str(r), p);
         }
-        String text = Json.write(Json.o("rams", rams, "ports", ports, "partition", part, "login", Json.bool(want.get("login")), "roles", roles, "categories", cats, "users", users, "select", sel));
+        // [CHILDREN_JOIN_V1] the EOC's teams password: its verifier (the password goes nowhere); kept when not given again
+        String jp = Json.str(pws.get("*join"));
+        Object join = !jp.isEmpty() ? verifier(jp) : current.get("join");
+        Map<String, Object> cfgOut = Json.o("rams", rams, "ports", ports, "partition", part, "login", Json.bool(want.get("login")), "roles", roles, "categories", cats, "users", users, "select", sel);
+        if (join instanceof Map) cfgOut.put("join", join);
+        String text = Json.write(cfgOut);
         long seq = Math.max(System.currentTimeMillis(), (long) Json.num(current.get("seq")) + 1);
         door("op=admin&app=" + URLEncoder.encode(app, "UTF-8"),
              Json.write(Json.o("config", text, "seq", seq, "user", user, "mac", hmac(key, text + "\n" + seq))), 10000);

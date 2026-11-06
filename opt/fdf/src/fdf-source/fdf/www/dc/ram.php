@@ -48,7 +48,7 @@
 // the network, typed by nobody. A device this node gave no lease has none here, and is told so.
 header('Content-Type: application/json');
 // [DOOR_SAYS_ITS_BUILD_V1] every answer says which door answered: the header, and "door" in the admin and roles answers
-const DOOR_BUILD = 'dc-door-2026-11-05-r17';
+const DOOR_BUILD = 'dc-door-2026-11-06-r18';
 // [SENSORS_BY_THE_DOOR_V1] the sensor store (api.php on databasehost.frognet) by the address this node's /etc/hosts gives
 // it: an app through the tunnel has no .frognet names (the phone's DNS is its carrier's), the address routes
 function door_sensors() {
@@ -175,9 +175,28 @@ function served_map($app) {
     return $o;
 }
 // [ENROLL_V1] a user and password, checked against the verifier in the app's configuration: the user's record
+// [CHILDREN_JOIN_V1] (John 2026-11-05: "One qr code for the whole team, and one password" ... "Same thing for the eoc. The
+// teams aren't allocated beforehand. They are discovered" ... "a generic process applied across the board".) A parent has
+// one QR and one password for its children: the app's (the EOC's) is the configuration's "join" verifier, set in the
+// admin app (Teams password). A child gives a name of its own -- a team names itself anything it wants -- and the password,
+// and is an entity: (fdf-app, child, <app>.<name>) {name, kind, at, from} in databasehost-control, its lead the one who
+// joined it, with its own FrogNet invitation. Then the team is a parent the same way (its lead's QR and password).
+function verified($v, $pw) { return is_array($v) && hash_equals((string)($v['hash'] ?? ''), hash_pbkdf2('sha256', (string)$pw, hex2bin((string)($v['salt'] ?? '')), intval($v['n'] ?? 1))); }
+function children($app) {
+    $o = [];
+    foreach ((json_decode(ram(ctl_env(), ['read', 'fdf-app', 'child']), true)['rows'] ?? []) as $c) {
+        $i = (string)($c['instance'] ?? ''); $b = $c['bag'] ?? null;
+        if (is_array($b) && $b && strpos($i, $app . '.') === 0) $o[substr($i, strlen($app) + 1)] = $b;
+    }
+    return $o;
+}
+function child_ok($name) { return is_string($name) && preg_match('/^[A-Za-z0-9][A-Za-z0-9 ._-]{0,39}$/', $name) && $name !== 'general'; }
 function check_user($app, $in) {
     $cfg = app_cfg($app);
     $user = (string)($in['user'] ?? '');
+    // [CHILDREN_JOIN_V1] a child the app's join password made: its lead is whoever has that password and the child's name
+    if ($user !== '' && !isset($cfg['users'][$user]) && isset(children($app)[$user]) && verified($cfg['join'] ?? null, $in['password'] ?? ''))
+        return ['role' => $user, 'lead' => true, 'child' => true];
     $u = $cfg['users'][$user] ?? null; $v = is_array($u) ? ($u['verifier'] ?? null) : null;
     if ($user === '' || !is_array($v) || !hash_equals((string)$v['hash'], hash_pbkdf2('sha256', (string)($in['password'] ?? ''), hex2bin((string)$v['salt']), intval($v['n'])))) {
         // [REFUSAL_SAYS_WHAT_IT_GOT_V1] what the door was given and what it checked against -- never the password, only
@@ -332,6 +351,8 @@ if ($op === 'read') {
             if (!in_array($c, $cats, true)) $cats[] = $c;
             $roles[$r] = ['default' => !empty($x['default']), 'ram' => in_array($r, $best['rams'] ?? [], true), 'category' => $c];
         }
+        // [CHILDREN_JOIN_V1] the teams that joined: teams (their RAM is their lead's)
+        foreach (children($app) as $n => $b) if (!isset($roles[$n])) $roles[$n] = ['default' => false, 'ram' => true, 'category' => 'Teams', 'child' => true, 'kind' => (string)($b['kind'] ?? 'team'), 'at' => intval($b['at'] ?? 0)];
         echo json_encode(['ok' => true, 'door' => DOOR_BUILD, 'node' => gethostname(), 'roles' => $roles, 'categories' => $cats, 'rams' => $best['rams'] ?? [], 'served' => (object)$served, 'login' => !empty($best['login']), 'seq' => intval($best['seq'] ?? 0)], JSON_UNESCAPED_SLASHES);
         exit;
     }
@@ -362,7 +383,8 @@ if ($op === 'read') {
     $applied = [];
     foreach ($all as $c) if (($c['variable'] ?? '') === 'applied' && strpos($c['instance'] ?? '', $app . '.') === 0 && is_array($c['bag'] ?? null)) $applied[] = $c['bag'];
     $configs = array_values($machines) ?: [$pub + ['guid' => '', 'member' => 'databasehost-control']];
-    echo json_encode(['ok' => true, 'door' => DOOR_BUILD, 'configs' => $configs, 'applied' => $applied, 'served' => (object)$served, 'last' => $last], JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE);
+    echo json_encode(['ok' => true, 'door' => DOOR_BUILD, 'configs' => $configs, 'applied' => $applied, 'served' => (object)$served, 'last' => $last,
+                      'children' => (object)children($app), 'join' => is_array($best['join'] ?? null)], JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE);
 } elseif ($op === 'admin' && $_SERVER['REQUEST_METHOD'] === 'POST') {
     // [APP_SERVICES_V1] the Admin's configuration: the app's one tuple in databasehost-control, written by the Admin (the
     // admin app, through this door); the admin's salt and check value kept with it (never the key)
@@ -384,6 +406,22 @@ if ($op === 'read') {
     $in = json_decode(file_get_contents('php://input'), true);
     $app = $_GET['app'] ?? '';
     if (!is_array($in) || !preg_match('/^[A-Za-z0-9_-]{1,40}$/', $app)) fail(400, 'app and a JSON body needed');
+    // [CHILDREN_JOIN_V1] a name the configuration does not have, with the app's join password: a new child (a team, named
+    // by whoever joins it), or the one of that name again
+    $cfg = app_cfg($app); $nm = (string)($in['user'] ?? '');
+    if ($op === 'enroll' && $nm !== '' && !isset($cfg['users'][$nm]) && is_array($cfg['join'] ?? null)) {
+        if (!child_ok($nm)) fail(400, "a team's name: letters, digits, space . _ -, at most 40 (not general)");
+        if (!verified($cfg['join'], $in['password'] ?? '')) fail(403, "that is not the EOC's teams password");
+        $kids = children($app);
+        if (!isset($kids[$nm])) {
+            $b = ['name' => $nm, 'kind' => (string)($in['kind'] ?? 'team') ?: 'team', 'at' => time(), 'from' => $_SERVER['REMOTE_ADDR'] ?? ''];
+            ram(ctl_env(), ['write', 'fdf-app', 'child', $app . '.' . $nm, json_encode($b, JSON_UNESCAPED_SLASHES)]);
+            error_log('dc ram.php: [CHILDREN_JOIN_V1] ' . $app . ': ' . $b['kind'] . ' ' . $nm . ' joined (' . $b['from'] . ')');
+        }
+        echo json_encode(['ok' => true, 'user' => $nm, 'role' => $nm, 'lead' => true, 'child' => true, 'at' => '',
+                          'invite' => region_identity(ident_name([$app, $nm])), 'door' => DOOR_BUILD], JSON_UNESCAPED_SLASHES);
+        exit;
+    }
     $u = check_user($app, $in);
     $role = (string)$u['role'];
     if ($op === 'identity') {
@@ -404,7 +442,11 @@ if ($op === 'read') {
     if (!is_array($in) || !preg_match('/^[A-Za-z0-9_-]{1,40}$/', $app)) fail(400, 'app and a JSON body needed');
     $cfg = app_cfg($app);
     $user = (string)($in['user'] ?? ''); $role = (string)($in['role'] ?? '');
-    if ($user !== '') {
+    if ($user !== '' && !isset($cfg['users'][$user]) && isset(children($app)[$user])) {
+        // [CHILDREN_JOIN_V1] a team that joined, its lead logging in with the EOC's teams password: the team is its role
+        if (!verified($cfg['join'] ?? null, $in['password'] ?? '')) fail(403, "that user and password are not this app's");
+        $role = $user;
+    } elseif ($user !== '') {
         $u = $cfg['users'][$user] ?? null; $v = is_array($u) ? ($u['verifier'] ?? null) : null;
         if (!is_array($v) || !hash_equals((string)$v['hash'], hash_pbkdf2('sha256', (string)($in['password'] ?? ''), hex2bin((string)$v['salt']), intval($v['n']))))
             fail(403, "that user and password are not this app's");
@@ -425,7 +467,8 @@ if ($op === 'read') {
     $u = check_user($app, $in);
     if (empty($u['lead'])) fail(403, 'user ' . $in['user'] . ' does not lead a group: only its lead says where it lives');
     $role = (string)$u['role']; $cfg = app_cfg($app);
-    if (!in_array($role, $cfg['rams'] ?? [], true)) fail(400, "group $role has no RAM of its own (the app's RAMs: " . implode(',', $cfg['rams'] ?? []) . ')');
+    if (!empty($u['child']) && ($in['at'] ?? '') === 'databasehost') fail(400, "team $role joined the EOC: it lives on its lead's phone (Host team); the SystemRam serves the RAMs the admin configured");
+    if (empty($u['child']) && !in_array($role, $cfg['rams'] ?? [], true)) fail(400, "group $role has no RAM of its own (the app's RAMs: " . implode(',', $cfg['rams'] ?? []) . ')');
     $at = (string)($in['at'] ?? ''); $guid = (string)($in['guid'] ?? '');
     if ($at !== 'here' && $at !== 'databasehost') fail(400, "at: here (the lead's device, named by its guid) or databasehost");
     if ($at === 'here' && !preg_match('/^[A-Za-z0-9._:-]{1,80}$/', $guid)) fail(400, "guid: the lead's device that serves the group");

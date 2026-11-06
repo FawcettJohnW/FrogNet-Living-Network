@@ -49,7 +49,7 @@ public final class AppCore {
 
     public static final String APP = "rangertrak";
     public static final String API = "/FawcettInnovations.RINA.ram_interface.php";
-    public static final String BUILD = "rt-app-2026-11-05-r52";
+    public static final String BUILD = "rt-app-2026-11-06-r53";
 
     private final Ui ui;
     private String door = "", dev = "", name = "", role = "", team = "", user = "", mission = "";
@@ -304,7 +304,12 @@ public final class AppCore {
     }
 
     /** a team as people say it: its RAM is "alpha", the team is "Alpha" */
-    static String cap(String t) { return t.isEmpty() ? t : Character.toUpperCase(t.charAt(0)) + t.substring(1).toLowerCase(); }
+    // a team as people say it: each word capitalized (alpha: Alpha; [CHILDREN_JOIN_V1] a team named by its joiner, red cross: Red Cross)
+    static String cap(String t) {
+        StringBuilder b = new StringBuilder(t.toLowerCase());
+        for (int i = 0; i < b.length(); i++) if (i == 0 || b.charAt(i - 1) == ' ') b.setCharAt(i, Character.toUpperCase(b.charAt(i)));
+        return b.toString();
+    }
 
     private static String[] hp(String a) { int c = a.lastIndexOf(':'); return new String[]{a.substring(0, c), a.substring(c + 1)}; }
 

@@ -53,7 +53,7 @@ with tempfile.TemporaryDirectory() as tmp, sync_playwright() as pw:
     for name, url, app, user in TEXTS:
         line = pg.evaluate("([u,a,n]) => FrogQR.enrollLine(u,a,n)", [url, app, user])
         back = pg.evaluate("l => FrogQR.parseEnroll(l)", line)
-        check(back == {"url": url, "app": app, "user": user}, "%s: the enrollment line goes there and back" % name)
+        check(back == {"url": url, "app": app, "user": user, "team": user == "*"}, "%s: the enrollment line goes there and back" % name)
         for kind, js in (("frog", "l => FrogQR.svg(l, {px: 600})"), ("plain", PLAIN)):
             pg.evaluate("([l, f]) => document.getElementById('q').innerHTML = eval(f)(l)", [line, js])
             base = os.path.join(tmp, "%s-%s.png" % (kind, name)); pg.locator("#q svg").screenshot(path=base)

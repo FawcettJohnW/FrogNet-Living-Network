@@ -22,6 +22,13 @@
 #   9  [GROUP_PLACE_V1] kim (echo's lead) tells the door where echo lives, here on guid-a: the door writes the place,
 #      fdf-app serve adopts it and echo is served there; EOCAdmin (no group to lead) and a place that is neither here
 #      nor databasehost are refused
+#  10  [CHILDREN_JOIN_V1] a team that does not exist yet joins the EOC by its QR (fdfenroll1 <door> rangertrak *), named
+#      by whoever joins it ("Red Cross"): a wrong teams password is refused; the EOC's teams password (fdf-app config
+#      --join) makes it an entity: its lead, an invitation, (fdf-app, child, rangertrak.Red Cross), listed in op=roles
+#  11  the new team's lead logs in with the team's name and the teams password (role: the team); it cannot be placed at
+#      databasehost (it lives on its lead's phone)
+#  12  members join the new team by its own QR (fdfenroll1 <lead's phone> rangertrak *) and its team password, each
+#      giving its own call sign: a wrong team password is refused; dan is admitted as rangertrak-red_cross-dan
 #   8  the region does not answer: the door says so (where it asked, how long) before the phone gives up
 # Needs root, ip, wg, wireguard-go, python3, php, curl, java, the built fdf-member-kt, fdf-tun and frognet-ram-java.
 #   usage: tools/netns-enroll-test.sh [RINAB_DIR]
@@ -82,7 +89,7 @@ printf '{"name":"Seattle7","guid":"guid-a","role":"node","subnet":"10.170.170.0/
 ( AE $T/bin/fdf-client >> $T/A/client.log 2>&1 ) & echo $! >> $T/svc.pids
 sleep 1.5
 AE python3 $T/bin/fdf-app config rangertrak general,echo --role eoc --role echo:default --user kim:kim-2026=echo+lead --user EOCAdmin:eoc-pw=eoc \
-   --admin boss:adm-2026 > $T/A/config.log 2>&1 || { echo "FAIL  setup: fdf-app config: $(tail -2 $T/A/config.log)"; exit 1; }
+   --admin boss:adm-2026 --join teams-2026 > $T/A/config.log 2>&1 || { echo "FAIL  setup: fdf-app config: $(tail -2 $T/A/config.log)"; exit 1; }
 ( AE python3 $T/bin/fdf-app serve >> $T/A/app.log 2>&1 ) & echo $! >> $T/svc.pids
 # ---- A: the door
 mkdir -p $T/door/www/dc; cp $PK/www/dc/ram.php $T/door/www/dc/; printf '{"apps": []}\n' > $T/door/www/dc/apps.json
@@ -141,6 +148,32 @@ check $(echo "$P0" | grep -q "does not lead a group" && echo "$P1" | grep -q '"o
         && grep -q "Team echo placed here on guid-a by its lead kim (adopted)" $T/A/app.log && grep -q '"places": {"echo"' $T/A/apps/rangertrak.json \
         && grep -q "^198.18.0.1 echoHost.rangertrak" $T/A/hosts && echo 0 || echo 1) \
   "9 kim placed echo here on guid-a: $(echo "$P2" | cut -c1-110); adopted: $(grep -o 'Team echo placed.*' $T/A/app.log | head -1); $(grep echoHost $T/A/hosts); EOCAdmin: $(echo "$P0" | grep -o 'does not lead a group'); at moon: $(echo "$P1" | grep -o '"why":"[^"]*' | cut -c1-60)"
+# 10 [CHILDREN_JOIN_V1] a team the EOC did not have joins it, named by its joiner
+L_eoc="fdfenroll1 http://$DOOR/dc/ram.php rangertrak *"
+EJ q1 enroll "$L_eoc" wrong "Red Cross" > $T/rc-bad.json 2>&1; BAD10=$?
+EJ q1 enroll "$L_eoc" teams-2026 "Red Cross" > $T/rc.json 2>$T/rc.err
+INV10=$(J invite < $T/rc.json 2>/dev/null)
+R10=$(NS q1 curl -s -m 10 "http://$DOOR/dc/ram.php?op=roles&app=rangertrak")
+K10=$(echo "$R10" | python3 -c "import sys,json; r=json.load(sys.stdin)['roles'].get('Red Cross') or {}; print('%s %s %s' % (r.get('child'), r.get('category'), r.get('kind')))" 2>/dev/null)
+check $([ $BAD10 = 3 ] && grep -q "not the EOC's teams password" $T/rc-bad.json && [ "$(J lead < $T/rc.json)" = True ] && [ "$(J child < $T/rc.json)" = True ] \
+        && [ "$(J role < $T/rc.json)" = "Red Cross" ] && [ "${INV10#fdfinv1.}" != "$INV10" ] && [ -f $T/A/admitted/rangertrak-red_cross.json ] && [ "$K10" = "True Teams team" ] && echo 0 || echo 1) \
+  "10 Red Cross joined the EOC by its QR and the teams password: role $(J role < $T/rc.json 2>/dev/null), lead $(J lead < $T/rc.json 2>/dev/null), invitation ${INV10:0:24}...; op=roles: $K10; wrong password: $(grep -o "not the EOC's teams password" $T/rc-bad.json) $(cut -c1-160 $T/rc.err)"
+# 11 its lead logs in as the team; not placed at databasehost
+L11=$(NS q1 curl -s -m 10 -X POST -d '{"user":"Red Cross","password":"teams-2026"}' "http://$DOOR/dc/ram.php?op=login&app=rangertrak")
+L11b=$(NS q1 curl -s -m 10 -X POST -d '{"user":"Red Cross","password":"wrong"}' "http://$DOOR/dc/ram.php?op=login&app=rangertrak")
+P11=$(NS q1 curl -s -m 10 -X POST -d '{"user":"Red Cross","password":"teams-2026","at":"databasehost"}' "http://$DOOR/dc/ram.php?op=place&app=rangertrak")
+check $(echo "$L11" | grep -q '"role":"Red Cross"' && echo "$L11b" | grep -q '"ok":false' && echo "$P11" | grep -q "lives on its lead's phone" && echo 0 || echo 1) \
+  "11 Red Cross's lead logs in: $(echo "$L11" | cut -c1-80); wrong: $(echo "$L11b" | cut -c1-60); at databasehost: $(echo "$P11" | grep -o '"why":"[^"]*' | cut -c1-90)"
+# 12 members join Red Cross by its team QR and team password, each with its own call sign
+( EJ q1 sponsor 21802 rangertrak "Red Cross" $DOOR "Red Cross" teams-2026 '*:rc-team' >> $T/q1/sponsor-rc.log 2>&1 ) & echo $! >> $T/svc.pids
+for i in $(seq 100); do grep -q "enrolling rangertrak" $T/q1/sponsor-rc.log && break; sleep 0.1; done
+L_rc="fdfenroll1 http://198.18.0.3:21802/enroll rangertrak *"
+EJ q2 enroll "$L_rc" nope dan > $T/dan-bad.json 2>&1; BAD12=$?
+EJ q2 enroll "$L_rc" rc-team dan > $T/dan.json 2>$T/dan.err
+INV12=$(J invite < $T/dan.json 2>/dev/null)
+check $([ $BAD12 = 3 ] && [ "$(J role < $T/dan.json)" = "Red Cross" ] && [ "$(J lead < $T/dan.json)" = False ] && [ "${INV12#fdfinv1.}" != "$INV12" ] \
+        && [ -f $T/A/admitted/rangertrak-red_cross-dan.json ] && echo 0 || echo 1) \
+  "12 dan joined Red Cross by its QR and team password: role $(J role < $T/dan.json 2>/dev/null), lead $(J lead < $T/dan.json 2>/dev/null), invitation ${INV12:0:24}...; wrong: $(cut -c1-90 $T/dan-bad.json); admitted: $(ls $T/A/admitted | tr '\n' ' ') $(cut -c1-160 $T/dan.err)"
 # 8 [IDENTITY_ASK_IS_SAID_V1][IDENTITY_WAIT_IS_SAID_V1] the region does not answer (its fdf-identity stopped; seen on
 #   Seattle7 2026-11-02: the phone sat 60 s and said "timeout"): the door says so, in less time than the phone waits
 for p in $(pgrep -f "fdf-identity --serve"); do kill $(ps -o ppid= -p $p) $p 2>/dev/null; done; sleep 0.5

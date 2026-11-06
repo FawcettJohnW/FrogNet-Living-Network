@@ -10,7 +10,7 @@
 const $ = (s) => document.querySelector(s)
 const esc = (t) => String(t ?? '').replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]))
 const send = (o) => window.rtNative.send(JSON.stringify(o))
-const cap = (t) => t ? t[0].toUpperCase() + t.slice(1).toLowerCase() : t   // a team as people say it: RAM alpha, team Alpha
+const cap = (t) => t ? t.toLowerCase().replace(/(^| )(.)/g, (x, a, c) => a + c.toUpperCase()) : t   // a team as people say it: RAM alpha, team Alpha; red cross, Red Cross
 
 // kinds: how each is drawn on the map (a layer adds its own with RT.kind)
 const KINDS = {
@@ -209,6 +209,7 @@ function roleFields() {
   // [TEAM_HOST_V1] a team member's phone joins its lead's hotspot by scanning the hotspot's QR code
   // [ENROLL_V1] any view: the frog QR the admin (or the team's lead) shows, then the password
   $('#scanTeam').hidden = !(S.cfg.platform === 'android' && window.rtNative && window.rtNative.scanTeam)
+  $('#joinEoc').hidden = !(S.cfg.platform === 'android' && window.rtNative && window.rtNative.enroll)
   document.querySelectorAll('[data-field]').forEach(e => { e.hidden = e.dataset.field !== r.field })
   document.querySelector('.unit-l').textContent = r.unitLabel || 'Unit'
   // [RT_LAYERS_V1] the unit names this view offers and its hint: its own (a Telecom crew is not offered hospitals)
@@ -228,21 +229,35 @@ $('#connect').onsubmit = (e) => {
          teamRam: role === 'team' ? (S.teamRam || '') : '' })
 }
 $('#scanTeam').onclick = () => { $('#cstatus').textContent = 'scan the frog QR code your admin or team lead shows you'; window.rtNative.scanTeam() }
+// [CHILDREN_JOIN_V1] (John 2026-11-06: "Creating a team is a matter of installing the team app, firing up the admin
+// console for it, and hitting the Join EOC button, with the team name. It needs the eoc teams password") the EOC's own
+// line, at the node in the Node field: the same as scanning the EOC's QR -- the team's name, the teams password, Join
+$('#joinEoc').onclick = () => {
+  const d = $('#connect').door.value.trim()
+  if (!d) { $('#cstatus').textContent = 'the Node first: the node the EOC is on (e.g. 10.170.170.1)'; $('#connect').door.focus(); return }
+  const url = 'http://' + d.replace(/^https?:\/\//, '').replace(/\/.*/, '') + '/dc/ram.php'
+  enrollScan({ line: FrogQR.enrollLine(url, 'rangertrak', '*'), url, app: 'rangertrak', user: '*', team: true })
+}
 // [ENROLL_V1] scanned: who this code is for and where; the password, then Join
 function enrollScan(m) {
   S.enrollLine = m.line; S.enrollTeam = m.team ? m : null
-  // [TEAM_JOIN_V1] a team's QR: the call sign is yours, the password the team's
+  // [TEAM_JOIN_V1] a team's QR: the call sign is yours, the password the team's. [CHILDREN_JOIN_V1] the EOC's QR (its
+  // door): the name is your new team's (anything), the password the EOC's teams password -- you lead that team
+  const eoc = m.team && /\/dc\/ram\.php/.test(m.url); S.enrollEoc = eoc
   $('#enrollCallL').hidden = !m.team; $('#enrollCall').value = ''
-  $('#enrollWho').textContent = (m.team ? 'Team · ' : m.user + ' · ') + m.app + ' · ' + m.url.replace(/^https?:\/\//, '').replace(/\/.*/, '')
+  $('#enrollCallL').firstChild.textContent = eoc ? "Your team's name " : 'Your call sign '
+  $('#enrollCall').setAttribute('autocapitalize', eoc ? 'words' : 'characters')
+  $('#enrollWho').textContent = (eoc ? 'Join the EOC · ' : m.team ? 'Team · ' : m.user + ' · ') + m.app + ' · ' + m.url.replace(/^https?:\/\//, '').replace(/\/.*/, '')
   $('#enrollBox').hidden = false; $('#enrollPw').value = ''; (m.team ? $('#enrollCall') : $('#enrollPw')).focus()
-  $('#cstatus').textContent = m.team ? 'your call sign and the team password' : 'type ' + m.user + "'s password"
+  $('#cstatus').textContent = eoc ? "your team's name and the EOC's teams password" : m.team ? 'your call sign and the team password' : 'type ' + m.user + "'s password"
 }
 $('#enrollGo').onclick = () => {
   if (!S.enrollLine) return
   let line = S.enrollLine
   if (S.enrollTeam) {
-    const cs = $('#enrollCall').value.trim().toUpperCase()
-    if (!/^[A-Z0-9/._-]{1,30}$/.test(cs)) { $('#cstatus').textContent = 'a call sign: letters, digits, / . _ -'; return }
+    const raw = $('#enrollCall').value.trim(), cs = S.enrollEoc ? raw : raw.toUpperCase()
+    if (S.enrollEoc ? !/^[A-Za-z0-9][A-Za-z0-9 ._-]{0,39}$/.test(cs) : !/^[A-Z0-9/._-]{1,30}$/.test(cs)) {
+      $('#cstatus').textContent = S.enrollEoc ? "a team's name: letters, digits, space . _ - (at most 40)" : 'a call sign: letters, digits, / . _ -'; return }
     line = FrogQR.enrollLine(S.enrollTeam.url, S.enrollTeam.app, cs)
   }
   $('#cstatus').textContent = 'joining…'; $('#enrollGo').disabled = true

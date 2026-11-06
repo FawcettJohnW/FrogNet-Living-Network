@@ -91,6 +91,14 @@ footer #changes { flex: 1; color: var(--mu); min-width: 200px; } footer #changes
       <div class="add"><input type="text" id="newCat" placeholder="new category, e.g. Power"><button type="button" id="addCat">Add category</button></div>
     </section>
     <section>
+      <h2>Teams join the EOC</h2>
+      <p class="why">[CHILDREN_JOIN_V1] Teams are not set up here: they join. A team lead opens the Team app, scans the EOC's QR,
+        names the team anything, and gives this password; the team is then on the EOC's map and under On now, and its lead
+        has the team's own QR and password for its members.</p>
+      <div class="add"><input type="password" id="joinPw" placeholder="the EOC's teams password" autocomplete="new-password">
+        <button type="button" id="joinQr">The EOC's QR</button><span class="mu" id="joinSays"></span></div>
+    </section>
+    <section>
       <h2>Behaviour</h2>
       <div class="opt"><input type="checkbox" id="login"><div><b>Login required</b><span>Every client logs in; no role is taken without a user.</span></div></div>
       <div class="opt"><input type="radio" name="part" value="relocate" id="pRel"><div><b>Relocate when the primary is unreachable</b><span>A reachable member with the app serves its RAMs on its side of a split.</span></div></div>

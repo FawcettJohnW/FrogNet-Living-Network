@@ -10,6 +10,8 @@
 #     native side; a member's QR, read by zxing (the phone scanner's library), is that member's enrollment line at the
 #     address chosen, and choosing another address changes it
 #   5 a refused enrollment is said, and Join can be pressed again
+#   7 [CHILDREN_JOIN_V1] Join EOC on the first screen: the team's name and the EOC's teams password; Join enrolls the
+#     name at the EOC's door (the Node field's), and enrolled (lead of Red Cross) connects as Team Red Cross
 import json, os, sys, tempfile
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import zxing_read  # noqa: E402
@@ -35,7 +37,7 @@ with tempfile.TemporaryDirectory() as tmp, sync_playwright() as pw:
     pg.evaluate("rtInit({dev: 'p1', name: 'Pixel', door: '', role: 'team', team: 'Alpha', platform: 'android', lock: '', build: 'test', invited: '', lan: '', enrolled: {}})")
     pg.wait_for_selector("#pick:not([hidden])", timeout=5000); pg.click("[data-pick=team]")   # [RT_APP_PICKER_V1]
     pg.wait_for_selector("#connect:not([hidden])", timeout=5000)
-    check(pg.is_visible("#scanTeam") and pg.inner_text("#scanTeam") == "Scan to join", "1 Scan to join is on the first screen")
+    check(pg.is_visible("#scanTeam") and pg.inner_text("#scanTeam").startswith("Scan to join") and pg.is_visible("#joinEoc"), "1 Scan to join and Join EOC are on the first screen")
     pg.click("#scanTeam")
     line = "fdfenroll1 http://10.170.170.1/dc/ram.php rangertrak kim"
     pg.evaluate("l => rtDeliver(JSON.stringify({ev: 'enrollScan', line: l, url: 'http://10.170.170.1/dc/ram.php', app: 'rangertrak', user: 'kim'}))", line)
@@ -71,7 +73,7 @@ with tempfile.TemporaryDirectory() as tmp, sync_playwright() as pw:
           "4 the lead's team: no QR before the password %s; the password handed over %s; the team's QR reads %r, then %r; KJ7ABC listed %s" % (noQr, setPw, got.get(q1), got.get(q2), joined))
     pg.click("#sheet .sh-close")
     # 6 [TEAM_JOIN_V1] the team's QR scanned: a call sign and the team password; Join enrolls the call sign
-    pg.evaluate("__sent.length = 0")
+    pg.evaluate("__sent.length = 0; $('#main').hidden = true; $('#connect').hidden = false")   # a joining phone: its first screen
     pg.evaluate("l => rtDeliver(JSON.stringify({ev: 'enrollScan', line: l, url: 'http://192.168.43.1:21801/enroll', app: 'rangertrak', user: '*', team: true}))", w1)
     asks = pg.is_visible("#enrollCall") and pg.is_visible("#enrollPw")
     pg.fill("#enrollCall", "w7new"); pg.fill("#enrollPw", "echo-2026"); pg.click("#enrollGo")
@@ -88,5 +90,19 @@ with tempfile.TemporaryDirectory() as tmp, sync_playwright() as pw:
     pg.evaluate("rtDeliver(JSON.stringify({ev: 'enrollFailed', text: \"that user and password are not a member of echo's team\"}))")
     check("not a member of echo" in pg.inner_text("#cstatus") and not pg.is_disabled("#enrollGo") and pg.is_visible("#enrollBox"),
           "5 a refused enrollment is said (%s), and Join can be pressed again" % pg.inner_text("#cstatus"))
+    # 7 [CHILDREN_JOIN_V1] Join EOC: a new team, named here, by the EOC's teams password
+    pg.evaluate("__sent.length = 0; $('#enrollBox').hidden = true")
+    pg.fill("[name=door]", "")
+    pg.click("#joinEoc"); noNode = "the Node first" in pg.inner_text("#cstatus")
+    pg.fill("[name=door]", "10.170.170.1"); pg.click("#joinEoc")
+    asks7 = pg.is_visible("#enrollCall") and "team's name" in pg.inner_text("#enrollCallL") and "Join the EOC" in pg.inner_text("#enrollWho")
+    pg.fill("#enrollCall", "Red Cross"); pg.fill("#enrollPw", "teams-2026"); pg.click("#enrollGo")
+    sent7 = [x for x in pg.evaluate("__sent") if x[0] == "enroll"]
+    pg.evaluate("rtDeliver(JSON.stringify({ev: 'enrolled', user: 'Red Cross', role: 'Red Cross', lead: true, child: true, door: '10.170.170.1', invited: 'rangertrak-red_cross in frognet'}))")
+    conn7 = [x[1] for x in pg.evaluate("__sent") if x[0] == "send" and x[1].get("op") == "connect"]
+    c7 = conn7[-1] if conn7 else {}
+    check(noNode and asks7 and sent7 == [["enroll", {"line": "fdfenroll1 http://10.170.170.1/dc/ram.php rangertrak Red%20Cross", "password": "teams-2026"}]]
+          and c7.get("role") == "team" and c7.get("user") == "Red Cross" and c7.get("password") == "teams-2026",
+          "7 Join EOC: Node asked first %s; the team's name and the teams password %s; Join enrolls %s; connects %s" % (noNode, asks7, sent7, {k: c7.get(k) for k in ("door", "role", "team", "user")}))
     b.close()
 print("%d failed" % len(fails) if fails else "ALL PASS"); sys.exit(1 if fails else 0)

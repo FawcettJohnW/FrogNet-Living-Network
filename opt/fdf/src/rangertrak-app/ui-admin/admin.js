@@ -78,6 +78,7 @@ function toConfig(e) {
 const catOf = (e, role) => (e.roles[role] || {}).cat
 function state(m) {
   A.state = m; A.cur = m.current
+  $('#joinSays').textContent = (A.cur || {}).join ? 'set: teams can join' : 'not set: no team can join yet'   // [CHILDREN_JOIN_V1]
   if (!A.dirty) { A.edit = fromCurrent(A.cur); A.pw = {}; draw() }
   else dirtyLine()        // the edit against the new current: an edit the members have since adopted is no change any more
   members(m); groups(m); panels()
@@ -174,6 +175,7 @@ function changes() {
   for (const r of Object.keys(b.roles)) if (a.roles[r] && a.roles[r].category !== b.roles[r].category) out.push(r + ' → ' + b.roles[r].category)
   for (const r of Object.keys(a.roles)) if (!b.roles[r]) out.push('remove ' + r)
   for (const r of Object.keys(b.roles)) if (a.roles[r] && a.roles[r].default !== b.roles[r].default) out.push(r + (b.roles[r].default ? ' with no login' : ' at login only'))
+  if (A.pw['*join']) out.push("the EOC's teams password")          // [CHILDREN_JOIN_V1]
   const ar = new Set(a.rams), br = new Set(b.rams)
   for (const r of br) if (!ar.has(r)) out.push('RAM ' + r)
   for (const r of ar) if (!br.has(r)) out.push('no RAM ' + r)
@@ -266,7 +268,7 @@ $('#reload').onclick = () => send({ op: 'refresh' })
 $('#apply').onclick = () => {
   const pw = {}; for (const [u, p] of Object.entries(A.pw)) if (p) pw[u] = p
   send({ op: 'apply', config: toConfig(A.edit), passwords: pw })
-  A.dirty = false; A.pw = {}; A.restoredUsers = {}; $('#apply').disabled = true; $('#changes').textContent = 'Sent: waiting for the members…'
+  A.dirty = false; A.pw = {}; A.restoredUsers = {}; $('#joinPw').value = ''; $('#apply').disabled = true; $('#changes').textContent = 'Sent: waiting for the members…'
   $('#catApply').disabled = true; $('#catChanges').textContent = 'Sent: waiting for the members…'
 }
 
@@ -298,13 +300,14 @@ function members(m) {
 // ------------------------------------------------------------ [ENROLL_V1] a user's enrollment QR (frogqr.js)
 // The door this admin is connected through is where the phone enrolls, unless the admin says another address reaches it.
 function showQr(u) {
-  A.qrUser = u
+  A.qrUser = u === '*' ? 'EOC teams' : u
   if (!$('#qrDoor').value) $('#qrDoor').value = A.door || ''
   const draw = () => {
     const d = $('#qrDoor').value.trim(), url = 'http://' + d + '/dc/ram.php'
     const line = FrogQR.enrollLine(url, A.app, u)   // [ENROLL_V1] the same line for a phone's camera and a computer's setup
     $('#qrImg').innerHTML = FrogQR.svg(line, { px: 420 }); $('#qrLine').textContent = line
-    $('#qrWho').textContent = u + ' · ' + ((A.cur.users || {})[u] || {}).role + (((A.cur.users || {})[u] || {}).lead ? ' (lead)' : '') + ' · ' + url
+    $('#qrWho').textContent = u === '*' ? "the EOC's QR for teams · scan, name the team, the teams password · " + url
+      : u + ' · ' + ((A.cur.users || {})[u] || {}).role + (((A.cur.users || {})[u] || {}).lead ? ' (lead)' : '') + ' · ' + url
   }
   $('#qrDoor').oninput = draw; draw(); $('#qr').hidden = false
 }
@@ -339,3 +342,7 @@ function restored(m) {
   A.restoredUsers = m.config.users || {}; A.edit = fromCurrent(m.config); A.pw = {}; A.dirty = true; draw()
   $('#status').textContent = 'loaded ' + m.file + ': review the changes below, then Apply'
 }
+
+// [CHILDREN_JOIN_V1] the EOC's teams password (an edit like any: Apply sends it; only its verifier is kept) and the EOC's QR
+$('#joinPw').addEventListener('input', (ev) => { A.pw['*join'] = ev.target.value; A.dirty = true; dirtyLine() })
+$('#joinQr').onclick = () => showQr('*')
