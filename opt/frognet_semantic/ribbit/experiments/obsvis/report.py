@@ -22,6 +22,57 @@ def cell(an, cond, traffic, stress=None):
             return c
 
 
+def verdict(r):
+    """a plain word for an AUC and its CI"""
+    if not r or r.get("auc") is None or r["auc"] != r["auc"]: return "not measured"
+    lo, hi = r["ci95"]
+    if lo <= 0.5 <= hi: return "at chance"
+    if lo >= 0.9: return "recovered"
+    return "partly recovered"
+
+
+def summary(an, w):
+    w("## Finding\n")
+    for traffic in ("chat", "telemetry"):
+        parts = []
+        for cond, label in (("B", "the MQTT broker"), ("C", "chat-ram with recipient keys (C)"), ("D", "own truth with "
+                            "selective follows (D)"), ("Dall", "read-all with local filtering (D-all)")):
+            c = cell(an, cond, traffic)
+            if not c: continue
+            parts.append("%s: the server's link %s (%s), the operator %s (%s), an insider %s (%s)" % (
+                label, verdict(c["O2"]["lr"]), fmt(c["O2"]["lr"]), verdict(c["O3"]["lr"]), fmt(c["O3"]["lr"]),
+                verdict(c["O4"]["lr"]), fmt(c["O4"]["lr"])))
+        a = cell(an, "A", traffic)
+        w("**%s.** Who follows whom (AUC on held-out seeds, 95%% CI; 0.50 is chance) is %s. With direct TLS (A), "
+          "a participant's own link: %s (%s).\n" % (traffic.capitalize(), "; ".join(parts), verdict(a["O1"]["lr"]) if a else
+          "not measured", fmt(a["O1"]["lr"]) if a else "n/a"))
+    w("In short: the schema decides what the server and the members learn. Selective follows (D) name the producers each "
+      "consumer reads, so the host learns the graph from the follows themselves; recipient keys (B, C) give it to the "
+      "operator and to any member reading the whole service. Read-all with local filtering (D-all) leaves neither the "
+      "keys nor the delivery pattern carrying it, at the cost of every consumer receiving every write. Encryption on the "
+      "server's link hides content and keys, not timing.\n")
+    w("## What each observer can see directly\n")
+    w("By construction of each build (the code in this harness), before any inference:\n")
+    w("| condition | the server's link (O2) | the server operator (O3) | an authorized insider (O4) |")
+    w("|---|---|---|---|")
+    w("| A | (no server) a participant's link shows its direct peers' addresses | (none) | (none) |")
+    w("| B | each client's TLS connection to the broker: address, timing, sizes | client identities; topics `chat/<recipient>` "
+      "on every publish (sender and recipient); each client's subscription `chat/<self>`; timing and sizes | with `chat/#`: "
+      "every topic (the recipient) and payload (the sender) |")
+    w("| C | each participant's tunnel to srv: address, timing, sizes | the connection (one participant per tunnel); keys "
+      "`ChatServer.<recipient>.<producer>` on every write and read (both ends); timing and sizes | the whole service's "
+      "keys: both ends of every message |")
+    w("| D | as C | each producer's writes to its own family; each consumer's standing follow on each producer's family it "
+      "reads (the graph, by name); the batch each follow releases; timing and sizes | producers' cells and their bags "
+      "(the sender); nothing about consumers |")
+    w("| D-all | as C | each producer's writes to `Chat.Out`; one follow on `Chat.Out` per consumer (no producer named); "
+      "every write released to every consumer; timing and sizes | as D |")
+    w("")
+    w("Identities: in B, C, D and D-all every connection is one participant (its broker client id or its tunnel address), "
+      "so the operator always knows who is connected and who writes. What differs is whether keys, follows or delivery "
+      "carry who reads whom.\n")
+
+
 def fmt(r):
     if not r or r.get("auc") is None or r["auc"] != r["auc"]:
         return "n/a"
@@ -57,6 +108,9 @@ NOTES = [
     "Linux's delayed-ACK minimum; the rest take under 2 ms. Measured on chat seed 7 (1 minute): Mosquitto's "
     "`set_tcp_nodelay true` alone leaves p95 at 41.8 ms; with TCP_NODELAY also on the paho clients' sockets, p95 is 1.4 "
     "ms. B is reported as stock (both defaults); `OBSVIS_B_NODELAY=1` reproduces the comparison.",
+    "**Not covered: a rendezvous or relay broker.** Here each participant's tunnel runs straight to srv. FrogNet can "
+    "carry tunnels through a broker relay; such a broker would see the relayed tunnels' endpoints, timing and sizes (an "
+    "O2-like view of those tunnels) and none of the keys. That observer is not measured here.",
     "**Revocation.** The others' delivery after p8 is revoked is 100% in every run; p8 receives nothing after the "
     "revocation, in C, D and D-all alike.",
     "**Platform bug found: a bag field named `rows` comes back wrapped.** semtpl.hpp's `rebuild_json` special-cases a "
@@ -120,6 +174,7 @@ def main():
     kernels = sorted({json.load(open(r)).get("kernel") for r in runs} - {None})
     vers["kernel"] = ", ".join(kernels)
     w("Build %s. Analysis %s. Run on kernel(s) %s.\n" % (vers.get("harness"), an.get("build"), vers["kernel"]))
+    summary(an, w)
     w("## What ran\n")
     w("Eight participants (p1..p8), a server (srv), a controller (ctl) and a router (rt), each in its own Linux network "
       "namespace with its own stack, joined in a star through rt. Each participant follows 3 of the other 7, drawn from the "
@@ -132,9 +187,9 @@ def main():
     w("- **B:** Mosquitto %s, topic `chat/<recipient>`, TLS 1.3." % vers.get("mosquitto", "").replace("mosquitto version ", ""))
     w("- **C:** chat-ram (%s), the chat example's own schema and client, `ChatServer.<recipient>.<producer>`." % vers.get("chat-ram"))
     w("- **D:** chat-ram on ribbit::Space (the publish/subscribe library the MQTT and Redis conversions use), own truth: "
-      "each producer writes its own ring cells, `Chat.<producer>.<producer>.<n mod 64>`; each consumer holds one standing "
-      "follow per producer it follows.")
-    w("- **D-all:** the same library, read-all: `Chat.Out.<producer>.<n mod 64>`; each consumer holds one standing follow "
+      "each producer writes its own cells, a ring `Chat.<producer>.<producer>.<n mod 64>` for chat and one cell "
+      "`Chat.<producer>.<producer>` for telemetry; each consumer holds one standing follow per producer it follows.")
+    w("- **D-all:** the same library, read-all: `Chat.Out.<producer>.<n mod 64>` for chat, `Chat.Out.<producer>` for telemetry; each consumer holds one standing follow "
       "on `Chat.Out` and filters locally.\n")
     w("C, D and D-all ran over %s tunnels from each participant to srv.\n" % vers.get("wireguard-go"))
     w("Seeds %s trained the attackers; seeds %s were held out. Each run lasted %s minute(s).\n" % (
