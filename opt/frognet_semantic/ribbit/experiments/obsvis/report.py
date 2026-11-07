@@ -32,25 +32,45 @@ def verdict(r):
 
 
 def summary(an, w):
+    w("## Glossary\n")
+    w("- **Edge:** \"participant j follows participant i\". There are 24 true edges among 56 ordered pairs.")
+    w("- **AUC:** how well an observer separates true edges from false ones. 1.00 means every edge is found. 0.50 means "
+      "the observer is guessing.")
+    w("- **CI:** the 95% confidence interval of the AUC, in brackets.")
+    w("- **Held-out seeds:** runs that the observer's model never saw during training (seeds 7-10).")
+    w("- **O1:** an observer on one participant's network link. **O2:** an observer on the server's network link. "
+      "**O3:** the server's operator. **O4:** a member who is allowed to read the whole service.")
+    w("- **Cell:** one value in the shared memory. **Family:** a group of cells. **Follow:** a standing read. The "
+      "server sends each new write in the family to the reader.")
+    w("")
     w("## Finding\n")
+    w("The words below follow the AUC. \"Found\" means the CI is at or above 0.90. \"At chance\" means the CI "
+      "includes 0.50. \"Partly found\" is everything between.\n")
+    word = {"recovered": "found", "at chance": "at chance", "partly recovered": "partly found", "not measured": "not measured"}
+    names = (("A", "Direct TLS (A)"), ("B", "MQTT broker (B)"), ("C", "Recipient keys on shared memory (C)"),
+             ("D", "Own cells, selective follows (D)"), ("Dall", "Own cells, read all (D-all)"))
     for traffic in ("chat", "telemetry"):
-        parts = []
-        for cond, label in (("B", "the MQTT broker"), ("C", "chat-ram with recipient keys (C)"), ("D", "own truth with "
-                            "selective follows (D)"), ("Dall", "read-all with local filtering (D-all)")):
+        w("**%s workload** (edges found, held-out seeds):\n" % traffic.capitalize())
+        w("| build | O1 | O2 | O3 | O4 |")
+        w("|---|---|---|---|---|")
+        for cond, label in names:
             c = cell(an, cond, traffic)
             if not c: continue
-            parts.append("%s: the server's link %s (%s), the operator %s (%s), an insider %s (%s)" % (
-                label, verdict(c["O2"]["lr"]), fmt(c["O2"]["lr"]), verdict(c["O3"]["lr"]), fmt(c["O3"]["lr"]),
-                verdict(c["O4"]["lr"]), fmt(c["O4"]["lr"])))
-        a = cell(an, "A", traffic)
-        w("**%s.** Who follows whom (AUC on held-out seeds, 95%% CI; 0.50 is chance) is %s. With direct TLS (A), "
-          "a participant's own link: %s (%s).\n" % (traffic.capitalize(), "; ".join(parts), verdict(a["O1"]["lr"]) if a else
-          "not measured", fmt(a["O1"]["lr"]) if a else "n/a"))
-    w("In short: the schema decides what the server and the members learn. Selective follows (D) name the producers each "
-      "consumer reads, so the host learns the graph from the follows themselves; recipient keys (B, C) give it to the "
-      "operator and to any member reading the whole service. Read-all with local filtering (D-all) leaves neither the "
-      "keys nor the delivery pattern carrying it, at the cost of every consumer receiving every write. Encryption on the "
-      "server's link hides content and keys, not timing.\n")
+            if cond == "A":
+                w("| %s | %s | no server | no server | no server |" % (label, word[verdict(c["O1"]["lr"])]))
+            else:
+                w("| %s | %s | %s | %s | %s |" % (label, *(word[verdict(c[o]["lr"])] for o in ("O1", "O2", "O3", "O4"))))
+        w("")
+    w("What this means:\n")
+    w("- The schema decides what the server and the members learn.")
+    w("- With selective follows (D), each follow names a producer. So the server learns the edges from the follows.")
+    w("- With recipient keys (B and C), each key names the recipient. So the operator and any full reader learn the "
+      "edges.")
+    w("- With read-all (D-all), no key and no follow names a reader. Every reader receives every write. So the server "
+      "cannot separate the readers. The cost is more traffic.")
+    w("- Encryption on the server's link hides the content and the keys. It does not hide the timing.")
+    w("- The exact AUC values are in the tables further down.\n")
+
     w("## What each observer can see directly\n")
     w("By construction of each build (the code in this harness), before any inference:\n")
     w("| condition | the server's link (O2) | the server operator (O3) | an authorized insider (O4) |")
