@@ -17,6 +17,9 @@
  *  See COPYRIGHT and LICENSE at the root of this tree.        *
  **************************************************************/
 require_once __DIR__ . '/config.php';
+// [HELD_READ_IN_API_V1] api.php reports its own build on every response.
+const API_BUILD = 'api.php 20261107-held1 [HELD_READ_IN_API_V1]';
+header('X-FrogNet-Api-Build: ' . API_BUILD);
 header('Content-Type: application/json');
 header('Access-Control-Allow-Origin: *');
 header("Access-Control-Allow-Methods: GET, POST, OPTIONS");
@@ -77,6 +80,12 @@ $ENTITIES = [
     'table'  => 'SensorData',
     'pk'     => ['SensorID'],
     'fields' => ['SensorID','FrogID','jsonData']
+  ],
+  // [HELD_READ_IN_API_V1] the holders of held reads on this host
+  'held' => [
+    'table'  => 'HeldRead',
+    'pk'     => ['HoldID'],
+    'fields' => ['HoldID','Holder','HolderID','SensorType','NameExact','NameLike','CreatedAt']
   ],
   'history' => [
     'table'  => 'History',
@@ -224,6 +233,110 @@ function fetch_all($stmt) {
     $out = $res ? $res->fetch_all(MYSQLI_ASSOC) : [];
     $stmt->close();
     return $out;
+}
+
+// ---- [HELD_READ_IN_API_V1 - John 2026-11-07] held reads --------------------------
+//
+// A held read is a core function, so it lives here. The host accepts an update to a
+// tuple and completes it; the writer gets its reply; then the host runs down the
+// holders of that tuple or its family and fires each one, once, down the holder's
+// port 80 (proxy -> daemon -> Apache: the path every daemon-to-daemon call takes) to
+// its held_fire.php. A fired hold is deleted; the holder re-arms by holding again,
+// and the hold's own reply is the current value -- a cell holds one value, so there
+// is nothing to catch up on. No polling anywhere: not here, not in the holder.
+// The holder list lives only in this host's HeldRead table. A split or merge ends it
+// (the machines go away); each holder re-registers at the role's new address on the
+// /etc/hosts event. A holder that is not there (410, or no answer) loses its hold:
+// gone is gone, and it re-registers on its next event.
+
+const HELD_FIRE_PATH      = '/held_fire.php';
+const HELD_FIRE_TIMEOUT_S = 5;
+
+function held_valid_holder($ip) {
+    return is_string($ip) && filter_var($ip, FILTER_VALIDATE_IP, FILTER_FLAG_IPV4) !== false;
+}
+function held_valid_hid($hid) {
+    return is_string($hid) && preg_match('/^[A-Za-z0-9._:-]{1,64}$/', $hid) === 1;
+}
+
+// Send the writer its reply and close its connection, then return so the caller can
+// fire. The writer never waits on a reader.
+function reply_now($payload) {
+    $out = json_encode($payload);
+    ignore_user_abort(true);
+    header('Content-Length: ' . strlen($out));
+    header('Connection: close');
+    echo $out;
+    while (ob_get_level() > 0) ob_end_flush();
+    flush();
+    if (function_exists('fastcgi_finish_request')) fastcgi_finish_request();
+}
+
+// The holds matching one completed tuple update: (SensorType, SensorName).
+function held_take_matching($sensorType, $sensorName) {
+    $sql = "SELECT HoldID, Holder, HolderID FROM HeldRead
+             WHERE SensorType = ?
+               AND (NameExact = '' OR NameExact = ?)
+               AND (NameLike  = '' OR ? LIKE NameLike)";
+    $stmt = exec_stmt($sql, 'sss', [$sensorType, $sensorName, $sensorName]);
+    $holds = fetch_all($stmt);
+    if (!$holds) return [];
+    // One-shot: take them now, before firing, so each hold fires exactly once.
+    $ids = array_map(fn($h) => (int)$h['HoldID'], $holds);
+    $in  = implode(',', array_fill(0, count($ids), '?'));
+    $del = exec_stmt("DELETE FROM HeldRead WHERE HoldID IN ($in)", str_repeat('i', count($ids)), $ids);
+    $del->close();
+    return $holds;
+}
+
+// Fire every hold matched by the completed updates. $updates: [SensorID, ...].
+function held_fire_for($sensorIds) {
+    if (!$sensorIds) return;
+    $any = fetch_all(exec_stmt("SELECT 1 AS x FROM HeldRead LIMIT 1"));
+    if (!$any) return;                                   // nobody holds anything here
+    $in   = implode(',', array_fill(0, count($sensorIds), '?'));
+    $rows = fetch_all(exec_stmt(
+        "SELECT s.SensorID, s.SensorName, s.SensorType, s.SensorAddress, d.jsonData,
+                UNIX_TIMESTAMP(d.UpdatedAt) AS UpdatedAtEpoch
+           FROM Sensor s LEFT JOIN SensorData d ON d.SensorID = s.SensorID
+          WHERE s.SensorID IN ($in)", str_repeat('i', count($sensorIds)), array_map('intval', $sensorIds)));
+    $fires = [];
+    foreach ($rows as $r) {
+        foreach (held_take_matching($r['SensorType'], $r['SensorName']) as $h) {
+            $data = null;
+            if (is_string($r['jsonData']) && $r['jsonData'] !== '') {
+                $j = json_decode($r['jsonData']);
+                if (json_last_error() === JSON_ERROR_NONE) $data = $j;
+            }
+            $fires[] = [$h['Holder'], [
+                'hold' => (int)$h['HoldID'], 'hid' => $h['HolderID'], 'build' => API_BUILD,
+                'SensorID' => (int)$r['SensorID'], 'SensorType' => $r['SensorType'],
+                'SensorName' => $r['SensorName'], 'SensorAddress' => $r['SensorAddress'],
+                'UpdatedAtEpoch' => (int)$r['UpdatedAtEpoch'], 'data' => $data]];
+        }
+    }
+    if (!$fires) return;
+    // All fires in parallel; none waits on another.
+    $mh = curl_multi_init(); $hs = [];
+    foreach ($fires as [$holder, $msg]) {
+        $ch = curl_init('http://' . $holder . HELD_FIRE_PATH);
+        curl_setopt_array($ch, [CURLOPT_POST => true, CURLOPT_POSTFIELDS => json_encode($msg),
+            CURLOPT_HTTPHEADER => ['Content-Type: application/json'], CURLOPT_RETURNTRANSFER => true,
+            CURLOPT_TIMEOUT => HELD_FIRE_TIMEOUT_S, CURLOPT_CONNECTTIMEOUT => HELD_FIRE_TIMEOUT_S]);
+        curl_multi_add_handle($mh, $ch); $hs[] = [$ch, $holder, $msg];
+    }
+    do { $st = curl_multi_exec($mh, $running); if ($running) curl_multi_select($mh, 1.0); }
+    while ($running && $st === CURLM_OK);
+    foreach ($hs as [$ch, $holder, $msg]) {
+        $code = (int)curl_getinfo($ch, CURLINFO_HTTP_CODE);
+        if ($code !== 200) {   // the hold is already gone; the holder re-registers on its next event
+            error_log(sprintf('[HELD_READ_IN_API_V1] fire hold=%d hid=%s holder=%s %s.%s -> %s',
+                $msg['hold'], $msg['hid'], $holder, $msg['SensorType'], $msg['SensorName'],
+                $code ? "HTTP $code" : ('no answer: ' . curl_error($ch))));
+        }
+        curl_multi_remove_handle($mh, $ch); curl_close($ch);
+    }
+    curl_multi_close($mh);
 }
 
 $entity = $_GET['entity'] ?? null;
@@ -746,7 +859,56 @@ if ($entity === 'sensor_data' && ($action === 'upsert' || $action === 'upsert_by
     $stmt = exec_stmt($sqlUD, 'iss', [$SensorID, $FrogID ?: '', $jsonData]);
     $stmt->close();
 
-    echo json_encode(['ok'=>true, 'sensor_id'=>$SensorID]); exit;
+    // [HELD_READ_IN_API_V1] the update is complete: reply to the writer, then fire.
+    reply_now(['ok'=>true, 'sensor_id'=>$SensorID]);
+    held_fire_for([(int)$SensorID]);
+    exit;
+}
+
+// ---- held / hold --------------------------------------------------------------
+// [HELD_READ_IN_API_V1] Hold a read on a tuple or a family. The hold is a read: it is
+// registered first, then the current rows are selected and returned, so any update
+// that completes after this select fires it.
+//   GET api.php?entity=held&action=hold&SensorType=<svc>
+//              [&SensorName=<exact> | &SensorName__like=<pattern>]
+//              &holder=<the holder's IPv4, reached on its port 80>&hid=<holder id>
+// Reply: {"ok":true,"hold":<id>,"build":...,"rows":[ as sensors/values with parse=1 ]}
+// The next matching upsert fires it once to http://<holder>/held_fire.php and deletes it.
+if ($entity === 'held' && $action === 'hold') {
+    if ($method !== 'GET') bad(405, 'Use GET for held/hold');
+    $st     = $_GET['SensorType'] ?? '';
+    $exact  = $_GET['SensorName'] ?? '';
+    $like   = $_GET['SensorName__like'] ?? '';
+    $holder = $_GET['holder'] ?? '';
+    $hid    = $_GET['hid'] ?? '';
+    if ($st === '') bad(400, 'held/hold needs SensorType');
+    if ($exact !== '' && $like !== '') bad(400, 'held/hold takes SensorName or SensorName__like, not both');
+    if (!held_valid_holder($holder)) bad(400, 'held/hold needs holder=<IPv4>');
+    if (!held_valid_hid($hid)) bad(400, 'held/hold needs hid=[A-Za-z0-9._:-]{1,64}');
+
+    $ins = exec_stmt("INSERT INTO HeldRead (Holder, HolderID, SensorType, NameExact, NameLike)
+                      VALUES (?,?,?,?,?)
+                      ON DUPLICATE KEY UPDATE HoldID = LAST_INSERT_ID(HoldID), CreatedAt = CURRENT_TIMESTAMP",
+                     'sssss', [$holder, $hid, $st, $exact, $like]);
+    $holdId = db()->raw()->insert_id ?? null;
+    $ins->close();
+
+    $where = ' WHERE s.SensorType = ?'; $types = 's'; $params = [$st];
+    if ($exact !== '') { $where .= ' AND s.SensorName = ?';    $types .= 's'; $params[] = $exact; }
+    if ($like  !== '') { $where .= ' AND s.SensorName LIKE ?'; $types .= 's'; $params[] = $like; }
+    $rows = fetch_all(exec_stmt(
+        "SELECT s.SensorID, s.FrogID, s.SensorAddress, s.SensorNetwork, s.SensorName, s.SensorType, s.Tags,
+                d.jsonData, d.UpdatedAt, UNIX_TIMESTAMP(d.UpdatedAt) AS UpdatedAtEpoch
+           FROM Sensor s LEFT JOIN SensorData d ON d.SensorID = s.SensorID" . $where, $types, $params));
+    foreach ($rows as &$r) {
+        if (isset($r['jsonData']) && is_string($r['jsonData']) && $r['jsonData'] !== '') {
+            $j = json_decode($r['jsonData']);                 // [AN_OBJECT_IS_NOT_A_LIST_V1]
+            if (json_last_error() === JSON_ERROR_NONE) $r['data'] = $j;
+        }
+    }
+    unset($r);
+    echo json_encode(['ok'=>true, 'hold'=>$holdId !== null ? (int)$holdId : null, 'build'=>API_BUILD, 'rows'=>$rows]);
+    exit;
 }
 
 // ---- sensors / values -------------------------------------------------------
@@ -759,7 +921,7 @@ if ($entity === 'sensors' && $action === 'values') {
     // Build WHERE from query params; supports __like suffix (e.g. SensorName__like=GPS%)
     $filters = $_GET;
     unset($filters['entity'],$filters['action'],$filters['order'],$filters['limit'],$filters['parse']);
-    // [ASK_ONCE_AND_WAIT_V1 - John 2026-09-14] Not filter columns.
+    // Not filter columns. (wait_s/min_rows: no longer honoured -- [HELD_READ_IN_API_V1])
     unset($filters['fresh_s'],$filters['wait_s'],$filters['min_rows']);
     [$where,$params,$types] = build_where_and_params($filters, $allow);
 
@@ -799,43 +961,12 @@ if ($entity === 'sensors' && $action === 'values') {
               FROM Sensor s
          LEFT JOIN SensorData d ON d.SensorID = s.SensorID
             {$where}{$freshSql}{$orderSql}{$limitSql}";
-    // [ASK_ONCE_AND_WAIT_V1 - John 2026-09-14] Hold the question open.
-    //
-    // The clients have been sending &wait_s and &min_rows since the blocking
-    // read was written -- frognet_tuples._values_raw builds them, gate.py and
-    // the psychedelic backend pass them -- and NOTHING here ever read them.
-    // The server answered immediately every time, so every "blocking read" in
-    // the fleet was a spin: measured on Seattle5, 649 asks in 11.5 s for one
-    // key, max one in flight.
-    //
-    // A reader asking "wait until this cell exists" is asking a question whose
-    // answer only changes when a peer writes. Re-running the SAME query here,
-    // once the rows are short of what was asked for, is that question asked
-    // once instead of hundreds of times.
-    //
-    // Bounded three ways, because a PHP worker held open is a real cost:
-    //   - wait_s is capped at WAIT_MAX_S, so a client cannot pin a worker;
-    //   - it returns the MOMENT the condition is met, not at expiry;
-    //   - min_rows must be > 0, so this can never engage by accident.
-    // On expiry it returns whatever it has. A short answer is "not yet",
-    // which is the same fact the caller would have polled its way to.
-    $waitS    = isset($_GET['wait_s'])   ? (float)$_GET['wait_s']   : 0.0;
-    $minRows  = isset($_GET['min_rows']) ? (int)$_GET['min_rows']   : 0;
-    $WAIT_MAX_S   = 30.0;
-    $WAIT_SLEEP_U = 50000;              // 50 ms between re-reads
-    if ($waitS > $WAIT_MAX_S) $waitS = $WAIT_MAX_S;
-
+    // [HELD_READ_IN_API_V1 - John 2026-11-07] The 50 ms re-query loop that answered
+    // &wait_s/&min_rows ([ASK_ONCE_AND_WAIT_V1]) is gone: it was polling inside the
+    // server. A reader that wants to wait holds a read (entity=held&action=hold), and
+    // the next matching upsert fires it. values answers once, immediately.
     $stmt = exec_stmt($sql, $types, $params);
     $rows = fetch_all($stmt);
-
-    if ($waitS > 0 && $minRows > 0 && count($rows) < $minRows) {
-        $deadline = microtime(true) + $waitS;
-        while (count($rows) < $minRows && microtime(true) < $deadline) {
-            usleep($WAIT_SLEEP_U);
-            $stmt = exec_stmt($sql, $types, $params);
-            $rows = fetch_all($stmt);
-        }
-    }
 
     // parse=1 → include parsed JSON as 'data'
     $parse = isset($_GET['parse']) && ($_GET['parse']==='1' || $_GET['parse']==='true');
@@ -935,7 +1066,11 @@ if ($entity === 'sensor_data' && $action === 'upsert_batch') {
         $mysqli->rollback();
         bad(500, 'upsert_batch failed', $e->getMessage());
     }
-    echo json_encode(['ok'=>true,'count'=>count($results),'results'=>$results]); exit;
+    // [HELD_READ_IN_API_V1] the batch is committed: reply to the writer, then fire.
+    reply_now(['ok'=>true,'count'=>count($results),'results'=>$results]);
+    held_fire_for(array_values(array_unique(array_map(fn($x) => (int)$x['SensorID'],
+        array_filter($results, fn($x) => !empty($x['ok']) && isset($x['SensorID']))))));
+    exit;
 }
 
 // ---- history / append ------------------------------------------------------
