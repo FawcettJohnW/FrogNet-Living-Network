@@ -100,6 +100,28 @@ def fmt(r):
     return "%.2f [%.2f, %.2f]" % (r["auc"], r["ci95"][0], r["ci95"][1])
 
 
+KNOWN_DEFECTS = {   # harness builds whose runs differ from the design this report describes
+    "obsvis-2026-11-06-r3": [
+        "**Telemetry in D and D-all was written as messages.** Each reading went into a new cell of a ring, including "
+        "unchanged readings. The correct design is one cell per producer, overwritten on each reading. Effect: D and "
+        "D-all telemetry wire bytes are too high, and the O1 and O2 telemetry numbers for D and D-all measure the wrong "
+        "design.",
+        "**Wire bytes included the control region's traffic.** This traffic is the harness's own reporting. Effect: the "
+        "cost of C, D and D-all is too high, because their participants report more.",
+        "**O3 timing for C, D and D-all used the client's clock, not the server's.** Effect: O3 timing is weaker than "
+        "the real operator's. This makes C, D and D-all look better at O3. D-all is affected most, because it has no "
+        "keys and depends on timing.",
+        "**B's operator log had whole-second timestamps.** Effect: O3 timing for B is too weak. This makes B look "
+        "better at O3. B's O3 result (1.00) comes from its topic keys, so it does not change.",
+        "**After a server change, chat messages were sent again.** The correct design re-sends only a latest value, "
+        "never a message. Effect: extra traffic in the server-change stress runs.",
+        "**No linger time was set.** A producer's cells disappeared at once when its session ended. The correct design "
+        "keeps them 5 seconds. Effect: the move stress runs used an unplanned setting.",
+        "**Follows started from \"now\".** The correct design reads what a family holds, then waits. Effect: none "
+        "measured; the start margin hid it.",
+    ],
+}
+
 NOTES = [
     "**Run length.** Each run here lasted the minutes given above; the brief specifies 30. `./matrix.sh 30` runs the "
     "brief's matrix unchanged.",
@@ -195,6 +217,15 @@ def main():
     kernels = sorted({json.load(open(r)).get("kernel") for r in runs} - {None})
     vers["kernel"] = ", ".join(kernels)
     w("Build %s. Analysis %s. Run on kernel(s) %s.\n" % (vers.get("harness"), an.get("build"), vers["kernel"]))
+    if vers.get("harness") in KNOWN_DEFECTS:
+        w("## Preliminary: these numbers are not fully accurate\n")
+        w("The runs behind this report used harness build %s. An audit after the runs found errors in that build. They are "
+          "fixed in the next build, and the full matrix is running again. A final report will replace this one.\n"
+          % vers.get("harness"))
+        w("The text of this report describes the corrected design. These runs differ from it as follows:\n")
+        for t in KNOWN_DEFECTS[vers["harness"]]:
+            w("- " + t)
+        w("")
     summary(an, w)
     w("## What ran\n")
     w("Eight participants (p1..p8), a server (srv), a controller (ctl) and a router (rt), each in its own Linux network "
