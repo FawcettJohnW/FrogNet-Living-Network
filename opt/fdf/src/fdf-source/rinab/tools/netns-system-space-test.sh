@@ -151,7 +151,6 @@ daemon() { local n=$1
     'R=$(sed -n "s/^export RINA_RAM=//p" /opt/fdf/var/join.env); [ -f /opt/fdf/var/system-ram.env ] && R=$(sed -n "s/^RINA_RAM=//p" /opt/fdf/var/system-ram.env); echo $$ > /opt/fdf/var/client.pid; exec fdf-client $R'
   NSF $n env FDF_NAME=$n python3 $T/bin/fdf-facts --watch > $T/$n/facts.log 2>&1 &
   }
-daemon z; daemon w
 # [ROLES_ON_API_V1] each node's port 80 on its .1: this tree's api.php (its own database) and held_fire.php
 WWW=$FN/../../var/www/html; DBPW=sstest$$
 roles_www() { local n=$1 ip=$2 d=$T/$1/www db=sstest_$1; mkdir -p $d; cp $WWW/api.php $WWW/held_fire.php $d/
@@ -160,6 +159,7 @@ roles_www() { local n=$1 ip=$2 d=$T/$1/www db=sstest_$1; mkdir -p $d; cp $WWW/ap
   for f in Create_Database.sql schema_fixups.sql; do sed "s/\`FrogNet\`/\`$db\`/g; s/^USE FrogNet;/USE $db;/" $WWW/$f | mysql > /dev/null; done
   svc $T/$n/php.log NSF $n env PHP_CLI_SERVER_WORKERS=8 php -S $ip:80 -t $d; }
 roles_www z 10.3.3.1; roles_www w 10.4.4.1
+daemon z; daemon w
 on() { grep "system space on" $T/$1/daemon.log | tail -1 | sed 's/.*system space on \([^(]*\) (.*/\1/' | sed 's/ *$//'; }
 # wait until both daemons' last "system space on" names $1, and the RAM manager they are on lists both; prints seconds
 both_on() { local want=$1 t0=$(ms) ok=1; for i in $(seq ${3:-240}); do

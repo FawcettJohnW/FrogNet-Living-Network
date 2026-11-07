@@ -116,9 +116,12 @@ class RoleRam:
         key = json.dumps(f, sort_keys=True)
         if after >= 0 and wait_s:
             import frognet_held
-            rows = frognet_held.wait_change(service, self.host, self._seen.get(key),
-                                            name_like=f.get("SensorName__like"), name=f.get("SensorName"),
-                                            wait_s=wait_s)
+            try:
+                rows = frognet_held.wait_change(service, self.host, self._seen.get(key),
+                                                name_like=f.get("SensorName__like"), name=f.get("SensorName"),
+                                                wait_s=wait_s)
+            except (frognet_held.HoldError, OSError) as e:    # the role's api.php did not take the hold: the caller's
+                raise RamError(str(e)) from e                 # event (/etc/hosts) is when it is held again
         else:
             q = {"entity": "sensors", "action": "values", "parse": "1"}
             q.update(f)

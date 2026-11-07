@@ -1640,7 +1640,14 @@ def run_region_loop():
     was_up = False                      # [REGION_LOSS_IS_A_TRANSITION_V1] "lost" is said and acted on once per loss
     returned = {"name": None}
     prefer = {"name": None, "lost": None}        # [NO_FLAP_V1] the entry the standing sessions say to take next; the one lost
-    region.standing.on_up = None                 # [ROLES_ON_API_V1] no LAN entry to move off
+    waiting = {"on": False}
+    def _on_up(e):                               # [SPLIT_IS_LAN_ONLY_V1] while LAN-only, an entry answering is the rejoin
+        if waiting["on"]:
+            waiting["on"] = False
+            prefer["name"] = e["name"]
+            config.log.warning("REGION: system space: %s is alive and this node is LAN-only: rejoining the region [SPLIT_IS_LAN_ONLY_V1]", e["name"])
+            os.write(_rejoin_wake[1], b"u")
+    region.standing.on_up = _on_up
     config.on_stop.append(region.end_events)         # [STOP_IS_AN_EVENT_V1] a stop ends the held read too
     while config.running:
         up = False
@@ -1749,7 +1756,12 @@ def run_region_loop():
         if switch["to"]:                # [FORWARD_SWITCH_IN_PLACE_V1] a switch: no wait, the new pond now
             _do_switch()
             continue
+        # [SPLIT_IS_LAN_ONLY_V1] a standing session to every entry on the list while LAN-only: one answering is the event
+        waiting["on"] = True
+        region.standing.run(order, {})
         _wait_rejoin(region, order, t_walk)
+        waiting["on"] = False
+        region.standing.stop()
         if not config.running:
             return
         if switch["to"]:
