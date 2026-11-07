@@ -12,7 +12,8 @@ one handler's pick per service (AppHostHandler), a pure function of the tuples, 
     (fdf-app, config, <app>) -- {config: text (rams, ports, select ...), seq, mac, user, admin} -- and a Team lead's
     (fdf-app, config, <app>.<team>) -- {at: here|databasehost, guid, seq, user};
   * the capability tuples, in the SystemRam (databasehost.frognet's api.php): (fdf-app, can, <app>.<ram>.<guid>),
-    each held by its service's session (`ram hold`): a service that is gone is no candidate.
+    each written by its machine and removed by the SystemRam when that machine leaves ([WRITER_GONE_V1]): a
+    machine that is gone is no candidate.
 
 The candidates are the live .1 FrogNetHosts of the converged block whose service offers the RAM. A Team its lead put
 "here" is served by the lead's device: its line names that device when its capability tuple is there (a Pi with a
