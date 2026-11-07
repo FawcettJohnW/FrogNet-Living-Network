@@ -35,7 +35,7 @@ import fdf_watch  # noqa: E402  [EVENTS_NOT_TIMERS_V1]
 import fdfram  # noqa: E402
 
 API = "/FawcettInnovations.RINA.ram_interface.php"
-BUILD_TAG = "fdf-2026-11-04-r49"      # [FDF_VERSION_V1] keep equal to src/fdf_version.hpp
+BUILD_TAG = "fdf-2026-11-07-r50"      # [FDF_VERSION_V1] keep equal to src/fdf_version.hpp
 # [HUB_ADDRESS_FROM_ITS_HOST_V1] this hub's address, from hub.env's FDF_HUB_ADDR (fdf-hub@'s EnvironmentFile; the RAM
 # manager's unit sets it for --iface-only): 10.253.A.B on a node serving 10.A.B.0/24, 10.253.253.254 on a machine that
 # serves no FrogNet LAN and in every hub.env made before r22. It is in this hub's facts (addr), where members read it.

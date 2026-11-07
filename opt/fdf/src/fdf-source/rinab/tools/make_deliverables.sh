@@ -25,7 +25,18 @@ FROGNET_FILES=(
   etc/NetworkManager/dispatcher.d/90-frognet-merge
   etc/apache2/sites-available/000-default.conf
   etc/sudoers.d/frognet-snapshot
+  opt/frognet_semantic/BUILD
   opt/frognet_semantic/core/build_id.py
+  opt/frognet_semantic/core/frognet_held.py
+  opt/frognet_semantic/core/frognet_tuples.py
+  opt/frognet_semantic/daemon/engine/server.py
+  opt/frognet_semantic/daemon/engine/session.py
+  etc/tmpfiles.d/frognet-held.conf
+  var/www/html/api.php
+  var/www/html/held_fire.php
+  var/www/html/schema_fixups.sql
+  var/www/html/Create_Database.sql
+  usr/local/bin/installer/frognet_install.sh
   opt/frognet_semantic/core/frognet_role_elect.py
   opt/frognet_semantic/core/app_hosts.py
   opt/frognet_semantic/core/frognet_service_hosts.py
@@ -109,11 +120,11 @@ tarit() { (cd "$1" && find . \( -type f -o -type l \) | sed 's|^\./||' | sort | 
 # ---- x86 node
 R=$W/node; fdf_tree "$R" "$H/build/static" fdf-client fdf-events fdf-participants fdf-attention fdf-where ram; cp "$H/build/bin/fdf-ram-static" "$R/opt/fdf/bin/fdf-ram"
 node_pages "$R"; frognet_patch "$R"; build_file fdf-node.tgz "x86_64 FrogNet node or leaf" "$R"
-tarit "$R" > "$W/fdf-node.tgz"; sed 's/__ARCH__/x86_64/' "$TOP/deliverables/header.sh" | cat - "$W/fdf-node.tgz" > "$OUT/fdf-install-x86_64-$TAG.run"
+tarit "$R" > "$W/fdf-node.tgz"; cp "$W/fdf-node.tgz" "$OUT/fdf-node-x86_64-$TAG.tgz"; sed 's/__ARCH__/x86_64/' "$TOP/deliverables/header.sh" | cat - "$W/fdf-node.tgz" > "$OUT/fdf-install-x86_64-$TAG.run"
 # ---- arm64 node
 R=$W/arm; fdf_tree "$R" "$H/build/arm64" fdf-client fdf-events fdf-participants fdf-attention fdf-where ram fdf-ram
 node_pages "$R"; frognet_patch "$R"; build_file fdf-node-arm64.tgz "aarch64 FrogNet node (Pi)" "$R"
-tarit "$R" > "$W/fdf-node-arm64.tgz"; sed 's/__ARCH__/aarch64/' "$TOP/deliverables/header.sh" | cat - "$W/fdf-node-arm64.tgz" > "$OUT/fdf-install-aarch64-$TAG.run"
+tarit "$R" > "$W/fdf-node-arm64.tgz"; cp "$W/fdf-node-arm64.tgz" "$OUT/fdf-node-aarch64-$TAG.tgz"; sed 's/__ARCH__/aarch64/' "$TOP/deliverables/header.sh" | cat - "$W/fdf-node-arm64.tgz" > "$OUT/fdf-install-aarch64-$TAG.run"
 # ---- region holder, one per processor ([HOLDER_PER_ARCH_V1]: a Pi holds a LAN region as well as a droplet holds one)
 R=$W/drop; fdf_tree "$R" "$H/build/static" fdf-client fdf-events fdf-participants fdf-attention fdf-where ram; cp "$H/build/bin/fdf-ram-static" "$R/opt/fdf/bin/fdf-ram"
 mkdir -p "$R/etc"; cp -a "$TOP/deliverables/etc-droplet/systemd" "$R/etc/"
@@ -141,5 +152,5 @@ chmod +x "$OUT"/*.run
 if [ -n "${FDF_DIST:-}" ]; then mkdir -p "$FDF_DIST"
   cp "$OUT/fdf-install-x86_64-$TAG.run" "$FDF_DIST/fdf-install-x86_64.run"; cp "$OUT/fdf-install-aarch64-$TAG.run" "$FDF_DIST/fdf-install-aarch64.run"
   cp "$OUT/fdf-droplet-x86_64-$TAG.tgz" "$FDF_DIST/fdf-droplet.tgz"; cp "$OUT/fdf-droplet-aarch64-$TAG.tgz" "$FDF_DIST/fdf-droplet-aarch64.tgz"; echo "dist: $FDF_DIST holds $TAG under the fixed names"; fi
-for f in "$OUT"/fdf-install-x86_64-$TAG.run "$OUT"/fdf-install-aarch64-$TAG.run "$OUT"/fdf-droplet-x86_64-$TAG.tgz "$OUT"/fdf-droplet-aarch64-$TAG.tgz "$OUT"/frognet-tree-$TAG.tgz; do printf '%s  %s bytes  sha256 %s\n' "${f##*/}" "$(stat -c %s "$f")" "$(sha256sum "$f" | cut -c1-16)"; done
+for f in "$OUT"/fdf-node-x86_64-$TAG.tgz "$OUT"/fdf-node-aarch64-$TAG.tgz "$OUT"/fdf-install-x86_64-$TAG.run "$OUT"/fdf-install-aarch64-$TAG.run "$OUT"/fdf-droplet-x86_64-$TAG.tgz "$OUT"/fdf-droplet-aarch64-$TAG.tgz "$OUT"/frognet-tree-$TAG.tgz; do printf '%s  %s bytes  sha256 %s\n' "${f##*/}" "$(stat -c %s "$f")" "$(sha256sum "$f" | cut -c1-16)"; done
 echo "built $TAG at $NOW"
