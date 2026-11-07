@@ -110,7 +110,7 @@ def features(R, cond):
     out["O1"] = O1
     # O3: the operator's log
     o3u, o3d, key = {}, {}, {}
-    if cond == "B":
+    if cond in ("B", "Bt"):
         for l in R["mosq"]:
             m = re.match(r"([\d.]+) \d+: (Received|Sending) PUBLISH (?:from|to) (\S+) \(.*?'chat/(\S+?)'.*?\((\d+) bytes\)\)", l)
             if not m: continue

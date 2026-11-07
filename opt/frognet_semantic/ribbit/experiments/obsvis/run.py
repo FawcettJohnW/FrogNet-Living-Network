@@ -28,7 +28,7 @@ sys.path.insert(0, HERE)
 import bed, workload  # noqa: E402
 
 BUILD = "obsvis-2026-11-07-r5"
-CONDS = ["A", "B", "C", "D", "Dall"]
+CONDS = ["A", "B", "Bt", "C", "D", "Dall"]
 AGENTS = workload.PARTS + ["srv", "rt"]
 STRESS = {
     "netem-delay": {"netem": "delay 100ms"},
@@ -175,7 +175,7 @@ def run(cond, traffic, seed, minutes, stress=None, out=None):
     try:
         bed.up(wg=cond in ("C", "D", "Dall"), netem=st.get("netem"))
         cdir = os.path.join(out, "certs")
-        if cond in ("A", "B"): certs(cdir)
+        if cond in ("A", "B", "Bt"): certs(cdir)
         procs.append(start("ctl", [os.path.join(HERE, "build", "chat-ram"), "--listen", bed.CTL + ":8899"], os.path.join(out, "ctl-chat-ram.log"), "answering"))
         for n in AGENTS:
             procs.append(start(n, ["python3", "-u", os.path.join(HERE, "agent.py"), "--name", n, "--ctl", bed.CTL + ":8899", "--out", out],

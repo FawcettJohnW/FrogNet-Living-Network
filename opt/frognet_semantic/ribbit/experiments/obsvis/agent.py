@@ -221,12 +221,12 @@ class Agent:
         c, d = self.plan["cond"], self.plan["certs"]
         if c == "A":
             return None
-        if c == "B":
+        if c in ("B", "Bt"):                                 # [OBSVIS_BT_V1] Bt: B with Nagle off in the broker and the clients
             conf = os.path.join(self.outdir, "mosquitto.conf")
             open(conf, "w").write("user root\nper_listener_settings false\nallow_anonymous true\npersistence false\nlog_dest stdout\nlog_type all\n"
                                   "connection_messages true\nlog_timestamp true\nlog_timestamp_format %%s\nlistener 8883 %s\n"
                                   "cafile %s/ca.crt\ncertfile %s/srv.crt\nkeyfile %s/srv.key\ntls_version tlsv1.3\n" % (bed.ADDR("srv"), d, d, d))
-            if os.environ.get("OBSVIS_B_NODELAY") == "1":     # diagnostic only: Mosquitto's default is Nagle on (set_tcp_nodelay false)
+            if c == "Bt":                                    # Mosquitto's default is Nagle on (set_tcp_nodelay false)
                 open(conf, "a").write("set_tcp_nodelay true\n")
             s = Child(["stdbuf", "-oL", "mosquitto", "-c", conf], " running", os.path.join(self.outdir, "o3-mosquitto.log"), stamp=True)
         else:
@@ -271,7 +271,7 @@ class Agent:
             if self.srv: self.used.append(self.srv.stop())
             extra["server_usage"] = self.used
             mlog = os.path.join(self.outdir, "o3-mosquitto.log")
-            if self.plan["cond"] == "B" and os.path.exists(mlog):     # its own server's log: this agent's own output
+            if self.plan["cond"] in ("B", "Bt") and os.path.exists(mlog):     # its own server's log: this agent's own output
                 self.extra["mosquitto"] = [l.rstrip("\n") for l in open(mlog)]
         if self.name == "rt":
             links = {}
@@ -394,7 +394,7 @@ class Agent:
             elif self.o4 is not None: self.o4(src="mqtt", topic=msg.topic, f=m.get("f"), bytes=len(msg.payload))
         self.mq.on_connect, self.mq.on_message = on_connect, on_message
         self.mq.connect(bed.ADDR("srv"), 8883, keepalive=60)
-        if os.environ.get("OBSVIS_B_NODELAY") == "1":         # diagnostic only: paho leaves Nagle on its socket
+        if self.cond == "Bt":                                 # [OBSVIS_BT_V1] paho leaves Nagle on its socket
             import socket as _s; self.mq.socket().setsockopt(_s.IPPROTO_TCP, _s.TCP_NODELAY, 1)
         self.mq.loop_start()
         if not ready.wait(20): raise RuntimeError("Mosquitto did not answer in 20 s")
@@ -403,7 +403,8 @@ class Agent:
         for j in self.fol:
             self.mq.publish("chat/" + j, body, qos=0)
 
-    reconnect_A = reconnect_B = lambda self: None
+    reconnect_A = reconnect_B = reconnect_Bt = lambda self: None
+    up_Bt, send_Bt = up_B, send_B                              # [OBSVIS_BT_V1] the same client; Nagle off by cond
 
     # ================================================================== C: chat-ram, the chat example
     def up_C(self):
