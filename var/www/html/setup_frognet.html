@@ -574,8 +574,8 @@ async function loadHosts() {
     $('hosts-list').innerHTML = rows.map(h => {
       const lt = h.last || {};
       const last = lt.op ? (lt.op + ' ' + lt.seq + (lt.ok ? ' ok' : ' FAILED: ' + (lt.why || '')) + (lt.file ? ' \u2192 ' + lt.file : '')) : 'nothing asked yet';
-      return '<div class="row" data-guid="' + escHtml(h.guid) + '" data-port="' + escHtml(String(h.ram_port || '')) + '" style="display:flex;flex-wrap:wrap;gap:.4em;align-items:center;margin:.4em 0">' +
-        '<strong style="min-width:9em">' + escHtml(h.name || '?') + '</strong><span style="min-width:8em">' + escHtml(h.gateway || '?') + '</span><span style="min-width:6em">port ' + escHtml(String(h.ram_port || '?')) + '</span>' +
+      return '<div class="row" data-guid="' + escHtml(h.guid) + '" style="display:flex;flex-wrap:wrap;gap:.4em;align-items:center;margin:.4em 0">' +
+        '<strong style="min-width:9em">' + escHtml(h.name || '?') + '</strong><span style="min-width:8em">' + escHtml(h.gateway || '?') + '</span>' +
         ['clear', 'dump', 'backup', 'reboot'].map(op => '<button type="button" class="ghost host-op" data-op="' + op + '">' + op + '</button>').join('') +
         '<button type="button" class="ghost host-setup">rename\u2026</button>' +
         '<span class="value" style="font-size:.85em;flex-basis:100%">' + escHtml(last) + '</span></div>';
@@ -589,7 +589,6 @@ document.addEventListener('click', async (e) => {
   if (body.op === 'setup') {
     body.name = prompt('New name for this node'); if (!body.name) return;
     body.ip = prompt('Its gateway IP (10.x.x.1)'); if (!body.ip) return;
-    body.port = prompt('Its RAM host port (the same on every FrogNetHost)', b.closest('[data-guid]').dataset.port || '8841'); if (!body.port) return;
   } else if ((body.op === 'clear' || body.op === 'reboot') && !confirm(body.op + ' this node?')) return;
   try {
     const r = await call('host-request', { body: body });
