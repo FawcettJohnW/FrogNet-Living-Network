@@ -55,6 +55,7 @@ class RoleRam:
 
     def __init__(self, host):
         self.host = host                        # an address (or host:port for a test), never a RAM port
+        self.hostport = host                    # what the tools print
         self.base = "http://%s/api.php" % host
         self._seen = {}                         # query -> signature of the rows last handed out
 

@@ -19,7 +19,7 @@ current value. A cell holds one value: there is nothing to catch up on.
 One thread per process waits for every fire and for the /etc/hosts event (rule: one
 thread waits for all triggers). When the merge rewrites /etc/hosts the roles may have
 moved, and every hold on the old address ended with it: each pending wait is woken
-and holds again at the name's new address. A fire that never comes (the role host
+and returns what it has, and the caller holds again at the role's new address. A fire that never comes (the role host
 went away without a hosts event) is not chased: the wait ends at the caller's own
 bound, and the next event re-registers. No polling anywhere, no fallback.
 
@@ -199,7 +199,12 @@ class Holder:
                         continue                         # it fired already: hold again
                     self.waits.setdefault(hid, []).append(w)
                 left = deadline - time.monotonic()
-                if left <= 0 or not w.ev.wait(left):
+                woke = left > 0 and w.ev.wait(left)
+                if woke and w.moved:
+                    # /etc/hosts was rewritten: the role may be at another address now. The caller
+                    # says which one it means (a name is resolved again on its next hold).
+                    return rows
+                if not woke:
                     with self.lock:
                         ws = self.waits.get(hid, [])
                         if w in ws:

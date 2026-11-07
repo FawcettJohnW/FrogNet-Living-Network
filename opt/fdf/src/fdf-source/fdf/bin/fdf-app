@@ -55,8 +55,7 @@ Where things are [APP_SERVICES_V1]:
         hold a read on the configuration tuples and adopt a newer one (its mac checked against the admin key), answering
         in (fdf-app, applied); serve each AppRam whose AppHost /etc/hosts names this machine, on its port.
 
-Environment: FDF_HOSTS (/etc/hosts), FDF_LAN_RAM_PORT (8841), RINA_CONTROL_RAM / RINA_SYSTEM_RAM (host:port, for a
-test), FDF_FACTS, FDF_APPS (/opt/fdf/apps), FDF_VAR (/opt/fdf/var), FDF_BIN (/opt/fdf/bin).
+Environment: FDF_HOSTS (/etc/hosts), RINA_CONTROL_RAM / RINA_SYSTEM_RAM (an api.php's address, for a test), FDF_FACTS, FDF_APPS (/opt/fdf/apps), FDF_VAR (/opt/fdf/var), FDF_BIN (/opt/fdf/bin).
 """
 import hashlib, hmac, json, os, queue, random, signal, socket, subprocess, sys, threading, time
 
@@ -81,11 +80,11 @@ def log(m):
 
 
 def ctl_ram():
-    return fdfram.Ram(fdfram.control_ram())
+    return fdfram.control_ram()          # [ROLES_ON_API_V1] the ControlRam: its api.php, port 80
 
 
 def sys_ram():
-    return fdfram.Ram(fdfram.system_ram())
+    return fdfram.system_ram()           # [ROLES_ON_API_V1] the SystemRam: its api.php, port 80
 
 
 def _quiet(f):
@@ -726,8 +725,8 @@ def install(argv):
         rm = ctl_ram()
         bag = newest_config(rm, app)
     except fdfram.RamError as e:
-        print("fdf-app: databasehost-control is not reachable from here (%s): nothing installed. The first FrogNetHost "
-              "makes it; install the app on a node of a network that has one" % e); return 1
+        print("fdf-app: databasehost-control's api.php is not reachable from here (%s): nothing installed. "
+              "Install the app on a node of a network whose /etc/hosts names databasehost_control.frognet" % e); return 1
     tty = sys.stdin.isatty()
     if mine0 and not mine0.get("signed"):
         # [APP_SERVICES_V1] a copy from before r47 (no one configuration tuple yet): the first machine upgraded writes the
@@ -853,8 +852,8 @@ def main(argv):
         try:
             rm = ctl_ram()
         except fdfram.RamError as e:
-            print("fdf-app: databasehost-control is not reachable from here (%s): nothing installed. The first FrogNetHost "
-                  "makes it; install the app on a node of a network that has one" % e); return 1
+            print("fdf-app: databasehost-control's api.php is not reachable from here (%s): nothing installed. "
+                  "Install the app on a node of a network whose /etc/hosts names databasehost_control.frognet" % e); return 1
         c = {"app": argv[2], "rams": rams, "partition": part, "login": "--login" in argv, "roles": roles, "categories": cats,
              "users": users, "admin": admin, "select": sel, **({"serve": serve} if serve else {}), **({"join": join} if join else {})}   # no --serve: every RAM, those the admin adds too
         return first_install(argv[2], c, rm, old)
