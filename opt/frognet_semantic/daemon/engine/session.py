@@ -555,6 +555,8 @@ class SemanticSession:
     def __init__(self, recv_sock: socket.socket, peer_ip: str, resolver, http_client=None, return_ip=None):
         self._encode_lock = threading.Lock()             # [REFERENCES_MOVE_IN_WIRE_ORDER_V1]
         self.peer_ip = peer_ip
+        self.established = False      # [WRITER_GONE_V1] set once the RETURN channel is up (the permanent socket pair)
+        self.on_established = None    # the server's count of live sessions per peer
         self.resolver = resolver
         self._recv_sock = recv_sock
         self._send_sock: Optional[socket.socket] = None
@@ -657,6 +659,10 @@ class SemanticSession:
         # [RETURN_ONLY_V1] Wait for RETURN channel before starting threads.
         try:
             self._send_sock = self._open_send_sock()
+            # [WRITER_GONE_V1] the permanent socket pair is up: this peer is on the network through us
+            self.established = True
+            if self.on_established is not None:
+                self.on_established()
         except Exception as e:
             trace(f"[Daemon] [RETURN_ONLY_V1] no RETURN from {self.peer_ip}: {e!r}")
             try:

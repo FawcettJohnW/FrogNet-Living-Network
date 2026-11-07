@@ -143,12 +143,12 @@ function role_rows($host, $svc, $var = '', $inst = '') {
     return role_call($host, 'GET', ['entity' => 'sensors', 'action' => 'values', 'parse' => '1'] + role_filter($svc, $var, $inst))['rows'] ?? [];
 }
 function role_read($host, $svc, $var = '', $inst = '') { return ['ok' => true, 'rows' => role_cells(role_rows($host, $svc, $var, $inst))]; }
-function source_ip_toward($host) {
-    $h = explode(':', $host)[0];
-    $s = @stream_socket_client('udp://' . $h . ':80', $en, $es, 1);   // no packet is sent: this only picks the route
-    $me = $s ? explode(':', (string)stream_socket_get_name($s, false))[0] : '';
-    if ($s) fclose($s);
-    return $me;
+function source_ip_toward($host) {                            // [WRITER_GONE_V1] this node's own FrogNet address (its .1):
+    global $fdf_var;                                           // the writer address its tuples are removed by when it leaves
+    $f = json_decode((string)@file_get_contents($fdf_var . '/facts.json'), true);
+    foreach ((is_array($f) ? ($f['addrs'] ?? []) : []) as $a)
+        if (($a['kind'] ?? '') === 'own' && preg_match('/^10\.\d+\.\d+\.1$/', (string)($a['ip'] ?? ''))) return $a['ip'];
+    fail(503, "this node's facts name no own .1 address ($fdf_var/facts.json): fdf-facts has not run here");
 }
 function role_write($host, $svc, $var, $inst, $bag) {
     $j = role_call($host, 'POST', ['entity' => 'sensor_data', 'action' => 'upsert_by_name'],

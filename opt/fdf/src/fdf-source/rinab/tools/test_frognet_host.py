@@ -5,8 +5,8 @@
 ################################################################
 """test_frognet_host.py -- [FROGNETHOST_ADMIN_V1][ROLES_ON_API_V1] the FrogNetHost Admin against two real role hosts:
 two api.php (this tree's var/www/html, each on its own MariaDB database) on port 80 of two loopback addresses, as
-databasehost-control and the SystemRam, named by a hosts file the test rewrites. The node's port 80 (127.0.0.1) serves
-held_fire.php, where the role hosts fire the held reads. The node's service (frognet-host
+databasehost-control and the SystemRam, named by a hosts file the test rewrites. The node's own .1 (10.99.99.1 on lo,
+frognet_tuples.my_ip) serves held_fire.php on port 80, where the role hosts fire the held reads. The node's service (frognet-host
 serve) runs with its steps stood in for (FROGNET_HOST_CMD_*: setup rewrites gateways.conf as setup_lillypad does, dump
 and backup write their file, clear and reboot record that they ran); the console asks and waits for the answer.
 
@@ -71,7 +71,11 @@ subprocess.run(["ip", "addr", "add", "127.0.0.2/8", "dev", "lo"], capture_output
 subprocess.run(["ip", "addr", "add", "127.0.0.3/8", "dev", "lo"], capture_output=True)
 serve_www("127.0.0.2", ["api.php", "config.php"], db="fhtest_a")       # a role host: api.php on port 80
 serve_www("127.0.0.3", ["api.php", "config.php"], db="fhtest_b")
-serve_www("127.0.0.1", ["held_fire.php"])                             # this node's port 80: where its holds fire
+subprocess.run(["ip", "addr", "add", "10.99.99.1/32", "dev", "lo"], capture_output=True)   # this node's own .1
+sys.path.insert(0, os.environ["FROGNET_CORE"])
+import frognet_tuples  # noqa: E402
+ME = frognet_tuples.my_ip()                                           # the address holds fire to and tuples are written as
+serve_www(ME, ["held_fire.php"])                                      # this node's port 80: where its holds fire
 
 hosts = T + "/hosts"
 def name_hosts(control_ip, system_ip):

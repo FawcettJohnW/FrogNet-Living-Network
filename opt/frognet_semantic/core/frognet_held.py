@@ -61,14 +61,11 @@ def _hid() -> str:
 
 
 def _source_ip_toward(host: str) -> str:
-    """The address this node reaches `host` from -- the one its port 80 answers on."""
-    ip = socket.gethostbyname(host.rsplit(":", 1)[0] if host.count(":") == 1 else host)
-    s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
-    try:
-        s.connect((ip, 80))                     # no packet is sent: this only picks the route
-        return s.getsockname()[0]
-    finally:
-        s.close()
+    """This machine's FrogNet address (its .1 on a node): where its port 80 answers, and the writer address a role
+    host removes this machine's tuples by when it leaves ([WRITER_GONE_V1]). frognet_tuples.my_ip, one rule for all.
+    `host` is kept for the callers; the address does not depend on it."""
+    import frognet_tuples
+    return frognet_tuples.my_ip()
 
 
 class _Inotify:
