@@ -123,45 +123,51 @@ KNOWN_DEFECTS = {   # harness builds whose runs differ from the design this repo
 }
 
 NOTES = [
-    "**Run length.** Each run here lasted the minutes given above; the brief specifies 30. `./matrix.sh 30` runs the "
-    "brief's matrix unchanged.",
-    "**netem delay and loss: not run.** The kernel these runs used has no `sch_netem`, so those stress phases fail at "
-    "their first step. They run unchanged on a kernel that has it.",
-    "**H4: not run.** The Ribbit wire has no padding flag.",
-    "**D and D-all are built on ribbit::Space** (`space_c.cpp`, a C ABI over `ribbit_space.hpp`), the one "
-    "publish/subscribe library the platform's MQTT and Redis conversions use, in place of the brief's small shim.",
-    "**O3 for C, D and D-all: the operations at the client library boundary, on the host's clock.** chat-ram has no "
-    "operation trace hook, so each operation is logged where the client library makes it and then placed at the host's "
-    "own packet for it, from srv's capture inside the tunnels (a put at the first packet from its connection, a release "
-    "at the last packet to its connection). The operations are the ones the host decodes; the timing is the host's.",
-    "**Telemetry is a latest value; chat is distinct events.** In D and D-all a producer's telemetry is one cell, "
-    "`<producer>`, rewritten every reading; an unchanged reading is the same bytes in the same cell, which the wire sends "
-    "as a hash-only repeat. Chat is a ring of the producer's cells, `<producer>.<n mod 64>`. C keeps the chat example's "
-    "own per-recipient sends for both workloads: it is the messaging-on-RAM comparator.",
-    "**Lifetimes and reads.** D and D-all producers linger their writes 5 s past a session's end (the MQTT conversion's "
-    "choice); consumers read what a family holds and then hold (a standing follow from the start). After a fresh server "
-    "or a move, a latest value is re-asserted and a message is not re-sent.",
-    "**Wire bytes** are the bytes each participant and srv sent into the router, counted by nftables with the control "
-    "region's traffic left out.",
-    "**B's operator log** is stamped with each line's arrival time (Mosquitto's own timestamp is whole seconds).",
-    "**O1 in the relayed builds (0.57 everywhere).** p1's link carries only p1's tunnel or broker connection, so the "
-    "attacker's only usable feature is the pair's direction (p1 producing or p1 consuming). 0.57 is that base rate: it "
-    "says nothing about which peer. Precision at top-k is the same 0.57.",
-    "**B's p95 latency (about 40 ms) is Nagle's algorithm in the MQTT clients.** 6.5% of B's deliveries take 39-43 ms, "
-    "Linux's delayed-ACK minimum; the rest take under 2 ms. Measured on chat seed 7 (1 minute): Mosquitto's "
-    "`set_tcp_nodelay true` alone leaves p95 at 41.8 ms; with TCP_NODELAY also on the paho clients' sockets, p95 is 1.4 "
-    "ms. B is reported as stock (both defaults); `OBSVIS_B_NODELAY=1` reproduces the comparison.",
-    "**Not covered: a rendezvous or relay broker.** Here each participant's tunnel runs straight to srv. FrogNet can "
-    "carry tunnels through a broker relay; such a broker would see the relayed tunnels' endpoints, timing and sizes (an "
-    "O2-like view of those tunnels) and none of the keys. That observer is not measured here.",
-    "**Revocation.** The others' delivery after p8 is revoked is 100% in every run; p8 receives nothing after the "
-    "revocation, in C, D and D-all alike.",
-    "**Platform bug found: a bag field named `rows` comes back wrapped.** semtpl.hpp's `rebuild_json` special-cases a "
-    "top-level `rows` (a port of Python's template_utils). The harness's result chunks use `items` instead. Not fixed "
-    "here: it is wire behavior shared with the Python side.",
-    "**Earlier held-read build (before the rebuild on ribbit::Space).** In a D-all smoke run built on plain held reads, "
-    "every consumer stalled after p8 was revoked. Identical held reads may be coalesced and tied to the revoked session. "
-    "Not confirmed, and not present with Space follows (the others received everything).",
+    "**Run length.** Each run here lasted the minutes given above. The brief specifies 30 minutes. The command "
+    "`./matrix.sh 30` runs the brief's matrix with no other change.",
+    "**Network delay and loss tests: not run.** These tests need the Linux `sch_netem` module. The kernel used here does "
+    "not have it, so these tests stop at their first step. They run with no change on a kernel that has the module.",
+    "**H4: not run.** H4 needs messages padded to equal sizes. The Ribbit wire has no padding option.",
+    "**D and D-all use ribbit::Space.** ribbit::Space is the publish/subscribe library that the platform's MQTT and "
+    "Redis conversions use. The harness reaches it through a small C interface (`space_c.cpp`). The brief proposed a "
+    "different small interface.",
+    "**How O3 is measured for C, D and D-all.** The server program has no trace output for operations. So each "
+    "operation is recorded in the client library. Then it is moved to the time of the server's own packet for it. That "
+    "packet comes from a capture on the server, inside the tunnels. A write is placed at the first packet from its "
+    "connection. A delivery is placed at the last packet to its connection. So the operations are the ones the server "
+    "sees, and the times are the server's times.",
+    "**Telemetry is one current value. Chat is a series of separate messages.** In D and D-all, each producer's "
+    "telemetry is one cell, `<producer>`. The producer overwrites it on each reading. An unchanged reading writes the "
+    "same bytes to the same cell. The wire then sends only a short hash, not the data. Chat uses a ring of 64 cells per "
+    "producer, `<producer>.<n mod 64>`. C keeps the chat example's own design for both workloads: one send to each "
+    "recipient. C is the comparison case: messaging built on shared memory.",
+    "**How long cells live, and how reads start.** In D and D-all, a producer's cells stay 5 seconds after its session "
+    "ends. The MQTT conversion uses the same value. A reader first receives what the family already holds, then each "
+    "new write. After a new server or a move, a producer writes its current telemetry value again. It does not send "
+    "chat messages again.",
+    "**Wire bytes** are the bytes that each participant and the server sent into the router. nftables counts them. The "
+    "control traffic of the test harness is not counted.",
+    "**B's operator log** records the time each line arrives. Mosquitto's own timestamp has only whole seconds.",
+    "**O1 for B, C, D and D-all is 0.57 in every case.** p1's link carries only p1's own connection to the server. So "
+    "the only usable information is the direction of the pair: p1 is the producer, or p1 is the reader. 0.57 comes from "
+    "that direction alone. It says nothing about which other participant is involved. Precision at top-k is also 0.57.",
+    "**B's 95th-percentile latency (about 40 ms) comes from Nagle's algorithm in the MQTT clients.** 6.5% of B's "
+    "deliveries take 39-43 ms. That is the minimum delay of Linux's delayed acknowledgement. All other deliveries take "
+    "less than 2 ms. Test on chat seed 7, 1 minute: with Nagle off in Mosquitto only, the 95th percentile is 41.8 ms. "
+    "With Nagle off in Mosquitto and in the clients, it is 1.4 ms. The results report B with default settings. The "
+    "setting `OBSVIS_B_NODELAY=1` repeats the comparison.",
+    "**Not tested: a rendezvous or relay broker.** In this test, each participant's tunnel goes directly to the server. "
+    "FrogNet can also send tunnels through a relay broker. Such a broker would see the end points, timing and sizes of "
+    "the tunnels it relays. It would not see the keys. This observer is not measured here.",
+    "**Revocation.** After p8's access is removed, the other participants receive 100% of their messages in every run. "
+    "p8 receives nothing after the removal. This is the same in C, D and D-all.",
+    "**Platform bug found.** A data field named `rows` comes back changed. The cause is in semtpl.hpp, function "
+    "`rebuild_json`. The harness uses the name `items` instead. The bug is not fixed here, because the Python side "
+    "shares the same wire behavior.",
+    "**Possible platform issue, not confirmed.** An earlier version of D-all used plain held reads, not ribbit::Space. "
+    "In one short run of that version, all readers stopped receiving after p8's access was removed. A possible cause: "
+    "identical held reads are combined and tied to the removed session. This did not happen with ribbit::Space; the "
+    "other readers received everything.",
 ]
 
 
