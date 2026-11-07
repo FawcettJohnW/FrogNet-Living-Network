@@ -12,8 +12,14 @@ HERE = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, HERE)
 import analyze, bed, workload  # noqa: E402
 
-CONDS = ["A", "B", "C", "D", "Dall"]
+CONDS = ["A", "B", "Bt", "C", "D", "Dall"]
 OBS = ["O1", "O2", "O3", "O4"]
+NA = "n/a (no server)"
+
+
+def absent(c, o):
+    """A has no server, operator or service: O2, O3 and O4 do not exist for it (not a privacy result)"""
+    return c == "A" and o in ("O2", "O3", "O4")
 
 
 def cell(an, cond, traffic, stress=None):
@@ -47,7 +53,8 @@ def summary(an, w):
     w("The words below follow the AUC. \"Found\" means the whole CI is at or above 0.90. \"At chance\" means the CI "
       "includes 0.50. \"Partly found\" is everything between.\n")
     word = {"recovered": "found", "at chance": "at chance", "partly recovered": "partly found", "not measured": "not measured"}
-    names = (("A", "Direct TLS (A)"), ("B", "MQTT broker (B)"), ("C", "Recipient keys on shared memory (C)"),
+    names = (("A", "Direct TLS (A)"), ("B", "MQTT broker (B)"), ("Bt", "MQTT broker, Nagle off (B tuned)"),
+             ("C", "Recipient keys on shared memory (C)"),
              ("D", "Own cells, selective follows (D)"), ("Dall", "Own cells, read all (D-all)"))
     for traffic in ("chat", "telemetry"):
         w("**%s workload** (edges found, held-out seeds):\n" % traffic.capitalize())
@@ -86,12 +93,63 @@ def summary(an, w):
     w("| D | as C | each producer's writes to its own family; each consumer's standing follow on each producer's family it "
       "reads (the graph, by name); the batch each follow releases; timing and sizes | producers' cells and their bags "
       "(the sender); nothing about consumers |")
+    w("| B tuned | as B | as B | as B |")
     w("| D-all | as C | each producer's writes to `Chat.Out`; one follow on `Chat.Out` per consumer (no producer named); "
       "every write released to every consumer; timing and sizes | as D |")
     w("")
     w("Identities: in B, C, D and D-all every connection is one participant (its broker client id or its tunnel address), "
       "so the operator always knows who is connected and who writes. What differs is whether keys, follows or delivery "
       "carry who reads whom.\n")
+
+
+def compare(an, prev, w):
+    """the earlier build's results beside these: what the harness corrections changed"""
+    w("## Effect of the harness corrections\n")
+    w("The earlier build (%s analysis) had the errors listed in the notes. This table shows its held-out results beside "
+      "the corrected build's. AUC is shown as earlier -> corrected. Wire bytes are per delivery.\n" % prev.get("build"))
+    w("| build | workload | O1 | O2 | O3 | O4 | wire bytes |")
+    w("|---|---|---|---|---|---|---|")
+    a = lambda x, o: ("%.2f" % x[o]["lr"]["auc"]) if x and x.get(o) and x[o].get("lr") else "n/a"
+    for traffic in ("chat", "telemetry"):
+        for c in CONDS:
+            x, y = cell(prev, c, traffic), cell(an, c, traffic)
+            if not (x and y): continue
+            obs = [NA if absent(c, o) else "%s -> %s" % (a(x, o), a(y, o)) for o in OBS]
+            bx, by = x["cost"]["wire_bytes_per_delivery"], y["cost"]["wire_bytes_per_delivery"]
+            w("| %s | %s | %s | %s |" % (c, traffic, " | ".join(obs), "%.0f -> %.0f" % (bx, by) if bx and by else "n/a"))
+    w("")
+
+
+def scope_sections(w):
+    w("## What D-all protects, and what it does not\n")
+    w("Three properties are different, and this test measures only the first.\n")
+    w("- **Linkability** (who reads whom). Measured here. In D-all, no key and no follow names a reader, and every reader "
+      "receives every write. So O2, O3 and O4, as modeled here, cannot separate the readers.")
+    w("- **Confidentiality of the content.** Not provided by the schema. WireGuard encrypts each link. The server decodes "
+      "every write in order to serve it, so the server's operator can read all content.")
+    w("- **Authorization** (who may read). Not tested. This harness sets no access rule per family. In D-all, every "
+      "authorized reader receives every write. So every reader can read all content, including each write's producer.")
+    w("")
+    w("In short, D-all hides who follows whom. It does not hide what is written, or who wrote it, from the server or "
+      "from any reader. If the follow graph itself is sensitive (for example, who follows whose research), D-all "
+      "addresses that. If the content is sensitive, it must be protected separately.\n")
+    w("## Limitations\n")
+    w("- The test has 8 participants and 4 held-out seeds. The results are informative but limited.")
+    w("- Pairs within one run are not independent. The bootstrap resamples seeds first, then pairs, but the CIs may "
+      "still be too narrow.")
+    w("- Each observer uses one model: a logistic regression on the features listed above. An AUC near 0.50 shows that "
+      "this model fails. It does not show that every traffic-analysis method fails.")
+    w("- Each run lasted the minutes given above, not the 30 minutes in the brief.")
+    w("- The network delay and loss tests, the padding test (H4) and a relay-broker observer were not run. The notes "
+      "give the reasons.")
+    w("")
+    w("## Possible later studies\n")
+    w("These are outside this test.\n")
+    w("- How D-all's traffic and delivery cost grow with more participants and with different follow graphs.")
+    w("- Stronger or different observer models.")
+    w("- Persistence of shared records and independent verification, for uses such as a research network. This "
+      "harness tests neither.")
+    w("")
 
 
 def fmt(r):
@@ -211,6 +269,7 @@ def stress_measures(results, cond, stress):
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("results", nargs="?", default=os.path.join(HERE, "results")); ap.add_argument("--out")
+    ap.add_argument("--compare", help="an earlier results directory: show its results beside these")
     a = ap.parse_args()
     an = json.load(open(os.path.join(a.results, "analysis.json")))
     runs = sorted(glob.glob(os.path.join(a.results, "*", "run.json")))
@@ -233,6 +292,9 @@ def main():
             w("- " + t)
         w("")
     summary(an, w)
+    if a.compare:
+        compare(an, json.load(open(os.path.join(a.compare, "analysis.json"))), w)
+    scope_sections(w)
     w("## What ran\n")
     w("Eight participants (p1..p8), a server (srv), a controller (ctl) and a router (rt), each in its own Linux network "
       "namespace with its own stack, joined in a star through rt. Each participant follows 3 of the other 7, drawn from the "
@@ -276,15 +338,16 @@ def main():
             x = cell(an, c, traffic)
             if not x: continue
             t2, t3 = (x["O2"] or {}).get("timing"), (x["O3"] or {}).get("timing")
-            w("| %s | %s | %s | %s | %s | %s | %s |" % (c, *[fmt((x[o] or {}).get("lr")) for o in OBS],
-              fmt(t2) + (" (%g s)" % t2["w_s"] if t2 else ""), fmt(t3) + (" (%g s)" % t3["w_s"] if t3 else "")))
+            tf = lambda t, o: NA if absent(c, o) else fmt(t) + (" (%g s)" % t["w_s"] if t else "")
+            w("| %s | %s | %s | %s | %s | %s | %s |" % (c, *[NA if absent(c, o) else fmt((x[o] or {}).get("lr")) for o in OBS],
+              tf(t2, "O2"), tf(t3, "O3")))
         w("")
         w("Precision at top-k (k = the true edges in scope):\n")
         w("| condition | O1 | O2 | O3 | O4 |"); w("|---|---|---|---|---|")
         for c in CONDS:
             x = cell(an, c, traffic)
             if not x: continue
-            w("| %s | %s |" % (c, " | ".join(("%.2f" % x[o]["lr"]["precision_at_k"]) if x[o] and x[o]["lr"] and x[o]["lr"]["precision_at_k"] is not None else "n/a" for o in OBS)))
+            w("| %s | %s |" % (c, " | ".join(NA if absent(c, o) else ("%.2f" % x[o]["lr"]["precision_at_k"]) if x[o] and x[o]["lr"] and x[o]["lr"]["precision_at_k"] is not None else "n/a" for o in OBS)))
         w("")
         w("Decision rule: a condition reduces linkability for an observer only if its AUC is below B's for that observer "
           "and the two CIs do not overlap.\n")
@@ -293,7 +356,7 @@ def main():
         for c in CONDS:
             x = cell(an, c, traffic)
             if not x or c == "B": continue
-            w("| %s | %s |" % (c, " | ".join("yes" if below((x[o] or {}).get("lr"), (b[o] or {}).get("lr") if b else None) else "no" for o in OBS)))
+            w("| %s | %s |" % (c, " | ".join(NA if absent(c, o) else "yes" if below((x[o] or {}).get("lr"), (b[o] or {}).get("lr") if b else None) else "no" for o in OBS)))
         w("")
         w("Cost (means over held-out runs):\n")
         w("| condition | delivered | wire bytes per delivery | p50 ms | p95 ms | server CPU s | server peak RSS KB |")
