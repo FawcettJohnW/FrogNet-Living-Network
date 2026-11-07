@@ -8,10 +8,10 @@
 Every AppRam is a service: the general one is `<app>Host.frognet`, a Team's is `<team>Host.<app>` (John 2026-11-04: scoped to its app, so two apps' Teams of one name never share one). Its AppHost is
 one handler's pick per service (AppHostHandler), a pure function of the tuples, so every node writes the same line:
 
-  * the configuration tuples, in databasehost-control (databasehost_control.frognet's RAM host): the app's one
+  * the configuration tuples, in databasehost-control (databasehost_control.frognet's api.php): the app's one
     (fdf-app, config, <app>) -- {config: text (rams, ports, select ...), seq, mac, user, admin} -- and a Team lead's
     (fdf-app, config, <app>.<team>) -- {at: here|databasehost, guid, seq, user};
-  * the capability tuples, in the SystemRam (databasehost.frognet's RAM host): (fdf-app, can, <app>.<ram>.<guid>),
+  * the capability tuples, in the SystemRam (databasehost.frognet's api.php): (fdf-app, can, <app>.<ram>.<guid>),
     each held by its service's session (`ram hold`): a service that is gone is no candidate.
 
 The candidates are the live .1 FrogNetHosts of the converged block whose service offers the RAM. A Team its lead put
@@ -29,19 +29,8 @@ import os
 import re
 import sys
 
-def _ram_port():
-    """[RAM_PORT_CONFIGURABLE_V1] FDF_LAN_RAM_PORT, else /etc/frognet/ram_port, else 8841 (fdfram.ram_port)"""
-    e = os.environ.get("FDF_LAN_RAM_PORT", "")
-    if e:
-        return int(e)
-    try:
-        v = open(os.environ.get("FDF_RAM_PORT_FILE", "/etc/frognet/ram_port")).read().strip()
-        return int(v) if v else 8841
-    except (OSError, ValueError):
-        return 8841
-
-
-PORT = _ram_port()
+# [ROLES_ON_API_V1 - John 2026-11-07] databasehost-control and the SystemRam are roles: the api.php of the host each
+# name points at, port 80 (fdfram.RoleRam). There is no RAM port.
 APPS = os.environ.get("FDF_APPS", "/opt/fdf/apps")
 CONTROL = "databasehost_control.frognet"
 SYSTEM = "databasehost.frognet"
@@ -123,7 +112,7 @@ def read_world(etc_hosts):
     if not ctl or not sysr:
         raise fdfram.RamError("the block names no %s" % (CONTROL if not ctl else SYSTEM))
     apps, places = {}, {}
-    for c in fdfram.Ram("%s:%d" % (ctl, PORT)).read(SVC, "config"):
+    for c in reversed(fdfram.RoleRam(ctl).read(SVC, "config")):    # oldest first: the newest of each instance stands
         if c.get("gone") or not isinstance(c.get("bag"), dict) or not c["bag"]:
             continue
         i = str(c.get("instance", ""))
@@ -135,7 +124,7 @@ def read_world(etc_hosts):
             if cfg is not None:
                 apps[i] = cfg
     cans = {}
-    for c in fdfram.Ram("%s:%d" % (sysr, PORT)).read(SVC, "can"):
+    for c in fdfram.RoleRam(sysr).read(SVC, "can"):
         b = c.get("bag")
         if c.get("gone") or not isinstance(b, dict) or not b:
             continue
@@ -197,13 +186,17 @@ def write_configs_again(control_ip, logger=None):
     control_ip: each one this machine keeps a copy of, where that databasehost-control holds none or an older one"""
     log = logger or (lambda s: None)
     fdfram, _ = _lib()
-    rm = fdfram.Ram("%s:%d" % (control_ip, PORT))
+    rm = fdfram.RoleRam(control_ip)
     try:
         names = sorted(n for n in os.listdir(APPS) if n.endswith(".json"))
     except FileNotFoundError:
         return 0
     try:
-        have = {c.get("instance", ""): c.get("bag") or {} for c in rm.read(SVC, "config") if not c.get("gone")}
+        have = {}                                   # each writer keeps its own cell: the highest seq per instance
+        for c in rm.read(SVC, "config"):
+            b = c.get("bag") or {}
+            if not c.get("gone") and int(b.get("seq") or 0) >= int((have.get(c.get("instance", "")) or {}).get("seq") or 0):
+                have[c.get("instance", "")] = b
     except fdfram.RamError as e:
         log("CONFIG_AGAIN not written: databasehost-control %s did not answer (%s); the next merge writes them" % (control_ip, e))
         return 0

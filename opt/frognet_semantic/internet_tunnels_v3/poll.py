@@ -1426,11 +1426,6 @@ def run_region_loop():
                     applier.me = p["name"]
             c = applier.apply(parts, positive_failures=set(failures))
             _lap("apply")
-            if "region" not in failures:                            # [SYSTEM_SPACE_V1] the LAN fallback list
-                try:
-                    region.save_lan(c.get("lan_dot1s") or [], replace=not region.current().get("lan"))
-                except OSError as e:
-                    config.log.warning("REGION: the LAN's RAM managers not saved: %s", e)
         # [CHILD_KEEPS_OWN_MAP_V1] the plan's maps already say what to register: everything behind me when I am the exit,
         # my own /24s when I am a child with a tunnel, nothing without one. Not gated on hub_active any more.
         # [LIVE_HUBS_FROM_TUNNELS_V1] the locator set = every hub whose channel is up right now (the old bringup set
@@ -1586,38 +1581,33 @@ def run_region_loop():
     # [APP_HOST_ELECTION_V1] (the design, section 7: every instance holds a read on its capability family) an app's
     # configuration tuple (databasehost-control) or a service's capability tuple (the SystemRam) written, or gone with
     # its session, is an election input changing: a held read on each fdf-app family, and the election runs on the
-    # newest alive set. /etc/hosts naming another RAM host for either is the event to read that one.
+    # newest alive set. /etc/hosts naming another host for either role is the event to read that one.
     def _app_tuples_watch(name):
+        # [ROLES_ON_API_V1 - John 2026-11-07] both are roles: the api.php at the address /etc/hosts names, port 80.
+        # The held read returns when the fdf-app family is not what it was, or when /etc/hosts is rewritten (the
+        # hold ended with the old address); a read that fails is retried on the next /etc/hosts event.
         import sys as _sys
         _sys.path.insert(0, os.environ.get("FDF_PY", "/opt/fdf/lib/python"))
         import fdfram, fdf_watch
         hosts = os.environ.get("FDF_HOSTS", "/etc/hosts")
-        def where():
-            try:
-                return fdfram.role_ram(name, "")
-            except fdfram.RamError:
-                return ""
-        last, at = -1, None
+        rm, first, had = None, True, None
         while config.running:
-            hp = where()
-            if not hp:
-                w = fdf_watch.Inotify(os.path.dirname(hosts) or "."); w.read(); w.close(); continue
-            if hp != at:
-                last, at = -1, hp
-            t = time.time()
             try:
-                cs = fdfram.Ram(hp).read("fdf-app", "", "", after=last, wait_s=fdfram.HOLD_S)
-                if cs:
-                    first = last < 0
-                    last = max(int(c.get("id", -1)) for c in cs)
-                    if not first and _elect_state.get("last"):
-                        _elect_async("app tuples (%s)" % name.split(".")[0], *_elect_state["last"])
+                now = fdfram.role_ram(name, "")
+            except fdfram.RamError:
+                w = fdf_watch.Inotify(os.path.dirname(hosts) or "."); w.read(); w.close(); continue
+            if rm is None or now.host != rm.host:
+                rm, first = now, True
+            try:
+                cs = rm.read("fdf-app", "", "", after=0 if not first else -1, wait_s=fdfram.HOLD_S if not first else 0)
+                now_has = sorted((c["id"], c["writer"], json.dumps(c["bag"], sort_keys=True)) for c in cs)
+                if not first and now_has != had and _elect_state.get("last"):      # an election input changed
+                    _elect_async("app tuples (%s)" % name.split(".")[0], *_elect_state["last"])
+                first, had = False, now_has
             except fdfram.RamError as e:
-                if "ESTALE" in str(e):
-                    last = -1; continue
-                config.log.warning("REGION: [APP_HOST_ELECTION_V1] the read on %s (%s) ended: %s; read again when it is up or another is named", name, hp, e)
-                fdf_watch.up_or_moved(hp, t, lambda: where() or hp, dirs=[os.path.dirname(hosts) or "."])
-                last = -1
+                config.log.warning("REGION: [APP_HOST_ELECTION_V1] the read on %s (%s) ended: %s; held again when /etc/hosts is next written", name, rm.host, e)
+                w = fdf_watch.Inotify(os.path.dirname(hosts) or "."); w.read(); w.close()
+                rm = None
     for _n in ("databasehost_control.frognet", "databasehost.frognet"):
         _thr.Thread(target=_app_tuples_watch, args=(_n,), name="region-app-" + _n.split(".")[0], daemon=True).start()
 
@@ -1650,23 +1640,16 @@ def run_region_loop():
     was_up = False                      # [REGION_LOSS_IS_A_TRANSITION_V1] "lost" is said and acted on once per loss
     returned = {"name": None}
     prefer = {"name": None, "lost": None}        # [NO_FLAP_V1] the entry the standing sessions say to take next; the one lost
-    def _on_up(e):                               # an entry came back: taken only off the LAN (the node's last resort)
-        cur = region.current()
-        if cur.get("lan") and not e.get("lan"):
-            prefer["name"] = e["name"]; returned["name"] = e["name"]
-            config.log.warning("REGION: system space: %s is alive and this node is on the LAN: moving to it [NO_FLAP_V1]", e["name"])
-            region.end_events()
-    region.standing.on_up = _on_up
+    region.standing.on_up = None                 # [ROLES_ON_API_V1] no LAN entry to move off
     config.on_stop.append(region.end_events)         # [STOP_IS_AN_EVENT_V1] a stop ends the held read too
     while config.running:
         up = False
         evs = None
         t_walk = time.time()                         # an up said after this starts the next walk
-        # [SYSTEM_SPACE_V1] (ORGANIZATIONS.md section 4) the system space's list: the configured RAM managers, then the
-        # LAN's from the highest IP down to this node's own (always running, so the walk always ends somewhere).
+        # [SYSTEM_SPACE_V1] (ORGANIZATIONS.md section 4) the system space's list: the region's RAM managers.
+        # [ROLES_ON_API_V1] there is no LAN RAM manager after them; nothing answering is the region lost.
         # [NO_FLAP_V1] after a loss the entry the standing sessions found alive is taken first, asked nothing; the one
         # just lost is not tried again; otherwise top to bottom, the first that answers.
-        region.ensure_lan_ram()
         order = region.system_order()
         pref = next((e for e in order if e["name"] == prefer["name"]), None)
         walk = ([pref] if pref else []) + [e for e in order if e is not pref and e["name"] != prefer["lost"]]
@@ -1777,14 +1760,13 @@ _rejoin_wake = os.pipe()
 def _wait_rejoin(region, order, since):
     """[EVENTS_NOT_TIMERS_V1] nothing on the system space's list answered: the next walk is on an event, not a 5 s timer
     -- one of the list's RAM managers saying it is up (FDF_VAR/ram/<host>_<port>.up: written by the fdf-ram on this
-    machine when it listens, or by this machine's fdf-client for the address it reached), the LAN's list of RAM managers
-    changing (lan-rams.json), a forward switch, or the daemon's stop. One select on all of them."""
+    machine when it listens, or by this machine's fdf-client for the address it reached), a forward switch, or the
+    daemon's stop. One select on all of them."""
     import ctypes, ctypes.util, select, struct
     libc = ctypes.CDLL(ctypes.util.find_library("c"), use_errno=True)
     ifd = libc.inotify_init1(0o2000000)
     d_up = os.path.join(region.FDF_VAR, "ram"); os.makedirs(d_up, exist_ok=True)
-    d_lan = os.path.dirname(region.LAN_RAMS) or "."
-    for d in (d_up, d_lan):
+    for d in (d_up,):
         if ifd < 0 or libc.inotify_add_watch(ifd, d.encode(), 0x8 | 0x80 | 0x100) < 0:   # CLOSE_WRITE MOVED_TO CREATE
             raise OSError(ctypes.get_errno(), "inotify on " + d)
     ups = set()
@@ -1799,7 +1781,7 @@ def _wait_rejoin(region, order, since):
     try:
         if any(newer(n) for n in ups):
             return
-        config.log.warning("REGION: waiting for a RAM manager on the list to say it is up (%s), the LAN's list to change, or a switch [EVENTS_NOT_TIMERS_V1]",
+        config.log.warning("REGION: waiting for a RAM manager on the list to say it is up (%s), or a switch [EVENTS_NOT_TIMERS_V1]",
                            ", ".join(e["name"] for e in order))
         while config.running:
             r, _, _ = select.select([ifd, _rejoin_wake[0], config.stop_r], [], [])
@@ -1810,7 +1792,7 @@ def _wait_rejoin(region, order, since):
             buf = os.read(ifd, 8192); off = 0
             while off < len(buf):
                 _wd, _mask, _ck, ln = struct.unpack_from("iIII", buf, off); name = buf[off + 16: off + 16 + ln].rstrip(b"\0").decode(errors="replace"); off += 16 + ln
-                if (name in ups and newer(name)) or name == os.path.basename(region.LAN_RAMS):
+                if name in ups and newer(name):
                     config.log.warning("REGION: %s: walking the list again", name)
                     return
     finally:
@@ -1824,13 +1806,10 @@ def run_lan_only_loop():
     region (fdf-join / fdf-region-join) restarts it into run_region_loop; nothing is polled here."""
     _ensure_frognet0()
     n = _tear_down_all_kernel_wg_ifaces("lan_only: no region, no authority to hold tunnels")
-    # [SYSTEM_RAM_ON_EVERY_FROGNETHOST_V1] (John 2026-11-04: the SystemRam manager is installed with the FrogNetHost
-    # role, on every node) this node's RAM host runs with or without a region: the SystemRam and databasehost-control
-    # are whichever node's RAM host the elections name, so every node must have one to be named
-    from . import region as _region
-    ram = _region.ensure_lan_ram()
-    config.log.warning("LAN-only loop started: no region (RINA_RAM unset), %d wg iface(s) taken down; this node's RAM "
-                       "host %s; discovery and the elections are runMerge's [LAN_ONLY_NO_REGION_V1]", n, ram or "NOT running")
+    # [ROLES_ON_API_V1 - John 2026-11-07] no RAM host here: the SystemRam and databasehost-control are roles, each one
+    # host's api.php on port 80, named by runMerge's elections in /etc/hosts
+    config.log.warning("LAN-only loop started: no region (RINA_RAM unset), %d wg iface(s) taken down; discovery and the "
+                       "elections are runMerge's, the roles are their hosts' api.php [LAN_ONLY_NO_REGION_V1]", n)
     import select
     while config.running:                       # [STOP_IS_AN_EVENT_V1] held on the stop itself
         select.select([config.stop_r], [], [])
