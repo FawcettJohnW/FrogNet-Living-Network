@@ -169,7 +169,20 @@ class Holder:
 
     def wait_rows(self, service: str, dbhost: str, name_like: Optional[str] = None,
                   min_rows: int = 1, wait_s: float = 30.0, name: Optional[str] = None) -> List[Dict[str, Any]]:
-        """Hold until at least min_rows rows match, or wait_s (the caller's bound) has passed.
+        """Hold until at least min_rows rows match, or wait_s (the caller's bound) has passed."""
+        return self.wait_until(service, dbhost, lambda rows: len(rows) >= min_rows,
+                               name_like=name_like, name=name, wait_s=wait_s)
+
+    def wait_change(self, service: str, dbhost: str, seen: Optional[str], name_like: Optional[str] = None,
+                    name: Optional[str] = None, wait_s: float = 30.0) -> List[Dict[str, Any]]:
+        """Hold until the matching rows are not what the caller last saw (signature(rows) != seen),
+        or wait_s has passed. The caller holds its own current value; this compares against it."""
+        return self.wait_until(service, dbhost, lambda rows: signature(rows) != seen,
+                               name_like=name_like, name=name, wait_s=wait_s)
+
+    def wait_until(self, service: str, dbhost: str, done, name_like: Optional[str] = None,
+                   name: Optional[str] = None, wait_s: float = 30.0) -> List[Dict[str, Any]]:
+        """Hold; return the current rows as soon as done(rows), or when wait_s has passed.
         Each wake is a fire or the hosts event; each hold's reply is the current rows."""
         deadline = time.monotonic() + wait_s
         w = _Wait()
@@ -179,7 +192,7 @@ class Holder:
             while True:
                 w.ev.clear(); w.moved = False
                 hid, rows = self.hold(service, dbhost, name_like=name_like, name=name)
-                if len(rows) >= min_rows:
+                if done(rows):
                     return rows
                 with self.lock:
                     if self.early.pop(hid, None) is not None:
@@ -199,6 +212,12 @@ class Holder:
                 self.pending.remove(w)
 
 
+def signature(rows: List[Dict[str, Any]]) -> str:
+    """What a set of rows holds: each tuple and its value. Two reads of the same memory sign the same."""
+    return json.dumps(sorted((str(r.get("SensorID")), str(r.get("SensorName")), str(r.get("SensorAddress")),
+                              str(r.get("jsonData"))) for r in rows))
+
+
 _holder: Optional[Holder] = None
 _holder_lock = threading.Lock()
 
@@ -214,3 +233,8 @@ def holder() -> Holder:
 def wait_rows(service: str, dbhost: str, name_like: Optional[str] = None, min_rows: int = 1,
               wait_s: float = 30.0, name: Optional[str] = None) -> List[Dict[str, Any]]:
     return holder().wait_rows(service, dbhost, name_like=name_like, min_rows=min_rows, wait_s=wait_s, name=name)
+
+
+def wait_change(service: str, dbhost: str, seen: Optional[str], name_like: Optional[str] = None,
+                name: Optional[str] = None, wait_s: float = 30.0) -> List[Dict[str, Any]]:
+    return holder().wait_change(service, dbhost, seen, name_like=name_like, name=name, wait_s=wait_s)

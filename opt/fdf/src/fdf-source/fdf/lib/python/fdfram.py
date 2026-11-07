@@ -1,11 +1,12 @@
-# fdfram.py -- the RAM manager's plain-HTTP front ([HTTP_FRONT_V1]), standard library only, for the FD&F tools.
+# fdfram.py -- the RAM manager's plain-HTTP front ([HTTP_FRONT_V1]) for the services (AppRams, a region's RAM
+# manager), and RoleRam: the SystemRam and the ControlRam on their api.php ([ROLES_ON_API_V1]). Standard library only.
 #   write  POST ?op=write  {service,variable,instance,bag} -> {"ok":true,"id":N}   (same coordinates: replaced, new id)
 #   read   GET  ?op=read&service=&variable=&instance=&after=&wait_s=   -> {"ok":true,"cells":[{id,instance,bag,...}]}
 #          with after=N and wait_s>0 it is HELD until a row with id > N is written (the server caps wait_s at 30)
 #   remove DELETE ?op=remove&id=N -> {"ok":true,"removed":0|1}   (needs the fdf-ram with "DELE" in the HTTP front)
 #   rina   POST ?op=rina {"op":"participants"} -> {"ok":true,"participants":[...]}
 # Errors are raised, never swallowed: the caller says what failed.
-import http.client, json, os, socket, urllib.parse, urllib.request
+import http.client, json, os, socket, sys, urllib.parse, urllib.request
 
 API = "/FawcettInnovations.RINA.ram_interface.php"
 HOLD_S = 30.0
@@ -32,65 +33,131 @@ def system_now_file():
     return os.path.join(os.environ.get("FDF_VAR", "/opt/fdf/var"), "system-ram.env")
 
 
-# [RAM_PORT_CONFIGURABLE_V1] (John 2026-11-04: "That should be configurable by the user") the port every FrogNetHost's
-# RAM host listens on: /etc/frognet/ram_port, set at the FrogNetHost install and by the FrogNetHost Admin (frognet-host
-# setup ... PORT); 8841 when it was never set. FDF_LAN_RAM_PORT overrides it (a test). Every node of a network uses one.
-RAM_PORT_FILE = os.environ.get("FDF_RAM_PORT_FILE", "/etc/frognet/ram_port")
-DEFAULT_RAM_PORT = 8841
+# [ROLES_ON_API_V1 - John 2026-11-07] The SystemRam and the ControlRam are ROLES, not RAM hosts on a port.
+# databasehost.frognet (the SystemRam) and databasehost_control.frognet (the ControlRam) are each one IP address,
+# chosen by the election and named in /etc/hosts, and each is served by that host's default api.php on port 80 --
+# the same calls core/frognet_tuples.py makes. When the control name points at the DatabaseHost's IP, one machine
+# is both. There is no RAM host on a FrogNetHost's .1 and no RAM port to configure (8841, /etc/frognet/ram_port
+# and [RAM_PORT_CONFIGURABLE_V1] are gone). The AppRams and a region's RAM manager are services on their own ports
+# and stay on Ram below.
+#
+# A cell (service, variable, instance) is the api.php tuple SensorType=<service>, SensorName=<variable>.<instance>,
+# SensorAddress=<the writer's address>, jsonData=<the bag>. A held read is api.php's (entity=held): the holder's
+# side is core/frognet_held.py, one socket and one thread per process.
+FROGNET_CORE = os.environ.get("FROGNET_CORE", "/opt/frognet_semantic/core")
+if FROGNET_CORE not in sys.path:
+    sys.path.insert(0, FROGNET_CORE)
 
 
-def ram_port():
-    e = os.environ.get("FDF_LAN_RAM_PORT", "")
-    if e:
-        return int(e)
-    try:
-        v = open(RAM_PORT_FILE).read().strip()
-        return int(v) if v else DEFAULT_RAM_PORT
-    except (OSError, ValueError):
-        return DEFAULT_RAM_PORT
+class RoleRam:
+    """a role's memory: the api.php at the role's address, port 80. The same calls as Ram."""
+    BUILD = "fdfram.RoleRam 20261107-roles1 [ROLES_ON_API_V1]"
 
+    def __init__(self, host):
+        self.host = host                        # an address (or host:port for a test), never a RAM port
+        self.base = "http://%s/api.php" % host
+        self._seen = {}                         # query -> signature of the rows last handed out
 
-def set_ram_port(port):
-    """write this node's RAM host port (the services that use it are started again by the caller)"""
-    port = int(port)
-    if not 1024 <= port <= 65535:
-        raise ValueError("the RAM host port must be 1024..65535 (got %d)" % port)
-    os.makedirs(os.path.dirname(RAM_PORT_FILE), exist_ok=True)
-    with open(RAM_PORT_FILE + ".tmp", "w") as f:
-        f.write("%d\n" % port)
-    os.replace(RAM_PORT_FILE + ".tmp", RAM_PORT_FILE)
+    def __repr__(self):
+        return "RoleRam(%s)" % self.host
 
+    def _req(self, method, query, body=None, timeout=10.0):
+        url = self.base + "?" + urllib.parse.urlencode(query)
+        data = json.dumps(body).encode() if body is not None else None
+        req = urllib.request.Request(url, data=data, method=method,
+                                     headers={"Content-Type": "application/json"} if data else {})
+        try:
+            with urllib.request.urlopen(req, timeout=timeout) as r:
+                j = json.loads(r.read().decode())
+        except Exception as e:
+            raise RamError("%s %s %s: %s" % (method, self.host, query.get("action"), e))
+        if not j.get("ok"):
+            raise RamError("%s %s %s refused: %s" % (method, self.host, query.get("action"), j.get("error") or j))
+        return j
 
-SYSTEM_RAM_PORT = ram_port()
+    @staticmethod
+    def _filter(service, variable, instance):
+        f = {"SensorType": service}
+        if variable and instance:
+            f["SensorName"] = "%s.%s" % (variable, instance)
+        elif variable:
+            f["SensorName__like"] = variable.replace("%", "\\%").replace("_", "\\_") + ".%"
+        elif instance:
+            f["SensorName__like"] = "%." + instance.replace("%", "\\%").replace("_", "\\_")
+        return f
+
+    @staticmethod
+    def _cells(rows):
+        out = []
+        for r in rows:
+            var, _, inst = str(r.get("SensorName") or "").partition(".")
+            out.append({"id": int(r.get("SensorID") or 0), "service": r.get("SensorType"), "variable": var,
+                        "instance": inst, "bag": r.get("data") if r.get("data") is not None else {},
+                        "writer": r.get("SensorAddress"), "updated": int(r.get("UpdatedAtEpoch") or 0)})
+        out.sort(key=lambda c: (-c["updated"], -c["id"]))      # the newest first
+        return out
+
+    def version(self, timeout=4.0):
+        return {"ok": True, "build": self.BUILD, "host": self.host}
+
+    def write(self, service, variable, instance, bag, permanent=False):
+        """write this writer's cell; api.php keeps it (a MySQL table), so permanent needs nothing more"""
+        import frognet_held
+        body = {"SensorType": service, "SensorName": "%s.%s" % (variable, instance),
+                "SensorAddress": frognet_held._source_ip_toward(self.host), "jsonData": bag}
+        return int(self._req("POST", {"entity": "sensor_data", "action": "upsert_by_name"}, body)["sensor_id"])
+
+    def read(self, service, variable="", instance="", after=-1, wait_s=0.0):
+        """the cells now. after >= 0 with wait_s > 0 is a held read: it returns when the cells are not the ones this
+        RoleRam last handed out (or at wait_s, the caller's bound). A cell holds one value; there is nothing to catch
+        up on, so `after` only says "hold" -- there are no write ids to count."""
+        f = self._filter(service, variable, instance)
+        key = json.dumps(f, sort_keys=True)
+        if after >= 0 and wait_s:
+            import frognet_held
+            rows = frognet_held.wait_change(service, self.host, self._seen.get(key),
+                                            name_like=f.get("SensorName__like"), name=f.get("SensorName"),
+                                            wait_s=wait_s)
+        else:
+            q = {"entity": "sensors", "action": "values", "parse": "1"}
+            q.update(f)
+            rows = self._req("GET", q)["rows"]
+        import frognet_held
+        self._seen[key] = frognet_held.signature(rows)
+        return self._cells(rows)
+
+    def remove(self, row, variable=None, row_id=None):
+        if isinstance(row, dict):
+            row_id = row["id"]
+        j = self._req("POST", {"entity": "sensors", "action": "delete", "SensorID": int(row_id)})
+        return int(j.get("affected") or 0)
 
 
 def role_ram(name, env_var):
-    """the RAM host of the node /etc/hosts names for `name` now (its address, port FDF_LAN_RAM_PORT): every FrogNetHost runs
-    one ([LAN_RAM_ALWAYS_V1], [SYSTEM_RAM_ON_EVERY_FROGNETHOST_V1]) and the elections say whose is which.
-    `env_var` (host:port) overrides, for a test."""
+    """the role /etc/hosts names for `name` now: its api.php, port 80. `env_var` (an address, or host:port) overrides,
+    for a test."""
     w = os.environ.get(env_var, "")
     if w:
-        return w
+        return RoleRam(w)
     hosts = os.environ.get("FDF_HOSTS", "/etc/hosts")
     try:
         for line in open(hosts):
             p = line.split("#", 1)[0].split()
             if len(p) >= 2 and name in p[1:]:
-                return "%s:%d" % (p[0], SYSTEM_RAM_PORT)
+                return RoleRam(p[0])
     except FileNotFoundError:
         pass
     raise RamError("%s names no %s yet (the election has not run on this node)" % (hosts, name))
 
 
 def system_ram():
-    """[SYSTEM_RAM_IS_DATABASEHOST_V1] the SystemRam (John 2026-11-04: "SystemRam IS the RAM host"): the RAM host of the
-    node the databasehost election names, databasehost.frognet. The WAN hub is a conduit, never the SystemRam."""
+    """the SystemRam: databasehost.frognet, the role the databasehost election names, served by its api.php"""
     return role_ram("databasehost.frognet", "RINA_SYSTEM_RAM")
 
 
 def control_ram():
-    """databasehost-control: the RAM host of the highest .1 in the current view (databasehost_control.frognet), where
-    capability tuples and configuration tuples live and every election reads."""
+    """the ControlRam: databasehost_control.frognet (the highest .1 in the current view), served by its api.php;
+    capability tuples and configuration tuples live there and every election reads it"""
     return role_ram("databasehost_control.frognet", "RINA_CONTROL_RAM")
 
 
@@ -98,7 +165,7 @@ def where(env=True):
     """the RAM manager this machine's member session is on: RINA_RAM from the environment, else where the session is
     NOW (system-ram.env: the tunnel daemon walks the system space's list, the WAN conduit's RAM manager first, then
     the LAN's [SYSTEM_SPACE_V1]), else /opt/fdf/var/join.env (written by fdf-join). The members' own cells are there.
-    App configuration is not: that is the SystemRam (system_ram()). env=False: the files only."""
+    App configuration is not: that is the ControlRam (control_ram()), an api.php. env=False: the files only."""
     w = (os.environ.get("RINA_RAM", "") if env else "") or _env_ram(system_now_file()) or _env_ram(os.path.join(os.environ.get("FDF_VAR", "/opt/fdf/var"), "join.env"))
     if not w:
         raise RamError("no RAM manager: run fdf-join HOST:PORT, or set RINA_RAM=host:port")
