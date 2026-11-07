@@ -1739,9 +1739,13 @@ def run_region_loop():
             except Exception as e:
                 config.log.warning("REGION: withdraw on loss failed: %s", e)
             n = _tear_down_all_kernel_wg_ifaces("region lost: no session, no authority to hold tunnels")
-            # [GONE_IS_GONE_V1] no merge in its place: the region's routes, names and tunnels are withdrawn, and that is
-            # the state of the world until the region is back. Nothing is recomputed from elsewhere.
-            config.log.warning("REGION: lost; withdrew its routes and names, tore down %d tunnel(s); waiting for the region", n)
+            # [SPLIT_IS_LAN_ONLY_V1 - John 2026-11-07, ORGANIZATIONS.md Q1] the region's routes, names and tunnels are
+            # withdrawn ([GONE_IS_GONE_V1]: nothing of the region is kept or recomputed from elsewhere), and the split is
+            # a network event: this node drops to LAN-only FrogNet -- the merge runs now, so LAN discovery, the elections
+            # and the roles' api.php (the SystemRam, the ControlRam: the LAN's own) take over, as on a LAN-only node.
+            # A RAM manager on the list answering again is the event that rejoins the region.
+            config.log.warning("REGION: lost; withdrew its routes and names, tore down %d tunnel(s); LAN-only now: %s; "
+                               "waiting for the region [SPLIT_IS_LAN_ONLY_V1]", n, _run_merge("region lost"))
         if switch["to"]:                # [FORWARD_SWITCH_IN_PLACE_V1] a switch: no wait, the new pond now
             _do_switch()
             continue
@@ -1755,6 +1759,20 @@ def run_region_loop():
 
 
 _rejoin_wake = os.pipe()
+
+
+def _run_merge(why: str) -> str:
+    """[SPLIT_IS_LAN_ONLY_V1] runMerge in the background, for an event that is a topology change by definition (the
+    region lost). Never waits. Not in an isolated run (FROGNET_SENTINEL_DIR, the tree's marker: an oracle must not
+    reconfigure the machine it runs on). Returns what was done, for the log line."""
+    cmd = os.environ.get("FROGNET_RUNMERGE", "/usr/local/bin/runMerge.bash")
+    if os.environ.get("FROGNET_SENTINEL_DIR"):
+        return "runMerge not run (isolated run: FROGNET_SENTINEL_DIR)"
+    try:
+        p = subprocess.Popen([cmd], stdin=subprocess.DEVNULL, start_new_session=True)
+        return "runMerge started (%s, pid %d, %s)" % (cmd, p.pid, why)
+    except OSError as e:
+        return "runMerge NOT started (%s: %s); the next LAN event runs it" % (cmd, e)
 
 
 def _wait_rejoin(region, order, since):

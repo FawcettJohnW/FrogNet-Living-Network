@@ -4,21 +4,26 @@
 #  SPDX-License-Identifier: GPL-2.0-only                       #
 ################################################################
 # netns-system-space-test.sh -- [SYSTEM_SPACE_V1] step 4, nodes (opt/fdf/docs/ORGANIZATIONS.md sections 4 and 6): the
-# REAL tunnel daemon walking the system space's list -- two WAN RAM managers, then the LAN's from the highest IP down to
-# its own -- with failover and failback, in network namespaces.
+# REAL tunnel daemon walking the system space's list -- two WAN RAM managers -- with failover and failback, in network
+# namespaces. [ROLES_ON_API_V1][SPLIT_IS_LAN_ONLY_V1] (John 2026-11-07) there is no LAN RAM manager after the list: the
+# roles (databasehost-control, the SystemRam) are each one node's api.php on port 80, served here by php -S on each
+# node's .1 (this tree's api.php and held_fire.php, each node its own MariaDB database by the socket); a split (both
+# WAN RAM managers gone) is the region lost: its routes and tunnels withdrawn, and the node drops to LAN-only FrogNet --
+# runMerge runs (stood in for here: FROGNET_RUNMERGE, a stub that records that it ran).
 #   A 198.18.0.1   hubA: fdf-hub, fdf-ram on 10.253.253.254:8840 (the primary)
 #   B 198.18.0.2   hubB: the same, the standby; the same area and site key (one system space)
 #   z 198.18.0.3   node, serves 10.3.3.0/24 on v-zw; daemon, fdf-facts, fdf-client
 #   w              node behind z: lease 10.3.3.20 on z's LAN, serves 10.4.4.0/24; its OWN tunnels (egress through z)
 # Both nodes are admitted at both hubs with their one key; /opt/fdf/var/system-space.json lists hubA then hubB.
 # Checks: both on hubA; hubA's RAM manager dies -> both on hubB at once (ms from the loss, the daemon's own line); it
-# returns -> both stay on hubB [NO_FLAP_V1]; both die -> both on the LAN's highest (w's 10.4.4.1), no hub channel left
-# on either, z still routes w's /24; hubA returns -> both off the LAN onto hubA.
+# returns -> both stay on hubB [NO_FLAP_V1]; both die -> the region lost on both: no hub channel left on either, each
+# says it is LAN-only now and its merge ran; hubA returns -> both on hubA again.
 # LOGIN=1: the nodes join the way an organization's do (ORGANIZATIONS.md section 3): each hub runs fdf-org with a level
 # Nodes (no password, reach open), one join line names both (fdf-org line --with), and each node runs
 # fdf-login --node with it -- which writes system-space.json for the daemon. Otherwise: invitations, and the test
 # writes system-space.json from them.
-# Needs root, ip, wg, wireguard-go, python3, curl, nft.  usage: [LOGIN=1] tools/netns-system-space-test.sh [RINAB_DIR]
+# Needs root, ip, wg, wireguard-go, python3, curl, nft, php (mysqli, curl), MariaDB running with root access by its socket.
+# usage: [LOGIN=1] tools/netns-system-space-test.sh [RINAB_DIR]
 set -u; H=$(cd "${1:-$(dirname "$0")/..}" && pwd); B=$H/build/static; FN=${FROGNET_DIR:-$H/../../../../frognet_semantic}
 PK=${PKG_FDF:-$H/../fdf}; FDFPY=$H/../fdf/lib/python
 T=${T:-/tmp/claude-0/netns-sysspace}; rm -rf $T; mkdir -p $T/A/admitted $T/B/admitted $T/z $T/w $T/bin
@@ -43,6 +48,7 @@ cat > $T/bin/capability-probe <<'EOF'
 echo '{"cores":4,"cpu_mhz":2000,"cpu_bench_total":12000,"mem_total_kb":8388608,"mem_available_kb":4000000,"disk_class":"ssd","mysql":true,"mysql_running":true,"ffmpeg":true,"libvpx":true,"lan_ip":"","loadavg":{"1":0.1,"5":0.1,"15":0.1},"temps_c":[]}'
 EOF
 chmod +x $T/bin/capability-probe
+printf '#!/bin/sh\necho "$(date +%%s.%%N) runMerge (stub)" >> /opt/fdf/var/runmerge.log\n' > $T/bin/runmerge-stub; chmod +x $T/bin/runmerge-stub
 cat > $T/stamp.py <<'EOF'
 import sys, time
 for l in sys.stdin:
@@ -105,7 +111,8 @@ NSF() { local n=$1; shift; local F=$T/$n/fs m=""
   for b in $BINDS; do m="$m mount --bind $F/${b%%:*} ${b#*:};"; done
   ip netns exec $n env RINA_AREA=$SITE RINA_SITE_KEY=$KEY FDF_UPLINK_PING=198.18.0.1 FDF_BIN=$T/bin \
      FDF_FACTS=/opt/fdf/var/facts.json FDF_LEASES=$T/$n/leases FDF_PY=$FDFPY FROGNET_CAPABILITY_PROBE=$T/bin/capability-probe \
-     FROGNET_REGION_HOSTS=/var/lib/frognet/region_hosts PYTHONPATH=$FN \
+     FROGNET_REGION_HOSTS=/var/lib/frognet/region_hosts PYTHONPATH=$FN FROGNET_RUNMERGE=$T/bin/runmerge-stub \
+     FROGNET_CORE=$FN/core \
      FDF_CLIENT_RESTART='kill $(cat /opt/fdf/var/client.pid)' \
      sh -c "$m cd $FN && exec \"\$@\"" sh "$@"; }
 fsnode() { local n=$1; local F=$T/$n/fs
@@ -145,6 +152,14 @@ daemon() { local n=$1
   NSF $n env FDF_NAME=$n python3 $T/bin/fdf-facts --watch > $T/$n/facts.log 2>&1 &
   }
 daemon z; daemon w
+# [ROLES_ON_API_V1] each node's port 80 on its .1: this tree's api.php (its own database) and held_fire.php
+WWW=$FN/../../var/www/html; DBPW=sstest$$
+roles_www() { local n=$1 ip=$2 d=$T/$1/www db=sstest_$1; mkdir -p $d; cp $WWW/api.php $WWW/held_fire.php $d/
+  sed "s/__FROGNET_DB_PASS__/$DBPW/; s/define('DB_NAME', 'FrogNet');/define('DB_NAME', '$db');/; s/define('DB_USER', 'FrogUser');/define('DB_USER', 'SsTestUser');/; s/define('DB_HOST', '127.0.0.1');/define('DB_HOST', 'localhost');/" $WWW/config.php > $d/config.php
+  mysql -e "DROP DATABASE IF EXISTS $db; CREATE DATABASE $db; CREATE USER IF NOT EXISTS 'SsTestUser'@'localhost' IDENTIFIED BY '$DBPW'; ALTER USER 'SsTestUser'@'localhost' IDENTIFIED BY '$DBPW'; GRANT ALL ON $db.* TO 'SsTestUser'@'localhost';"
+  for f in Create_Database.sql schema_fixups.sql; do sed "s/\`FrogNet\`/\`$db\`/g; s/^USE FrogNet;/USE $db;/" $WWW/$f | mysql > /dev/null; done
+  svc $T/$n/php.log NSF $n env PHP_CLI_SERVER_WORKERS=8 php -S $ip:80 -t $d; }
+roles_www z 10.3.3.1; roles_www w 10.4.4.1
 on() { grep "system space on" $T/$1/daemon.log | tail -1 | sed 's/.*system space on \([^(]*\) (.*/\1/' | sed 's/ *$//'; }
 # wait until both daemons' last "system space on" names $1, and the RAM manager they are on lists both; prints seconds
 both_on() { local want=$1 t0=$(ms) ok=1; for i in $(seq ${3:-240}); do
@@ -153,12 +168,12 @@ both_on() { local want=$1 t0=$(ms) ok=1; for i in $(seq ${3:-240}); do
 # [APP_SERVICES_V1] the app as the design has it: its one configuration tuple in databasehost-control, each machine's
 # capability tuples in the SystemRam, rangertrakHost.frognet written by the daemon's own election on every node
 hostsof() { sed -n "s/^\([0-9.]*\) $2\$/\1/p" $T/$1/fs/etc/hosts | head -1; }
-cells() { NS $1 curl -s -m 3 "http://$2$API?op=read&service=fdf-app&variable=$3" | python3 -c 'import sys,json; print(" ".join(sorted(c["instance"] for c in json.load(sys.stdin).get("cells",[]) if c.get("bag") and not c.get("gone"))))' 2>/dev/null; }
+cells() { NS $1 curl -s -m 3 "http://$2/api.php?entity=sensors&action=values&parse=1&SensorType=fdf-app&SensorName__like=$3.%25" | python3 -c 'import sys,json; print(" ".join(sorted(r["SensorName"].split(".",1)[1] for r in json.load(sys.stdin).get("rows",[]) if r.get("data"))))' 2>/dev/null; }
 appok() {   # every node names one AppHost, the same; the one tuple in databasehost-control; z's and w's capability in the SystemRam; nothing on hubA
   local zc=$(hostsof z databasehost_control.frognet) zs=$(hostsof z databasehost.frognet) za=$(hostsof z rangertrakHost.frognet) wa=$(hostsof w rangertrakHost.frognet)
-  [ -n "$za" ] && [ "$za" = "$wa" ] && [ "$(cells z $zc:8841 config)" = rangertrak ] && [ "$(cells z $zs:8841 can)" = "rangertrak.general.g-w rangertrak.general.g-z" ] \
+  [ -n "$za" ] && [ "$za" = "$wa" ] && [ "$(cells z $zc config)" = rangertrak ] && [ "$(cells z $zs can)" = "rangertrak.general.g-w rangertrak.general.g-z" ] \
     && [ -z "$(NS z curl -s -m 3 "http://$RAM$API?op=read&service=fdf-app" 2>/dev/null | grep -o '"instance"')" ]; }
-appsay() { echo "AppHost z:$(hostsof z rangertrakHost.frognet) w:$(hostsof w rangertrakHost.frognet); control $(hostsof z databasehost_control.frognet): $(cells z $(hostsof z databasehost_control.frognet):8841 config); SystemRam $(hostsof z databasehost.frognet): $(cells z $(hostsof z databasehost.frognet):8841 can)"; }
+appsay() { echo "AppHost z:$(hostsof z rangertrakHost.frognet) w:$(hostsof w rangertrakHost.frognet); control $(hostsof z databasehost_control.frognet): $(cells z $(hostsof z databasehost_control.frognet) config); SystemRam $(hostsof z databasehost.frognet): $(cells z $(hostsof z databasehost.frognet) can)"; }
 app_on() { local t0=$(ms); for i in $(seq 160); do appok && { echo "0 $(( ($(ms) - t0) / 100 ))"; return; }; sleep 0.25; done; echo "1 $(( ($(ms) - t0) / 100 ))"; }
 secs() { echo "$(( $1 / 10 )).$(( $1 % 10 ))"; }
 dump() { for n in z w; do echo "--- $n: system space lines"; grep -E "system space|SPACE_|LAN RAM|follows|lost" $T/$n/daemon.log | tail -12 | cut -c1-260 | sed 's/^/    /'
@@ -184,18 +199,15 @@ r=($(both_on hubB "parts B $RAM")); check ${r[0]} "hubA's RAM manager gone: both
 hostup A; sleep 12
 check $([ "$(on z)" = hubB ] && [ "$(on w)" = hubB ] && echo 0 || echo 1) "hubA's RAM manager back: 12 s later both still on hubB (z $(on z), w $(on w)): nothing goes back up while hubB lives"
 sleep 2
-# ---- both WAN RAM managers gone: the LAN's highest (w's 10.4.4.1) for both; the tunnels go (John)
+# ---- [SPLIT_IS_LAN_ONLY_V1] both WAN RAM managers gone: the region lost on both, its tunnels withdrawn, LAN-only now
 hostdown A; hostdown B
-r=($(both_on "lan 10.4.4.1" "parts w 10.4.4.1:8841")); check ${r[0]} "both WAN RAM managers gone: both on the LAN's highest, w's 10.4.4.1:8841, which lists both ($(secs ${r[1]}) s)"; [ ${r[0]} = 0 ] || dump
-check $( (NSF z wg show interfaces; NSF w wg show interfaces) 2>/dev/null | tr ' ' '\n' | grep -q '^wg' && echo 1 || echo 0) "on the LAN: no hub channel on z or w; only the standing sessions' probe tunnels, routing nothing ($( (NSF z wg show interfaces; NSF w wg show interfaces) 2>/dev/null | tr '\n' ' '))"
-check $(ip netns exec z ip -4 route | grep -q '^10.4.4.0/24 via 10.3.3.20' && echo 0 || echo 1) "on the LAN: z still routes w's /24"
-check $(ip netns exec w ping -c 1 -W 2 -I 10.4.4.1 10.3.3.1 > /dev/null 2>&1 && echo 0 || echo 1) "on the LAN: w's .1 -> z's .1"
-a=($(app_on)); check ${a[0]} "on the LAN: $(appsay) ($(secs ${a[1]}) s)"
-AH=$(hostsof z rangertrakHost.frognet); PT=$(python3 -c "import json; print(json.load(open('$T/z/fs/opt-fdf-var/apps/rangertrak.json'))['ports']['general'])")
-check $(NS z curl -s -m 3 -X POST -d '{"op":"version"}' "http://$AH:$PT$API?op=rina" | grep -q '"ok":true' && echo 0 || echo 1) "on the LAN: the general AppRam answers at its AppHost $AH, its port $PT"
+ok=1; for i in $(seq 240); do grep -q "SPLIT_IS_LAN_ONLY_V1" $T/z/daemon.log && grep -q "SPLIT_IS_LAN_ONLY_V1" $T/w/daemon.log && { ok=0; break; }; sleep 0.25; done
+check $ok "both WAN RAM managers gone: the region lost on z and w, each LAN-only now: z: $(grep SPLIT_IS_LAN_ONLY_V1 $T/z/daemon.log | tail -1 | grep -o 'LAN-only now: [^;]*' | cut -c1-90); w: $(grep SPLIT_IS_LAN_ONLY_V1 $T/w/daemon.log | tail -1 | grep -o 'LAN-only now: [^;]*' | cut -c1-90)"; [ $ok = 0 ] || dump
+check $( [ -s $T/z/fs/opt-fdf-var/runmerge.log ] && [ -s $T/w/fs/opt-fdf-var/runmerge.log ] && echo 0 || echo 1) "the split ran the merge on both (z: $(wc -l < $T/z/fs/opt-fdf-var/runmerge.log 2>/dev/null), w: $(wc -l < $T/w/fs/opt-fdf-var/runmerge.log 2>/dev/null) run(s))"
+check $( (NSF z wg show interfaces; NSF w wg show interfaces) 2>/dev/null | tr ' ' '\n' | grep -q '^wg' && echo 1 || echo 0) "after the split: no hub channel on z or w ($( (NSF z wg show interfaces; NSF w wg show interfaces) 2>/dev/null | tr '\n' ' '))"
 # ---- the primary returns: both on hubA
 hostup A
-r=($(both_on hubA "parts A $RAM")); check ${r[0]} "hubA back: both on hubA from the LAN ($(secs ${r[1]}) s)"; [ ${r[0]} = 0 ] || dump
+r=($(both_on hubA "parts A $RAM")); check ${r[0]} "hubA back: both on hubA again, from LAN-only ($(secs ${r[1]}) s)"; [ ${r[0]} = 0 ] || dump
 check $(NSF z wg show interfaces 2>/dev/null | grep -q wg && echo 0 || echo 1) "z's hub channel is back up"
 a=($(app_on)); check ${a[0]} "hubA back: $(appsay); nothing of it on hubA ($(secs ${a[1]}) s)"
 echo "RESULT $([ $FAILS = 0 ] && echo PASS || echo "FAIL: $FAILS")"
