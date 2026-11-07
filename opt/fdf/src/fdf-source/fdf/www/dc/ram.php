@@ -40,15 +40,16 @@
 // AppRam has no AppHost now is refused: the client connects first. [TEAM_RAM_V1] a service whose RAM is "team" is in
 // the team's own AppRam, named by the request (read: &team=, write: "team" in the body). ?op=rams lists them.
 // The app's one configuration tuple, (fdf-app, config, <app>), and each Team's, (fdf-app, config, <app>.<team>), are in
-// databasehost-control (databasehost_control.frognet's RAM host); the installed machines' capability and answers,
-// (fdf-app, can|applied, ...), in the SystemRam (databasehost.frognet's); a device's own record in the general AppRam.
+// databasehost-control (databasehost_control.frognet's api.php); the installed machines' capability and answers,
+// (fdf-app, can|applied, ...), in the SystemRam (databasehost.frognet's api.php); a device's own record in the general
+// AppRam. [ROLES_ON_API_V1] both roles are api.php on port 80.
 // The launcher's own service (dc) stays on the network RAM (fdf.env's RINA_RAM).
 // [STATION_IS_HOSTNAME_V1] whoami: the asking device's hostname, as this node's facts have it (the lease this node gave
 // that address, facts.addrs kind "given", value). It is the device's station ID (PLAN.md, "Message numbers"): unique on
 // the network, typed by nobody. A device this node gave no lease has none here, and is told so.
 header('Content-Type: application/json');
 // [DOOR_SAYS_ITS_BUILD_V1] every answer says which door answered: the header, and "door" in the admin and roles answers
-const DOOR_BUILD = 'dc-door-2026-11-06-r18';
+const DOOR_BUILD = 'dc-door-2026-11-07-roles1';   // [ROLES_ON_API_V1]
 // [SENSORS_BY_THE_DOOR_V1] the sensor store (api.php on databasehost.frognet) by the address this node's /etc/hosts gives
 // it: an app through the tunnel has no .frognet names (the phone's DNS is its carrier's), the address routes
 function door_sensors() {
@@ -82,7 +83,7 @@ function ram($env, $args) {
 
 $where = trim((string)shell_exec('. ' . escapeshellarg(dirname(__DIR__, 2) . '/fdf.env') . ' && printf %s "$RINA_RAM"'));
 // [APP_SERVICES_V1] /etc/hosts (FDF_HOSTS), read at each request: the election rewrites it
-$hostenv = explode("\n", (string)shell_exec('. ' . escapeshellarg(dirname(__DIR__, 2) . '/fdf.env') . ' && printf "%s\n%s\n%s\n%s" "${FDF_HOSTS:-/etc/hosts}" "${FDF_LAN_RAM_PORT:-$(cat ${FDF_RAM_PORT_FILE:-/etc/frognet/ram_port} 2>/dev/null)}" "${RINA_CONTROL_RAM:-}" "${RINA_SYSTEM_RAM:-}"'));
+$hostenv = explode("\n", (string)shell_exec('. ' . escapeshellarg(dirname(__DIR__, 2) . '/fdf.env') . ' && printf "%s\n%s\n%s\n%s" "${FDF_HOSTS:-/etc/hosts}" "" "${RINA_CONTROL_RAM:-}" "${RINA_SYSTEM_RAM:-}"'));
 function host_ip($name) {
     global $hostenv;
     foreach ((array)@file(trim($hostenv[0] ?? '/etc/hosts')) as $l) {
@@ -91,17 +92,92 @@ function host_ip($name) {
     }
     return '';
 }
-function role_env($name, $over, $what) {                         // the ram CLI on the RAM host of databasehost-control or the SystemRam
+// [ROLES_ON_API_V1 - John 2026-11-07] databasehost-control (the ControlRam) and the SystemRam are roles: one host each,
+// named in /etc/hosts, served by that host's default api.php on port 80. A cell (service, variable, instance) is the
+// api.php tuple SensorType=<service>, SensorName=<variable>.<instance>, SensorAddress=<the writer>, jsonData=<the bag>.
+// There is no RAM host on a FrogNetHost and no RAM port (8841 and /etc/frognet/ram_port are gone).
+function role_host($name, $over, $what) {                      // the role's address (RINA_CONTROL_RAM/RINA_SYSTEM_RAM: a test's)
     global $hostenv;
     $at = trim($hostenv[$over] ?? '');
-    $port = trim($hostenv[1] ?? ''); if ($port === '') $port = '8841';     // [RAM_PORT_CONFIGURABLE_V1] /etc/frognet/ram_port, else 8841
-    if ($at === '') { $ip = host_ip($name); $at = $ip === '' ? '' : $ip . ':' . $port; }
-    if (!preg_match('/^[0-9.]+:[0-9]+$/', $at)) fail(503, "this node names no $name yet (/etc/hosts): the election has not run here ($what)");
-    return [$at, '. ' . escapeshellarg(dirname(__DIR__, 2) . '/fdf.env') . ' && RINA_RAM=' . escapeshellarg($at) . ' exec "$FDF_BIN"/ram '];
+    if ($at === '') $at = host_ip($name);
+    if (!preg_match('/^[0-9.]+(:[0-9]+)?$/', $at)) fail(503, "this node names no $name yet (/etc/hosts): the election has not run here ($what)");
+    return $at;
 }
-function ctl_env() { return role_env('databasehost_control.frognet', 2, 'databasehost-control')[1]; }
-function sys_env() { return role_env('databasehost.frognet', 3, 'the SystemRam')[1]; }
-function sys_at() { return role_env('databasehost.frognet', 3, 'the SystemRam')[0]; }
+function ctl_host() { return role_host('databasehost_control.frognet', 2, 'databasehost-control'); }
+function sys_host() { return role_host('databasehost.frognet', 3, 'the SystemRam'); }
+function role_call($host, $method, $q, $body = null, $timeout = 10) {
+    $url = 'http://' . $host . '/api.php?' . http_build_query($q);
+    $ctx = ['http' => ['method' => $method, 'timeout' => $timeout, 'ignore_errors' => true]];
+    if ($body !== null) { $ctx['http']['header'] = "Content-Type: application/json\r\n"; $ctx['http']['content'] = json_encode($body, JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE); }
+    $raw = @file_get_contents($url, false, stream_context_create($ctx));
+    $j = $raw === false ? null : json_decode($raw, true);
+    if (!is_array($j) || empty($j['ok'])) fail(502, "the role's api.php at $host did not answer " . ($q['action'] ?? ''), (string)$raw);
+    return $j;
+}
+function role_filter($svc, $var, $inst) {
+    $f = ['SensorType' => $svc];
+    $esc = function ($x) { return str_replace(['%', '_'], ['\\%', '\\_'], $x); };
+    if ($var !== '' && $inst !== '') $f['SensorName'] = $var . '.' . $inst;
+    elseif ($var !== '') $f['SensorName__like'] = $esc($var) . '.%';
+    elseif ($inst !== '') $f['SensorName__like'] = '%.' . $esc($inst);
+    return $f;
+}
+function role_cells($rows) {                                   // api.php rows as the cells the pages know, the newest first
+    $out = [];
+    foreach ($rows as $r) {
+        $nm = (string)($r['SensorName'] ?? ''); $dot = strpos($nm, '.');
+        $out[] = ['id' => intval($r['SensorID'] ?? 0), 'service' => $r['SensorType'] ?? '', 'variable' => $dot === false ? $nm : substr($nm, 0, $dot),
+                  'instance' => $dot === false ? '' : substr($nm, $dot + 1), 'bag' => $r['data'] ?? (object)[], 'writer' => $r['SensorAddress'] ?? '',
+                  'updated' => intval($r['UpdatedAtEpoch'] ?? 0)];
+    }
+    usort($out, function ($a, $b) { return [$b['updated'], $b['id']] <=> [$a['updated'], $a['id']]; });
+    return $out;
+}
+function role_sig($rows) {                                     // what the rows hold, as one number a page can hand back
+    $k = [];
+    foreach ($rows as $r) $k[] = [(string)($r['SensorID'] ?? ''), (string)($r['SensorAddress'] ?? ''), (string)($r['jsonData'] ?? '')];
+    sort($k);
+    return intval(sprintf('%u', crc32(json_encode($k))));
+}
+function role_rows($host, $svc, $var = '', $inst = '') {
+    return role_call($host, 'GET', ['entity' => 'sensors', 'action' => 'values', 'parse' => '1'] + role_filter($svc, $var, $inst))['rows'] ?? [];
+}
+function role_read($host, $svc, $var = '', $inst = '') { return ['ok' => true, 'rows' => role_cells(role_rows($host, $svc, $var, $inst))]; }
+function source_ip_toward($host) {
+    $h = explode(':', $host)[0];
+    $s = @stream_socket_client('udp://' . $h . ':80', $en, $es, 1);   // no packet is sent: this only picks the route
+    $me = $s ? explode(':', (string)stream_socket_get_name($s, false))[0] : '';
+    if ($s) fclose($s);
+    return $me;
+}
+function role_write($host, $svc, $var, $inst, $bag) {
+    $j = role_call($host, 'POST', ['entity' => 'sensor_data', 'action' => 'upsert_by_name'],
+                   ['SensorType' => $svc, 'SensorName' => $var . '.' . $inst, 'SensorAddress' => source_ip_toward($host), 'jsonData' => $bag]);
+    return json_encode(['ok' => true, 'id' => intval($j['sensor_id'] ?? 0)]);
+}
+// [HELD_READ_IN_API_V1] a held read from this door: hold at the role's api.php with this request's own socket in
+// /run/frognet/held (held_fire.php hands the fire to it); return as soon as the rows are not the ones the page has
+// ($seen, role_sig), or at $wait s. No polling: each wake is the fire.
+function role_hold_wait($host, $svc, $var, $inst, $seen, $wait) {
+    $hid = 'dcdoor.' . getmypid() . '.' . bin2hex(random_bytes(4));
+    $path = '/run/frognet/held/' . $hid . '.sock';
+    $sock = @stream_socket_server('udg://' . $path, $en, $es, STREAM_SERVER_BIND);
+    if (!$sock) fail(503, "the door could not hold a read here ($path: $es)");
+    @chmod($path, 0666);
+    $end = microtime(true) + $wait;
+    try {
+        while (true) {
+            $j = role_call($host, 'GET', ['entity' => 'held', 'action' => 'hold', 'holder' => source_ip_toward($host), 'hid' => $hid] + role_filter($svc, $var, $inst));
+            $rows = $j['rows'] ?? [];
+            if (role_sig($rows) !== $seen) return $rows;
+            $left = $end - microtime(true);
+            if ($left <= 0) return $rows;
+            $r = [$sock]; $w = null; $e = null;
+            if (!@stream_select($r, $w, $e, intval($left), intval(fmod($left, 1) * 1e6))) return $rows;
+            @stream_socket_recvfrom($sock, 65536);                 // the fire: hold again; its reply is the current rows
+        }
+    } finally { fclose($sock); @unlink($path); }
+}
 function svc_host($app, $ram) { return $ram === 'general' ? $app . 'Host.frognet' : $ram . 'Host.' . $app; }   // a Team's scoped to its app
 $fdf_var = trim((string)shell_exec('. ' . escapeshellarg(dirname(__DIR__, 2) . '/fdf.env') . ' && printf %s "${FDF_VAR:-/opt/fdf/var}"'));
 function station_of($ip) {                                      // [STATION_IS_HOSTNAME_V1] the lease this node gave $ip
@@ -142,7 +218,7 @@ function app_tuple($app) {
     global $cfg_cache;
     if (array_key_exists($app, $cfg_cache)) return $cfg_cache[$app];
     $bag = null; $places = [];
-    foreach ((json_decode(ram(ctl_env(), ['read', 'fdf-app', 'config']), true)['rows'] ?? []) as $c) {
+    foreach (array_reverse(role_read(ctl_host(), 'fdf-app', 'config')['rows']) as $c) {     // oldest first
         $i = (string)($c['instance'] ?? ''); $b = $c['bag'] ?? null;
         if (!is_array($b) || !$b) continue;
         if ($i === $app && ($bag === null || intval($b['seq'] ?? 0) > intval($bag['seq'] ?? 0))) $bag = $b;
@@ -184,7 +260,7 @@ function served_map($app) {
 function verified($v, $pw) { return is_array($v) && hash_equals((string)($v['hash'] ?? ''), hash_pbkdf2('sha256', (string)$pw, hex2bin((string)($v['salt'] ?? '')), intval($v['n'] ?? 1))); }
 function children($app) {
     $o = [];
-    foreach ((json_decode(ram(ctl_env(), ['read', 'fdf-app', 'child']), true)['rows'] ?? []) as $c) {
+    foreach (array_reverse(role_read(ctl_host(), 'fdf-app', 'child')['rows']) as $c) {      // oldest first: the newest stands
         $i = (string)($c['instance'] ?? ''); $b = $c['bag'] ?? null;
         if (is_array($b) && $b && strpos($i, $app . '.') === 0) $o[substr($i, strlen($app) + 1)] = $b;
     }
@@ -357,22 +433,17 @@ if ($op === 'read') {
         exit;
     }
     // the admin's view: held until an installed machine answers, its capability comes or goes, or the configuration
-    // changes (or W s). [FAMILY_LOG_V1] one blocking read on the service fdf-app in the SystemRam: `after` is a place
-    // in that family (the `last` this answer gives)
-    $last = -1;
+    // changes (or W s). [HELD_READ_IN_API_V1] one held read on the service fdf-app at the SystemRam's api.php: `after`
+    // is what the page has (the `last` this answer gives: a number for what the family holds, not a place in it)
     if (isset($_GET['after'])) {
         $wait = max(0, min(25, intval($_GET['wait'] ?? 20)));
-        $t0 = microtime(true);
-        [$rc, $said] = ram_try(sys_env(), ['read', 'fdf-app', '', '', intval($_GET['after']), $wait]);
-        // [EVENTS_NOT_TIMERS_V1][NOT_THIS_MEMORY_V1] ESTALE: another memory: the full read below gives the new `last`.
-        // Not answering: held until it says it is up, within the same W s; then the full read below.
-        if ($rc !== 0 && strpos($said, 'ESTALE') === false && preg_match('/^([0-9.]+):([0-9]+)$/', sys_at(), $mm))
-            ram($env, ['written', sprintf('%.3f', max(0.1, $wait - (microtime(true) - $t0))), sprintf('%.6f', $t0),
-                       $fdf_var . '/ram/' . $mm[1] . '_' . $mm[2] . '.up', $fdf_var . '/ram/0.0.0.0_' . $mm[2] . '.up']);
+        $rows = role_hold_wait(sys_host(), 'fdf-app', '', '', intval($_GET['after']), $wait);
         $cfg_cache = []; $best = app_cfg($app); $served = served_map($app);
+    } else {
+        $rows = role_rows(sys_host(), 'fdf-app');
     }
-    $all = json_decode(ram(sys_env(), ['read', 'fdf-app', '']), true)['rows'] ?? [];
-    foreach ($all as $c) $last = max($last, intval($c['id'] ?? -1));
+    $all = role_cells($rows);
+    $last = role_sig($rows);
     // one row per installed machine (its capability tuples), each showing the one configuration; its answer in applied
     $pub = $best; unset($pub['_bag']); $machines = [];
     foreach ($all as $c) {
@@ -396,7 +467,7 @@ if ($op === 'read') {
     $cur = app_cfg($app);
     if ($in['seq'] <= intval($cur['seq'] ?? 0)) fail(409, 'seq ' . $in['seq'] . ' is not newer than the configuration in databasehost-control (' . intval($cur['seq'] ?? 0) . ')');
     $bag = ['config' => $in['config'], 'seq' => $in['seq'], 'user' => (string)($in['user'] ?? ''), 'mac' => $in['mac'], 'admin' => $cur['admin'] ?? (object)[], 'at' => time()];
-    echo ram(ctl_env(), ['write', 'fdf-app', 'config', $app, json_encode($bag, JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE)]);
+    echo role_write(ctl_host(), 'fdf-app', 'config', $app, $bag);
 } elseif ($op === 'whoami') {
     // [STATION_IS_HOSTNAME_V1] the asking device's host name, from its lease here; '' when it gave none (the device's
     // own name is then its name: the page asks for it). Nobody sees a station ID: it is the host or device name.
@@ -415,7 +486,7 @@ if ($op === 'read') {
         $kids = children($app);
         if (!isset($kids[$nm])) {
             $b = ['name' => $nm, 'kind' => (string)($in['kind'] ?? 'team') ?: 'team', 'at' => time(), 'from' => $_SERVER['REMOTE_ADDR'] ?? ''];
-            ram(ctl_env(), ['write', 'fdf-app', 'child', $app . '.' . $nm, json_encode($b, JSON_UNESCAPED_SLASHES)]);
+            role_write(ctl_host(), 'fdf-app', 'child', $app . '.' . $nm, $b);
             error_log('dc ram.php: [CHILDREN_JOIN_V1] ' . $app . ': ' . $b['kind'] . ' ' . $nm . ' joined (' . $b['from'] . ')');
         }
         echo json_encode(['ok' => true, 'user' => $nm, 'role' => $nm, 'lead' => true, 'child' => true, 'at' => '',
@@ -474,7 +545,7 @@ if ($op === 'read') {
     if ($at === 'here' && !preg_match('/^[A-Za-z0-9._:-]{1,80}$/', $guid)) fail(400, "guid: the lead's device that serves the group");
     $bag = ['at' => $at, 'guid' => $at === 'here' ? $guid : '', 'user' => (string)$in['user'], 'role' => $role,
             'seq' => (int)(microtime(true) * 1000), 'from' => $_SERVER['REMOTE_ADDR'] ?? ''];
-    ram(ctl_env(), ['write', 'fdf-app', 'config', $app . '.' . $role, json_encode($bag, JSON_UNESCAPED_SLASHES)]);
+    role_write(ctl_host(), 'fdf-app', 'config', $app . '.' . $role, $bag);
     error_log('dc ram.php: [GROUP_PLACE_V1] ' . $app . ' group ' . $role . ' placed ' . $at . ($bag['guid'] !== '' ? ' (' . $bag['guid'] . ')' : '') . ' by its lead ' . $bag['user']);
     echo json_encode(['ok' => true, 'place' => $bag, 'door' => DOOR_BUILD], JSON_UNESCAPED_SLASHES);
 } elseif ($op === 'device' && $_SERVER['REQUEST_METHOD'] === 'POST') {

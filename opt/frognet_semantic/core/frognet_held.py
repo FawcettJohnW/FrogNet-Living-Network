@@ -104,7 +104,9 @@ class Holder:
         if not hasattr(socket, "AF_UNIX"):
             raise HoldError("held reads need Linux datagram sockets; this machine has none")
         self.hid = _hid()
-        os.makedirs(HELD_DIR, exist_ok=True)
+        if not os.path.isdir(HELD_DIR):         # etc/tmpfiles.d/frognet-held.conf makes it at boot
+            os.makedirs(HELD_DIR, exist_ok=True)
+            os.chmod(HELD_DIR, 0o1777)          # every holder (root's daemons, the web server's door) binds here
         self.path = os.path.join(HELD_DIR, self.hid + ".sock")
         try:
             os.unlink(self.path)
