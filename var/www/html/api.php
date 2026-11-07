@@ -18,7 +18,7 @@
  **************************************************************/
 require_once __DIR__ . '/config.php';
 // [HELD_READ_IN_API_V1] api.php reports its own build on every response.
-const API_BUILD = 'api.php 20261107-held1 [HELD_READ_IN_API_V1]';
+const API_BUILD = 'api.php 20261107-held2 [HELD_READ_IN_API_V1][WRITER_GONE_V1]';
 header('X-FrogNet-Api-Build: ' . API_BUILD);
 header('Content-Type: application/json');
 header('Access-Control-Allow-Origin: *');
@@ -289,7 +289,7 @@ function held_take_matching($sensorType, $sensorName) {
     return $holds;
 }
 
-// Fire every hold matched by the completed updates. $updates: [SensorID, ...].
+// Fire every hold matched by the completed updates. $sensorIds: [SensorID, ...].
 function held_fire_for($sensorIds) {
     if (!$sensorIds) return;
     $any = fetch_all(exec_stmt("SELECT 1 AS x FROM HeldRead LIMIT 1"));
@@ -300,11 +300,16 @@ function held_fire_for($sensorIds) {
                 UNIX_TIMESTAMP(d.UpdatedAt) AS UpdatedAtEpoch
            FROM Sensor s LEFT JOIN SensorData d ON d.SensorID = s.SensorID
           WHERE s.SensorID IN ($in)", str_repeat('i', count($sensorIds)), array_map('intval', $sensorIds)));
+    held_fire_rows($rows, false);
+}
+
+// Fire every hold matched by these tuples. $gone: the tuples were removed (their writer left the network).
+function held_fire_rows($rows, $gone) {
     $fires = [];
     foreach ($rows as $r) {
         foreach (held_take_matching($r['SensorType'], $r['SensorName']) as $h) {
             $data = null;
-            if (is_string($r['jsonData']) && $r['jsonData'] !== '') {
+            if (!$gone && is_string($r['jsonData'] ?? null) && $r['jsonData'] !== '') {
                 $j = json_decode($r['jsonData']);
                 if (json_last_error() === JSON_ERROR_NONE) $data = $j;
             }
@@ -312,7 +317,7 @@ function held_fire_for($sensorIds) {
                 'hold' => (int)$h['HoldID'], 'hid' => $h['HolderID'], 'build' => API_BUILD,
                 'SensorID' => (int)$r['SensorID'], 'SensorType' => $r['SensorType'],
                 'SensorName' => $r['SensorName'], 'SensorAddress' => $r['SensorAddress'],
-                'UpdatedAtEpoch' => (int)$r['UpdatedAtEpoch'], 'data' => $data]];
+                'UpdatedAtEpoch' => (int)($r['UpdatedAtEpoch'] ?? 0), 'data' => $data, 'gone' => (bool)$gone]];
         }
     }
     if (!$fires) return;
@@ -862,6 +867,49 @@ if ($entity === 'sensor_data' && ($action === 'upsert' || $action === 'upsert_by
     // [HELD_READ_IN_API_V1] the update is complete: reply to the writer, then fire.
     reply_now(['ok'=>true, 'sensor_id'=>$SensorID]);
     held_fire_for([(int)$SensorID]);
+    exit;
+}
+
+// ---- sensors / remove_writer -----------------------------------------------------
+// [WRITER_GONE_V1 - John 2026-11-07] A machine left the network: remove what we know belonged to it, and nothing else.
+// Called by the daemon on this host when a peer's permanent socket closes (a LAN machine gone), and by the WAN role
+// when it closes an island's tunnel (every machine behind it gone).
+//   POST api.php?entity=sensors&action=remove_writer   {"address": "10.x.y.z"}  or  {"subnet": "10.x.y.0/24"}
+// Every tuple whose writer (SensorAddress) is that address, or inside that subnet, is removed; the holds those
+// machines held here are removed with them (their holders are gone); then every hold on a removed tuple or its family
+// fires, with "gone": true, so the roles that depended on them read again (the next capability tuple, or none).
+function ip_in_subnet($ip, $cidr) {
+    [$net, $bits] = array_pad(explode('/', $cidr, 2), 2, '32');
+    $bits = (int)$bits; $i = ip2long($ip); $n = ip2long($net);
+    if ($i === false || $n === false || $bits < 0 || $bits > 32) return false;
+    $mask = $bits === 0 ? 0 : (~0 << (32 - $bits)) & 0xFFFFFFFF;
+    return (($i & $mask) === ($n & $mask));
+}
+if ($entity === 'sensors' && $action === 'remove_writer') {
+    if ($method !== 'POST') bad(405, 'Use POST for sensors/remove_writer');
+    $addr   = trim((string)($body['address'] ?? ''));
+    $subnet = trim((string)($body['subnet'] ?? ''));
+    if (($addr === '') === ($subnet === '')) bad(400, 'remove_writer takes address or subnet, one of them');
+    if ($addr !== '' && filter_var($addr, FILTER_VALIDATE_IP, FILTER_FLAG_IPV4) === false) bad(400, 'address: an IPv4 address');
+    if ($subnet !== '' && !preg_match('#^\d{1,3}(\.\d{1,3}){3}/\d{1,2}$#', $subnet)) bad(400, 'subnet: a.b.c.d/n');
+    $mine = function ($ip) use ($addr, $subnet) { return $addr !== '' ? $ip === $addr : ip_in_subnet((string)$ip, $subnet); };
+
+    $all = fetch_all(exec_stmt("SELECT s.SensorID, s.SensorName, s.SensorType, s.SensorAddress FROM Sensor s"));
+    $gone = array_values(array_filter($all, fn($r) => $mine($r['SensorAddress'] ?? '')));
+    if ($gone) {
+        $ids = array_map(fn($r) => (int)$r['SensorID'], $gone);
+        $in  = implode(',', array_fill(0, count($ids), '?'));
+        $d = exec_stmt("DELETE FROM Sensor WHERE SensorID IN ($in)", str_repeat('i', count($ids)), $ids); $d->close();
+    }
+    $holds = fetch_all(exec_stmt("SELECT HoldID, Holder FROM HeldRead"));
+    $hgone = array_values(array_map(fn($h) => (int)$h['HoldID'], array_filter($holds, fn($h) => $mine($h['Holder']))));
+    if ($hgone) {
+        $in = implode(',', array_fill(0, count($hgone), '?'));
+        $d = exec_stmt("DELETE FROM HeldRead WHERE HoldID IN ($in)", str_repeat('i', count($hgone)), $hgone); $d->close();
+    }
+    error_log(sprintf('[WRITER_GONE_V1] %s left: %d tuple(s) and %d hold(s) removed', $addr !== '' ? $addr : $subnet, count($gone), count($hgone)));
+    reply_now(['ok'=>true, 'removed'=>count($gone), 'holds_removed'=>count($hgone), 'build'=>API_BUILD]);
+    held_fire_rows($gone, true);
     exit;
 }
 
