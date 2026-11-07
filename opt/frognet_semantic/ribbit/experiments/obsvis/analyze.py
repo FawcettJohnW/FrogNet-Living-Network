@@ -150,7 +150,9 @@ def features(R, cond):
 
 def costs(R):
     tr, ctl = R["truth"], R["ctl"]
-    sends = {(e["m"], e["f"]): e["t"] for e in tr if e["ev"] == "send"}   # an unchanged telemetry write: its first send
+    sends = {}
+    for e in tr:
+        if e["ev"] == "send": sends.setdefault((e["m"], e["f"]), e["t"])   # an unchanged telemetry write (same id): its first send
     fol = {}
     for e in tr:
         if e["ev"] == "send": fol[(e["m"], e["f"])] = e["to"]
@@ -245,7 +247,7 @@ def main():
         p = c["plan"]
         runs.setdefault((p["cond"], p["traffic"], p.get("stress_name")), []).append((int(p["seed"]), run, c.get("ok")))
     rng = np.random.default_rng(20261106)
-    report = {"build": "obsvis-analyze-2026-11-06-r3", "train": sorted(TR), "test": sorted(TE), "cells": []}
+    report = {"build": "obsvis-analyze-2026-11-06-r4", "train": sorted(TR), "test": sorted(TE), "cells": []}
     for (cond, traffic, stress), rs in sorted(runs.items(), key=lambda x: (x[0][2] or "", x[0][1], x[0][0])):
         tr, te, cost, failed = {o: [] for o in SCOPE}, {o: [] for o in SCOPE}, [], []
         for seed, run, ok in sorted(rs):

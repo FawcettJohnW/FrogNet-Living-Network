@@ -35,7 +35,7 @@ HERE = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, HERE); sys.path.insert(0, os.path.join(HERE, "build"))
 import bed, ram, workload  # noqa: E402
 
-BUILD = "obsvis-agent-2026-11-06-r3"
+BUILD = "obsvis-agent-2026-11-07-r4"
 HOLD_S = 30.0
 RING = 64                  # a producer's cells: write n is <producer>.<n mod RING>
 CHUNK = 200000
@@ -202,6 +202,8 @@ class Agent:
             open(conf, "w").write("user root\nper_listener_settings false\nallow_anonymous true\npersistence false\nlog_dest stdout\nlog_type all\n"
                                   "connection_messages true\nlog_timestamp true\nlog_timestamp_format %%s\nlistener 8883 %s\n"
                                   "cafile %s/ca.crt\ncertfile %s/srv.crt\nkeyfile %s/srv.key\ntls_version tlsv1.3\n" % (bed.ADDR("srv"), d, d, d))
+            if os.environ.get("OBSVIS_B_NODELAY") == "1":     # diagnostic only: Mosquitto's default is Nagle on (set_tcp_nodelay false)
+                open(conf, "a").write("set_tcp_nodelay true\n")
             s = Child(["mosquitto", "-c", conf], " running", os.path.join(self.outdir, "o3-mosquitto.log"))
         else:
             s = Child([os.path.join(HERE, "build", "chat-ram"), "--listen", "0.0.0.0:8811"], "answering",
@@ -362,7 +364,10 @@ class Agent:
             if msg.topic == "chat/" + self.name: self.recv(m)
             elif self.o4 is not None: self.o4(src="mqtt", topic=msg.topic, f=m.get("f"), bytes=len(msg.payload))
         self.mq.on_connect, self.mq.on_message = on_connect, on_message
-        self.mq.connect(bed.ADDR("srv"), 8883, keepalive=60); self.mq.loop_start()
+        self.mq.connect(bed.ADDR("srv"), 8883, keepalive=60)
+        if os.environ.get("OBSVIS_B_NODELAY") == "1":         # diagnostic only: paho leaves Nagle on its socket
+            import socket as _s; self.mq.socket().setsockopt(_s.IPPROTO_TCP, _s.TCP_NODELAY, 1)
+        self.mq.loop_start()
         if not ready.wait(20): raise RuntimeError("Mosquitto did not answer in 20 s")
 
     def send_B(self, body):

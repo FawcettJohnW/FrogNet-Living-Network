@@ -27,7 +27,7 @@ HERE = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, HERE)
 import bed, workload  # noqa: E402
 
-BUILD = "obsvis-2026-11-06-r3"
+BUILD = "obsvis-2026-11-07-r4"
 CONDS = ["A", "B", "C", "D", "Dall"]
 AGENTS = workload.PARTS + ["srv", "rt"]
 STRESS = {

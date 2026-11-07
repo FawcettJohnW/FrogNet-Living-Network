@@ -28,6 +28,34 @@ def fmt(r):
     return "%.2f [%.2f, %.2f]" % (r["auc"], r["ci95"][0], r["ci95"][1])
 
 
+NOTES = [
+    "**Run length.** Each run here lasted the minutes given above; the brief specifies 30. `./matrix.sh 30` runs the "
+    "brief's matrix unchanged.",
+    "**netem delay and loss: not run.** The kernel these runs used has no `sch_netem`, so those stress phases fail at "
+    "their first step. They run unchanged on a kernel that has it.",
+    "**H4: not run.** The Ribbit wire has no padding flag.",
+    "**D and D-all are built on ribbit::Space** (`space_c.cpp`, a C ABI over `ribbit_space.hpp`), the one "
+    "publish/subscribe library the platform's MQTT and Redis conversions use, in place of the brief's small shim.",
+    "**O3 for C, D and D-all is logged at the client library boundary.** chat-ram has no operation trace hook; the log "
+    "records exactly the operations the host decodes, and nothing the host would not see.",
+    "**O1 in the relayed builds (0.57 everywhere).** p1's link carries only p1's tunnel or broker connection, so the "
+    "attacker's only usable feature is the pair's direction (p1 producing or p1 consuming). 0.57 is that base rate: it "
+    "says nothing about which peer. Precision at top-k is the same 0.57.",
+    "**B's p95 latency (about 40 ms) is Nagle's algorithm in the MQTT clients.** 6.5% of B's deliveries take 39-43 ms, "
+    "Linux's delayed-ACK minimum; the rest take under 2 ms. Measured on chat seed 7 (1 minute): Mosquitto's "
+    "`set_tcp_nodelay true` alone leaves p95 at 41.8 ms; with TCP_NODELAY also on the paho clients' sockets, p95 is 1.4 "
+    "ms. B is reported as stock (both defaults); `OBSVIS_B_NODELAY=1` reproduces the comparison.",
+    "**Revocation.** The others' delivery after p8 is revoked is 100% in every run; p8 receives nothing after the "
+    "revocation, in C, D and D-all alike.",
+    "**Platform bug found: a bag field named `rows` comes back wrapped.** semtpl.hpp's `rebuild_json` special-cases a "
+    "top-level `rows` (a port of Python's template_utils). The harness's result chunks use `items` instead. Not fixed "
+    "here: it is wire behavior shared with the Python side.",
+    "**Earlier held-read build (before the rebuild on ribbit::Space).** In a D-all smoke run built on plain held reads, "
+    "every consumer stalled after p8 was revoked. Identical held reads may be coalesced and tied to the revoked session. "
+    "Not confirmed, and not present with Space follows (the others received everything).",
+]
+
+
 def below(x, y):
     """x's AUC below y's with non-overlapping CIs"""
     return bool(x and y and x["auc"] == x["auc"] and y["auc"] == y["auc"] and x["auc"] < y["auc"] and x["ci95"][1] < y["ci95"][0])
@@ -59,6 +87,8 @@ def stress_measures(results, cond, stress):
             m["p8_receipts_after_revoke"] = len(p8)
             m["p8_last_receipt_after_s"] = round(max(e["t"] for e in p8) - t, 2) if p8 else None
             m["p8_errors"] = (ctl["results"].get("p8") or {}).get("n_err")
+            others = [x for x in after if x[1] != "p8" and x[2] != "p8"]
+            m["others_delivered_after"] = "%d/%d" % (sum(1 for x in others if x in recv), len(others))
         out.append(m)
     return out
 
@@ -75,7 +105,9 @@ def main():
     L = []
     w = L.append
     w("# Observer visibility: direct, server-relayed and FrogNet shared-RAM communication: results\n")
-    w("Build %s. Analysis %s. Run on %s.\n" % (vers.get("harness"), an.get("build"), vers.get("kernel")))
+    kernels = sorted({json.load(open(r)).get("kernel") for r in runs} - {None})
+    vers["kernel"] = ", ".join(kernels)
+    w("Build %s. Analysis %s. Run on kernel(s) %s.\n" % (vers.get("harness"), an.get("build"), vers["kernel"]))
     w("## What ran\n")
     w("Eight participants (p1..p8), a server (srv), a controller (ctl) and a router (rt), each in its own Linux network "
       "namespace with its own stack, joined in a star through rt. Each participant follows 3 of the other 7, drawn from the "
@@ -87,8 +119,11 @@ def main():
     w("- **A:** direct TLS 1.3, producer to each follower.")
     w("- **B:** Mosquitto %s, topic `chat/<recipient>`, TLS 1.3." % vers.get("mosquitto", "").replace("mosquitto version ", ""))
     w("- **C:** chat-ram (%s), the chat example's own schema and client, `ChatServer.<recipient>.<producer>`." % vers.get("chat-ram"))
-    w("- **D:** chat-ram, own truth, `Chat.<producer>.out`, one held read per producer followed.")
-    w("- **D-all:** chat-ram, read-all, `Chat.Out.<producer>`, one held read, filtered by the consumer.\n")
+    w("- **D:** chat-ram on ribbit::Space (the publish/subscribe library the MQTT and Redis conversions use), own truth: "
+      "each producer writes its own ring cells, `Chat.<producer>.<producer>.<n mod 64>`; each consumer holds one standing "
+      "follow per producer it follows.")
+    w("- **D-all:** the same library, read-all: `Chat.Out.<producer>.<n mod 64>`; each consumer holds one standing follow "
+      "on `Chat.Out` and filters locally.\n")
     w("C, D and D-all ran over %s tunnels from each participant to srv.\n" % vers.get("wireguard-go"))
     w("Seeds %s trained the attackers; seeds %s were held out. Each run lasted %s minute(s).\n" % (
         "%d-%d" % (an["train"][0], an["train"][-1]), "%d-%d" % (an["test"][0], an["test"][-1]),
@@ -182,6 +217,10 @@ def main():
             ms = stress_measures(a.results, c, st)
             if ms: w("- %s: %s" % (c, "; ".join(json.dumps(m) for m in ms)))
         w("")
+    w("## Deviations from the brief, and notes\n")
+    for t in NOTES:
+        w("- " + t)
+    w("")
     txt = "\n".join(L) + "\n"
     if a.out: open(a.out, "w").write(txt)
     else: print(txt)
