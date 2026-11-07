@@ -253,7 +253,7 @@ const HELD_FIRE_PATH      = '/held_fire.php';
 const HELD_FIRE_TIMEOUT_S = 5;
 
 function held_valid_holder($ip) {
-    return is_string($ip) && filter_var($ip, FILTER_VALIDATE_IP, FILTER_FLAG_IPV4) !== false;
+    return is_string($ip) && filter_var($ip, FILTER_VALIDATE_IP, FILTER_FLAG_IPV4) !== false && $ip !== '0.0.0.0';
 }
 function held_valid_hid($hid) {
     return is_string($hid) && preg_match('/^[A-Za-z0-9._:-]{1,64}$/', $hid) === 1;

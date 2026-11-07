@@ -39,7 +39,7 @@
 #      the form; A writes 214 lines and an after-action note: on B's After-action page, on A's ICS-214 in time order;
 #      B's Summary: every entry, the urgent ones as needing attention, the note under its area
 #   12 the board on a fresh phone at post A (no device set up, nothing typed): every entry, newest first, and the teams
-import json, os, shutil, socket, subprocess, sys, tempfile, time
+import atexit, json, os, shutil, socket, subprocess, sys, tempfile, threading, time
 from playwright.sync_api import sync_playwright
 
 B = sys.argv[1]
@@ -68,49 +68,62 @@ def ram_host(name):
 RAM = ram_host("region")          # the network RAM
 RAM_B_LAN = ram_host("b-lan")     # the network RAM on B's side of a split
 via = {"A": Via(RAM), "B": Via(RAM)}   # each post's one address for the network RAM, whatever is behind it
-# [APP_SERVICES_V1] each post's RAM host (its .1's, one port) -- databasehost-control and the SystemRam are A's while the
-# posts are joined, B's own on B's side of a cut -- and each post's /etc/hosts as its election writes it: the AppHost lines
-# are the real election's (core/app_hosts.py), run on a held read on each fdf-app family, as the tunnel daemon runs it
-LPORT = free(); os.environ["FDF_LAN_RAM_PORT"] = str(LPORT); os.environ["FDF_PY"] = os.path.join(FDF, "lib", "python")
+# [APP_SERVICES_V1][ROLES_ON_API_V1] databasehost-control and the SystemRam are roles: one host's api.php on port 80 --
+# A's (127.0.0.2) while the posts are joined, B's own (127.0.0.3) on B's side of a cut (this tree's api.php, each on its
+# own MariaDB database). Each post's election is tools/app_elector.py (the real core/app_hosts.py on a held read on each
+# fdf-app family, as the tunnel daemon runs it) over the post's converged block, which the test writes as the view; the
+# block rewritten is the hosts event its held reads end on. This machine's own .1 (10.99.99.1 on its veth fnt0) serves
+# held_fire.php on port 80, where the role hosts fire the held reads.
+os.environ["FDF_PY"] = os.path.join(FDF, "lib", "python")
+CORE = os.path.normpath(os.path.join(FDF, "..", "..", "..", "..", "frognet_semantic", "core")); os.environ["FROGNET_CORE"] = CORE
 sys.path.insert(0, os.path.join(FDF, "..", "..", "..", "..", "frognet_semantic"))
 from core import app_hosts  # noqa: E402
-def lan_ram(ip, name):
-    procs.append(subprocess.Popen([T + "/bin/fdf-ram", "--listen", "%s:%d" % (ip, LPORT), "--api", "/FawcettInnovations.RINA.ram_interface.php"],
-                                  env=dict(os.environ, RINA_REGION_FILE=T + "/%s.perm" % name, RINA_NET_CONFIG=T + "/none", FDF_VAR=T + "/v-" + name),
-                                  stdout=subprocess.DEVNULL, stderr=open(T + "/host-%s.log" % name, "w")))
+WWW = os.path.normpath(os.path.join(FDF, "..", "..", "..", "..", "..", "var", "www", "html")); PW = "rttest" + str(os.getpid())
+def serve_www(ip, files, db=None):
+    d = os.path.join(T, "www-" + ip); os.makedirs(d)
+    for f in files: shutil.copy(os.path.join(WWW, f), d)
+    if db:
+        open(os.path.join(d, "config.php"), "w").write(open(os.path.join(WWW, "config.php")).read().replace("__FROGNET_DB_PASS__", PW)
+            .replace("define('DB_NAME', 'FrogNet');", "define('DB_NAME', '%s');" % db).replace("define('DB_USER', 'FrogUser');", "define('DB_USER', 'RtTestUser');"))
+        subprocess.run(["mysql", "-e", "DROP DATABASE IF EXISTS %s; CREATE DATABASE %s;" % (db, db) + "".join(
+            "CREATE USER IF NOT EXISTS 'RtTestUser'@'%s' IDENTIFIED BY '%s'; ALTER USER 'RtTestUser'@'%s' IDENTIFIED BY '%s'; GRANT ALL ON %s.* TO 'RtTestUser'@'%s';"
+            % (h, PW, h, PW, db, h) for h in ("localhost", "127.0.0.1"))], check=True)
+        for f in ("Create_Database.sql", "schema_fixups.sql"):
+            subprocess.run("sed 's/`FrogNet`/`%s`/g; s/^USE FrogNet;/USE %s;/' %s | mysql" % (db, db, os.path.join(WWW, f)), shell=True, check=True, stdout=subprocess.DEVNULL)
+    w = subprocess.Popen(["php", "-S", "%s:80" % ip, "-t", d], env=dict(os.environ, PHP_CLI_SERVER_WORKERS="8"), start_new_session=True,
+                         stdout=subprocess.DEVNULL, stderr=open(T + "/php-%s.log" % ip, "w"))
+    procs.append(w); atexit.register(lambda: os.killpg(w.pid, 9) if w.poll() is None else None)   # its workers too, however the run ends
     for _ in range(100):
-        try: socket.create_connection((ip, LPORT), 0.2).close(); break
+        try: socket.create_connection((ip, 80), 0.2).close(); return
         except OSError: time.sleep(0.05)
-lan_ram("127.0.0.2", "lan-a"); lan_ram("127.0.0.3", "lan-b")
-import threading
+for a in ("127.0.0.2/8", "127.0.0.3/8"): subprocess.run(["ip", "addr", "add", a, "dev", "lo"], capture_output=True)
+# this node's own .1 on its LAN (a veth pair: its FrogNet address, as frognet_tuples.my_ip finds it -- not lo)
+if subprocess.run(["ip", "-o", "addr", "show", "fnt0"], capture_output=True, text=True).stdout.find("10.99.99.1/") < 0:
+    subprocess.run(["ip", "link", "add", "fnt0", "type", "veth", "peer", "name", "fnt0p"], capture_output=True)
+    subprocess.run(["ip", "addr", "add", "10.99.99.1/24", "dev", "fnt0"], capture_output=True)
+    for d in ("fnt0p", "fnt0"): subprocess.run(["ip", "link", "set", d, "up"], capture_output=True)
+os.makedirs("/run/frognet/held", exist_ok=True); os.chmod("/run/frognet/held", 0o1777)
+serve_www("127.0.0.2", ["api.php", "config.php"], db="rttest_a"); serve_www("127.0.0.3", ["api.php", "config.php"], db="rttest_b")
+sys.path.insert(0, CORE)
+import frognet_tuples  # noqa: E402
+ME = frognet_tuples.my_ip(); serve_www(ME, ["held_fire.php"])
 JOINED = {"nodes": ["A", "B"], "ram": "127.0.0.2"}
 view = {"A": dict(JOINED), "B": dict(JOINED)}
-elock = threading.Lock()
-def elect(post, why=""):
-    with elock:
-        hp = T + "/%s/etc/hosts" % post; v = view[post]
-        base = ["127.0.0.1 localhost"] + ["127.0.%d.1 FrogNetHost.post-%s" % (1 if n == "A" else 2, n) for n in v["nodes"]] + \
-               ["%s databasehost_control.frognet" % v["ram"], "%s databasehost.frognet" % v["ram"]]
-        try: was = [l.rstrip("\n") for l in open(hp)]
-        except OSError: was = []
-        if app_hosts.ip_of(was, "databasehost_control.frognet") not in ("", v["ram"]):    # the merge writes the configuration again
-            app_hosts.APPS = T + "/%s/apps" % post; app_hosts.write_configs_again(v["ram"])
-        etc = app_hosts.commit(base, hosts_path=hp, logger=lambda m: open(T + "/%s/elect.log" % post, "a").write("%s: %s\n" % (why, m)))
-        if etc != was:
-            open(hp + ".tmp", "w").write("\n".join(etc) + "\n"); os.replace(hp + ".tmp", hp)
+def write_block(post):
+    v = view[post]; bp = T + "/%s/block" % post
+    base = ["127.0.0.1 localhost"] + ["127.0.%d.1 FrogNetHost.post-%s" % (1 if n == "A" else 2, n) for n in v["nodes"]] + \
+           ["%s databasehost_control.frognet" % v["ram"], "%s databasehost.frognet" % v["ram"]]
+    open(bp + ".tmp", "w").write("\n".join(base) + "\n"); os.replace(bp + ".tmp", bp)
 def elector(post):
-    def watch(ix):
-        last, at = -1, None
-        while True:
-            ip = view[post]["ram"]
-            if ip != at: last, at = -1, ip
-            try:
-                cs = fdfram.Ram("%s:%d" % (ip, LPORT)).read("fdf-app", "", "", after=last, wait_s=5)
-                if cs: last = max(int(c["id"]) for c in cs); elect(post, "app tuples")
-            except fdfram.RamError: time.sleep(0.2)
-    elect(post, "start"); threading.Thread(target=watch, args=(0,), daemon=True).start()
+    R = T + "/" + post; write_block(post)
+    procs.append(subprocess.Popen([sys.executable, "-u", os.path.join(FDF, "..", "rinab", "tools", "app_elector.py"), R + "/etc/hosts", R + "/block", R + "/apps"],
+                                  env=dict(os.environ, FROGNET_HOSTS=R + "/block", FDF_HOSTS=R + "/etc/hosts"),
+                                  stdout=open(R + "/elect.log", "a"), stderr=subprocess.STDOUT))
+    for _ in range(100):
+        if os.path.exists(R + "/etc/hosts"): return
+        time.sleep(0.05)
 def move(post, nodes, ram):
-    view[post] = {"nodes": nodes, "ram": ram}; elect(post, "view")
+    view[post] = {"nodes": nodes, "ram": ram}; write_block(post)
 VL = os.path.join(FDF, "..", "..", "..", "..", "..", "var", "www", "html", "vendor", "leaflet")   # the node serves it from here (00845fb)
 if not os.path.isdir(VL): sys.exit("no Leaflet at %s: the map page needs it" % VL)
 posts = {}
@@ -139,7 +152,8 @@ for i, name in enumerate(("A", "B"), start=1):
     R = T + "/" + name; os.makedirs(R + "/www/dc"); os.makedirs(R + "/etc"); elector(name)
     json.dump({"name": "post-" + name, "guid": "guid-" + name, "role": "node", "subnet": "127.0.%d.0/24" % i,
                "addrs": [{"ip": "127.0.%d.1" % i, "kind": "own"}] + [{"ip": ip, "kind": "given", "value": h, "mac": "02:00:00:00:00:%02x" % k}
-                                                                    for k, (ip, h) in enumerate(LEASES[name].items())],
+                                                                    for k, (ip, h) in enumerate(LEASES[name].items())]
+                        + [{"ip": ME, "kind": "own"}],      # [WRITER_GONE_V1] the node's FrogNet .1: what the door writes and holds as
                "capability": {"mem_total_kb": 8_000_000 if name == "A" else 4_000_000, "cores": 4}}, open(R + "/facts.json", "w"))
     if name == "A":       # the app's first install, at A; B installs it from its one configuration tuple
         subprocess.run([os.path.join(FDF, "bin", "fdf-app"), "config", "rangertrak", "general,hospitals",
@@ -156,7 +170,7 @@ for i, name in enumerate(("A", "B"), start=1):
     svc = ["rt-mission", "rt-log", "rt-handled", "rt-roster", "rt-pos", "rt-who", "rt-msg", "rt-dm", "rt-team", "rt-notes"]
     json.dump({"apps": [{"id": "radiolog", "title": "Radio log", "version": "1", "page": "../rt/log.html", "services": svc,
                          "app": "rangertrak", "rams": {x: ("team" if x == "rt-team" else "general") for x in svc}}]}, open(R + "/www/dc/apps.json", "w"))
-    open(R + "/fdf.env", "w").write("export FDF_BIN=%s/bin FDF_VAR=%s RINA_RAM=%s FDF_HOSTS=%s FDF_LAN_RAM_PORT=%d\n" % (T, R, via[name].addr, R + "/etc/hosts", LPORT))
+    open(R + "/fdf.env", "w").write("export FDF_BIN=%s/bin FDF_VAR=%s RINA_RAM=%s FDF_HOSTS=%s FROGNET_CORE=%s\n" % (T, R, via[name].addr, R + "/etc/hosts", CORE))
     p = free(); posts[name] = "127.0.0.1:%d" % p
     # PHP_CLI_SERVER_WORKERS: the built-in server is one process otherwise, and a held read would hold every page
     procs.append(subprocess.Popen(["php", "-S", "127.0.0.1:%d" % p, "-t", R + "/www"], env=dict(os.environ, PHP_CLI_SERVER_WORKERS="16"),

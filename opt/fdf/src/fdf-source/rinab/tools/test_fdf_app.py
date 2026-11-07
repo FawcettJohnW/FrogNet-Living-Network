@@ -87,8 +87,13 @@ def serve_www(ip, files, db=None):
     for _ in range(100):
         try: socket.create_connection((ip, 80), 0.2).close(); return
         except OSError: time.sleep(0.05)
-for ip in ("127.0.0.2", "127.0.0.3", "10.99.99.1"):
-    subprocess.run(["ip", "addr", "add", ip + ("/8" if ip.startswith("127.") else "/32"), "dev", "lo"], capture_output=True)
+for ip in ("127.0.0.2", "127.0.0.3"):
+    subprocess.run(["ip", "addr", "add", ip + "/8", "dev", "lo"], capture_output=True)
+# this node's own .1 on its LAN (a veth pair: its FrogNet address, as frognet_tuples.my_ip finds it -- not lo)
+if subprocess.run(["ip", "-o", "addr", "show", "fnt0"], capture_output=True, text=True).stdout.find("10.99.99.1/") < 0:
+    subprocess.run(["ip", "link", "add", "fnt0", "type", "veth", "peer", "name", "fnt0p"], capture_output=True)
+    subprocess.run(["ip", "addr", "add", "10.99.99.1/24", "dev", "fnt0"], capture_output=True)
+    for d in ("fnt0p", "fnt0"): subprocess.run(["ip", "link", "set", d, "up"], capture_output=True)
 serve_www("127.0.0.2", ["api.php", "config.php"], db="fatest_a")       # the role hosts
 serve_www("127.0.0.3", ["api.php", "config.php"], db="fatest_b")
 import frognet_tuples  # noqa: E402

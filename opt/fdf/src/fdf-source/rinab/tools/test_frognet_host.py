@@ -5,7 +5,7 @@
 ################################################################
 """test_frognet_host.py -- [FROGNETHOST_ADMIN_V1][ROLES_ON_API_V1] the FrogNetHost Admin against two real role hosts:
 two api.php (this tree's var/www/html, each on its own MariaDB database) on port 80 of two loopback addresses, as
-databasehost-control and the SystemRam, named by a hosts file the test rewrites. The node's own .1 (10.99.99.1 on lo,
+databasehost-control and the SystemRam, named by a hosts file the test rewrites. The node's own .1 (10.99.99.1 on its veth fnt0,
 frognet_tuples.my_ip) serves held_fire.php on port 80, where the role hosts fire the held reads. The node's service (frognet-host
 serve) runs with its steps stood in for (FROGNET_HOST_CMD_*: setup rewrites gateways.conf as setup_lillypad does, dump
 and backup write their file, clear and reboot record that they ran); the console asks and waits for the answer.
@@ -71,7 +71,11 @@ subprocess.run(["ip", "addr", "add", "127.0.0.2/8", "dev", "lo"], capture_output
 subprocess.run(["ip", "addr", "add", "127.0.0.3/8", "dev", "lo"], capture_output=True)
 serve_www("127.0.0.2", ["api.php", "config.php"], db="fhtest_a")       # a role host: api.php on port 80
 serve_www("127.0.0.3", ["api.php", "config.php"], db="fhtest_b")
-subprocess.run(["ip", "addr", "add", "10.99.99.1/32", "dev", "lo"], capture_output=True)   # this node's own .1
+# this node's own .1 on its LAN (a veth pair: its FrogNet address, as frognet_tuples.my_ip finds it -- not lo)
+if subprocess.run(["ip", "-o", "addr", "show", "fnt0"], capture_output=True, text=True).stdout.find("10.99.99.1/") < 0:
+    subprocess.run(["ip", "link", "add", "fnt0", "type", "veth", "peer", "name", "fnt0p"], capture_output=True)
+    subprocess.run(["ip", "addr", "add", "10.99.99.1/24", "dev", "fnt0"], capture_output=True)
+    for d in ("fnt0p", "fnt0"): subprocess.run(["ip", "link", "set", d, "up"], capture_output=True)
 sys.path.insert(0, os.environ["FROGNET_CORE"])
 import frognet_tuples  # noqa: E402
 ME = frognet_tuples.my_ip()                                           # the address holds fire to and tuples are written as

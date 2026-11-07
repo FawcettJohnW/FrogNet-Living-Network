@@ -48,7 +48,7 @@ from typing import Any, Dict, List, Optional
 
 BUILD = "frognet_held 20261107-held1 [HELD_READ_IN_API_V1]"
 HELD_DIR = os.environ.get("FROGNET_HELD_DIR", "/run/frognet/held")
-HOSTS = os.environ.get("FROGNET_HOSTS", "/etc/hosts")
+HOSTS = os.environ.get("FROGNET_HOSTS") or os.environ.get("FDF_HOSTS") or "/etc/hosts"   # the fdf tools name it FDF_HOSTS
 
 
 class HoldError(Exception):
@@ -156,7 +156,10 @@ class Holder:
             q += "&SensorName=" + urllib.parse.quote(name)
         if name_like is not None:
             q += "&SensorName__like=" + urllib.parse.quote(name_like)
-        q += "&holder=%s&hid=%s" % (_source_ip_toward(dbhost), self.hid)
+        me = _source_ip_toward(dbhost)
+        if me == "0.0.0.0":                     # no FrogNet address here: a fire would have nowhere to go; said, not guessed
+            raise HoldError("hold %s at %s: this machine has no FrogNet 10/8 address (frognet_tuples.my_ip): nowhere to fire" % (service, dbhost))
+        q += "&holder=%s&hid=%s" % (me, self.hid)
         try:
             with urllib.request.urlopen(q, timeout=timeout) as r:
                 d = json.loads(r.read().decode())
