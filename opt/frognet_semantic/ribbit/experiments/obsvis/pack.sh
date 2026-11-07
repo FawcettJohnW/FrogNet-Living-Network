@@ -14,6 +14,6 @@ mkdir -p $T/$N/ribbit/cpp $T/$N/ribbit/defaults $T/$N/ribbit/examples $T/$N/ribb
 cp -r $R/cpp/include $R/cpp/src $R/cpp/ensure_build_deps.sh $T/$N/ribbit/cpp/
 rsync -a --exclude build $R/defaults/api $T/$N/ribbit/defaults/
 rsync -a --exclude build $R/examples/chat $T/$N/ribbit/examples/
-rsync -a --exclude results --exclude results-smoke --exclude build --exclude __pycache__ --exclude '*.tgz' ./ $T/$N/ribbit/experiments/obsvis/
+rsync -a --exclude 'results*' --exclude build --exclude __pycache__ --exclude '*.tgz' ./ $T/$N/ribbit/experiments/obsvis/
 tar czf $O/$N.tgz -C $T $N && rm -rf $T
 echo "$O/$N.tgz"

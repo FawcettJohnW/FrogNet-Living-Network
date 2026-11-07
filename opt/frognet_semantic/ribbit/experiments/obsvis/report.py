@@ -209,11 +209,12 @@ NOTES = [
     "**O1 for B, C, D and D-all is 0.57 in every case.** p1's link carries only p1's own connection to the server. So "
     "the only usable information is the direction of the pair: p1 is the producer, or p1 is the reader. 0.57 comes from "
     "that direction alone. It says nothing about which other participant is involved. Precision at top-k is also 0.57.",
-    "**B's 95th-percentile latency (about 40 ms) comes from Nagle's algorithm in the MQTT clients.** 6.5% of B's "
-    "deliveries take 39-43 ms. That is the minimum delay of Linux's delayed acknowledgement. All other deliveries take "
-    "less than 2 ms. Test on chat seed 7, 1 minute: with Nagle off in Mosquitto only, the 95th percentile is 41.8 ms. "
-    "With Nagle off in Mosquitto and in the clients, it is 1.4 ms. The results report B with default settings. The "
-    "setting `OBSVIS_B_NODELAY=1` repeats the comparison.",
+    "**B's 95th-percentile latency (about 40 ms) comes from Nagle's algorithm.** About 6.5% of B's deliveries take "
+    "39-43 ms. That is the minimum delay of Linux's delayed acknowledgement. All other deliveries take less than 2 ms. "
+    "B tuned (Bt) is B with Nagle off in Mosquitto (`set_tcp_nodelay true`) and in the clients (`TCP_NODELAY`), and "
+    "nothing else changed. Its 95th percentile is about 1.5 ms (the cost tables). Its wire bytes are the same as B's. "
+    "Its edges are found as B's are: the same verdict for every observer, in both workloads. So Nagle changes B's "
+    "latency, not what B reveals. B with default settings stays the baseline of the decision rule.",
     "**Not tested: a rendezvous or relay broker.** In this test, each participant's tunnel goes directly to the server. "
     "FrogNet can also send tunnels through a relay broker. Such a broker would see the end points, timing and sizes of "
     "the tunnels it relays. It would not see the keys. This observer is not measured here.",
@@ -302,9 +303,10 @@ def main():
     w("Every step of a run was coordinated through a separate control region, a chat-ram of its own in ctl, left out of "
       "every capture. Each namespace's agent advertised itself and took every instruction on one held read. Every result "
       "came back as tuples: ground truth, the operation logs and the capture headers.\n")
-    w("The five conditions used the same machines and the same seeded schedule:\n")
+    w("The six conditions used the same machines and the same seeded schedule:\n")
     w("- **A:** direct TLS 1.3, producer to each follower.")
     w("- **B:** Mosquitto %s, topic `chat/<recipient>`, TLS 1.3." % vers.get("mosquitto", "").replace("mosquitto version ", ""))
+    w("- **B tuned (Bt):** B with Nagle off in Mosquitto and in the clients. Baseline runs only.")
     w("- **C:** chat-ram (%s), the chat example's own schema and client, `ChatServer.<recipient>.<producer>`." % vers.get("chat-ram"))
     w("- **D:** chat-ram on ribbit::Space (the publish/subscribe library the MQTT and Redis conversions use), own truth: "
       "each producer writes its own cells, a ring `Chat.<producer>.<producer>.<n mod 64>` for chat and one cell "
