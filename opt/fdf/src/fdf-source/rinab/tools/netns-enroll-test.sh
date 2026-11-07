@@ -31,7 +31,7 @@
 #  12  members join the new team by its own QR (fdfenroll1 <lead's phone> rangertrak *) and its team password, each
 #      giving its own call sign: a wrong team password is refused; dan is admitted as rangertrak-red_cross-dan
 #   8  the region does not answer: the door says so (where it asked, how long) before the phone gives up
-# Needs root, ip, wg, wireguard-go, python3, php, curl, java, the built fdf-member-kt, fdf-tun and frognet-ram-java.
+# Needs root, ip, wg, wireguard-go, python3, php (mysqli, curl), MariaDB (root by its socket), curl, java, the built fdf-member-kt, fdf-tun and frognet-ram-java.
 #   usage: tools/netns-enroll-test.sh [RINAB_DIR]
 set -u
 H=$(cd "$(dirname "$0")/.." && pwd); [ -n "${1:-}" ] && H=$1
@@ -54,7 +54,7 @@ WGGO=$(command -v wireguard-go || ls $H/build/wg/wireguard-go-$(uname -m) 2>/dev
 [ -x "$WGGO" ] || { echo "FAIL  setup: wireguard-go not found"; exit 1; }
 cp $B/fdf-events $B/fdf-client $B/fdf-where $B/fdf-ram $B/ram $T/bin/
 cp $PK/bin/fdf-hub $PK/bin/fdf-identity $PK/bin/fdf-invite $PK/bin/fdf-app $T/bin/; cp "$WGGO" $T/bin/wireguard-go
-export PATH=$T/bin:$PATH FDF_PY=$FDFPY
+export PATH=$T/bin:$PATH FDF_PY=$FDFPY FROGNET_CORE=$(cd $H/../../../../frognet_semantic/core && pwd)
 ip link add br-enr type bridge && ip link set br-enr up || { echo "FAIL  setup: br-enr exists from an earlier run"; exit 1; }
 i=1; for n in $NODES; do ip netns add $n; ip netns exec $n ip link set lo up
   ip link add v-$n type veth peer name v-$n-b; ip link set v-$n netns $n; ip link set v-$n-b master br-enr up
@@ -77,16 +77,24 @@ for i in $(seq 100); do grep -q "start (adopt)" $T/$n/hub.log && break; sleep 0.
 svc $T/A/identity.log ip netns exec A sh -c "mount --bind $T/A/run-wg /run/wireguard && exec env RINA_RAM=$RAM FDF_HUB_ENV=$T/A/hub.env FDF_ADMITTED=$T/A/admitted FDF_SITE_KEYS=$T/A FDF_PY=$FDFPY FDF_BIN=$T/bin python3 -u $T/bin/fdf-identity --serve"
 for i in $(seq 100); do grep -q "answering identity asks" $T/A/identity.log && break; sleep 0.1; done
 # ---- A: the app, as a node has it (its own fdf-client; fdf-app config, then serve)
-# [APP_SERVICES_V1] A is the one FrogNetHost: its RAM host (198.18.0.1:8841) is databasehost-control and the SystemRam,
-# and its election writes the AppHost lines (tools/app_elector.py: the real core/app_hosts.py, as the daemon runs it)
-NS A env RINA_REGION_FILE=$T/A/lan.perm RINA_NET_CONFIG=$T/A/none $T/bin/fdf-ram --listen 198.18.0.1:8841 --api $API >> $T/A/lan.log 2>&1 &
-echo $! >> $T/svc.pids
-for i in $(seq 100); do NS A curl -s -m 1 -X POST -d '{"op":"version"}' "http://198.18.0.1:8841$API?op=rina" > /dev/null && break; sleep 0.05; done
-printf '127.0.0.1 localhost\n198.18.0.1 FrogNetHost.Seattle7\n198.18.0.1 databasehost_control.frognet\n198.18.0.1 databasehost.frognet\n' > $T/A/block
-( NS A env FDF_LAN_RAM_PORT=8841 FDF_PY=$FDFPY python3 -u $H/tools/app_elector.py $T/A/hosts $T/A/block $T/A/apps >> $T/A/elector.log 2>&1 ) & echo $! >> $T/svc.pids
+# [APP_SERVICES_V1][ROLES_ON_API_V1] A is the one FrogNetHost, its own .1 10.170.170.1 (its LAN): databasehost-control
+# and the SystemRam are its api.php on port 80 (this tree's api.php and held_fire.php under php -S, its own MariaDB
+# database by the socket), and its election writes the AppHost lines (tools/app_elector.py: the real core/app_hosts.py,
+# as the daemon runs it)
+NS A ip link add lan0 type veth peer name lan0p; NS A ip addr add 10.170.170.1/24 dev lan0; NS A ip link set lan0p up; NS A ip link set lan0 up
+mkdir -p -m 1777 /run/frognet/held
+WWW=$H/../../../../../var/www/html; DBPW=entest$$; DB=entest_a; mkdir -p $T/A/www; cp $WWW/api.php $WWW/held_fire.php $T/A/www/
+sed "s/__FROGNET_DB_PASS__/$DBPW/; s/define('DB_NAME', 'FrogNet');/define('DB_NAME', '$DB');/; s/define('DB_USER', 'FrogUser');/define('DB_USER', 'EnTestUser');/; s/define('DB_HOST', '127.0.0.1');/define('DB_HOST', 'localhost');/" $WWW/config.php > $T/A/www/config.php
+mysql -e "DROP DATABASE IF EXISTS $DB; CREATE DATABASE $DB; CREATE USER IF NOT EXISTS 'EnTestUser'@'localhost' IDENTIFIED BY '$DBPW'; ALTER USER 'EnTestUser'@'localhost' IDENTIFIED BY '$DBPW'; GRANT ALL ON $DB.* TO 'EnTestUser'@'localhost';" \
+  || { echo "FAIL  setup: MariaDB (root by its socket)"; exit 1; }
+for f in Create_Database.sql schema_fixups.sql; do sed "s/\`FrogNet\`/\`$DB\`/g; s/^USE FrogNet;/USE $DB;/" $WWW/$f | mysql > /dev/null; done
+svc $T/A/php.log ip netns exec A env PHP_CLI_SERVER_WORKERS=8 php -S 10.170.170.1:80 -t $T/A/www
+for i in $(seq 100); do NS A curl -s -m 1 "http://10.170.170.1/api.php?entity=sensors&action=values&SensorType=none" | grep -q rows && break; sleep 0.05; done
+printf '127.0.0.1 localhost\n10.170.170.1 FrogNetHost.Seattle7\n10.170.170.1 databasehost_control.frognet\n10.170.170.1 databasehost.frognet\n' > $T/A/block
+( NS A env FDF_PY=$FDFPY FDF_HOSTS=$T/A/hosts python3 -u $H/tools/app_elector.py $T/A/hosts $T/A/block $T/A/apps >> $T/A/elector.log 2>&1 ) & echo $! >> $T/svc.pids
 for i in $(seq 100); do [ -s $T/A/hosts ] && break; sleep 0.05; done
-AE() { NS A env RINA_RAM=$RAM FDF_HOSTS=$T/A/hosts FDF_LAN_RAM_PORT=8841 FDF_FACTS=$T/A/node-facts.json FDF_VAR=$T/A FDF_APPS=$T/A/apps FDF_BIN=$T/bin FDF_PY=$FDFPY FDF_NAME=Seattle7 "$@"; }
-printf '{"name":"Seattle7","guid":"guid-a","role":"node","subnet":"10.170.170.0/24","addrs":[{"ip":"198.18.0.1","kind":"own"}],"capability":{"mem_total_kb":2000000,"cores":4}}\n' > $T/A/node-facts.json
+AE() { NS A env RINA_RAM=$RAM FDF_HOSTS=$T/A/hosts FDF_FACTS=$T/A/node-facts.json FDF_VAR=$T/A FDF_APPS=$T/A/apps FDF_BIN=$T/bin FDF_PY=$FDFPY FDF_NAME=Seattle7 "$@"; }
+printf '{"name":"Seattle7","guid":"guid-a","role":"node","subnet":"10.170.170.0/24","addrs":[{"ip":"10.170.170.1","kind":"own"},{"ip":"198.18.0.1","kind":"own"}],"capability":{"mem_total_kb":2000000,"cores":4}}\n' > $T/A/node-facts.json
 ( AE $T/bin/fdf-client >> $T/A/client.log 2>&1 ) & echo $! >> $T/svc.pids
 sleep 1.5
 AE python3 $T/bin/fdf-app config rangertrak general,echo --role eoc --role echo:default --user kim:kim-2026=echo+lead --user EOCAdmin:eoc-pw=eoc \
@@ -94,7 +102,7 @@ AE python3 $T/bin/fdf-app config rangertrak general,echo --role eoc --role echo:
 ( AE python3 $T/bin/fdf-app serve >> $T/A/app.log 2>&1 ) & echo $! >> $T/svc.pids
 # ---- A: the door
 mkdir -p $T/door/www/dc; cp $PK/www/dc/ram.php $T/door/www/dc/; printf '{"apps": []}\n' > $T/door/www/dc/apps.json
-printf 'export RINA_RAM=%s FDF_HOSTS=%s FDF_LAN_RAM_PORT=8841 FDF_BIN=%s FDF_VAR=%s FDF_PY=%s\n' $RAM $T/A/hosts $T/bin $T/A $FDFPY > $T/door/fdf.env
+printf 'export RINA_RAM=%s FDF_HOSTS=%s FDF_FACTS=%s FDF_BIN=%s FDF_VAR=%s FDF_PY=%s\n' $RAM $T/A/hosts $T/A/node-facts.json $T/bin $T/A $FDFPY > $T/door/fdf.env
 NS A env PHP_CLI_SERVER_WORKERS=8 php -S 198.18.0.1:8088 -t $T/door/www >> $T/door.log 2>&1 & echo $! >> $T/svc.pids
 DOOR=198.18.0.1:8088
 for i in $(seq 100); do NS A curl -s -m 2 "http://$DOOR/dc/ram.php?op=roles&app=rangertrak" | grep -q '"ok":true' && break; sleep 0.2; done
@@ -145,10 +153,10 @@ check $(echo "$R7" | grep -q "does not lead a team" && [ ! -f $T/A/admitted/rang
 P0=$(NS q1 curl -s -m 10 -X POST -d '{"user":"EOCAdmin","password":"eoc-pw","at":"databasehost"}' "http://$DOOR/dc/ram.php?op=place&app=rangertrak")
 P1=$(NS q1 curl -s -m 10 -X POST -d '{"user":"kim","password":"kim-2026","at":"moon"}' "http://$DOOR/dc/ram.php?op=place&app=rangertrak")
 P2=$(NS q1 curl -s -m 10 -X POST -d '{"user":"kim","password":"kim-2026","at":"here","guid":"guid-a"}' "http://$DOOR/dc/ram.php?op=place&app=rangertrak")
-for i in $(seq 60); do grep -q "Team echo placed here on guid-a by its lead kim (adopted)" $T/A/app.log && grep -q "^198.18.0.1 echoHost.rangertrak" $T/A/hosts && break; sleep 0.25; done
+for i in $(seq 60); do grep -q "Team echo placed here on guid-a by its lead kim (adopted)" $T/A/app.log && grep -q "^10.170.170.1 echoHost.rangertrak" $T/A/hosts && break; sleep 0.25; done
 check $(echo "$P0" | grep -q "does not lead a group" && echo "$P1" | grep -q '"ok":false' && echo "$P2" | grep -q '"ok":true' \
         && grep -q "Team echo placed here on guid-a by its lead kim (adopted)" $T/A/app.log && grep -q '"places": {"echo"' $T/A/apps/rangertrak.json \
-        && grep -q "^198.18.0.1 echoHost.rangertrak" $T/A/hosts && echo 0 || echo 1) \
+        && grep -q "^10.170.170.1 echoHost.rangertrak" $T/A/hosts && echo 0 || echo 1) \
   "9 kim placed echo here on guid-a: $(echo "$P2" | cut -c1-110); adopted: $(grep -o 'Team echo placed.*' $T/A/app.log | head -1); $(grep echoHost $T/A/hosts); EOCAdmin: $(echo "$P0" | grep -o 'does not lead a group'); at moon: $(echo "$P1" | grep -o '"why":"[^"]*' | cut -c1-60)"
 # 10 [CHILDREN_JOIN_V1] a team the EOC did not have joins it, named by its joiner
 L_eoc="fdfenroll1 http://$DOOR/dc/ram.php rangertrak *"

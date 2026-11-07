@@ -144,11 +144,11 @@ function role_rows($host, $svc, $var = '', $inst = '') {
 }
 function role_read($host, $svc, $var = '', $inst = '') { return ['ok' => true, 'rows' => role_cells(role_rows($host, $svc, $var, $inst))]; }
 function source_ip_toward($host) {                            // [WRITER_GONE_V1] this node's own FrogNet address (its .1):
-    global $fdf_var;                                           // the writer address its tuples are removed by when it leaves
-    $f = json_decode((string)@file_get_contents($fdf_var . '/facts.json'), true);
+    global $fdf_facts;                                         // the writer address its tuples are removed by when it leaves
+    $f = json_decode((string)@file_get_contents($fdf_facts), true);
     foreach ((is_array($f) ? ($f['addrs'] ?? []) : []) as $a)
         if (($a['kind'] ?? '') === 'own' && preg_match('/^10\.\d+\.\d+\.1$/', (string)($a['ip'] ?? ''))) return $a['ip'];
-    fail(503, "this node's facts name no own .1 address ($fdf_var/facts.json): fdf-facts has not run here");
+    fail(503, "this node's facts name no own .1 address ($fdf_facts): fdf-facts has not run here");
 }
 function role_write($host, $svc, $var, $inst, $bag) {
     $j = role_call($host, 'POST', ['entity' => 'sensor_data', 'action' => 'upsert_by_name'],
@@ -180,9 +180,10 @@ function role_hold_wait($host, $svc, $var, $inst, $seen, $wait) {
 }
 function svc_host($app, $ram) { return $ram === 'general' ? $app . 'Host.frognet' : $ram . 'Host.' . $app; }   // a Team's scoped to its app
 $fdf_var = trim((string)shell_exec('. ' . escapeshellarg(dirname(__DIR__, 2) . '/fdf.env') . ' && printf %s "${FDF_VAR:-/opt/fdf/var}"'));
+$fdf_facts = trim((string)shell_exec('. ' . escapeshellarg(dirname(__DIR__, 2) . '/fdf.env') . ' && printf %s "${FDF_FACTS:-${FDF_VAR:-/opt/fdf/var}/facts.json}"'));   // fdf-facts' file, as the Python tools name it
 function station_of($ip) {                                      // [STATION_IS_HOSTNAME_V1] the lease this node gave $ip
-    global $fdf_var;
-    $f = json_decode((string)@file_get_contents($fdf_var . '/facts.json'), true);
+    global $fdf_facts;
+    $f = json_decode((string)@file_get_contents($fdf_facts), true);
     foreach ((is_array($f) ? ($f['addrs'] ?? []) : []) as $a)
         if (($a['kind'] ?? '') === 'given' && ($a['ip'] ?? '') === $ip && ($a['value'] ?? '') !== '')
             return preg_match('/^([0-9a-f]{2}:){5}[0-9a-f]{2}$/i', $a['value']) ? '' : $a['value'];   // a lease with no name: fdf-facts wrote the MAC
