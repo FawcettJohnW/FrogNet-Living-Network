@@ -7,7 +7,7 @@
 //   announce  name, ips, cap, facts                      EEXIST -> said with the holder, then WAIT for a `p` and try
 //                                                        again ([JOIN_REFUSED_WAITS_V1]); any other refusal ends the run
 //   version   logged: "build X; region at H is build Y"
-//   maps      facts.maps signed with the site key, own:true, asserted against map_list every assertSec
+//   maps      facts.maps signed with the site key, own:true, registered at the session's start and on every change of the facts
 //             ([MAP_FROM_FACTS_V1], [MAPS_ASSERTED_V1]); a refusal is said with what it means and the session is kept
 //   hold      a held wait on agent:<ns>; returns only when the session ends ([SESSION_IS_LIVENESS_V1])
 //
@@ -20,7 +20,7 @@ import javax.crypto.Mac
 import javax.crypto.spec.SecretKeySpec
 
 const val API = "/FawcettInnovations.RINA.ram_interface.php"
-const val MEMBER_BUILD = "fdf-kt-2026-10-11-a15"            // [FDF_VERSION_V1] on every log line that says what runs
+const val MEMBER_BUILD = "fdf-kt-2026-11-04-a26"            // [FDF_VERSION_V1] on every log line that says what runs
 
 class MemberConfig(
     val ramHost: String, val ramPort: Int,
@@ -42,8 +42,6 @@ class MemberConfig(
 class Member(private val c: MemberConfig) {
     val ns = "w:" + (if (c.guid.isNotEmpty()) c.guid else c.name)
     @Volatile private var s: Session? = null
-    private val have = HashMap<String, String>()               // eid -> rlocs this session registered
-    private val mapsLock = Any()
     @Volatile var joinedAtMs = 0L; private set
     /** [LEAF_ADDR_FROM_THE_REGION_V1] the /32 the region gave this leaf with its announcement ("" = none: on a LAN, or not a leaf). */
     @Volatile var regionAddr = ""; private set
@@ -63,6 +61,52 @@ class Member(private val c: MemberConfig) {
             (if (facts.isEmpty()) "" else ",\"facts\":" + Json.quote(facts)) + "}"
     }
 
+    /** [MEMBER_IS_A_TUPLE_V1] this member's own truth, (pond, member, <ns>), on this session with own:true: there while the
+     *  member is, gone with the session. Written after its mappings, so a reader of the members finds them there. */
+    private fun writeMember() {
+        val facts = c.facts()
+        var f = if (facts.isEmpty()) "null" else try { Json.parse(facts); facts } catch (_: Exception) { "null" }
+        // [LEAF_BY_INVITE_V1] a leaf's address is its edge, said in its own facts (the readers place it by facts.addr)
+        if (f != "null" && regionAddr.isNotEmpty() && Json.parse(f)["addr"].type == Json.Type.NULL) {
+            f = "{\"addr\":" + Json.quote(regionAddr) + (if (f.substring(1).trimStart().startsWith("}")) "" else ",") + f.substring(1)
+        }
+        val bag = "{\"ns\":" + Json.quote(ns) + ",\"name\":" + Json.quote(c.name) +
+            ",\"ips\":[" + c.ips().joinToString(",") { Json.quote(it) } + "],\"cap\":" + Json.quote(c.capability()) +
+            ",\"facts\":" + f + ",\"maps\":" + signedMaps() + ",\"build\":" + Json.quote(MEMBER_BUILD) + "}"
+        // [WRITTEN_WHEN_IT_CHANGES_V1] the same truth on the same session is not written again
+        if (s === lastSession && bag == lastBag) return
+        write("pond", "member", ns, bag, own = true); lastSession = s; lastBag = bag
+    }
+    @Volatile private var lastSession: Session? = null
+    @Volatile private var lastBag = ""
+    private val signedAt = java.util.concurrent.ConcurrentHashMap<String, Pair<String, String>>()   // eid -> (rloc, ts)
+
+    /** [ONE_OWNER_V1] this member's mappings, its own: signed with the site key (eid|rloc|ttl|ts) and written in its own
+     *  (pond, member) cell; the region verifies them when they are read and writes nothing for them */
+    private fun signedMaps(): String {
+        val f = c.facts(); if (f.isEmpty()) return "[]"
+        val maps = try { Json.parse(f)["maps"].a } catch (_: ProtocolError) { return "[]" }
+        if (maps.isEmpty()) return "[]"
+        if (c.site.isEmpty() || c.siteKey.isEmpty()) { c.log("facts.maps present but site / site key not set: no mapping said"); return "[]" }
+        val now = System.currentTimeMillis(); val nowTs = "%d.%09d".format(now / 1000, (now % 1000) * 1_000_000); val ttl = "86400"
+        return maps.filter { it["eid"].str.isNotEmpty() }.joinToString(",", "[", "]") { m ->
+            val eid = m["eid"].str; val rloc = m["rlocs"].str
+            // a mapping keeps its signature while it is the same (re-signed at half its ttl): the cell is the same text
+            val was = signedAt[eid]
+            val ts = if (was != null && was.first == rloc && now / 1000.0 - was.second.toDouble() < 43200) was.second
+                     else nowTs.also { signedAt[eid] = rloc to it }
+            "{\"eid\":" + Json.quote(eid) + ",\"rloc\":" + Json.quote(rloc) + ",\"site\":" + Json.quote(c.site) + ",\"ttl\":\"$ttl\",\"ts\":\"$ts\",\"auth\":" +
+                Json.quote(hmacHex(c.siteKey, "$eid|$rloc|$ttl|$ts")) + "}"
+        }
+    }
+
+    /** the largest row id in a read's answer, or `at` */
+    private fun maxId(j: Json, at: Long = 0L): Long {
+        var m = at
+        for (cell in (if (j["rows"].type == Json.Type.ARR) j["rows"] else j["cells"]).a) cell["id"].num?.toLong()?.let { if (it > m) m = it }
+        return m
+    }
+
     private fun maxEvent(t: String, at: Long): Long {          // "E\n" then "<n>\t<event>\n" per event
         var m = at; var i = 2
         while (i < t.length) {
@@ -77,31 +121,31 @@ class Member(private val c: MemberConfig) {
     /** One membership, start to end. Returns why the session ended (the owner makes a new one: a new member). */
     fun runOnce(): String {
         val sess = try { Session(c.ramHost, c.ramPort, c.tuner, c.log) } catch (e: Exception) { return "connect: ${e.message}" }
-        s = sess; synchronized(mapsLock) { have.clear() }
+        s = sess
         try {
-            val after = rina("{\"op\":\"node\",\"ns\":" + Json.quote(ns) + ",\"devs\":\"\"}")["after"].num?.toLong() ?: 0L
+            rina("{\"op\":\"node\",\"ns\":" + Json.quote(ns) + ",\"devs\":\"\"}")                                             // alive: this session
             // [WATCH_BEFORE_READ_V1] the watch goes in BEFORE the first read of the region (prepare, onJoined): a change made
             // between a read and a later watch would never be delivered (seen: the hub's `peers` re-announcement fell in that
             // gap and the leaf's tunnel waited for an event that had already happened; the r17 daemon fix, here)
-            val proc = Json.quote("agent:$ns")
-            if (c.onRegionChange != null) rinaText("rina", "{\"op\":\"watch_participants\",\"proc\":$proc}", 15.0)
+            // [MEMBER_IS_A_TUPLE_V1] the region changing = the members' family changing: its held read starts from where
+            // this read ends, BEFORE the first look at the region (prepare)
+            val membersAt = maxId(Json.parse(sess.call("GET", "$API?op=read&service=pond&variable=member", "", 15.0).body))
             try { c.prepare(this) } catch (e: Exception) { c.log("prepare step failed: ${e.message}") }
             var jat = 0L
             while (true) {                                      // [JOIN_REFUSED_WAITS_V1]
                 val a = Json.parse(s!!.call("POST", "$API?op=rina", announceBody()).body)
                 if (a["ok"].bool) { took(a); break }
                 if (a["error"].str != "EEXIST") return "the announcement was refused: ${a["error"].str} ${a["why"].str}".also { c.log(it); sess.close() }
-                c.log("JOIN REFUSED by the region: ${a["why"].str}. Not a member until that changes; waiting for the region to change (no retry loop).")
-                val jp = Json.quote("join:$ns")
-                rinaText("rina", "{\"op\":\"watch_participants\",\"proc\":$jp}", 15.0)
-                jat = maxEvent(rinaText("rina_block", "{\"op\":\"wait\",\"proc\":$jp,\"after\":$jat}", 3.0e8), jat)
-                c.log("the region changed; trying the announcement again")
+                c.log("JOIN REFUSED by the region: ${a["why"].str}. Not a member until that changes; waiting for the members to change (a held read, no retry loop).")
+                if (jat == 0L) jat = membersAt
+                jat = maxId(Json.parse(sess.call("GET", "$API?op=read&service=pond&variable=member&after=$jat&wait_s=600", "", 615.0).body), jat)
+                c.log("the members changed; trying the announcement again")
             }
             val v = rina("{\"op\":\"version\"}")
             joinedAtMs = System.currentTimeMillis()
             c.log("build $MEMBER_BUILD; region at ${c.ramHost}:${c.ramPort} is build ${v["server"].str}")
             c.log("${c.name} joined the region at ${c.ramHost}:${c.ramPort} as $ns, announced ${c.ips()}" + (if (c.facts().isEmpty()) "" else " with facts"))
-            syncMaps(false)
+            writeMember()                                       // [MEMBER_IS_A_TUPLE_V1]
             try { c.onJoined(this) } catch (e: Exception) { c.log("on-joined step failed: ${e.message} (re-run on the next session)") }
             // [ATTENTION_IS_A_TUPLE_V1] a held read on (pond, attention) on this same session: each notice the moment it is
             // written (current ones first). Another member's only: my own (instance = my ns) are skipped. A failed read
@@ -123,22 +167,25 @@ class Member(private val c: MemberConfig) {
                     } catch (e: Exception) { if (sess.dead == null) { c.log("attention read failed: ${e.message} -- ending this session for a fresh one"); sess.close() } }
                 }, "fdf-attention").apply { isDaemon = true; start() }
             }
-            val asserter = Thread({
-                try { while (true) { Thread.sleep(c.assertSec * 1000L); syncMaps(true) } }
-                catch (_: InterruptedException) {}
-                catch (e: Exception) { c.log("assert failed: ${e.message} -- ending this session for a fresh one"); sess.close() }
-            }, "fdf-assert").apply { isDaemon = true; start() }
-            // [REGION_EVENTS_ON_MY_SESSION_V1] the hold IS the event reader: the same held wait, with participant changes
-            // delivered into it, so a leaf re-decides on every `p` as a node does -- one session, no second reader.
-            try {
-                var at = after
-                while (true) {
-                    val t = rinaText("rina_block", "{\"op\":\"wait\",\"proc\":$proc,\"after\":$at}", 3.0e8)
-                    at = maxEvent(t, at)
-                    if (c.onRegionChange != null && t.contains("\"k\":\"p\""))
-                        try { c.onRegionChange.invoke(this) } catch (e: Exception) { c.log("region-change step failed: ${e.message} (re-run on the next event)") }
-                }
-            } finally { asserter.interrupt() }
+            // [EVENTS_NOT_TIMERS_V1] no asserter (was every assertSec: the region read and the mappings registered again --
+            // a timer standing in for a defect; a mapping goes with the session that registered it).
+            // [MEMBER_IS_A_TUPLE_V1] the region changing is the members' family changing: a held read on it, on this
+            // session; each change re-runs onRegionChange. (Was the region's `p` notices pushed into this member's wait.)
+            c.onRegionChange?.let { cb ->
+                Thread({
+                    var at = membersAt
+                    try {
+                        while (true) {
+                            val j = Json.parse(sess.call("GET", "$API?op=read&service=pond&variable=member&after=$at&wait_s=600", "", 615.0).body)
+                            val n = maxId(j, at)
+                            if (n > at) { at = n; try { cb(this) } catch (e: Exception) { c.log("region-change step failed: ${e.message} (re-run on the next change)") } }
+                        }
+                    } catch (e: Exception) { if (sess.dead == null) { c.log("members' read failed: ${e.message} -- ending this session for a fresh one"); sess.close() } }
+                }, "fdf-members").apply { isDaemon = true; start() }
+            }
+            // [MEMBER_IS_A_TUPLE_V1] the session's own hold is its end: nothing is pushed to this machine (was: a wait on its
+            // agent input space, where the region sent a notice on every change); the members' family is read held above
+            throw RuntimeException(sess.awaitEnd())
         } catch (e: Exception) {
             val why = sess.dead ?: e.message ?: e.javaClass.simpleName
             c.log("the session to ${c.ramHost}:${c.ramPort} ended: $why"); sess.close(); return why
@@ -151,15 +198,20 @@ class Member(private val c: MemberConfig) {
         try {
             val a = Json.parse(sess.call("POST", "$API?op=rina", announceBody()).body)
             if (a["ok"].bool) { c.log("facts changed, re-announced"); took(a) } else c.log("re-announcement refused: ${a["error"].str} ${a["why"].str}")
-            syncMaps(false)
+            writeMember()                                       // [MEMBER_IS_A_TUPLE_V1]
         } catch (e: Exception) { c.log("re-announce failed: ${e.message} -- ending this session so a fresh one re-announces and re-registers"); sess.close() }
     }
 
-    /** participants + mappings in one read ([WORLD_IN_ONE_READ_V1]); the answer has "participants" as `participants` does. */
-    fun world(): Json = s!!.callJson("$API?op=rina", "{\"op\":\"world\",\"site\":" + Json.quote(c.site) + "}")
+    /** the members (their own cells, as `participants`) and the region's mappings; the answer has "participants" and
+     *  "mappings" as the region's `world` did. */
+    fun world(): Json {
+        val m = s!!.callJson("$API?op=rina", "{\"op\":\"map_list\",\"site\":" + Json.quote(c.site) + "}")
+        return Json.parse("{\"participants\":" + Hubs.membersText(s!!) + ",\"mappings\":" + m["mappings"].toString() + "}")
+    }
 
-    /** Every announcement in the region, read on this member's session. */
-    fun participants(): Json = s!!.callJson("$API?op=rina", "{\"op\":\"participants\"}")
+    /** [MEMBER_IS_A_TUPLE_V1] every member there now (its own (pond, member) cell; present is alive), read on this
+     *  member's session, shaped as the region's `participants` answer was. */
+    fun participants(): Json = Json.parse("{\"participants\":" + Hubs.membersText(s!!) + "}")
 
     /** [SERVICE_WHERE_IS_A_TUPLE_V1] where this pond's members say they run `service`: each (pond, where, <ns>) cell that
      *  names it, as (the member's name, the service's bag, e.g. {"ram":"w:<guid>:8800","media":"w:<guid>:8994"} --
@@ -208,48 +260,28 @@ class Member(private val c: MemberConfig) {
     /** Leave the region now: the session closes, every member sees one `p` (13 ms measured, netns). */
     fun leave() { s?.close() }
 
+    /** [MEMBER_WRITES_TUPLES_V1] a tuple in this pond's memory, written on this member's own session. own: it is this
+     *  session's, so it goes when the member does ([OWNED_CELL_GOES_WITH_THE_SESSION_V1]: telemetry). permanent: filed,
+     *  it outlives the session and the RAM manager's restarts ([PERMANENT_CELL_V1]: settings). The id, or -1 with no
+     *  session (said by the caller's log, not here). */
+    fun write(service: String, variable: String, instance: String, bagJson: String, own: Boolean = false, permanent: Boolean = false): Long {
+        val sess = s ?: return -1
+        val body = "{\"service\":" + Json.quote(service) + ",\"variable\":" + Json.quote(variable) + ",\"instance\":" + Json.quote(instance) +
+            ",\"bag\":" + bagJson + (if (own) ",\"own\":true" else "") + (if (permanent) ",\"permanent\":true" else "") + "}"
+        return Json.parse(sess.call("POST", "$API?op=write", body).body)["id"].num?.toLong() ?: -1
+    }
+    /** the cells of (service, variable[, instance]); after/waitS: a held read ([HELD_READ_V1]) -- returns when one is written */
+    fun read(service: String, variable: String, instance: String = "", after: Long = -1, waitS: Double = 0.0): Json {
+        val sess = s ?: throw ProtocolError("no session")
+        val q = "$API?op=read&service=" + java.net.URLEncoder.encode(service, "UTF-8") + "&variable=" + java.net.URLEncoder.encode(variable, "UTF-8") +
+            (if (instance.isEmpty()) "" else "&instance=" + java.net.URLEncoder.encode(instance, "UTF-8")) +
+            (if (after >= 0) "&after=$after&wait_s=$waitS" else "")
+        return Json.parse(sess.call("GET", q, "", 15.0 + waitS).body)
+    }
+
     private fun hmacHex(key: String, msg: String): String {
         val m = Mac.getInstance("HmacSHA256"); m.init(SecretKeySpec(key.toByteArray(), "HmacSHA256"))
         return m.doFinal(msg.toByteArray()).joinToString("") { "%02x".format(it) }
     }
 
-    // fdf_client.cpp sync_maps, line for line in behaviour
-    private fun syncMaps(assertRegion: Boolean) = synchronized(mapsLock) {
-        val want = LinkedHashMap<String, String>()
-        val f = c.facts()
-        if (f.isNotEmpty()) try { for (m in Json.parse(f)["maps"].a) if (m["eid"].str.isNotEmpty()) want[m["eid"].str] = m["rlocs"].str } catch (_: ProtocolError) {}
-        if (want.isEmpty() && have.isEmpty()) return@synchronized
-        if (assertRegion && c.site.isNotEmpty() && want.isNotEmpty()) {
-            val held = HashMap<String, String>()
-            for (m in rina("{\"op\":\"map_list\",\"site\":" + Json.quote(c.site) + "}")["mappings"].a) held[m["eid"].str] = m["rloc"].str
-            for ((eid, rlocs) in want) if (held[eid] != rlocs) {
-                if (have.containsKey(eid)) c.log("mapping $eid is NOT in the region though this session registered it (${if (held.containsKey(eid)) "other locators" else "missing"}); registering again")
-                have.remove(eid)
-            }
-        }
-        if (c.site.isEmpty() || c.siteKey.isEmpty()) { c.log("facts.maps present but site / site key not set: nothing registered"); return@synchronized }
-        val it = have.entries.iterator()
-        while (it.hasNext()) { val (eid, _) = it.next(); if (want.containsKey(eid)) continue
-            try { rina("{\"op\":\"map_remove\",\"name\":" + Json.quote(eid) + "}"); c.log("mapping $eid withdrawn") }
-            catch (x: Refused) { c.log("mapping $eid withdraw refused: ${x.message}") }
-            it.remove() }
-        for ((eid, rlocs) in want) {
-            if (have[eid] == rlocs) continue
-            val now = System.currentTimeMillis(); val ts = "%d.%09d".format(now / 1000, (now % 1000) * 1_000_000)
-            val ttl = "86400"
-            try {
-                rina("{\"op\":\"map_register\",\"site\":" + Json.quote(c.site) + ",\"name\":" + Json.quote(eid) + ",\"rloc\":" + Json.quote(rlocs) +
-                     ",\"ttl\":\"$ttl\",\"ts\":\"$ts\",\"auth\":" + Json.quote(hmacHex(c.siteKey, "$eid|$rlocs|$ttl|$ts")) + ",\"own\":true}")
-                have[eid] = rlocs; c.log("mapping $eid -> $rlocs registered (site ${c.site})")
-            } catch (x: Refused) {
-                val e = x.message ?: ""
-                c.log("mapping $eid -> $rlocs REFUSED by the region: $e" + when {
-                    "EPERM" in e -> " = the site key is not the key map_site holds for this area (HMAC mismatch)"
-                    "ENOENT" in e -> " = the region has no map_site for this area"
-                    "EALREADY" in e -> " = a newer registration is already held"
-                    "EEXIST" in e -> " = another live member holds this mapping; it is theirs until they leave (asserted again every ${c.assertSec} s)"
-                    else -> "" })
-            }
-        }
-    }
 }

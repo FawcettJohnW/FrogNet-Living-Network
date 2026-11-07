@@ -15,7 +15,7 @@ or from the LAN itself (egress). The hub is a router like any other node.
 Two timer profiles, both reported (FRR's defaults are not what a tuned network runs):
   default   FRR 9.1 as shipped (lsp-gen-interval 30 s, spf-interval 1 s, no spf-delay-ietf)
   tuned     lsp-gen-interval 1, spf-interval 1, spf-delay-ietf 50/200/5000/10000/500 ms (RFC 8405 backoff),
-            hello-interval 1 s x multiplier 3 on every circuit (hold 3 s; default is 10 s x 3)
+            hello-interval 1 s x multiplier 3 on every circuit (hold 3 s; FRR default is 3 s x 10, hold 30 s)
 
 Binaries: FRR_BIN (default: the day-claims package's isis/bin/<arch>), yang models from the path compiled into them.
 """

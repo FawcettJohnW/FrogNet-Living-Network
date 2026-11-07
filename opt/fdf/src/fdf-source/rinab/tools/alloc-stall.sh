@@ -5,7 +5,7 @@ export RINA_REGION_FILE=${RINA_REGION_FILE:-/tmp/rinab-region-$$.perm}
 # over 1 s, to reproduce the intermittent allocation stall.
 N=${1:-200}; PORT=${2:-8847}; B=$(cd "$(dirname "$0")/../build" && pwd)
 export PATH=$B/bin:$PATH RINA_RAM=127.0.0.1:$PORT RINA_RAM_NETNS=/proc/$$/ns/net
-$B/bin/rina-host --listen 127.0.0.1:$PORT --api /FawcettInnovations.RINA.ram_interface.php > /tmp/as-host.log 2>&1 & H=$!
+$B/bin/fdf-ram --listen 127.0.0.1:$PORT --api /FawcettInnovations.RINA.ram_interface.php > /tmp/as-host.log 2>&1 & H=$!
 for i in $(seq 50); do (exec 3<>/dev/tcp/127.0.0.1/$PORT) 2>/dev/null && break; sleep 0.1; done
 rlite-uipcps -d; rlite-ctl ipcp-create x normal dd >/dev/null; rlite-ctl ipcp-enroller-enable x
 rinaperf -lw -z srv; sleep 0.5

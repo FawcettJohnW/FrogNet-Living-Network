@@ -1,11 +1,11 @@
 #!/bin/bash
 # netns-two-ponds-test.sh -- [PONDS_V1] PLAN-PONDS §4 for the member side (the phone's logic, fdf-member-kt `ponds`):
-#   pond A: rina-host + fdf-hub (hubA) + its fdf-client on "ha"; a leaf member mA (fdf-client) with its own tunnel
+#   pond A: fdf-ram + fdf-hub (hubA) + its fdf-client on "ha"; a leaf member mA (fdf-client) with its own tunnel
 #   pond B: the same on "hb"; a leaf member mB, which also posts the notice (fdf-attention)
 #   ph:     ONE process, one session per pond; Leaf on the forward pond only; one WireGuard interface that follows it
 # Checks: forward A (A's /32 and hubA peer, participant row in B, no hubB peer); a notice in B reaches ph; forward B
 # (stamped: hubA peer gone, hubB peer, handshake, ping mB; A's /32 freed); ten switches without leftovers.
-# usage: bash netns-two-ponds-test.sh <bin dir: rina-host fdf-client fdf-events fdf-attention> <fdf-member-kt> <fdf/lib/python> <fdf-hub>
+# usage: bash netns-two-ponds-test.sh <bin dir: fdf-ram fdf-client fdf-events fdf-attention> <fdf-member-kt> <fdf/lib/python> <fdf-hub>
 set -u
 B=$1; K=$2; PY=$3; HUBP=$4; T=$(mktemp -d); API=/FawcettInnovations.RINA.ram_interface.php
 ms() { date +%s%3N; }
@@ -19,7 +19,7 @@ i=1; for n in $NSS; do ip netns add $n; ip netns exec $n ip link set lo up
   ip netns exec $n ip addr add 192.168.80.$i/24 dev u-$n; ip netns exec $n ip link set u-$n up; i=$((i+1)); done
 # ---- two ponds: ha = 192.168.80.1 (pondA), hb = 192.168.80.2 (pondB)
 pond() { local n=$1 ip=$2 area=$3 port=$4
-  ip netns exec $n env RINA_REGION_FILE=$T/$n.perm $B/rina-host --listen $ip:8840 --api $API > $T/$n-host.log 2>&1 &
+  ip netns exec $n env RINA_REGION_FILE=$T/$n.perm $B/fdf-ram --listen $ip:8840 --api $API > $T/$n-host.log 2>&1 &
   sleep 1
   ip netns exec $n env RINA_RAM=$ip:8840 FDF_WG_IMPL=wireguard-go FDF_BIN=$B FDF_PY=$PY python3 $HUBP --area $area --iface wg-$n --endpoint $ip:$port \
      --listen $port --key $T/$n.key --facts $T/$n-facts.json --name hub-$area > $T/$n-hub.log 2>&1 &

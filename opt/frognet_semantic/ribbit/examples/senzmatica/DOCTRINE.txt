@@ -1,0 +1,8 @@
+Preserve the untouched incumbent and distinguish every repaired variant.
+Use existing native API++; no second wire implementation.
+Each participant writes its owned truth. Correlate generations, not ack queues.
+No automatic RAM-to-MQTT command fallback; MQTT completion is compatibility.
+Assert actual observable effects and failures; crashes/timeouts do not count as mutant detection.
+Separate local process gates, model tiers, real-kernel tiers and hardware evidence.
+No performance/code-reduction claim without raw paired measurements.
+Normative reference: ../../docs/PROGRAMMING-RIBBIT-BEST-PRACTICES.md.

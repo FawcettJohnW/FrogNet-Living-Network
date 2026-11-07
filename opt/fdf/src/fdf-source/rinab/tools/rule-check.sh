@@ -25,11 +25,11 @@ ip netns exec core ip addr add $MR/32 dev vcore                 # the machine se
 for i in 1 2 3; do ip netns exec dm$i ip route add 198.18.0.0/15 via 10.60.0.1; done
 echo "THE NETWORK: a route to the reserved prefix 198.18.0.0/15 (anycast routing; knows no area)"
 tcpdump -i dmbr -nn -U -w $D/wire.pcap > /dev/null 2>&1 & TD=$!; sleep 0.5
-C env RINA_HOST_ROLE=mapping RINA_REGION_FILE=$D/map.perm rina-host --listen $MR:4342 --api $API > $D/mapping.log 2>&1 &
+C env RINA_HOST_ROLE=mapping RINA_REGION_FILE=$D/map.perm fdf-ram --listen $MR:4342 --api $API > $D/mapping.log 2>&1 &
 for i in $(seq 100); do C bash -c "(exec 3<>/dev/tcp/$MR/4342)" 2>/dev/null && break; sleep 0.05; done
 C rina-lisp map-site $A $K $MR > /dev/null || { echo "no site"; exit 1; }
 echo "CONFIGURED: the RAM manager: RINA_MAP_AREA=$A RINA_AREA_PASSWORD=<the area's password>. Each machine: RINA_AREA=$A. NOTHING ELSE (no RINA_MAP_RESOLVER, no RINA_RAM)"
-up() { C env RINA_MAP_AREA=$A RINA_AREA_PASSWORD=$K RINA_REGION_FILE=$D/area.perm RINA_RAM_NETNS=/proc/self/ns/net rina-host --listen $1:8840 --api $API > $D/area-$1.log 2>&1 &
+up() { C env RINA_MAP_AREA=$A RINA_AREA_PASSWORD=$K RINA_REGION_FILE=$D/area.perm RINA_RAM_NETNS=/proc/self/ns/net fdf-ram --listen $1:8840 --api $API > $D/area-$1.log 2>&1 &
        for i in $(seq 100); do grep -q "RAM_MANAGER_REGISTERS_ITSELF_V1" $D/area-$1.log && break; sleep 0.05; done; grep -h "REGISTERS_ITSELF" $D/area-$1.log; }
 up 10.60.0.1
 for i in 1 2 3; do ip netns exec dm$i env -u RINA_MAP_RESOLVER -u RINA_RAM RINA_AREA=$A RINA_RAM_NETNS=/proc/self/ns/net RINA_AGENT_LOG=$D RINA_CAPABILITY_PROBE=$PROBE \

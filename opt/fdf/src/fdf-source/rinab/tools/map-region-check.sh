@@ -3,7 +3,7 @@
 # build/. Starts its own mapping host on 127.0.0.1:4342 (port 4342 must be free). Exit 0 only if every case is right.
 H=$(cd "$(dirname "$0")/.." && pwd); B=$H/build/bin; M=127.0.0.1; F=$(mktemp -u /tmp/map-region-check.XXXX.perm)
 API=/FawcettInnovations.RINA.ram_interface.php; bad=0
-start() { RINA_HOST_ROLE=mapping RINA_REGION_FILE=$F "$B/rina-host" --listen $M:4342 --api $API > /tmp/map-region-check.host$1.log 2>&1 & HP=$!
+start() { RINA_HOST_ROLE=mapping RINA_REGION_FILE=$F "$B/fdf-ram" --listen $M:4342 --api $API > /tmp/map-region-check.host$1.log 2>&1 & HP=$!
           for i in $(seq 100); do (exec 3<>/dev/tcp/$M/4342) 2>/dev/null && return 0; sleep 0.05; done; echo "mapping host did not start"; exit 1; }
 want() { local what=$1 expect=$2; shift 2; out=$("$@" 2>&1); rc=$?
          if { [ "$expect" = ok ] && [ $rc -eq 0 ]; } || { [ "$expect" != ok ] && [ $rc -ne 0 ] && echo "$out" | grep -q "$expect"; }; then r=ok; else r=FAIL; bad=1; fi

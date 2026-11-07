@@ -1,0 +1,80 @@
+{
+  "statusCode": "S1000",
+  "message": "Success",
+  "content": [
+    {
+      "id": "test-device-001",
+      "name": "test-device-001",
+      "sensorCodes": null,
+      "noOfSensors": null,
+      "actuatorCodes": null,
+      "noOfActuators": null,
+      "maintain": null,
+      "interval": null,
+      "batchNumber": null,
+      "intervalMin": 10,
+      "description": null,
+      "shiftMap": {},
+      "battery": null,
+      "persistence": null,
+      "connectivity": null,
+      "connectivityMatrix": {},
+      "configurations": {},
+      "protocol": null,
+      "status": null,
+      "metaData": null,
+      "simNumber": null,
+      "productType": "remote-config-test",
+      "productId": null,
+      "temperatureUnit": null,
+      "otaRequestTopic": null,
+      "otaAckTopic": null,
+      "remoteConfigTopic": null,
+      "remoteConfigAckTopic": null,
+      "deviceParameterConfiguration": {
+        "device": "test-device-001",
+        "productType": "remote-config-test",
+        "versionNum": "1",
+        "remoteConfigurations": [
+          {
+            "parameterCategory": "Topic Format & Interval",
+            "parameter": "Test sampling interval",
+            "parameterId": "1",
+            "inputType": "text",
+            "format": "integer",
+            "defaultValue": "60"
+          }
+        ],
+        "joinParameters": null,
+        "updateHistory": [
+          {
+            "actionBy": "test-operator",
+            "updatedDate": "2026-10-29 09:02:15",
+            "messageId": "test-device-001-1",
+            "updateStatus": "UPDATED",
+            "networkAndCommunication": {},
+            "topicFormat": {
+              "1": "60"
+            },
+            "messageFormat": {},
+            "updateParamList": {
+              "1": {
+                "parameterId": "1",
+                "parameter": "Test sampling interval",
+                "defaultValue": "60",
+                "isinValid": null,
+                "parameterCategory": "Topic Format & Interval"
+              }
+            }
+          }
+        ],
+        "serverIpAddress": null
+      },
+      "magmaCodecId": null,
+      "referenceId": null,
+      "productVersion": null,
+      "lastUpdateStatus": "UPDATED",
+      "lastSeen": null
+    }
+  ]
+}

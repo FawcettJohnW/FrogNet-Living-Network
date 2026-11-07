@@ -17,7 +17,7 @@ cd "$ROOT" || exit 2
 SCOPE=(etc usr var opt/frognet_semantic opt/fdf)
 EXCL=(':(exclude)opt/frognet_semantic/docs' ':(exclude,glob)**/*.md' ':(exclude,glob)**/test_*'
       ':(exclude)opt/fdf/src/fdf-source/docs' ':(exclude,glob)**/*.diff' ':(exclude)opt/fdf/dist'
-      ':(exclude)opt/frognet_semantic/ribbit/cpp/tests/reference' ':(exclude)opt/frognet_semantic/ribbit/examples/lispers.net/artifacts'
+      ':(exclude)opt/frognet_semantic/ribbit/examples/lispers.net/artifacts'
       ':(exclude,glob)**/third_party/**')
 
 # PATTERNS: "id<TAB>ERE<TAB>what it was"
@@ -97,8 +97,9 @@ built-in-pond	opt/fdf/src/fdf-source/rinab/experiments/*	.	Recorded experiments 
 built-in-pond	opt/fdf/src/fdf-source/rinab/tools/map-*.sh|opt/fdf/src/fdf-source/rinab/tools/*-check.sh	.	Test harness scripts (their own scratch areas), not shipped runtime.
 eth0-by-name	opt/frognet_semantic/simulation/*	.	Simulator models name their interfaces.
 eth0-by-name	opt/frognet_semantic/discovery/sim/*	.	Simulator models name their interfaces.
-region-sources	opt/fdf/bin/fdf-hub|opt/fdf/src/fdf-source/fdf/bin/fdf-hub|opt/fdf/src/fdf-source/rinab/tools/fdf-hub	.	FD&F's hub: RINA_RAM is its one input, from its unit (the region holder's hub.env); no file behind it.
-region-sources	opt/fdf/lib/python/fdfram.py|opt/fdf/src/fdf-source/fdf/lib/python/fdfram.py|opt/fdf/windows/fdfram.py|opt/fdf/bin/fdf-reach|opt/fdf/src/fdf-source/fdf/bin/fdf-reach	.	FD&F operator tools (not the tunnel daemon): the environment, then join.env / the pond file. Outside T4c's brief; listed in T4c.md "Found, not done".
+region-sources	opt/fdf/src/fdf-source/fdf/bin/fdf-hub	.	FD&F's hub: RINA_RAM is its one input, from its unit (the region holder's hub.env); no file behind it.
+region-sources	opt/fdf/src/fdf-source/fdf/lib/python/fdfram.py|opt/fdf/windows/fdfram.py|opt/fdf/src/fdf-source/fdf/bin/fdf-reach	.	FD&F operator tools (not the tunnel daemon): the environment, then join.env / the pond file. Outside T4c's brief; listed in T4c.md "Found, not done".
+region-sources	opt/frognet_semantic/simulation/s4_dist.py	"RINA_RAM": os\.environ\.get\("RINA_RAM"\)	The simulator's per-machine diagnostic record: it WRITES what the environment held into the run's report; nothing reads the region from it.
 EOF
 )
 

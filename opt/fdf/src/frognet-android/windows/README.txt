@@ -1,5 +1,5 @@
-FD&F bridge for Windows (fdf-kt-2026-10-11-a15, fdf-tun-2026-10-11-b11: BUILD.txt)
-===================================================================================
+FD&F bridge for Windows (its build: BUILD.txt)
+==============================================
 
 What it is: this computer as a member of every pond in etc\ponds.txt at once -- a leaf of the forward pond (its
 10.0.0.0/8, through its hub) and reaching every other pond that pond's own (pond, config, net) allows, through 1:1
@@ -9,17 +9,27 @@ tunnel (stop both before starting this: the same key must not be in two tunnels)
 
 Once:
   1. Unzip to C:\fdf (any folder).
-  2. Get wintun-0.14.1.zip from https://www.wintun.net and copy bin\amd64\wintun.dll into C:\fdf.
-     (The only file not included: it carries Wintun's signed driver and comes only from its authors.)
-  3. Edit C:\fdf\etc\ponds.txt: replace the example line AREA=RAM-HOST:51888 with one <area>=<host:port> line
-     per pond (the area and RAM manager fdf-region-create printed). fdf-bridge.cmd refuses while the example is there.
+  2. Enroll it with the admin tool, as a phone is: in the app's admin page make this computer a user (its own: a
+     second enrollment of a user gives a new key and the first stops working) and press its QR; under the QR is its
+     enrollment line, fdfenroll1 <door> <app> <user>. In a terminal opened as Administrator:
+       cd C:\fdf
+       setup.cmd fdfenroll1 <door> <app> <user>
+     It asks for that user's password (not shown, not kept); the door answers with this computer's own invitation.
+     (Without the admin tool: `fdf-identity NAME --leaf` on any machine of the region prints an invitation,
+     fdfinv1.<...>, a secret; then  setup.cmd fdfinv1.<...> )
+     setup.cmd checks first (Administrator, x64, wintun.dll, the invitation decodes), keeps the invitation in
+     var\invite, and makes the scheduled task "FrogNet member": fdf-bridge.cmd at every startup, as SYSTEM, its output
+     in var\fdf-bridge.log. It starts it now. The region, this computer's key, name and address are the invitation's.
+     After an update (unzip over C:\fdf): setup.cmd again, no argument. setup.cmd remove: the task goes.
 
-Run, in a terminal opened as Administrator:
-  cd C:\fdf
-  fdf-bridge.cmd
+To run it in a terminal instead (as Administrator; Ctrl-C leaves): fdf-bridge.cmd join fdfinv1.<...> once, then
+fdf-bridge.cmd.
+
+(Without an invitation, etc\ponds.txt lists ponds by <area>=<RAM host:port>, as before; with one, ponds.txt only adds
+ponds and its example line is ignored.)
 
 The first run makes var\wg.key and var\facts.json (name = this computer, guid made once, pubkey from the key); nothing
-is typed. Every line says what happened: the ponds, each join, "bridge: forward via hub <hub> as 10.252.x.y",
+is typed. Every line says what happened: the ponds, each join, "bridge: forward via hub <hub> as <its address>",
 "[<pond>] reach into <pond> (...) as <addr> there ...; aliased 100.64.a.0/24 -> 10.x.y.0/24", or
 "REACH REFUSED into <pond>: <why>" (that pond's session ends; the others go on). Ctrl-C leaves every pond; the adapter,
 its routes and every tunnel go with it.
@@ -33,5 +43,5 @@ From another terminal (no Administrator needed):
 
 The Communicator: comms-app.exe --name John <the --ram/--media that "ask comms" printed> --camera ... --mic N
 
-Layout: fdf-bridge.cmd, fdf-tun.exe, wintun.dll (yours), runtime\ (OpenJDK 21, only what the member uses), lib\ (the member), etc\ponds.txt,
+Layout: fdf-bridge.cmd, fdf-tun.exe, wintun.dll (Wintun 0.14.1, signed by WireGuard LLC; LICENSE-wintun.txt), runtime\ (OpenJDK 21, only what the member uses), lib\ (the member), etc\ponds.txt,
 var\ (this computer's key, facts, forward pond, alias ledger -- made here, never shipped).

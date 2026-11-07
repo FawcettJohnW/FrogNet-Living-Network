@@ -1,0 +1,37 @@
+21:15:04,802 |-INFO in ch.qos.logback.classic.joran.action.LoggerAction - Setting level of logger [org.springframework.web] to ERROR
+2026-10-28 21:15:12 - com.magma.core.service.RibbitConfigurationService - 40 REMOTE_CONFIG_SWITCH ram=false
+2026-10-28 21:15:15 - com.magma.core.service.RibbitConfigurationService - 46 REMOTE_CONFIG_SWITCH ram=true time=2026-10-28T21:15:15.254-07:00
+2026-10-28 21:15:15 - com.magma.core.service.RibbitConfigurationService - 73 RAM_RESULT_IGNORED device=test-device-001 parameter=1 reason=generation
+2026-10-28 21:15:15 - com.magma.core.service.CoreService - 134 REMOTE_CONFIG_PATH device=test-device-001 path=RAM
+2026-10-28 21:15:15 - com.magma.core.service.RibbitConfigurationService - 54 REMOTE_CONFIG_PATH device=test-device-001 parameter=1 generation=47d27278-8fb5-4a75-b27b-782b54ab5da0:1 path=RAM
+2026-10-28 21:15:15 - com.magma.core.service.RibbitConfigurationService - 78 RAM_APPLIED device=test-device-001 parameter=1 generation=47d27278-8fb5-4a75-b27b-782b54ab5da0:1 status=applied
+2026-10-28 21:15:15 - com.magma.core.service.RibbitConfigurationService - 109 RAM_COMPATIBILITY_CONSUMED device=test-device-001 parameter=1 generation=47d27278-8fb5-4a75-b27b-782b54ab5da0:1 status=applied
+2026-10-28 21:15:16 - com.magma.core.service.CoreService - 134 REMOTE_CONFIG_PATH device=test-device-001 path=RAM
+2026-10-28 21:15:16 - com.magma.core.service.RibbitConfigurationService - 54 REMOTE_CONFIG_PATH device=test-device-001 parameter=1 generation=47d27278-8fb5-4a75-b27b-782b54ab5da0:2 path=RAM
+2026-10-28 21:15:19 - com.magma.core.service.RibbitConfigurationService - 78 RAM_APPLIED device=test-device-001 parameter=1 generation=47d27278-8fb5-4a75-b27b-782b54ab5da0:2 status=applied
+2026-10-28 21:15:19 - com.magma.core.service.RibbitConfigurationService - 109 RAM_COMPATIBILITY_CONSUMED device=test-device-001 parameter=1 generation=47d27278-8fb5-4a75-b27b-782b54ab5da0:2 status=applied
+2026-10-28 21:15:20 - com.magma.core.service.CoreService - 134 REMOTE_CONFIG_PATH device=test-device-001 path=RAM
+2026-10-28 21:15:20 - com.magma.core.service.RibbitConfigurationService - 54 REMOTE_CONFIG_PATH device=test-device-001 parameter=1 generation=47d27278-8fb5-4a75-b27b-782b54ab5da0:3 path=RAM
+2026-10-28 21:15:43 - com.magma.core.service.RibbitConfigurationService - 73 RAM_RESULT_IGNORED device=test-device-001 parameter=1 reason=generation
+2026-10-28 21:15:43 - com.magma.core.service.RibbitConfigurationService - 78 RAM_APPLIED device=test-device-001 parameter=1 generation=47d27278-8fb5-4a75-b27b-782b54ab5da0:3 status=applied
+2026-10-28 21:15:43 - com.magma.core.service.RibbitConfigurationService - 109 RAM_COMPATIBILITY_CONSUMED device=test-device-001 parameter=1 generation=47d27278-8fb5-4a75-b27b-782b54ab5da0:3 status=applied
+2026-10-28 21:15:43 - com.magma.core.service.CoreService - 134 REMOTE_CONFIG_PATH device=test-device-001 path=RAM
+2026-10-28 21:15:43 - com.magma.core.service.RibbitConfigurationService - 54 REMOTE_CONFIG_PATH device=test-device-001 parameter=1 generation=47d27278-8fb5-4a75-b27b-782b54ab5da0:4 path=RAM
+2026-10-28 21:15:43 - com.magma.core.service.CoreService - 134 REMOTE_CONFIG_PATH device=test-device-001 path=RAM
+2026-10-28 21:15:43 - com.magma.core.service.RibbitConfigurationService - 54 REMOTE_CONFIG_PATH device=test-device-001 parameter=1 generation=47d27278-8fb5-4a75-b27b-782b54ab5da0:5 path=RAM
+2026-10-28 21:15:44 - com.magma.core.service.RibbitConfigurationService - 73 RAM_RESULT_IGNORED device=test-device-001 parameter=1 reason=generation
+2026-10-28 21:15:44 - com.magma.core.service.RibbitConfigurationService - 78 RAM_APPLIED device=test-device-001 parameter=1 generation=47d27278-8fb5-4a75-b27b-782b54ab5da0:5 status=applied
+2026-10-28 21:15:44 - com.magma.core.service.RibbitConfigurationService - 109 RAM_COMPATIBILITY_CONSUMED device=test-device-001 parameter=1 generation=47d27278-8fb5-4a75-b27b-782b54ab5da0:5 status=applied
+2026-10-28 21:15:45 - com.magma.core.service.CoreService - 134 REMOTE_CONFIG_PATH device=test-device-001 path=RAM
+2026-10-28 21:15:45 - com.magma.core.service.RibbitConfigurationService - 54 REMOTE_CONFIG_PATH device=test-device-001 parameter=1 generation=47d27278-8fb5-4a75-b27b-782b54ab5da0:6 path=RAM
+ribbit space: the read held on senz-baseline/ ended: recv: Connection timed out (no answer from the far end within the 5 s keepalive / user timeout)
+2026-10-28 21:16:07 - com.magma.core.service.CoreService - 134 REMOTE_CONFIG_PATH device=test-device-001 path=RAM
+2026-10-28 21:16:07 - com.magma.core.service.RibbitConfigurationService - 54 REMOTE_CONFIG_PATH device=test-device-001 parameter=1 generation=47d27278-8fb5-4a75-b27b-782b54ab5da0:7 path=RAM
+21:16:24,883 |-INFO in ch.qos.logback.classic.joran.action.LoggerAction - Setting level of logger [org.springframework.web] to ERROR
+2026-10-28 21:16:31 - com.magma.core.service.RibbitConfigurationService - 40 REMOTE_CONFIG_SWITCH ram=false
+2026-10-28 21:16:34 - com.magma.core.service.RibbitConfigurationService - 46 REMOTE_CONFIG_SWITCH ram=true time=2026-10-28T21:16:34.385-07:00
+2026-10-28 21:16:34 - com.magma.core.service.RibbitConfigurationService - 73 RAM_RESULT_IGNORED device=test-device-001 parameter=1 reason=generation
+2026-10-28 21:16:34 - com.magma.core.service.CoreService - 134 REMOTE_CONFIG_PATH device=test-device-001 path=RAM
+2026-10-28 21:16:34 - com.magma.core.service.RibbitConfigurationService - 54 REMOTE_CONFIG_PATH device=test-device-001 parameter=1 generation=7ee3257c-1e38-489d-8a21-b9adf03bbee5:1 path=RAM
+2026-10-28 21:16:34 - com.magma.core.service.RibbitConfigurationService - 78 RAM_APPLIED device=test-device-001 parameter=1 generation=7ee3257c-1e38-489d-8a21-b9adf03bbee5:1 status=applied
+2026-10-28 21:16:34 - com.magma.core.service.RibbitConfigurationService - 109 RAM_COMPATIBILITY_CONSUMED device=test-device-001 parameter=1 generation=7ee3257c-1e38-489d-8a21-b9adf03bbee5:1 status=applied

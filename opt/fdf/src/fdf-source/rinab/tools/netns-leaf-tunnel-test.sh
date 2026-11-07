@@ -1,9 +1,9 @@
 #!/bin/bash
 # netns-leaf-tunnel-test.sh -- [FDF_MEMBER_KT_V1] TRANSITION-ANDROID §6's first experiment, in namespaces, with the real
-# programs: rina-host + fdf-hub (wireguard-go, the userspace WireGuard that wireguard-android's GoBackend embeds) + the
+# programs: fdf-ram + fdf-hub (wireguard-go, the userspace WireGuard that wireguard-android's GoBackend embeds) + the
 # hub's own fdf-client on "hub"; the Kotlin member as a leaf on "kt", taking its WireGuard peer from the hub's facts in
 # the region; fdf-client (C++) as a second leaf on "cpp". Every stage stamped in ms.
-# usage: bash netns-leaf-tunnel-test.sh <dir with rina-host, fdf-client, fdf-events> <fdf-member-kt launcher> <fdf/lib/python> <fdf-hub>
+# usage: bash netns-leaf-tunnel-test.sh <dir with fdf-ram, fdf-client, fdf-events> <fdf-member-kt launcher> <fdf/lib/python> <fdf-hub>
 set -u
 B=$1; K=$2; PY=$3; HUBP=$4; T=$(mktemp -d); API=/FawcettInnovations.RINA.ram_interface.php; SITE=frognet.test; KEY=s3cret
 ms() { date +%s%3N; }
@@ -17,7 +17,7 @@ i=1; for n in hub kt cpp; do ip netns add $n; ip netns exec $n ip link set lo up
   ip netns exec $n ip addr add 192.168.77.$i/24 dev v-$n; ip netns exec $n ip link set v-$n up; i=$((i+1)); done
 NS() { local n=$1; shift; ip netns exec $n env RINA_RAM=192.168.77.1:8840 RINA_AREA=$SITE "$@"; }
 # ---- the hub
-NS hub env RINA_REGION_FILE=$T/area.perm $B/rina-host --listen 192.168.77.1:8840 --api $API > $T/host.log 2>&1 &
+NS hub env RINA_REGION_FILE=$T/area.perm $B/fdf-ram --listen 192.168.77.1:8840 --api $API > $T/host.log 2>&1 &
 sleep 1; NS hub curl -s -X POST -d "{\"op\":\"map_site\",\"name\":\"$SITE\",\"key\":\"$KEY\"}" "http://192.168.77.1:8840$API?op=rina" > /dev/null
 NS hub env FDF_WG_IMPL=wireguard-go FDF_BIN=$B FDF_PY=$PY python3 $HUBP --area $SITE --iface wg-frognet --endpoint 192.168.77.1:50889 \
    --listen 50889 --key $T/hub.key --facts $T/hub-facts.json --name hubA 2>&1 | stamp > $T/hub.log &

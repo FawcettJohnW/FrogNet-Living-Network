@@ -155,7 +155,8 @@ public:
     virtual std::vector<Cell> read(const std::string& service, const std::string& variable,
                                    const std::string& instance = "", int64_t after = -1, double wait_s = 0,
                                    int fresh_s = 0) = 0;
-    virtual void remove(uint64_t id) = 0;
+    // [FAMILY_LOG_V1] the cell whose current write has id `id` in (service, variable): an id is a place in one family
+    virtual void remove(const std::string& service, const std::string& variable, uint64_t id) = 0;
 };
 
 class Memory : public MemoryApi {
@@ -176,7 +177,7 @@ public:
     std::vector<Cell> read(const std::string& service, const std::string& variable,
                            const std::string& instance = "", int64_t after = -1, double wait_s = 0,
                            int fresh_s = 0) override;
-    void remove(uint64_t id) override;
+    void remove(const std::string& service, const std::string& variable, uint64_t id) override;
     // [FOLLOW_STREAM_V1] a standing trigger on a family: every row written after `after`, in write order, as it is
     // written, until the session ends -- one request, no read per batch. `on` runs on the session's reader thread:
     // rows (possibly none), or an error once at the end. after >= 0: the first answer is every row past it; after < 0:

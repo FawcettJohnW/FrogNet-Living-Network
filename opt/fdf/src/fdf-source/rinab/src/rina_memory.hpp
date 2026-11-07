@@ -36,14 +36,17 @@ namespace rmem {
 
 // ---- wait words --------------------------------------------------------------------------------------------------------
 struct WaitWord { std::atomic<uint32_t> gen{0}; std::atomic<uint32_t> waiters{0}; };
+// [WAIT_WORD_SEQ_CST_V1] the writer's gen-then-waiters and the reader's waiters-then-gen are one total order (seq_cst):
+// a writer that sees no waiter is ordered before the reader's check of gen, which then sees the new gen and does not
+// sleep -- so no wake is lost and no wait needs a timeout to recover one.
 inline void bump(WaitWord& w) {                          // a writer: wake only if someone is waiting here
-    w.gen.fetch_add(1, std::memory_order_acq_rel);
-    if (w.waiters.load(std::memory_order_acquire))
+    w.gen.fetch_add(1, std::memory_order_seq_cst);
+    if (w.waiters.load(std::memory_order_seq_cst))
         syscall(SYS_futex, reinterpret_cast<uint32_t*>(&w.gen), FUTEX_WAKE_PRIVATE, INT_MAX, nullptr, nullptr, 0);
 }
 inline void sleep_on(WaitWord& w, uint32_t seen, double secs) {   // a reader: sleep while the word is still `seen`
-    w.waiters.fetch_add(1, std::memory_order_acq_rel);
-    if (w.gen.load(std::memory_order_acquire) == seen) {
+    w.waiters.fetch_add(1, std::memory_order_seq_cst);
+    if (w.gen.load(std::memory_order_seq_cst) == seen) {
         if (secs > 1e9) secs = 1e9;
         timespec ts; ts.tv_sec = time_t(secs); ts.tv_nsec = long((secs - double(ts.tv_sec)) * 1e9);
         syscall(SYS_futex, reinterpret_cast<uint32_t*>(&w.gen), FUTEX_WAIT_PRIVATE, seen, &ts, nullptr, 0);

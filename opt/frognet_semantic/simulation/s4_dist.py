@@ -587,8 +587,8 @@ def run(a):
                 for n, units in x.get("ram", {}).items():
                     c = sum(cpu for cpu, _ in units.values()); r = sum(rss for _, rss in units.values())
                     ram_nodes[n] = (ram_nodes.get(n, (0, 0))[0] + c, ram_nodes.get(n, (0, 0))[1] + r)
-                    if "rina-host" in units:
-                        host = units["rina-host"]
+                    if "fdf-ram" in units:
+                        host = units["fdf-ram"]
             facts = {n: b for x in u.values() for n, b in x.get("facts", {}).items()}
             isis_cpu = [c for c, _ in isis]
             res["efficiency"] = {

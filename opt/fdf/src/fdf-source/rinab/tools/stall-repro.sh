@@ -5,7 +5,7 @@ export RINA_REGION_FILE=${RINA_REGION_FILE:-/tmp/rinab-region-$$.perm}
 # one server; on the first failure, dumps what the region holds for every program (peek) and stops.
 N=${1:-100}; PORT=8849; B=$(cd "$(dirname "$0")/../build" && pwd)
 export PATH=$B/bin:$PATH RINA_RAM=127.0.0.1:$PORT RINA_RAM_NETNS=/proc/$$/ns/net
-$B/bin/rina-host --listen 127.0.0.1:$PORT --api /FawcettInnovations.RINA.ram_interface.php > /tmp/sr-host.log 2>&1 & H=$!
+$B/bin/fdf-ram --listen 127.0.0.1:$PORT --api /FawcettInnovations.RINA.ram_interface.php > /tmp/sr-host.log 2>&1 & H=$!
 for i in $(seq 50); do (exec 3<>/dev/tcp/127.0.0.1/$PORT) 2>/dev/null && break; sleep 0.1; done
 rlite-uipcps -d; rlite-ctl ipcp-create n.1 normal dd >/dev/null; rlite-ctl ipcp-enroller-enable n.1
 rinaperf -lw -z rpinstance3; sleep 0.3

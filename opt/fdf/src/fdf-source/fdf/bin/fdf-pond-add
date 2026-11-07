@@ -32,6 +32,8 @@ Environment=FDF_FACTS=/opt/fdf/var/facts.json
 Environment=FDF_FORWARD_FILE=/opt/fdf/var/forward
 Environment=RIBBIT_TEMPLATES=/opt/fdf/templates/fdf.prime
 EnvironmentFile=/opt/fdf/var/ponds/%i.env
+# [SYSTEM_SPACE_V1] the forward pond's RAM manager NOW (the tunnel daemon walks its list), read after the pond's own
+EnvironmentFile=-/opt/fdf/var/ponds/%i.now
 Environment=FDF_BIN=/opt/fdf/bin
 ExecStart=/opt/fdf/bin/fdf-client ${RINA_RAM}
 # [REACH_V1] exit 4 = the network refused this machine's reach: the session is over and stays over (no fallbacks);
@@ -55,7 +57,7 @@ fi
 [ "$AREA" = "$(cat "$V/forward" 2>/dev/null)" ] && { echo "fdf-pond-add: $AREA is already this machine's forward pond"; exit 0; }
 pond_env "$RAM" "$AREA" "$KEY" "$REACH"
 [ -f "$V/forward" ] || printf '%s\n' "$AREA" > "$V/forward"       # the first pond on a machine that had none is forward
-systemctl daemon-reload; systemctl enable "fdf-client@$AREA.service"; systemctl restart "fdf-client@$AREA.service"
-sleep 2
+T0=$(date '+%Y-%m-%d %H:%M:%S'); systemctl daemon-reload; systemctl enable "fdf-client@$AREA.service"; systemctl restart "fdf-client@$AREA.service"
+timeout 10 journalctl -u "fdf-client@$AREA" --since "$T0" -f -o cat 2>/dev/null | grep -q -m1 'joined the region\|ended\|REFUSED'   # its own line is the event
 echo "== $AREA ($RAM) added${REACH:+, reaching it}; forward is $(cat "$V/forward")"
 journalctl -u "fdf-client@$AREA" -n 4 --no-pager -o cat

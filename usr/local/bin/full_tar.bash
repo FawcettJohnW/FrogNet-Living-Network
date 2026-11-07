@@ -45,7 +45,6 @@ TAKE=(
     usr/local/lib/frognet
     usr/local/lib/frognet_log.sh
     usr/local/lib/frognet_trace.sh
-    usr/local/share/frognet
     var/www/html
     etc/apache2/sites-available/000-default.conf
     etc/apache2/sites-available/default-ssl.conf
@@ -106,6 +105,15 @@ TOKENIZE=( var/www/html/config.php opt/frognet_semantic/DB_CONFIG.json )
 have=(); missing=()
 for p in "${TAKE[@]}"; do if [ -e "$ROOT/$p" ]; then have+=( "$p" ); else missing+=( "$p" ); fi; done
 EX=( --exclude-vcs-ignores ); for p in "${LEAVE[@]}"; do EX+=( "--exclude=$p" ); done
+# [ONE_COPY_V1 - John 2026-11-01] "We should not be double committing for anything." What make_deliverables lays into
+# /opt/fdf from opt/fdf/src/fdf-source/fdf (the scripts, lib, www, hub, templates) is a second copy of that source; the
+# snapshot takes the source and not the copy. Built binaries in /opt/fdf/bin have no source twin there and are kept.
+if [ -d "$ROOT/opt/fdf/src/fdf-source/fdf" ]; then
+    while IFS= read -r _f; do EX+=( "--exclude=opt/fdf/${_f}" ); done < <(cd "$ROOT/opt/fdf/src/fdf-source/fdf" && find . -type f -printf '%P\n')
+fi
+if [ -d "$ROOT/opt/fdf/src/fdf-source/rinab/kart" ]; then                    # the kart add-in lays /opt/fdf/kart from it
+    while IFS= read -r _f; do EX+=( "--exclude=opt/fdf/kart/${_f}" ); done < <(cd "$ROOT/opt/fdf/src/fdf-source/rinab/kart" && find . -maxdepth 1 -type f -printf '%P\n')
+fi
 STAGE="$(mktemp -d /tmp/.full_tar.XXXXXX)"; trap 'rm -rf "$STAGE"' EXIT
 tok=()
 for t in "${TOKENIZE[@]}"; do
@@ -115,6 +123,8 @@ for t in "${TOKENIZE[@]}"; do
     grep -q '__FROGNET_DB_PASS__' "$STAGE/$t" || { echo "ERROR: $t: its password field did not match; not shipping a live credential" >&2; exit 1; }
     EX+=( "--exclude=$t" ); tok+=( "$t" )
 done
+# [ONE_COPY_V1 - John 2026-11-01] the node's copies become the repository's ONE copy, at its root; the snapshot
+# does not also carry usr/local/share/frognet (the installer lays it from the root copies).
 for l in LICENSE COPYRIGHT README.md CLAIMS.md AI_READ_FIRST.md; do   # the repository's root copies
     [ -f "$ROOT/usr/local/share/frognet/$l" ] && cp "$ROOT/usr/local/share/frognet/$l" "$STAGE/$l" && tok+=( "$l" )
 done
@@ -128,3 +138,12 @@ for p in opt/frognet_semantic opt/fdf usr/local/bin var/www/html etc; do
     printf '  %6d  %s\n' "$(tar tzf "$OUT" | grep -v '/$' | grep -c "^$p/")" "$p"
 done
 [ ${#missing[@]} -eq 0 ] || echo "not on this node (left out): ${missing[*]}"
+# [FULL_TAR_SAYS_ITS_RELEASE_V1] the tarball carries THIS node's FrogNet: say which release that is, and say it loudly
+# when this node has no release stamp (a node installed from such a tarball has no /opt/frognet_semantic/BUILD either,
+# and its monitor says "/opt/frognet_semantic/BUILD: cannot be read"). Reported, not refused.
+if [ -f "$ROOT/opt/frognet_semantic/BUILD" ]; then
+    echo "release: $(grep -vE '^#' "$ROOT/opt/frognet_semantic/BUILD" | tr '\n' ' ')"
+else
+    echo "WARNING: this node has no /opt/frognet_semantic/BUILD: the tarball carries no release stamp. Make it on a node" >&2
+    echo "         whose FrogNet was installed by the current installer (it writes BUILD), or the target's monitor says so." >&2
+fi

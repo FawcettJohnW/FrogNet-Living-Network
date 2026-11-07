@@ -66,7 +66,7 @@ from core.tokens import TokenStore
 from core.semcache_wire import (
     try_parse,
     wrap_resp_same, wrap_resp_diff, wrap_resp_raw, wrap_req_miss, wrap_error,
-    OP_REQ_FULL, OP_REQ_REPEAT, OP_REQ_RAW, OP_REQ_DIFF, OP_ERROR,
+    OP_REQ_FULL, OP_REQ_REPEAT, OP_REQ_RAW, OP_REQ_DIFF, OP_ERROR, OP_REQ_SAME_MISS,
     OP_HELLO,                                                # ---- ADDED ----
     op_name
 )
@@ -939,8 +939,35 @@ class SemanticSession:
             return self._handle_req_diff(msg.req_hash, msg.payload, emit, prepared)
         elif msg.op == OP_REQ_RAW:
             return self._handle_req_raw(msg.req_hash, msg.payload)
+        elif msg.op == OP_REQ_SAME_MISS:
+            return self._handle_req_same_miss(msg.same_id, emit)
         else:
             return wrap_error(400, f"unknown FNW1 op: {msg.op}")
+
+    def _handle_req_same_miss(self, same_id: bytes, emit=_NO_EMIT) -> bytes:
+        """[SAME_MISS_FROM_CACHE_V1] The proxy does not hold the answer a RESP_SAME named. Answer it from the cache;
+        run nothing. A semantic answer goes as RESP_DIFF against NO reference: this side's response reference for the
+        instance is not moved: the proxy clears its own and decodes this, which is the move a SAME hit makes."""
+        a = semcache_db.answer_get(same_id)
+        if a is None:
+            return wrap_error(410, "REQ_SAME_MISS: the answer RESP_SAME named is no longer held; the request was not run again")
+        if a[0] == "raw":
+            _, status, headers_bytes, body = a
+            return wrap_resp_raw(same_id, status, headers_bytes, body)
+        if a[0] == "sem":
+            # encoded against NO reference, and the daemon's own reference left exactly as it is: later replies of
+            # this instance may already have been encoded against it (the proxy applies them after this, in turn)
+            _, resp_opcode, inst, dyn_vals, type_map = a
+            _cur = _get_response_reference(self.peer_ip, resp_opcode, inst)
+            _clear_response_reference(self.peer_ip, resp_opcode, inst)
+            try:
+                wire_resp = _diff_encode_response(self.peer_ip, resp_opcode, inst, dyn_vals, type_map or {})
+            finally:
+                if _cur is None: _clear_response_reference(self.peer_ip, resp_opcode, inst)
+                else: _set_response_reference(self.peer_ip, resp_opcode, inst, _cur)
+        else:
+            wire_resp = a[1]
+        return wrap_resp_diff(same_id, wire_resp)
 
     # [SAME_IS_BACK_V1] Restored dispatcher. The purge stub returned REQ_MISS
     # unconditionally -- "Nothing is kept, so the honest answer is always
@@ -1044,7 +1071,8 @@ class SemanticSession:
         if cached is not None:
             _, old_raw_hash, old_same_id, _ = cached
             if (old_raw_hash and new_raw_hash == old_raw_hash
-                    and old_same_id and len(old_same_id) == 16):
+                    and old_same_id and len(old_same_id) == 16
+                    and semcache_db.answer_held(old_same_id)):   # [SAME_MISS_FROM_CACHE_V1]
                 _debug(f"{req_type}->RESP_SAME(raw) for {req_hash.hex()}")
                 reply = wrap_resp_same(old_same_id)
                 bump_daemon_cache(
@@ -1062,6 +1090,7 @@ class SemanticSession:
         if status < 400:
             # [SAME_CACHE_IS_MEMORY_ONLY_V1] LRU only; see the REQ_FULL writer.
             semcache_db._lru_put(req_hash, (sem_req, new_raw_hash, new_same_id, True))
+            semcache_db.answer_put(new_same_id, ("raw", status, headers_bytes, body), len(body))   # [SAME_MISS_FROM_CACHE_V1]
         else:
             _debug(f"SKIP CACHE: status={status} for {req_hash.hex()}")
 
@@ -1141,7 +1170,7 @@ class SemanticSession:
         new_raw_hash = response_body_hash(dyn_vals, status)
         exec_ms = (time.time() - t0) * 1000
 
-        if new_raw_hash == old_raw_hash:
+        if new_raw_hash == old_raw_hash and semcache_db.answer_held(old_same_id):   # [SAME_MISS_FROM_CACHE_V1]
             # Response unchanged - RESP_SAME
             emit.begin()                                 # [REFERENCES_MOVE_IN_WIRE_ORDER_V1]
             if dyn_vals is not None and resp_opcode is not None:
@@ -1178,6 +1207,7 @@ class SemanticSession:
             if status < 400:
                 # [SAME_CACHE_IS_MEMORY_ONLY_V1] LRU only; see the REQ_FULL writer.
                 semcache_db._lru_put(req_hash, (sem_req, new_raw_hash, new_same_id, False))
+                semcache_db.answer_put(new_same_id, ("sem", resp_opcode, inst, dyn_vals, type_map) if (dyn_vals is not None and resp_opcode is not None) else ("blob", sem_resp), len(sem_resp))   # [SAME_MISS_FROM_CACHE_V1]
             else:
                 _debug(f"SKIP CACHE: status={status} for {req_hash.hex()}")
             _debug(f"REQ_REPEAT->RESP_DIFF for {req_hash.hex()}")
@@ -1237,7 +1267,7 @@ class SemanticSession:
         exec_ms = (time.time() - t0) * 1000
         headers_bytes = _serialize_headers(resp_headers if isinstance(resp_headers, dict) else {})
 
-        if new_raw_hash == old_raw_hash:
+        if new_raw_hash == old_raw_hash and semcache_db.answer_held(old_same_id):   # [SAME_MISS_FROM_CACHE_V1]
             _debug(f"REQ_REPEAT(raw)->RESP_SAME for {req_hash.hex()}")
             reply = wrap_resp_same(old_same_id)
             bump_daemon_cache(
@@ -1262,6 +1292,7 @@ class SemanticSession:
             else:
                 # [SAME_CACHE_IS_MEMORY_ONLY_V1] LRU only; see the REQ_FULL writer.
                 semcache_db._lru_put(req_hash, (http_req, new_raw_hash, new_same_id, True))
+                semcache_db.answer_put(new_same_id, ("raw", status, headers_bytes, resp_body_bytes), len(resp_body_bytes))   # [SAME_MISS_FROM_CACHE_V1]
             _debug(f"REQ_REPEAT(raw)->RESP_DIFF for {req_hash.hex()}")
             reply = wrap_resp_raw(new_same_id, status, headers_bytes, resp_body_bytes)
             bump_daemon_cache(
@@ -1396,6 +1427,7 @@ class SemanticSession:
             # [SAME_CACHE_IS_MEMORY_ONLY_V1] (req_blob, raw_hash, same_id,
             # is_raw) -- the exact tuple lookup_for_repeat returns.
             semcache_db._lru_put(req_hash, (sem_req, new_raw_hash, sid, False))
+            semcache_db.answer_put(sid, ("sem", resp_opcode, inst, dyn_vals, type_map) if (dyn_vals is not None and resp_opcode is not None) else ("blob", sem_resp), len(sem_resp))   # [SAME_MISS_FROM_CACHE_V1]
         else:
             _debug(f"SKIP CACHE: status={status} for {req_hash.hex()}")
 
@@ -1571,7 +1603,8 @@ class SemanticSession:
         if cached:
             _, old_raw_hash, old_same_id, _ = cached
             if (old_raw_hash and new_raw_hash == old_raw_hash
-                    and old_same_id and len(old_same_id) == 16):
+                    and old_same_id and len(old_same_id) == 16
+                    and semcache_db.answer_held(old_same_id)):   # [SAME_MISS_FROM_CACHE_V1]
                 emit.begin()                             # [REFERENCES_MOVE_IN_WIRE_ORDER_V1]
                 if dyn_vals is not None and resp_opcode is not None:
                     new_ref = {k: v for k, v in dyn_vals}
@@ -1639,6 +1672,7 @@ class SemanticSession:
             # [SAME_CACHE_IS_MEMORY_ONLY_V1] (req_blob, raw_hash, same_id,
             # is_raw) -- the exact tuple lookup_for_repeat returns.
             semcache_db._lru_put(req_hash, (_req_blob, new_raw_hash, sid, False))
+            semcache_db.answer_put(sid, ("sem", resp_opcode, inst, dyn_vals, type_map) if (dyn_vals is not None and resp_opcode is not None) else ("blob", sem_resp), len(sem_resp))   # [SAME_MISS_FROM_CACHE_V1]
         else:
             _debug(f"SKIP CACHE: status={status} for {req_hash.hex()}")
 

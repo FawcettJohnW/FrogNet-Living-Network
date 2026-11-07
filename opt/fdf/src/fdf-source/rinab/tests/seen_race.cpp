@@ -1,11 +1,11 @@
 // seen_race.cpp -- does the RAM host answer one session with another session's result?
-// `seen` answers "the address this session arrives from" (rina_region.cpp:515-520). Each thread opens its own session
+// `seen` answers "the address this session arrives from" (fdf_region.cpp:515-520). Each thread opens its own session
 // and asks `seen` ITERS times; every answer must be this process's own source address (SRC_IP). Run two copies at once
 // from different source addresses (srcbind.so). A wrong answer means an identical request from another session was
 // executed once and its answer handed to this one ([HOST_COALESCE_V1]).
 // build/run: tools/memory-order-check.sh
 // usage: seen_race HOST:PORT THREADS ITERS   (env SRC_IP = expected address)
-#include "rina_region_client.hpp"
+#include "fdf_region_client.hpp"
 #include <atomic>
 #include <cstdio>
 #include <thread>
@@ -17,7 +17,7 @@ int main(int argc, char** argv) {
     std::vector<std::thread> ts;
     for (int t = 0; t < threads; ++t) ts.emplace_back([&] {
         try {
-            rina_region::Client c(where);
+            fdf_region::Client c(where);
             ++ready; while (ready.load() < threads) std::this_thread::yield();   // all sessions up, then all ask at once
             for (int i = 0; i < iters; ++i) {
                 frogram::Json r = c.call("{\"op\":\"seen\"}");

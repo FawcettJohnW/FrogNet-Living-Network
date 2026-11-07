@@ -12,8 +12,15 @@ member must be a WireGuard peer of the hub BEFORE it can reach the region: the h
                                 print the invitation: one line, fdfinv1.<...>, a secret (it holds NAME's private key and
                                 the region's site key). Shown once; give it to NAME's operator by a channel you trust.
                                 The hub adds the peer at once (it watches the admitted directory).
+  fdf-invite NAME --pubkey PUB [--leaf]
+                                [IDENTITY_IS_OWNED_TRUTHS_V1] admit NAME's OWN key (it made it; the private key never
+                                comes here) and print one line, fdfadm1.<...>, that is no secret: the invitation without
+                                a private key, and the region's site key sealed to PUB ([SEALED_TO_ITS_KEY_V1]). Only
+                                the holder of PUB's private key opens it (fdf-identity does, and makes the fdfinv1 line).
   fdf-invite NAME --revoke      NAME is no longer admitted: its peer goes from the hub now.
   fdf-invite --list             who is admitted, with edge and key.
+  --area AREA                   which region, when this machine holds more than one ([REGIONS_PER_MACHINE_V1]);
+                                its members' edges come from one pool for the whole machine
 
 On the member:  fdf-region-join fdfinv1.<...>      (or the installer's --invite fdfinv1.<...>)
 Its first packet to the Internet is a WireGuard handshake to the hub's UDP port; everything else -- the region's
@@ -27,10 +34,13 @@ import subprocess
 import sys
 import time
 
-HUBENV = os.environ.get("FDF_HUB_ENV", "/opt/fdf/hub/hub.env")          # (tests point these elsewhere)
-ADMITTED = os.environ.get("FDF_ADMITTED", "/opt/fdf/hub/admitted")
+sys.path.insert(0, os.environ.get("FDF_PY", "/opt/fdf/lib/python"))
+import fdf_regions  # noqa: E402  [REGIONS_PER_MACHINE_V1]
+import fdf_seal  # noqa: E402  [SEALED_TO_ITS_KEY_V1]
+HUBENV = os.environ.get("FDF_HUB_ENV", "")          # set: that region (its units, tests); else --area, or the one held here
+ADMITTED = os.environ.get("FDF_ADMITTED", "")
 SITE_KEYS = os.environ.get("FDF_SITE_KEYS", "/opt/fdf/var")
-HUB_ADDR = "10.253.253.254"
+HUB_ADDR = "10.253.253.254"           # [HUB_ADDRESS_FROM_ITS_HOST_V1] set in main from hub.env (FDF_HUB_ADDR)
 
 
 def die(msg, rc=1):
@@ -64,16 +74,6 @@ def admitted():
     return out
 
 
-def free_edge(taken):
-    """The first edge address no admitted member holds: 10.253.X.Y, X 1..252, Y 1..254 (10.253.253.0/24 is the hub's)."""
-    for x in range(1, 253):
-        for y in range(1, 255):
-            a = "10.253.%d.%d" % (x, y)
-            if a not in taken:
-                return a
-    die("no edge address left in 10.253.0.0/16")
-
-
 def write_admitted(name, rec):
     os.makedirs(ADMITTED, exist_ok=True)
     os.chmod(ADMITTED, 0o700)
@@ -86,12 +86,21 @@ def write_admitted(name, rec):
 
 
 def main():
+    global HUBENV, ADMITTED, HUB_ADDR
     a = sys.argv[1:]
+    want = ""
+    if "--area" in a:
+        i = a.index("--area"); want = a[i + 1] if i + 1 < len(a) else ""; del a[i:i + 2]
     if not a or a[0] in ("-h", "--help"):
         print(__doc__.strip()); return 0
     if os.geteuid() != 0:
         die("run as root")
+    if not HUBENV:
+        HUBENV, ADMITTED, why = fdf_regions.pick(want)
+        if why:
+            die(why)
     h = env(HUBENV)
+    HUB_ADDR = fdf_regions.hub_addr(h)          # [HUB_ADDRESS_FROM_ITS_HOST_V1] this region's hub, from its hub.env
     area = h.get("FDF_AREA", "")
     iface = h.get("FDF_IFACE") or "wg-" + area.replace(".", "-")
     if a[0] == "--list":
@@ -109,6 +118,15 @@ def main():
         print("fdf-invite: %s revoked; the hub removes its peer now" % name)
         return 0
     kind = "leaf" if "--leaf" in a[1:] else "node"
+    given = ""
+    if "--pubkey" in a[1:]:
+        i = a.index("--pubkey"); given = a[i + 1] if i + 1 < len(a) else ""
+        try:
+            ok = len(base64.b64decode(given, validate=True)) == 32
+        except ValueError:
+            ok = False
+        if not ok:
+            die("--pubkey '%s': a WireGuard public key (base64 of 32 bytes)" % given, 2)
     ram = h.get("RINA_RAM", "")
     if not ram.startswith(HUB_ADDR + ":"):
         die("hub.env says RINA_RAM=%s: this region's RAM manager is not inside its tunnel ([RAM_IN_THE_TUNNEL_V1]); "
@@ -123,19 +141,29 @@ def main():
         die("`wg show %s public-key` gave nothing: is fdf-hub running? (journalctl -u fdf-hub)" % iface)
     have = admitted()
     old = have.pop(name, None)
-    edge = old["edge"] if old else free_edge({r.get("edge") for r in have.values()})
-    old_umask = os.umask(0o077)
-    try:
-        priv = subprocess.run(["wg", "genkey"], capture_output=True, text=True, check=True).stdout.strip()
-    finally:
-        os.umask(old_umask)
-    pub = subprocess.run(["wg", "pubkey"], input=priv, capture_output=True, text=True, check=True).stdout.strip()
+    edge = old["edge"] if old else fdf_regions.free_edge({r.get("edge") for r in have.values()})   # one pool per machine
+    if given:
+        priv, pub = "", given                       # its own key: nothing secret is made here
+    else:
+        old_umask = os.umask(0o077)
+        try:
+            priv = subprocess.run(["wg", "genkey"], capture_output=True, text=True, check=True).stdout.strip()
+        finally:
+            os.umask(old_umask)
+        pub = subprocess.run(["wg", "pubkey"], input=priv, capture_output=True, text=True, check=True).stdout.strip()
     write_admitted(name, {"name": name, "pubkey": pub, "edge": edge, "kind": kind,
                           "invited": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())})
     inv = {"v": 1, "area": area, "site_key": site_key, "ram": ram,
            "hub": {"name": h.get("FDF_HUB_NAME", ""), "pubkey": hub_pub, "endpoint": h.get("FDF_ENDPOINT", ""),
                    "addr": HUB_ADDR},
            "member": {"name": name, "edge": edge, "kind": kind, "privkey": priv}}
+    if given:
+        inv["site_key"] = ""
+        adm = {"inv": inv, "site_key_sealed": fdf_seal.seal(pub, site_key.encode())}
+        print("fdf-invite: %s admitted%s with its own key: edge %s, key %s; the hub adds its peer now" %
+              ("%s" % name, " again (its old key is revoked)" if old else "", edge, pub))
+        print("fdfadm1." + base64.urlsafe_b64encode(json.dumps(adm, separators=(",", ":")).encode()).decode().rstrip("="))
+        return 0
     tok = "fdfinv1." + base64.urlsafe_b64encode(json.dumps(inv, separators=(",", ":")).encode()).decode().rstrip("=")
     print("fdf-invite: %s admitted%s: edge %s, key %s; the hub adds its peer now" %
           (name, " again (its old key is revoked)" if old else "", edge, pub))

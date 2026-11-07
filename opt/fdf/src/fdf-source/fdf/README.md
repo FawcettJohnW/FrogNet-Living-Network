@@ -20,7 +20,7 @@ made before the cleanup; none has been re-run on this build.
 | one node in two ponds, the forward pond switched | ponds-daemon PASS, 21 (T5) | — | — |
 | reach across ponds: aliases, quarantine, `resolve`, ambiguity refused | reach PASS, 70 (T5) | — | not run (one pond on hardware) |
 | the region view on the node's Apache at `/fdf/` | — | G3 PASS: 200 on :8080 and :80, members listed (T5b) | — |
-| Windows bridge (`windows/bridge`, fdf-kt a15, fdf-tun b11) | the same Kotlin member, reach stage 7 | — | on the mesh, and off it as a leaf via the hub; ping and ssh to a node (before the cleanup) |
+| Windows bridge (`make_package.sh`'s zip; fdf-kt a15, fdf-tun b11 when run) | the same Kotlin member, reach stage 7 | — | on the mesh, and off it as a leaf via the hub; ping and ssh to a node (before the cleanup) |
 | Android app (a15, fdf-tun b11) | fdf-tun suite; member selftest | — | a handset joined and reached (before the cleanup). No APK is built or shipped |
 | the Communicator's servers on a node (`fdf-comms.sh`) | the region-loop stage is skipped in the gates | — | not run on a node |
 | the phone and `fdf-bridge.cmd ask comms` finding them from the where cell | reach stage 7 (`ask comms`) | — | not run |
@@ -147,7 +147,7 @@ player's game is told where comms-app is: `--comms-app <communicator>/build/comm
 
 ### Windows: the older client folder
 
-The Windows bridge (this computer in every pond at once) is `windows/bridge`; see its README.txt and
+The Windows bridge (this computer in every pond at once) is built by `src/frognet-android/windows/make_package.sh`; see its README.txt and
 `docs/OPERATING.md`. `windows/README-windows.txt` is the older client folder (`fdf-client.exe <RAM-HOST>:8840`, the
 kart demo, the browser terminal, the monitor) for the 8840 set-ups above.
 
@@ -157,8 +157,8 @@ On a FrogNet node in a region the node's Apache serves /opt/fdf/www/fdf at /fdf/
 fdf_dashboard.html); its PHP runs as www-data under /opt/fdf/fdf.env, read on each request. On a machine that is not a
 FrogNet node, serve the same directory with
 `. /opt/fdf/fdf.env && PHP_CLI_SERVER_WORKERS=4 php -S 0.0.0.0:8090 -t /opt/fdf/www` and open
-`http://<that machine>:8090/fdf/`. `/fdf/chat.html` needs `. /opt/fdf/fdf.env && python3 /opt/fdf/bin/chat-service.py`
-on the same machine.
+`http://<that machine>:8090/fdf/`. `/fdf/chat.html` needs nothing else: each message is its sender's own
+`(chat, msg, <sender>.<ms>)` cell and the room is that family, read held in its write order ([ROOM_IS_THE_FAMILY_V1]).
 
 ### Join a network, list it, and log in from a browser ([FDF_JOIN_V1] [FDF_LS_V1] [FDF_TERM_V1] [FDF_BROWSER_V1])
 

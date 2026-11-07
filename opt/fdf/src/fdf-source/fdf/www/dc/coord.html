@@ -1,0 +1,85 @@
+<!doctype html>
+<html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Coordination</title><link rel="stylesheet" href="dc.css"></head>
+<body>
+<header><a href="index.html">◂</a><h1>Coordination</h1><a href="../fdf/chat.html" target="_blank">Chat ▸</a></header>
+<main>
+  <section class="card"><div class="filters">
+      <div><label>Coordinator (your name, used in chat)</label><input id="me" placeholder="dispatch-1"></div>
+      <div><label>Responder needs</label><select id="fcap"><option value="">Any capability</option></select></div>
+      <div><label>Hospital needs</label><select id="hcap"><option value="">Any capability</option></select></div></div></section>
+  <div class="cols cols3" style="display:grid;gap:16px">
+    <section class="card"><h2>1 · Open requests</h2><div class="list" id="reqs"></div></section>
+    <section class="card"><h2>2 · Nearest available responders</h2><div class="list" id="units"><div class="meta">Pick a request.</div></div></section>
+    <section class="card"><h2>3 · Receiving hospitals near it</h2><div class="list" id="hosps"><div class="meta">Pick a request.</div></div></section>
+  </div>
+  <section class="card"><h2>4 · Assign</h2><div id="plan" class="meta">Pick a request, a responder and (if transport) a hospital.</div>
+    <label>Note to the team</label><input id="note">
+    <button id="assign" disabled>Assign and tell the chat</button><div class="say" id="say"></div></section>
+</main>
+<script src="dc.js"></script>
+<script>
+// [DC_APPS_V1] the first demonstration in one screen: a request -> the nearest available responder -> a receiving
+// hospital -> help.action.<rid>~<unit> (the assignment, the coordinator's own cell) and a line in the chat room.
+const RCAPS = ['ALS', 'BLS', 'transport', 'rescue', 'fire', 'search', 'medical-team', 'water', 'generator', 'heavy-equipment', 'translation'];
+const HCAPS = ['trauma', 'burn', 'peds', 'cardiac', 'stroke', 'obstetric', 'dialysis', 'psych', 'decon', 'surgery'];
+const SUGGEST = { medical: 'ALS', trapped: 'rescue', evacuation: 'transport', water: 'water', power: 'generator' };   // a starting point the coordinator can change
+document.getElementById('fcap').innerHTML += RCAPS.map(n => `<option>${n}</option>`).join('');
+document.getElementById('hcap').innerHTML += HCAPS.map(n => `<option>${n}</option>`).join('');
+const meEl = document.getElementById('me'); meEl.value = DC.remember('coordinator') || '';
+const say = (t, bad) => { const e = document.getElementById('say'); e.textContent = t; e.className = 'say' + (bad ? ' err' : ''); };
+let requests = new Map(), actions = new Map(), units = new Map(), hosps = new Map(), sel = { r: null, u: null, h: null };
+
+const busyUnits = () => { const last = new Map();   // a unit's newest action decides whether it is still committed
+  for (const a of actions.values()) { const u = a.instance.split('~')[1]; const o = last.get(u); if (!o || (o.bag.at || 0) < (a.bag.at || 0)) last.set(u, a); }
+  return new Set([...last].filter(([, a]) => ['assigned', 'en-route', 'on-scene', 'transported'].includes(a.bag.action)).map(([u]) => u)); };
+
+function draw() {
+  const reqs = [...requests.values()].filter(c => c.bag.status === 'open').sort((a, b) => (a.bag.at || 0) - (b.bag.at || 0));
+  document.getElementById('reqs').innerHTML = reqs.length ? reqs.map(c => { const b = c.bag; const acts = [...actions.values()].filter(a => a.instance.startsWith(c.instance + '~'));
+    return `<div class="item pick ${sel.r === c.instance ? 'sel' : ''}" data-r="${DC.esc(c.instance)}"><div class="top"><span>${DC.esc(b.name)} <span class="meta">(${b.people || 1})</span></span><span class="meta">${DC.age(b.at)}</span></div>
+      <div>${(b.needs || []).map(n => `<span class="pill">${DC.esc(n)}</span>`).join('')}</div><div class="meta">${DC.esc(DC.where(b.location))}</div>
+      ${acts.map(a => `<div class="meta">↳ <span class="s-${DC.esc(a.bag.action)}">${DC.esc(a.bag.action)}</span> ${DC.esc(a.bag.unit)}</div>`).join('')}</div>`; }).join('') : '<div class="meta">No open requests.</div>';
+  const r = sel.r && requests.get(sel.r);
+  if (r) {
+    const busy = busyUnits(), cap = document.getElementById('fcap').value;
+    const us = [...units.values()].filter(c => c.bag.available && !busy.has(c.instance) && (!cap || (c.bag.caps || []).includes(cap)))
+      .map(c => ({ c, k: DC.km(r.bag.location, c.bag.location) })).sort((a, b) => (a.k ?? 1e9) - (b.k ?? 1e9)).slice(0, 8);
+    document.getElementById('units').innerHTML = us.length ? us.map(({ c, k }) => `<div class="item pick ${sel.u === c.instance ? 'sel' : ''}" data-u="${DC.esc(c.instance)}"><div class="top"><span>${DC.esc(c.bag.unit)} <span class="meta">${DC.esc(c.bag.kind)}</span></span><span>${DC.dist(k)}</span></div>
+      <div>${(c.bag.caps || []).map(n => `<span class="pill">${DC.esc(n)}</span>`).join('')}</div><div class="meta">${DC.esc(DC.where(c.bag.location))} · ${DC.age(c.bag.at)}</div></div>`).join('') : '<div class="meta">No available responder matches.</div>';
+    const hcap = document.getElementById('hcap').value;
+    const hs = [...hosps.values()].filter(c => ['open', 'limited'].includes(c.bag.receiving) && (!hcap || (c.bag.caps || []).includes(hcap)))
+      .map(c => ({ c, k: DC.km(r.bag.location, c.bag.location) })).sort((a, b) => (a.k ?? 1e9) - (b.k ?? 1e9)).slice(0, 8);
+    document.getElementById('hosps').innerHTML = hs.length ? hs.map(({ c, k }) => { const bd = c.bag.beds || {};
+      return `<div class="item pick ${sel.h === c.instance ? 'sel' : ''}" data-h="${DC.esc(c.instance)}"><div class="top"><span>${DC.esc(c.bag.name)}</span><span>${DC.dist(k)}</span></div>
+      <div><span class="s-${DC.esc(c.bag.receiving)}">${DC.esc(c.bag.receiving)}</span> · ER ${bd.er || 0} · ICU ${bd.icu || 0} · Gen ${bd.general || 0} · Peds ${bd.peds || 0}</div>
+      <div>${(c.bag.caps || []).map(n => `<span class="pill">${DC.esc(n)}</span>`).join('')}</div></div>`; }).join('') : '<div class="meta">No receiving hospital matches.</div>';
+  }
+  const u = sel.u && units.get(sel.u), h = sel.h && hosps.get(sel.h);
+  document.getElementById('plan').innerHTML = r ? `<b>${DC.esc(r.bag.name)}</b> (${DC.esc((r.bag.needs || []).join(', '))}) ← ${u ? '<b>' + DC.esc(u.bag.unit) + '</b>' : '<i>pick a responder</i>'}${h ? ' → <b>' + DC.esc(h.bag.name) + '</b>' : ''}` : 'Pick a request, a responder and (if transport) a hospital.';
+  document.getElementById('assign').disabled = !(r && u);
+}
+document.addEventListener('click', ev => { const it = ev.target.closest('.item.pick'); if (!it) return;
+  if (it.dataset.r) { sel = { r: it.dataset.r, u: null, h: null }; const r = requests.get(sel.r); const s = (r.bag.needs || []).map(n => SUGGEST[n]).find(Boolean);
+    document.getElementById('fcap').value = s || ''; }
+  if (it.dataset.u) sel.u = it.dataset.u; if (it.dataset.h) sel.h = sel.h === it.dataset.h ? null : it.dataset.h; draw(); });
+for (const id of ['fcap', 'hcap']) document.getElementById(id).onchange = draw;
+document.getElementById('assign').onclick = async () => {
+  const me = meEl.value.trim(); if (!/^[A-Za-z0-9_.-]{1,40}$/.test(me)) { say('Give your coordinator name (letters, digits, _ . -).', true); return; }
+  DC.remember('coordinator', me);
+  const r = requests.get(sel.r), u = units.get(sel.u), h = sel.h && hosps.get(sel.h), note = document.getElementById('note').value.trim();
+  const bag = { unit: u.bag.unit, action: 'assigned', by: me, hospital: h ? h.bag.name : '', note, at: DC.now() };
+  try {
+    await DC.write('help', 'action', sel.r + '~' + sel.u + '~' + me, bag);
+    const text = `ASSIGNED ${u.bag.unit} -> ${r.bag.name} (${(r.bag.needs || []).join(', ')}) at ${DC.where(r.bag.location) || 'see request'}` + (h ? `; receiving: ${h.bag.name}` : '') + (r.bag.contact ? `; contact ${r.bag.contact}` : '') + (note ? `; ${note}` : '');
+    const fd = new FormData(); fd.append('from', me); fd.append('text', text);
+    const cr = await fetch('../fdf/chat_send.php', { method: 'POST', body: fd }); const cj = await cr.json();
+    say(cr.ok ? 'Assigned, and posted to the chat.' : 'Assigned; the chat did not take it: ' + (cj.error || cr.status), !cr.ok);
+    sel.u = null; document.getElementById('note').value = ''; draw();
+  } catch (e) { say('Not assigned: ' + e.message, true); }
+};
+const err = e => say('RAM: ' + e.message, true);
+DC.watch('help', 'request', c => { requests = c; draw(); }, err); DC.watch('help', 'action', c => { actions = c; draw(); }, err);
+DC.watch('resp', 'unit', c => { units = c; draw(); }, err); DC.watch('hosp', 'status', c => { hosps = c; draw(); }, err);
+</script>
+</body></html>

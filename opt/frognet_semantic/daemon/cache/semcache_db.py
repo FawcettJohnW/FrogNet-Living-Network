@@ -286,6 +286,37 @@ def _lru_put(req_hash: bytes, val) -> None:
             _lru.popitem(last=False)
 
 
+# [SAME_MISS_FROM_CACHE_V1] The answers RESP_SAME may name, by same_id: a proxy that does not hold one asks, and is
+# answered from here -- the request is never run again. Kept beside the REPEAT cache, as many entries as it, and
+# only answers up to SAME_BODY_MAX: SAME is said only for an answer held here (answer_held).
+SAME_BODY_MAX = 64 * 1024
+_answers: "OrderedDict[bytes, tuple]" = OrderedDict()
+
+
+def answer_put(same_id: bytes, answer: tuple, size: int) -> None:
+    """answer: ('raw', status, headers_bytes, body) | ('sem', opcode, inst, dyn_vals, type_map) | ('blob', sem_resp)."""
+    with _lru_lock:
+        if size > SAME_BODY_MAX:
+            _answers.pop(same_id, None); return
+        _answers[same_id] = answer
+        _answers.move_to_end(same_id)
+        while len(_answers) > _LRU_MAX:
+            _answers.popitem(last=False)
+
+
+def answer_get(same_id: bytes):
+    with _lru_lock:
+        a = _answers.get(same_id)
+        if a is not None:
+            _answers.move_to_end(same_id)
+        return a
+
+
+def answer_held(same_id: bytes) -> bool:
+    with _lru_lock:
+        return same_id in _answers
+
+
 def _lru_invalidate(req_hash: bytes) -> None:
     """Drop the cached entry for req_hash (called on every write)."""
     with _lru_lock:

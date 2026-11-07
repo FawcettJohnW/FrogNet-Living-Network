@@ -1,0 +1,27 @@
+<!doctype html>
+<html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>DisasterComm</title><link rel="stylesheet" href="dc.css"></head>
+<body>
+<header><h1>DisasterComm</h1><span class="meta" id="node"></span></header>
+<main>
+  <section class="card"><h2>On this node</h2><div class="tiles" id="mine"></div></section>
+  <section class="card"><h2>Across the connected networks</h2><div class="list" id="others"><div class="meta">Looking…</div></div>
+    <div class="say" id="say"></div></section>
+</main>
+<script src="dc.js"></script>
+<script>
+// [DC_APPS_V1] the launcher: this node's add-ins (apps.json), and what every connected node announces (dc.apps.*)
+(async () => {
+  const say = (t, bad) => { const e = document.getElementById('say'); e.textContent = t; e.className = 'say' + (bad ? ' err' : ''); };
+  const apps = (await (await fetch('apps.json')).json()).apps;
+  document.getElementById('mine').innerHTML = apps.map(a => `<a class="tile item pick" href="${DC.esc(a.page)}"><div class="top">${DC.esc(a.title)}<span class="meta">v${DC.esc(a.version)}</span></div><div class="meta">${DC.esc(a.about)}</div></a>`).join('');
+  try { const r = await fetch('ram.php?op=announce', { method: 'POST' }); const j = await r.json(); if (!j.ok) throw new Error(j.why + ': ' + (j.output || '')); }
+  catch (e) { say('Could not announce this node\'s add-ins: ' + e.message, true); }
+  DC.watch('dc', 'apps', (cells) => {
+    const rows = [...cells.values()].sort((a, b) => a.instance.localeCompare(b.instance));
+    document.getElementById('others').innerHTML = rows.length ? rows.map(c => `<div class="item"><div class="top">${DC.esc(c.instance)}<span class="meta">${DC.age(c.bag.at)}</span></div>
+      <div>${(c.bag.apps || []).map(a => `<span class="pill">${DC.esc(a.title)} ${DC.esc(a.version)}</span>`).join('')}</div></div>`).join('') : '<div class="meta">No node has announced add-ins yet.</div>';
+  }, e => say('RAM: ' + e.message, true));
+})();
+</script>
+</body></html>

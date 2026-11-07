@@ -5,7 +5,7 @@
 // hold a read). Nothing here adds anything to the memory or to a host: each function is writes into the caller's own
 // space and held reads of others'. Generalized from what the Redis and MQTT conversions each built by hand.
 //
-// Publish/subscribe here is NOT a broker and is not built the way traditional publish/subscribe is: there is no
+// Publish/subscribe here has no message server and is not built the way traditional publish/subscribe is: there is no
 // subscription list, no fan-out server, no acknowledgement, no queue. A publish is a write into the publisher's own
 // cells; a subscription is a read held on a family. It is offered for convenience only -- a program that thinks in
 // topics can start here. Users are encouraged to explore the proper architectures: each producer writing its truth
@@ -26,9 +26,27 @@
 #include <memory>
 #include <string>
 #include <vector>
+#include <utility>
 #include "ribbit_space.hpp"
 
 namespace ribbit::pp {
+
+// ---- connection lifetime -----------------------------------------------------------------------------
+// Owns an existing Space session; no global connection and no core changes.
+// Finish operations and destroy Space borrowers before disconnecting. As with
+// Space, active watches require their session to remain alive (no cancel API).
+class RibbitConnection {
+public:
+    RibbitConnection() = default;
+    RibbitConnection(const RibbitConnection&) = delete;
+    RibbitConnection& operator=(const RibbitConnection&) = delete;
+    void ConnectRibbit(const std::string& where, const std::string& vendor);
+    void DisconnectRibbit(); // idempotent; base Space flush/destruction semantics
+    bool IsConnected() const noexcept { return bool(space_); }
+    Space& GetSpace() const; // throws logic_error while disconnected
+private:
+    std::unique_ptr<Space> space_;
+};
 
 // ---- publish / subscribe ----------------------------------------------------------------------------------------
 // A publish on a topic is cell (space, topic, <writer>.<n mod ring>); its bag is the caller's fields and two of
@@ -72,6 +90,53 @@ struct Capable { uint64_t id = 0; std::string capability, who; ribbit::BagArrP a
 // participant's session ended and its announcement went with it ([GONE_WITH_ITS_WRITER_V1]).
 void capable(Space& sp, const std::string& directory, std::function<bool(const std::string& capability)> match,
              std::function<void(const Capable&)> on);
+
+// ---- tuple interface [TUPLE_INTERFACE_PP_V1] ----------------------------------------------------------------------
+// Coordinates are independent strings, never concatenated. Empty B/C select a
+// family on reads; A must name a space. Writes require all three coordinates.
+struct TupleName { std::string indexA, indexB, indexC; };
+using JsonBag = pyv::Obj; // the platform's JSON value type; these APIs require object roots
+using TupleWrite = std::pair<TupleName, JsonBag>;
+
+class Tuple {
+public:
+    explicit Tuple(Space& space) : space_(space) {}
+    virtual ~Tuple() = default;
+    static JsonBag ParseBag(const std::string& json);
+    void Set(const TupleName& name, const JsonBag& bag);
+    // Validate/serialize all entries first, then submit independent writes in
+    // input order. Not atomic; a transport error can leave earlier writes applied.
+    void SetMany(const std::vector<TupleWrite>& writes);
+    bool Exists(const TupleName& name) const; // presence, including explicit inactive truth
+    // Predicate sees a full current snapshot, never just a changed-row batch.
+    // Result is the usual JSON bag plus matched/timed_out flags. No polling.
+    JsonBag WaitUntil(const TupleName& name, std::function<bool(const JsonBag&)> predicate,
+                      double timeout_s = 30) const;
+    // All read results are JSON bags: {rows:[{name:{indexA,indexB,indexC},
+    // bag:<object or null when gone>,id:<write order>,gone:<bool>}],after:<id>}.
+    // Empty rows mean absent/timeout, distinct from a present empty bag.
+    JsonBag Get(const TupleName& name) const;
+    JsonBag HeldRead(const TupleName& name, uint64_t& after, double wait_s = 25) const;
+    // Existing tuples, then held changes, without a snapshot/hold gap. A callback
+    // gets a JSON bag, not a provider object. Space and callback state must outlive
+    // the watch (as with Space::watch). No callback captures this Tuple object.
+    void Watch(const TupleName& name, std::function<void(const JsonBag&)> on) const;
+protected:
+    Space& space_;
+};
+
+class Capability : public Tuple {
+public:
+    using Tuple::Tuple;
+    void SetCapability(const TupleName& name, const JsonBag& bag);
+    void WithdrawCapability(const TupleName& name);
+    bool CheckCapability(const TupleName& name) const;
+    JsonBag GetCapability(const TupleName& name) const;
+    JsonBag EnumerateCapabilities(const TupleName& name, bool include_inactive = false) const;
+    // Updates, explicit withdrawal and session loss are all reported; malformed
+    // capability state is excluded. Names are tuples/families, results JSON bags.
+    void WatchCapabilities(const TupleName& name, std::function<void(const JsonBag&)> on) const;
+};
 
 // ---- the last value -----------------------------------------------------------------------------------------------
 // (space, topic, <writer>): the writer's own last value on the topic

@@ -38,12 +38,16 @@
 #        --ip   <10.X.Y.1> \
 #        [--lan-iface <IFACE>]                      # the interface this node serves
 #        [--invite fdfinv1.<...>]                   # join the FD&F region that invited it
+#   sudo bash frognet_install.sh fdfjoin1.<...>      # [ORG_NODE_JOIN_V1] an organization's node: its level's line
 #        [--no-ssid-projection]                     # disable AP fallback
 #   sudo bash frognet_install.sh --uninstall [--keep-identity] [--keep-db]
 #
 # Args (all optional; missing values fall through to interactive prompt):
 #   --name <NODE>            Node name. Letters, numbers, _, -.
 #   --ip   <10.X.Y.1>        Gateway IP. Must end in .1.
+#   --ram-port <PORT>        [RAM_PORT_CONFIGURABLE_V1] the port this node's RAM host (the SystemRam, when elected)
+#                            listens on, 1024..65535; the same on every FrogNetHost of a network. Asked when not given;
+#                            the answer kept in /etc/frognet/ram_port (default 8841, or what that file says already).
 #   --lan-iface <IFACE>      The wired interface this node SERVES (its 10.X.Y.1/24,
 #                            dnsmasq, DHCP). Omitted -> the first wired interface
 #                            that is not the uplink. The uplink (the interface the
@@ -55,6 +59,11 @@
 #                            on the region's machine prints it (a secret: it holds this
 #                            node's WireGuard key and the region's site key).
 #                            Omitted: the node is LAN-only. [ADMITTED_BY_INVITE_V1]
+#   fdfjoin1.<...> | --join fdfjoin1.<...>
+#                            [ORG_NODE_JOIN_V1] the organization's join line for this node's level
+#                            (fdf-setup / fdf-org line LEVEL printed it): the node logs in at every
+#                            RAM manager on it (user and password asked when the level has one) and
+#                            its tunnel daemon walks them (opt/fdf/docs/ORGANIZATIONS.md).
 #   --uninstall              Remove FrogNet from this machine: everything the reset
 #                            removes (frognet_reset.sh), and also the region
 #                            membership and /opt/fdf, the crontab lines, froguser,
@@ -65,8 +74,9 @@
 #   --keep-db                With --uninstall: keep the FrogNet database.
 #   --no-reboot              Do everything, then stop instead of rebooting (the
 #                            node starts its services on the next boot).
-#   --db-pass <PASS>         FrogUser DB password. SHARED pond-wide constant:
-#                            every node must use the SAME value. Omit to be
+#   --db-pass <PASS>         FrogUser DB password, this node's own (api.php
+#                            connects to 127.0.0.1; nodes never use each other's).
+#                            One value across a pond is a convenience. Omit to be
 #                            prompted (hidden, entered twice). A value on the
 #                            command line is visible in `ps` to local users
 #                            while the installer runs; prefer the prompt.
@@ -148,6 +158,7 @@ WORLD_TGZ="${SCRIPT_DIR}/frognet_world.tgz"
 ###############################################################################
 ARG_NAME=""
 ARG_IP=""
+ARG_RAM_PORT=""
 ARG_DB_PASS=""
 ARG_DB_PASS_SET=0
 SSID_PROJECTION=1
@@ -179,6 +190,8 @@ while [[ $# -gt 0 ]]; do
         --name=*)            ARG_NAME="${1#*=}";   shift   ;;
         --ip)                ARG_IP="$2";          shift 2 ;;
         --ip=*)              ARG_IP="${1#*=}";     shift   ;;
+        --ram-port)          ARG_RAM_PORT="$2";    shift 2 ;;
+        --ram-port=*)        ARG_RAM_PORT="${1#*=}"; shift ;;
         --db-pass)           ARG_DB_PASS="$2"; ARG_DB_PASS_SET=1; shift 2 ;;
         --db-pass=*)         ARG_DB_PASS="${1#*=}"; ARG_DB_PASS_SET=1; shift ;;
         --preserve)          PRESERVE=1; shift ;;
@@ -195,6 +208,8 @@ while [[ $# -gt 0 ]]; do
         --lan-iface)         LAN_IFACE="$2"; shift 2 ;;
         --lan-iface=*)       LAN_IFACE="${1#*=}"; shift ;;
         --invite)            REGION_INV="$2"; shift 2 ;;
+        --join)              REGION_INV="$2"; shift 2 ;;
+        fdfjoin1.*)          REGION_INV="$1"; shift ;;
         --invite=*)          REGION_INV="${1#*=}"; shift ;;
         --region|--region=*|--site-key|--site-key=*|--area|--area=*)
             echo "ERROR: $1: a region is joined by invitation now (--invite fdfinv1.<...>; fdf-invite NAME on the region's machine prints it) [ADMITTED_BY_INVITE_V1]" >&2; exit 2 ;;
@@ -245,9 +260,10 @@ fi
 FDF_RUN=""
 REGION_RAM=""; REGION_AREA=""
 if [[ -n "${REGION_INV:-}" ]]; then
-    [[ "$REGION_INV" == fdfinv1.* ]] || { echo "ERROR: --invite must be the fdfinv1.<...> line fdf-invite printed" >&2; exit 1; }
-    # what the invitation names, for the log lines below (the secrets in it are never printed)
-    read -r REGION_AREA REGION_RAM < <(python3 -c 'import base64,json,sys; t=sys.argv[1][8:]; i=json.loads(base64.urlsafe_b64decode(t+"="*(-len(t)%4))); print(i["area"], i["ram"])' "$REGION_INV" 2>/dev/null) \
+    [[ "$REGION_INV" == fdfinv1.* || "$REGION_INV" == fdfjoin1.* ]] || { echo "ERROR: --invite must be the fdfinv1.<...> line fdf-invite printed (or an organization's fdfjoin1.<...> line)" >&2; exit 1; }
+    # what the invitation or the line names, for the log lines below (the secrets in it are never printed)
+    read -r REGION_AREA REGION_RAM < <(python3 -c 'import base64,json,sys; a=sys.argv[1]; t=a[a.index(".")+1:]; i=json.loads(base64.urlsafe_b64decode(t+"="*(-len(t)%4)))
+print(i["area"], i["ram"]) if a.startswith("fdfinv1.") else print(i["org"], ",".join(m.get("name") or m["endpoint"] for m in i["managers"]))' "$REGION_INV" 2>/dev/null) \
         || { echo "ERROR: --invite does not decode: copy the whole line fdf-invite printed" >&2; exit 1; }
     [[ -n "$REGION_RAM" ]] || { echo "ERROR: --invite does not decode: copy the whole line fdf-invite printed" >&2; exit 1; }
 fi
@@ -348,8 +364,8 @@ fi
 ###############################################################################
 # DB secret: collect ONCE, up front, and treat it as authoritative
 #
-# [INSTALL_DB_PASS_PROMPT_V1] The FrogUser password is a SHARED pond-wide
-# constant. It used to come from whatever literal was baked into the shipped
+# [INSTALL_DB_PASS_PROMPT_V1] The FrogUser password is this node's own (the
+# same one everywhere is a convenience, not a requirement). It used to come from whatever literal was baked into the shipped
 # config.php, and D8 pushed only THAT value into MySQL -- nothing reconciled
 # DB_CONFIG.json or the cache modules. When those disagreed (a release built
 # with --scramble leaves the tokenized __FROGNET_DB_PASS__ behind), MySQL held
@@ -377,7 +393,7 @@ collect_db_pass() {
     exec 3<>/dev/tty
     local p1 p2
     for _try in 1 2 3; do
-        printf '\n  FrogUser DB password (shared across the whole pond).\n' >&3
+        printf '\n  FrogUser DB password (this node'"'"'s own).\n' >&3
         printf '  Input is hidden.\n' >&3
         printf '  Password: ' >&3
         IFS= read -rs p1 <&3 || die "Could not read password from terminal"
@@ -648,14 +664,34 @@ for pkg in "${APT_PACKAGES[@]}"; do
     INSTALL_LIST+=("$pkg")
 done
 log "APT: ${_already} already installed, ${#INSTALL_LIST[@]} to install"
-DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends mariadb-server mariadb-client
+# [MARIADB_ONLY_WHEN_MISSING_V1] MariaDB was handed to apt on EVERY install, so a --preserve run upgraded the node's
+# database server to whatever the archive had that day (Seattle3B 2026-10-20: 10.11.18 -> 10.11.19). The package's
+# preinst stopped mariadb.service; mariadb.socket started the OLD binary again two seconds later (FrogNet's services
+# connect all the time); it never became ready; systemctl restart in the postinst waited 15 min; the unit skips SIGKILL,
+# so the install never got past phase A. Now: an installed MariaDB is left as it is (upgrades are the OS's, done with
+# the node's services stopped), and a missing one is installed with its socket stopped, so nothing can start it
+# half-unpacked. dpkg keeps a locally changed config file instead of asking (--force-confold).
+APT_KEEP_CONF=(-o Dpkg::Options::=--force-confdef -o Dpkg::Options::=--force-confold)
+_maria_missing=()
+for pkg in mariadb-server mariadb-client; do
+    dpkg-query -W -f='${Status}' "$pkg" 2>/dev/null | grep -q "ok installed" || _maria_missing+=("$pkg")
+done
+if (( ${#_maria_missing[@]} )); then
+    systemctl stop mariadb.socket 2>/dev/null || true
+    log "  MariaDB: installing ${_maria_missing[*]} (mariadb.socket stopped while it installs)"
+    DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends "${APT_KEEP_CONF[@]}" "${_maria_missing[@]}" \
+        || die "A: apt-get install ${_maria_missing[*]} failed (output above)"
+    systemctl start mariadb.socket 2>/dev/null || true
+else
+    log "  MariaDB: installed ($(dpkg-query -W -f='${Version}' mariadb-server)); left as it is -- the installer does not upgrade it"
+fi
 INSTALL_NO_MARIA=()
 for pkg in "${INSTALL_LIST[@]}"; do
     [[ "$pkg" == "mariadb-server" || "$pkg" == "mariadb-client" ]] && continue
     INSTALL_NO_MARIA+=("$pkg")
 done
 if (( ${#INSTALL_NO_MARIA[@]} > 0 )); then
-    DEBIAN_FRONTEND=noninteractive apt-get install -y "${INSTALL_NO_MARIA[@]}"
+    DEBIAN_FRONTEND=noninteractive apt-get install -y "${APT_KEEP_CONF[@]}" "${INSTALL_NO_MARIA[@]}"
 else
     log "  All APT packages already present - nothing to do"
 fi
@@ -811,6 +847,17 @@ if (( FROM_REPO )); then
     tar -C "$SCRIPT_DIR" --owner=0 --group=0 --no-recursion -cf - -T "$_NODE_LIST" | tar -C / -xpf - \
         || die "--from-repo: copying the node file set failed"
     log "  copied $(wc -l < "$_NODE_LIST") files"
+    # [ONE_COPY_V1 - John 2026-11-01] "We should not be double committing for anything." The licence and the
+    # root documents are committed once, at the checkout's root, where GitHub and every scanner read them (a
+    # symlinked LICENSE is reported as no licence). [LICENSE_TRAVELS_WITH_THE_WORK_V1] still holds: the node's
+    # copy in /usr/local/share/frognet is laid here, from that one copy, and recorded so --uninstall removes it.
+    for _d in LICENSE COPYRIGHT README.md CLAIMS.md AI_READ_FIRST.md; do
+        [[ -f "${SCRIPT_DIR}/${_d}" ]] || die "--from-repo: ${SCRIPT_DIR}/${_d} not found - the node must carry it"
+        install -D -m 0644 -o root -g root "${SCRIPT_DIR}/${_d}" "/usr/local/share/frognet/${_d}" \
+            || die "--from-repo: could not lay /usr/local/share/frognet/${_d}"
+        echo "usr/local/share/frognet/${_d}" >> "$_NODE_LIST"
+    done
+    log "  laid the licence and documents in /usr/local/share/frognet from the checkout's root"
 else
     log "Extracting $WORLD_TGZ -> / ($(du -h "$WORLD_TGZ" | cut -f1))"
     # [EXTRACT_PROGRESS_V1] tar without -v prints NOTHING, so a multi-minute extraction
@@ -1568,6 +1615,15 @@ else
     done
 fi
 
+# [RAM_PORT_CONFIGURABLE_V1] (John 2026-11-04) the RAM host port, given or asked; kept for every service that uses it
+HAVE_PORT=$(cat /etc/frognet/ram_port 2>/dev/null); HAVE_PORT=${HAVE_PORT:-8841}
+if [[ -n "$ARG_RAM_PORT" ]]; then RAM_PORT="$ARG_RAM_PORT"
+elif [[ -t 0 ]]; then read -rp "  RAM host port (the same on every FrogNetHost) [$HAVE_PORT]: " RAM_PORT; RAM_PORT="$(echo "${RAM_PORT:-$HAVE_PORT}" | xargs)"
+else RAM_PORT="$HAVE_PORT"; fi
+[[ "$RAM_PORT" =~ ^[0-9]+$ ]] && (( RAM_PORT >= 1024 && RAM_PORT <= 65535 )) || die "E1: the RAM host port must be 1024..65535 (got $RAM_PORT)"
+mkdir -p /etc/frognet && printf '%s\n' "$RAM_PORT" > /etc/frognet/ram_port
+log "RAM host port: $RAM_PORT (/etc/frognet/ram_port)"
+
 # Conflict check only meaningful when we have a default route - i.e. when
 # something else might already be answering on this IP.
 if ip route show default | grep -q via 2>/dev/null; then
@@ -2008,7 +2064,7 @@ CORE_SERVICES=(frognet-proxy frognet-daemon frognet-merge-watcher
 # caller was propagateNotification.php, itself a superseded generation of an
 # endpoint nothing calls.
 
-OPT_SERVICES=(frognet-gps frognet-transit-boot)
+OPT_SERVICES=(frognet-gps frognet-transit-boot frognet-host)   # [FROGNETHOST_ADMIN_V1] (its program ships in /opt/fdf/bin)
 # [NO_TRANSIT_WATCH_V1 - T6a fixes] frognet-transit-watch is gone: its script was a disabled copy of the old bash
 # discovery (sync_interfaces.sh, `exit 0` at the top) under Restart=always, so systemd started it every 5 s for ever and
 # it did nothing. Discovery is opt/frognet_semantic/discovery, run by the merge; transit links are frognet-transit-boot.

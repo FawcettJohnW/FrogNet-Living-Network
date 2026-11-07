@@ -142,11 +142,12 @@ to be cheap enough to repeat.
     returns nothing. That is a result, not an error.
  7  GOSSIP CARRIES TOPOLOGY, NEVER MEMORY.
  8  THE ELECTED HOST IS A STORAGE LOCATION, NOT A COMPUTE ENGINE.
- 9  OPERATIONS ARE put / get / get_all. No take, no blocking read, no
-    queue, no history. OBSERVATION DOES NOT IMPLY NOTIFICATION: how an
-    application observes change is application policy, not a fabric gap.
-    The one exception is the ROLE reassignment callback — topology is the
-    fabric's business; what a value means is not.
+ 9  OPERATIONS ARE put / get / get_all, AND A READ CAN BE HELD. No take,
+    no queue, no history. A held read waits on what it reads and the next
+    write answers it. It is a read, not a notification service: the
+    fabric keeps no subscriptions and knows no application. Whether and
+    how a program watches for change, and what a change means, are the
+    application's.
 10  21 BYTES for an unchanged exchange. Not zero.
 11  IN A REGION THE HUB TERMINATES THE TUNNELS. Inter-site traffic rides
     WireGuard to fdf-hub on the region host and is plaintext there. The hub
@@ -347,30 +348,33 @@ represented in 21 bytes. Semantic compression makes repeated *observation* of
 state inexpensive on the wire. It does not create the shared-memory model.
 
 **Producer/consumer is not publish/subscribe.** It describes the application
-relationship, not an event-delivery mechanism. There is no value-change notification
-primitive; a consumer that must know whether a value changed polls it, and
-polling is inexpensive because an unchanged read collapses to SAME — inexpensive
-is not free, and is not the same as being told.
+relationship, not an event-delivery mechanism. A consumer that must know when a
+value changed **holds a read**: it reads with the id of the last value it saw and
+a wait, and the read is parked on the variables it reads. The next write to them
+answers it. Nothing is re-asked and nothing polls. There is no subscription, no
+topic, no intermediary and no delivery queue. It is a read whose answer did not exist
+yet (`rina_region.cpp`: "a held read on the memory itself, answered when its
+answer exists; nothing is ever re-asked").
 
 ---
 
-# OBSERVATION DOES NOT IMPLY NOTIFICATION
+# A HELD READ IS A READ, NOT A NOTIFICATION SERVICE
 
-FrogNet Memory exposes state. **It does not prescribe how an application decides
-to observe changes in that state.**
+FrogNet Memory exposes state, and a read can wait for it: **a held read**. It is
+the mechanism the memory provides for learning of a change without asking again.
+Whether a program holds reads, re-reads, or does something else is the
+application's policy, as is what it does when a read wakes.
 
-An application may poll, use inexpensive SAME/DIFF observation, install a
-database trigger, run a watcher, derive a change from several tuples, or use any
-other mechanism appropriate to its requirements.
+What a held read is not: it is not a subscription the fabric keeps, not a
+message delivered, and not an event the fabric decides to send. The reader names
+what it reads. The memory parks the read on those variables. The writer's write
+answers it. **The fabric does not know what applications exist or what changes
+matter to them.** It knows only that a read is waiting on a variable, which is the
+same knowledge a read has.
 
-**Change notification is application policy, not a responsibility of the FrogNet
-fabric.** The fabric should not need to know what applications exist or what
-changes matter to them. Knowing that would couple application semantics back
-into the fabric, which is the coupling the whole architecture exists to remove.
-
-Do not describe the absence of a value-change primitive as an unfinished
-capability or a gap in the roadmap. It is a boundary, drawn deliberately, in the
-same place as every other boundary in this document:
+**What a change means is application policy.** Which tuples to hold reads on,
+what to derive when one wakes, and what to ignore are the application's. That is
+the boundary, drawn in the same place as every other boundary in this document:
 
 > **FrogNet provides the machine. Applications decide what to compute with it.**
 
@@ -379,6 +383,16 @@ service definition — and it exists precisely because it is *not* application
 semantics. Topology is the fabric's business, so the fabric reports it. What a
 value means, and when a change to it matters, is the application's business, so
 the fabric does not interpret it.
+
+**How the FD&F code keeps this** (`[EVENTS_NOT_TIMERS_V1]`, `[MEMBER_IS_A_TUPLE_V1]`, 2026-11-03; details in
+`opt/fdf/docs/FDF-TECHNICAL-DESIGN.md` §G.5a). Each member writes its own truth, `(pond, member, <ns>)`, and every
+program that needs the members holds a read on that family: no relay turns the region's notices into lines (that was
+`fdf-events`), no service copies one writer's cells into another's (that was the chat service), no id is claimed from a
+shared counter (each family's ids are its own log's). A secret is never a cell: what one member gives another is
+sealed to the reader's own key. When a read fails, the program waits for the thing that ends the wait -- the RAM
+manager's own "up" file, the app's placement file, a 409 ESTALE that says the memory is another one -- not for a
+timer. If you find a sleep, a retry loop or a tick standing in for one of those, it is a defect: name the event that
+should end it.
 
 ---
 
@@ -532,12 +546,44 @@ single machine, which elects itself for every role.
 The practical consequence for a reader: **do not ask where FrogNet runs.** It
 runs on the participants, and there is nothing else.
 
-This is FrogNet's own transport, the LAN-only mode of a node. A node that is also
-a member of an FD&F region uses a second transport, FD&F, which does have a
-meeting point: the region host's RAM manager and hub (`fdf-ram-<AREA>`,
-`fdf-hub`). That is FD&F's design, a separate specification (the Croakus, Part 0),
-not a controller inside FrogNet. Discovery, the election and routing on a LAN
-remain the nodes'.
+This holds in FD&F region mode too. The region's droplet is where members attach; attaching is its only special
+job. It does not route (routing is the fabric's), it does not coordinate, and it does not know it is the primary. It is
+a privileged machine only in the sense that it is the one the admin named in the join line. When it is unreachable,
+that is a network event, and each side derives its own answer, as on a LAN.
+
+## 10. Apps follow the same invariants
+
+Every AppRam (the general one, each Team's) is a **service** served by its **AppHost**: its own name, its own one
+configuration tuple, its own capability tuples and its own **port**. Services that run the same program (team_alpha,
+team_bravo: both the Team RAM host), even on one machine, differ by port. The port is picked at random between 20000
+and 65535 when the service is created, kept in its configuration tuple, and used by every later instance wherever it
+runs; a port change updates the tuple and restarts the service. The general AppRam's AppHost is picked by **the app's
+own deterministic selection** over the capability tuples and every node writes it as `<app>Host.frognet`. A Team's
+AppHost is the one its lead designates: the lead's own device or `databasehost.frognet` (`[GROUP_PLACE_V1]`). The
+group's service writes its capability tuple, held by its session, and registers as a child of its parent. On a Pi
+with a router (a node, its own .1) it is in the election's pool and gets `<team>Host.<app>`; on a phone (no .1) the
+members' apps hold a read on the group's capability tuple, select its host, and connect or fail.
+Where things live (the doc "FrogNet SystemRam, FrogNetHost Admin and App Services — Design", 2026-11-04, sections 5, 7
+and 9): **databasehost-control** (`databasehost_control.frognet`, the highest .1) holds configuration tuples only --
+one per service, owned by the Admin for its scope, read by every installed machine, never copied by them; when it
+moves, **the merge** writes them into the new one. **The SystemRam** (`databasehost.frognet`'s RAM host, parked held
+reads) holds the capability tuples, each held by its service's session (a dead service is not a candidate), and each
+machine's answers (`fdf-app applied`, `frognethost state`); every election reads capability there. App data is in the
+AppRams. Every app carries its own PHP door alongside `api.php`. Every instance holds a read on its capability family:
+an install, a capability change or a configuration change is an event, and the selection runs again.
+Built (r47: fdf-app r13, door r13, `core/app_hosts.py`, `ram hold`): the first install writes the one signed tuple;
+`fdf-app serve` adopts it, holds its capability in the SystemRam and serves what `/etc/hosts` names it for; every
+node's election (`discovery/elect.py`, `discovery/live.py`, the daemon's held reads on the `fdf-app` families) writes
+`<app>Host.frognet` and `<team>Host.<app>`; the merge writes the configuration tuples into a new databasehost-control. Not built: a
+Team on a phone (its members' apps selecting it from its capability tuple), the parent's children registry, and the
+databasehost election itself still reads capability from the region's facts, not the SystemRam.
+The app's access definition (its teams and their password verifiers; a team's members use the general RAM and their team's RAM, and the network's levels have nothing to do with it) is in its app configuration tuples, so a device's own edge checks a login by
+reading them: login is a read, with no login server and no check on each request after it. The device keeps its role
+and writes its access record again after every RAM change, so no user action is needed after a split or a merge. Every
+AppRam is relocatable to the greater or lesser network (John, 2026-11-04): after a split its selection activates an
+installed AppHost on that side (the code still offers a "fail" setting, which the design drops).
+At a merge the same selection, run over the merged tuples, gives one answer. Owners reassert; nothing is moved or
+reconciled. The procedure is in `opt/fdf/docs/APP-SETUP-AND-OPERATION.md`.
 
 ---
 
@@ -546,10 +592,10 @@ remain the nodes'.
 Stated because a prospective user designed an unbuildable system from this site
 and nothing stopped them.
 
-- The operations are **`put`, `get`, `get_all`**. There is no take, no blocking
-  read, and no notification of a value changing. A program that must know when a
-  value changed reads
-  it again.
+- The operations are **`put`, `get`, `get_all`**, and a read can be **held**: it
+  waits on what it reads, and the next write answers it. How a program learns of
+  a change is its own choice. There is no take and no notification service: the
+  fabric keeps no subscriptions.
 - **There is no work queue.** A tuple is a value at a key, not an item claimed off
   a list. Nothing prevents two readers acting on the same one, and there is no
   atomic claim.
@@ -602,8 +648,8 @@ where a description slides back into the conventional model.
   value. A consumer reading 200 tuples where 6 moved pays for 6 differences. The
   publish-independently pattern is roughly 10x cheaper than request-per-producer
   on churning data and 100x on static data. **The decoupled design is also the
-  efficient one** — never describe polling here as the expensive option it is
-  elsewhere (spec 10.3b, 14.1a.1).
+  efficient one** (spec 10.3b, 14.1a.1). A consumer learns of a change by a
+  held read, not by re-reading on a timer.
 - **If convergence is required, the application computes it.** Do not propose a
   merge law, a CRDT, or a reconciliation step; none exists and adding one is the
   error. Convergence is decided by examining the holistic data state, not by
@@ -621,7 +667,7 @@ where a description slides back into the conventional model.
   either layer a coordinating authority has described a different system
   (spec 4.1a, 2b).
 - **Do not write REST on top of it.** Request/reply through memory, one key with
-  many writers, a status endpoint, tight polling as a substitute for events,
+  many writers, a status endpoint, tight polling as a substitute for a held read,
   write-then-read-back, sessions. All compile; each gives back the property the
   model removes. The test: does the pattern require another program to exist,
   respond, or agree? (spec 10.3b)
@@ -649,9 +695,11 @@ Say these when asked what is missing. They are published deliberately.
   variable. Operations per second is a category error here, not a missing
   measurement. What is meaningful is the same harness run on two machines and
   compared — `pipe_workload.py`, which produced the published ratios.
-- **Observation latency is bounded by the reader's poll interval.** That is a
-  real cost and it is the reader's to choose. It is *not* a missing feature —
-  see "Observation does not imply notification" above.
+- **Observation latency is the write's arrival plus the held read's answer.**
+  There is no poll interval to choose. A reader that is not holding a read when
+  a value changes learns of it at its next read. That is the reader's choice of
+  what to hold, not a missing feature (see "A held read is a read, not a
+  notification service", above).
 - The only member limit in the code is the hub's edge range: `fdf-invite`
   hands out 10.253.X.Y (X 1-252, Y 1-254), 64,008 admitted members per region.
   Growth is linear: one hub peer and one edge address per member, nothing per pair. In a region each /24 has one owner (a second claimant is refused); the

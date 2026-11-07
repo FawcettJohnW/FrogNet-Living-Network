@@ -1,0 +1,989 @@
+#!/usr/bin/env python3
+################################################################
+#  Copyright (C) 2016-2026 Fawcett Innovations LLC             #
+#  SPDX-License-Identifier: GPL-2.0-only                       #
+################################################################
+"""fdf-org -- [ORG_LEVELS_V1] an organization on its own RAM host: levels, users, the generic credential, login,
+and each device's reach (opt/fdf/docs/ORGANIZATIONS.md). As root.
+[ADMISSION_WITH_THE_HUB_V1] (John 2026-11-02) admission comes up with the hub, wherever the hub runs: fdf-hub@AREA wants
+fdf-org@AREA, whose `serve` makes the credential key, the generic credential and the door the first time and writes the
+hub's row (fdf-org, hub, AREA) {name, pubkey, endpoint, addr}. Nothing is run by hand where the hub is. On ANY machine
+in the region (no region held there: the region's RAM from join.env), `level`, `space`, `line` and `list` are tuples:
+a level written there is applied by the hub's fdf-org on the tuple's event, and a line is made from the hub's row, so it
+points at the hub wherever it is now. (`user`, for a level with a password, still runs where the hub is: the verifier
+is under the hub's own key.)
+
+  fdf-org init                          (serve does it) make the generic credential (one WireGuard peer, edge 10.253.253.1), the door
+                                        port, and the credential key (/opt/fdf/var/org-key, root-only)
+  fdf-org space NAME                    [SPACES_V1] add a RAM space: its own RAM manager on this RAM host (fdf-ram,
+                                        started by fdf-org serve, inside the tunnel on a random port of its own; its
+                                        Permanent records in space-NAME.perm). The system's own space is the region.
+  fdf-org level NAME [--password] [--reach ram|open|list:DEST[,DEST...]] [--login-port P] [--session-port P] [--space SPACE ...]
+                                        add or change a level: its random login and session ports are made once and
+                                        kept; DEST = a 10.x address or prefix, optionally :port; --space: the spaces its
+                                        applications join (each made with fdf-org space first); its edges reach them
+  fdf-org user LEVEL USER [--remove]    set USER's password at LEVEL (read from stdin, one line), or remove USER: kept
+                                        as a verifier that checks on every RAM host ([ORG_OWNED_V1]), which they adopt
+  fdf-org line LEVEL [--with LINE ...]  print LEVEL's join line, fdfjoin1.<...> (and a QR if qrencode is installed);
+                                        --with: a standby's line for the same level (fdf-org line LEVEL there), added
+                                        after this RAM host, in order
+  fdf-org list [--json]                 spaces, levels, then admitted devices with level and state
+  (the same organization on every RAM host: [ORG_OWNED_V1] each writes its definition -- levels, users' verifiers --
+   into the network RAM, FDF_NET_RAM or this machine's join.env, and adopts the others' newest: nothing by hand. It
+   replaces `fdf-org export` / `import`.)
+  fdf-org revoke NAME                   [REVOKED_EVERYWHERE_V1] NAME (a device's d-<key hash>, from fdf-org list) is
+                                        revoked for the organization: its peer and its reach go now here and at every
+                                        RAM host of the organization as it adopts the revocation; its key is refused
+                                        at every door from then on (the device needs a new key). Run anywhere the
+                                        region's RAM is reached. Gone is gone: there is no un-revoke.
+  fdf-org serve                         the credential manager (fdf-org.service): the door and every level's login port,
+                                        each inside the tunnel on the hub's address (hub.env FDF_HUB_ADDR: 10.253.A.B
+                                        on a node serving 10.A.B.0/24, else 10.253.253.254), and the reach rules
+
+Where things live (what survives a restart, ORGANIZATIONS.md section 1):
+  levels, users, the door,      permanent cells (fdf-org, level|user|door|space|revoked, ...) in this region's RAM
+  the spaces, revocations
+  admissions                    /opt/fdf/hub/admitted/NAME.json, as fdf-invite writes them, plus level and state
+  the credential key            /opt/fdf/var/org-key (the generic credential's door; a user set before [ORG_OWNED_V1] has
+                                HMAC-SHA256(key, scrypt(password, salt)), which checks here only)
+  a user's verifier             PBKDF2-SHA256(password, salt), 200000 rounds: checks on every RAM host
+  the organization's definition (fdf-org, def, <org>.<host>) in the network RAM: each RAM host's, written again
+  reach                         nftables table inet fdf_org_<area>, rebuilt from the above after every change and at start
+
+Login, in order ([LOGIN_RESTRICTED_FIRST_V1]): on the generic tunnel the device sends its own public key to the door and
+gets its own edge, RESTRICTED: it reaches its level's login port and nothing else. On its own tunnel it logs in; the
+password is checked; the edge's reach becomes the level's reach and its session port. Each exchange is one line of
+JSON each way over TCP inside the tunnel: a RAM manager has no per-cell privacy, so a password is never written to a
+cell. The source address is the identity: the hub accepts a packet from an edge only from that edge's own key.
+"""
+import base64, hashlib, hmac, json, os, queue, secrets, socket, subprocess, sys, threading, time
+
+sys.path.insert(0, os.environ.get("FDF_PY", "/opt/fdf/lib/python"))
+import fdf_regions  # noqa: E402  [REGIONS_PER_MACHINE_V1]
+# the region: its units set these (fdf-org@AREA); on the command line, --area AREA, or the one region held here
+HUBENV = os.environ.get("FDF_HUB_ENV", "")
+ADMITTED = os.environ.get("FDF_ADMITTED", "")
+VAR = os.environ.get("FDF_SITE_KEYS", "/opt/fdf/var")
+ORG_KEY = os.environ.get("FDF_ORG_KEY", "")         # the region's own: <its directory>/org-key
+NFT = os.environ.get("FDF_NFT", "nft")
+HUB_ADDR = "10.253.253.254"           # [HUB_ADDRESS_FROM_ITS_HOST_V1] set in main from hub.env (FDF_HUB_ADDR)
+GENERIC_NAME = "_generic"
+SVC = "fdf-org"
+BUILD_TAG = "fdf-org-2026-11-03-r26"                # [APP_SAYS_ITS_BUILD_V1] said when serve starts
+sys.path.insert(0, os.environ.get("FDF_PY", "/opt/fdf/lib/python"))
+import fdfram
+import fdf_watch  # noqa: E402  [EVENTS_NOT_TIMERS_V1]
+
+
+def log(*a):
+    print("[ORG] %s %s" % (time.strftime("%H:%M:%S"), " ".join(str(x) for x in a)), flush=True)
+
+
+def die(msg, rc=1):
+    sys.stderr.write("fdf-org: %s\n" % msg)
+    sys.exit(rc)
+
+
+def env():
+    out = {}
+    try:
+        for ln in open(HUBENV):
+            ln = ln.strip()
+            if ln.startswith("export "):
+                ln = ln[7:]
+            if "=" in ln and not ln.startswith("#"):
+                k, v = ln.split("=", 1)
+                out[k.strip()] = v.strip().strip('"')
+    except OSError as e:
+        die("%s: %s -- this machine holds no region (run fdf-region-create first)" % (HUBENV, e.strerror))
+    return out
+
+
+H = None
+REMOTE = False      # [ADMISSION_WITH_THE_HUB_V1] no region held here: the commands that are tuples run against the region's RAM
+
+
+def remote_ram():
+    try:
+        return fdfram.where()
+    except fdfram.RamError as e:
+        die("this machine holds no region and is not joined to one (%s)" % e)
+
+
+def h():
+    global H
+    if H is None:
+        H = env()
+        H.setdefault("FDF_IFACE", "wg-" + H.get("FDF_AREA", "").replace(".", "-"))
+    return H
+
+
+def ram():
+    if REMOTE:
+        return fdfram.Ram(remote_ram())
+    r = h().get("RINA_RAM", "")
+    if not r:
+        die("%s names no RINA_RAM: the region's RAM is not known on this machine" % HUBENV)
+    return fdfram.Ram(r)
+
+
+def area():
+    """the region: this machine's, or (REMOTE) the one whose hub has said where it is"""
+    if not REMOTE:
+        return h()["FDF_AREA"]
+    hubs = cells("hub")
+    if len(hubs) != 1:
+        die("the region's RAM holds %s hub row(s): %s" % (len(hubs), ", ".join(hubs) or "none (is the hub's fdf-org running?)"))
+    return list(hubs)[0]
+
+
+def hub_pub():
+    return subprocess.run(["wg", "show", h()["FDF_IFACE"], "public-key"], capture_output=True, text=True).stdout.strip()
+
+
+def publish_hub(said):
+    """[ADMISSION_WITH_THE_HUB_V1] where the hub is, as a permanent tuple (fdf-org, hub, AREA): wherever it runs, a join
+    line can be made from here on any machine in the region. Written when it changes (the hub up, moved, a new key)."""
+    pub = hub_pub()
+    if not pub:
+        return said
+    row = {"name": h().get("FDF_HUB_NAME", ""), "pubkey": pub, "endpoint": h().get("FDF_ENDPOINT", ""), "addr": HUB_ADDR}
+    if row != said:
+        put("hub", h()["FDF_AREA"], row)
+        log("hub row written: %s at %s (key %s)" % (row["name"], row["endpoint"], pub[:12]))
+    return row
+
+
+def cells(variable):
+    """{instance: bag} of this service's cells of one variable, newest per instance."""
+    out = {}
+    for c in sorted(ram().read(SVC, variable), key=lambda c: c["id"]):
+        out[c["instance"]] = c["bag"]
+    return out
+
+
+def put(variable, instance, bag):
+    ram().write(SVC, variable, instance, bag, permanent=True)     # [PERMANENT_CELL_V1] survives the RAM host's restart
+
+
+# ---------------------------------------------------------------- admissions (the hub's own files)
+def admitted():
+    out = {}
+    for fn in sorted(os.listdir(ADMITTED)) if os.path.isdir(ADMITTED) else []:
+        if fn.endswith(".json") and not fn.startswith("."):
+            try:
+                out[fn[:-5]] = json.load(open(os.path.join(ADMITTED, fn)))
+            except (OSError, ValueError) as e:
+                log("%s/%s unreadable: %s" % (ADMITTED, fn, e))
+    return out
+
+
+def write_admitted(name, rec):
+    os.makedirs(ADMITTED, exist_ok=True)
+    os.chmod(ADMITTED, 0o700)
+    tmp = os.path.join(ADMITTED, ".%s.json.tmp" % name)
+    with open(tmp, "w") as f:
+        json.dump(rec, f, indent=1, sort_keys=True)
+        f.write("\n")
+    os.chmod(tmp, 0o600)
+    os.replace(tmp, os.path.join(ADMITTED, name + ".json"))       # one rename: the hub sees the whole file or none
+
+
+def org_key():
+    try:
+        return open(ORG_KEY, "rb").read()
+    except OSError as e:
+        die("%s: %s (run fdf-org init)" % (ORG_KEY, e.strerror))
+
+
+def verifier(key, password, salt):
+    d = hashlib.scrypt(password.encode(), salt=bytes.fromhex(salt), n=2 ** 14, r=8, p=1, dklen=32)
+    return hmac.new(key, d, hashlib.sha256).hexdigest()
+
+
+# [ORG_OWNED_V1] a user's verifier that checks on every RAM host: PBKDF2-SHA256 with its own salt, no host's key in it
+# (the one under this host's credential key, above, checks only here, so it never left this host but by export/import).
+# It is what fdf-app keeps for an app's users; the password itself is never in a cell.
+PBKDF2_N = 200000
+def portable_verifier(password):
+    salt = secrets.token_hex(16)
+    return {"kdf": "pbkdf2-sha256", "n": PBKDF2_N, "salt": salt,
+            "hash": hashlib.pbkdf2_hmac("sha256", password.encode(), bytes.fromhex(salt), PBKDF2_N).hex()}
+
+
+def user_ok(u, password):
+    """the password checks against this user's verifier, whichever kind it is"""
+    if not u or u.get("removed"):
+        return False
+    if u.get("kdf") == "pbkdf2-sha256":
+        return hmac.compare_digest(u["hash"], hashlib.pbkdf2_hmac("sha256", password.encode(), bytes.fromhex(u["salt"]), int(u["n"])).hex())
+    return "v" in u and hmac.compare_digest(u["v"], verifier(org_key(), password, u["salt"]))
+
+
+def used_ports():
+    return ({lv[k] for lv in cells("level").values() for k in ("login_port", "session_port") if k in lv} |
+            {sp["port"] for sp in cells("space").values()} | {cells("door").get(area(), {}).get("port")})
+
+
+def random_port(used):
+    """[REGIONS_PER_MACHINE_V1] a port no level of this region holds and nothing on this machine is bound to: every
+    region's listeners share the hub's address"""
+    while True:
+        p = 20000 + secrets.randbelow(40000)
+        if p in used or p == int(h().get("RINA_RAM", ":0").rsplit(":", 1)[1] or 0):
+            continue
+        t = socket.socket()
+        try:
+            t.bind(("", p))
+        except OSError:
+            continue
+        finally:
+            t.close()
+        return p
+
+
+# ---------------------------------------------------------------- reach: nftables, rebuilt whole
+def reach_rules(levels, adm, door, spaces=None):
+    """[REACH_PER_EDGE_V1] WireGuard's allowed-ips say which source a peer may use, not what it may contact; these rules
+    do. Every edge that came in through a level is in @managed and may reach exactly what its state and level allow;
+    anything else from it is dropped. Members admitted by fdf-invite are not in @managed and are untouched."""
+    iface, ramport = h()["FDF_IFACE"], int(h()["RINA_RAM"].rsplit(":", 1)[1])
+    ge = door.get("generic_edge", "")
+    managed, pre, inp, fwd = [ge], [], [], []
+    inp.append("iifname %s ip saddr %s ip daddr %s tcp dport %d accept" % (iface, ge, HUB_ADDR, door["port"]))
+    for lv in levels.values():
+        pre.append("iifname %s ip daddr %s tcp dport %d dnat ip to %s:%d" % (iface, HUB_ADDR, lv["session_port"], HUB_ADDR, ramport))
+    for r in adm.values():
+        lv = levels.get(r.get("level", ""))
+        if not lv or r.get("name") == GENERIC_NAME:
+            continue
+        e = r["edge"]
+        managed.append(e)
+        inp.append("iifname %s ip saddr %s ip daddr %s tcp dport %d accept" % (iface, e, HUB_ADDR, lv["login_port"]))
+        if r.get("state") != "admitted":
+            continue                                              # restricted: its login port, nothing else
+        inp.append("iifname %s ip saddr %s ip daddr %s ct original proto-dst %d accept" % (iface, e, HUB_ADDR, lv["session_port"]))
+        for sn in lv.get("spaces", []):                           # [SPACES_V1] the spaces its applications join
+            sp = (spaces or {}).get(sn)
+            if sp:
+                inp.append("iifname %s ip saddr %s ip daddr %s tcp dport %d accept" % (iface, e, HUB_ADDR, sp["port"]))
+        reach = lv.get("reach", {"kind": "ram"})
+        if reach["kind"] == "open":
+            inp.append("iifname %s ip saddr %s accept" % (iface, e))
+            fwd.append("iifname %s ip saddr %s accept" % (iface, e))
+        elif reach["kind"] == "list":
+            for d in reach.get("dests", []):
+                addr, _, port = d.partition(":")
+                tail = (" tcp dport %s" % port) if port else ""
+                fwd.append("iifname %s ip saddr %s ip daddr %s%s accept" % (iface, e, addr, tail))
+                if addr.split("/")[0] == HUB_ADDR:
+                    inp.append("iifname %s ip saddr %s ip daddr %s%s accept" % (iface, e, HUB_ADDR, tail))
+    t = "fdf_org_" + "".join(ch if ch.isalnum() else "_" for ch in h()["FDF_AREA"])   # each region's own table
+    s = ["table inet %s" % t, "delete table inet %s" % t, "table inet %s {" % t,
+         "  set managed { type ipv4_addr; elements = { %s } }" % ", ".join(sorted(set(managed))),
+         "  chain org_pre { type nat hook prerouting priority dstnat; policy accept;"] + ["    " + x for x in pre] + ["  }",
+         "  chain org_in { type filter hook input priority filter; policy accept;",
+         "    ct state established,related accept"] + ["    " + x for x in inp] + [
+         "    iifname %s ip saddr @managed drop" % iface, "  }",
+         "  chain org_fwd { type filter hook forward priority filter; policy accept;",
+         "    ct state established,related accept"] + ["    " + x for x in fwd] + [
+         "    iifname %s ip saddr @managed drop" % iface, "  }", "}"]
+    return "\n".join(s) + "\n"
+
+
+def apply_reach(why):
+    levels, door = cells("level"), cells("door").get(h().get("FDF_AREA", ""))
+    levels = {n: lv for n, lv in levels.items() if "login_port" in lv and "session_port" in lv}   # (the rest: ports next)
+    if not door:
+        log("REACH: no door yet (fdf-org init): nothing applied")
+        return False
+    rules = reach_rules(levels, admitted(), door, cells("space"))
+    p = subprocess.run([NFT, "-f", "-"], input=rules, capture_output=True, text=True)
+    if p.returncode != 0:
+        log("REACH: nft refused the rules (%s): %s" % (why, p.stderr.strip()))
+        return False
+    log("REACH: applied (%s): %d level(s), %d managed edge(s)" % (why, len(levels), rules.count(",") + 1))
+    return True
+
+
+# ---------------------------------------------------------------- the two exchanges (one JSON line each way)
+def door_ask(src, ask):
+    if src != (cells("door").get(h()["FDF_AREA"]) or {}).get("generic_edge"):
+        return {"ok": False, "why": "the door answers only the generic credential's edge"}
+    pub, level = str(ask.get("pubkey", "")), str(ask.get("level", ""))
+    levels = cells("level")
+    if level not in levels or "login_port" not in levels[level]:
+        return {"ok": False, "why": "no level %r here" % level}
+    try:
+        if len(base64.b64decode(pub, validate=True)) != 32:
+            raise ValueError
+    except ValueError:
+        return {"ok": False, "why": "pubkey is not a WireGuard public key"}
+    name = "d-" + hashlib.sha256(pub.encode()).hexdigest()[:12]   # [NAME_FROM_KEY_V1] nobody can claim another's device
+    if name in cells("revoked"):                                  # [REVOKED_EVERYWHERE_V1] here or at any RAM host
+        log("DOOR: %s is revoked: refused" % name)
+        return {"ok": False, "why": "this device was revoked; it needs a new key"}
+    adm = admitted()
+    old = adm.get(name)
+    # [ONE_LEVEL_PER_HOST_V1] (John 2026-11-03: "a single machine can only have one level to any given host") a device
+    # holds one level here. From an open level (no password) to a password level is the upgrade: allowed, and the
+    # device is restricted until that level's login checks the password (before this, the record took the new level
+    # and kept "admitted", so the new level's reach was given before any password was asked). A device that holds a
+    # password level and asks for an open one (its base attaching again after a restart) keeps the level it holds:
+    # the answer says so, and the open level's login gives it its held level's session. A different password level: refused.
+    held = (old or {}).get("level")
+    keep = False
+    if old and held and held != level and held in levels:
+        if levels[held].get("password") and levels[level].get("password"):
+            log("DOOR: %s asked for level %s but holds %s here: refused (one level per host)" % (name, level, held))
+            return {"ok": False, "why": "this device holds level %s at this host; one level per host" % held}
+        keep = bool(levels[held].get("password")) and old.get("state") == "admitted"
+    edge = old["edge"] if old else fdf_regions.free_edge({r.get("edge") for r in adm.values()})   # one pool per machine
+    rec = dict(old or {}, name=name, pubkey=pub, edge=edge, kind="node" if ask.get("kind") == "node" else "leaf",
+               level=held if keep else level, device=str(ask.get("device", ""))[:64], nick=str(ask.get("nick", ""))[:64])
+    if old and held != rec["level"]:
+        rec["state"] = "restricted"                                # the upgrade: nothing of the new level until its login
+        log("DOOR: %s upgrades from level %s to %s: restricted until its login" % (name, held, level))
+    elif keep:
+        log("DOOR: %s asked for the open level %s and keeps level %s, which it holds here" % (name, level, held))
+    rec.setdefault("state", "restricted")
+    rec.setdefault("invited", time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()))
+    write_admitted(name, rec)
+    apply_reach("door: %s at %s" % (name, level))
+    held_by_hub = hub_holds(pub)                                  # [EVENTS_NOT_TIMERS_V1] before the answer, not after it
+    log("DOOR: %s (%s, nick %r) at level %s: edge %s, %s%s" % (name, rec["device"], rec["nick"], level, edge, rec["state"],
+        "" if held_by_hub else "; the hub has not said it holds its peer (FDF_FACTS %s)" % (h().get("FDF_FACTS") or "not set")))
+    out = {"ok": True, "name": name, "edge": edge, "state": rec["state"], "login_port": levels[rec["level"]]["login_port"]}
+    if keep:
+        out["held"] = held
+    return out
+
+
+def hub_holds(pub):
+    """[HUB_SAYS_ITS_PEERS_V1] [EVENTS_NOT_TIMERS_V1] the hub writes the peers it holds into its facts AFTER the kernel has
+    them; the door answers once the device's key is there -- the event of the hub's facts file being written (inotify),
+    bounded at 10 s -- so the device's login, on its own tunnel, finds its peer at the hub the first time: nothing on the
+    device asks again on a timer. No FDF_FACTS in hub.env: said in the door's line, and answered at once."""
+    f = h().get("FDF_FACTS", "")
+    if not f:
+        return False
+    def has(p):
+        try:
+            return pub in (json.load(open(p)).get("peers") or [])
+        except (OSError, ValueError):
+            return False
+    return fdf_watch.until(f, has, 10.0)
+
+
+def login(src, port, ask):
+    levels = cells("level")
+    level = next((n for n, lv in levels.items() if lv.get("login_port") == port), None)
+    rec = next((r for r in admitted().values() if r.get("edge") == src and r.get("name") != GENERIC_NAME), None)
+    if not rec or rec.get("level") != level:
+        return {"ok": False, "why": "this edge was not admitted at this level"}  # [PORTS_BOUND_TO_ADMISSION_V1]
+    lv = levels[level]
+    # [ONE_LEVEL_PER_HOST_V1] an admitted device that logs in again with no password (its base after a restart, or the
+    # door said it holds this level) is given its session: its password was checked when it was admitted, and its edge
+    # already reaches that session port. A password that is given is checked.
+    held = rec.get("state") == "admitted" and not ask.get("password")
+    if held and lv.get("password"):
+        log("LOGIN: %s at %s, admitted before: its session, no password asked again" % (rec["name"], level))
+    if lv.get("password") and not held:
+        u = cells("user").get("%s/%s" % (level, ask.get("user", "")))
+        if not user_ok(u, str(ask.get("password", ""))):
+            log("LOGIN: %s at %s: wrong user or password" % (rec["name"], level))
+            return {"ok": False, "why": "wrong user or password"}
+        rec["user"] = ask.get("user")
+    if rec.get("state") != "admitted":
+        rec["state"] = "admitted"
+        write_admitted(rec["name"], rec)
+        apply_reach("login: %s at %s" % (rec["name"], level))
+    log("LOGIN: %s at %s%s: reach %s, session port %d" % (rec["name"], level, " as " + rec["user"] if rec.get("user") else "",
+                                                           lv.get("reach", {}).get("kind", "ram"), lv["session_port"]))
+    out = {"ok": True, "level": level, "session_port": lv["session_port"], "ram": "%s:%d" % (HUB_ADDR, lv["session_port"]),
+           "area": h().get("FDF_AREA", ""), "spaces": space_list(lv)}
+    if rec.get("kind") == "node":                                 # a node maps its /24 with the region's site key
+        out["site_key"] = open(os.path.join(VAR, "site-key-" + h()["FDF_AREA"])).read().strip()
+    return out
+
+
+def space_list(lv):
+    """[SPACES_V1] where each of the level's spaces is on THIS RAM host: [{"name", "ram": hub:port}]."""
+    sps = cells("space")
+    return [{"name": n, "ram": "%s:%d" % (HUB_ADDR, sps[n]["port"])} for n in lv.get("spaces", []) if n in sps]
+
+
+_space_proc = {}          # space -> its RAM manager (a child of this process)
+_space_sock = {}          # space -> (port, its listening socket): kept across its RAM manager's restarts
+_space_failed = {}        # space -> its cell when its RAM manager exited without ever listening: started again when the cell changes
+EV = queue.Queue()        # [EVENTS_NOT_TIMERS_V1] every event serve acts on, from the threads that block on them; one consumer
+
+
+def spaces_up():
+    """[SPACES_V1] every space's RAM manager running: fdf-ram on HUB_ADDR:<its port>, a child of this process. Called only
+    by serve's one consumer. Its own thread waits on it ([EVENTS_NOT_TIMERS_V1]): its saying it is up (its file, written
+    is the event its capability is written on, and its exit the event it is started again on."""
+    exe = os.path.join(os.environ.get("FDF_BIN", "/opt/fdf/bin"), "fdf-ram")
+    for n, sp in cells("space").items():
+        if n in _space_proc:
+            continue                                          # running, or its exit not yet acted on (the event does)
+        if n in _space_failed:
+            if _space_failed[n] == sp:
+                continue                                      # it never listened: not again until its cell changes
+            del _space_failed[n]
+        e = dict(os.environ, RINA_REGION_FILE=os.path.join(VAR, "space-%s.perm" % sp["file"]))
+        e.pop("RINA_MAP_AREA", None)
+        try:
+            # [LISTENING_SOCKET_OUTLIVES_THE_HOST_V1] the space's listening socket is this process's, made once and handed
+            # to each RAM manager it starts: a device's connect while it starts again waits in the backlog, not refused
+            ps = _space_sock.get(n)
+            if ps is None or ps[0] != sp["port"]:
+                ls = socket.socket(); ls.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+                ls.bind((HUB_ADDR, sp["port"])); ls.listen(1024)
+                ps = _space_sock[n] = (sp["port"], ls)
+            e["RIBBIT_LISTEN_FD"] = str(ps[1].fileno())
+            t0 = time.time()
+            p = subprocess.Popen([exe, "--listen", "%s:%d" % (HUB_ADDR, sp["port"]), "--api", fdfram.API],
+                                 env=e, stdout=subprocess.DEVNULL, pass_fds=(ps[1].fileno(),),
+                                 stderr=open(os.path.join(VAR, "space-%s.log" % sp["file"]), "a"))
+            _space_proc[n] = p
+            log("SPACE %s: its RAM manager on %s:%d (pid %d)" % (n, HUB_ADDR, sp["port"], p.pid))
+            threading.Thread(target=_space_watch, args=(n, dict(sp), p, t0), daemon=True).start()
+        except OSError as x:
+            log("SPACE %s: its RAM manager did not start (%s): %s; started again when its cell changes" % (n, exe, x))
+            _space_failed[n] = sp
+
+
+def own_can():
+    """[SPACE_BY_CAPABILITY_V1] this RAM host's capability, as a device ranks it: every scalar this machine's probe
+    measured (facts.json, FDF_FACTS), its guid and name. A machine with no facts says only its name, and ranks below
+    every RAM host that has them (nothing is defaulted)."""
+    try:
+        f = json.load(open(os.environ.get("FDF_FACTS", "/opt/fdf/var/facts.json")))
+    except (OSError, ValueError):
+        f = {}
+    can = {k: v for k, v in (f.get("capability") or {}).items() if isinstance(v, (int, float, str, bool))}
+    can.update(guid=f.get("guid", ""), name=f.get("name") or socket.gethostname(), area=h().get("FDF_AREA", ""), hub=HUB_ADDR)
+    return can
+
+
+def _space_watch(n, sp, p, t0):
+    """A space's RAM manager, waited on by its own thread: its saying it is up (its file, fdf_watch) is the event its
+    capability is written on ([SPACE_BY_CAPABILITY_V1]); its exit is the event it is started again on."""
+    hp = "%s:%d" % (HUB_ADDR, sp["port"])
+    up = fdf_watch.up_or_exit(hp, t0, p.pid) == "up"
+    if up:
+        EV.put(("space-up", (n, sp, p)))
+    p.wait()
+    EV.put(("space-exit", (n, sp, p, up)))
+
+
+def say_can(n, sp):
+    """[SPACE_BY_CAPABILITY_V1] (John 2026-11-03: "There is no fallback list. Fallback is determined by capability") the
+    space's RAM on this host carries this host's capability, (fdf-space, can, AREA), written each time it starts: a
+    device holds a read on it at every RAM host its space is on, and is on the best of those it can reach."""
+    try:
+        c = own_can()
+        fdfram.Ram("%s:%d" % (HUB_ADDR, sp["port"])).write("fdf-space", "can", h().get("FDF_AREA", ""), c)
+        log("SPACE %s: this host's capability in its RAM (%s)" % (n, ", ".join("%s=%s" % (k, c[k]) for k in ("name", "guid", "mem_total_kb", "cores") if k in c)))
+    except (fdfram.RamError, OSError) as e:
+        log("SPACE %s: its capability was not written (%s); it is written when it next starts" % (n, e))
+
+
+def listen(port, handle):
+    """Bound here, in the caller's thread: a port that cannot be had is said at once, not lost in a thread."""
+    s = socket.socket()
+    s.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+    s.bind((HUB_ADDR, port))
+    s.listen(64)
+    log("listening on %s:%d" % (HUB_ADDR, port))
+    threading.Thread(target=listener, args=(s, port, handle), daemon=True).start()
+
+
+def listener(s, port, handle):
+    while True:
+        c, (src, _) = s.accept()
+        threading.Thread(target=one, args=(c, src, port, handle), daemon=True).start()
+
+
+def one(c, src, port, handle):
+    with c:
+        c.settimeout(10)
+        try:
+            ask = json.loads(c.makefile("r").readline() or "{}")
+            ans = handle(src, port, ask)
+        except Exception as e:                                    # said, and the device asks again
+            log("exchange from %s on %d failed: %s" % (src, port, e))
+            ans = {"ok": False, "why": "the RAM host failed: %s" % e}
+        c.sendall((json.dumps(ans) + "\n").encode())
+
+
+def levels_get_ports():
+    """[ADMISSION_WITH_THE_HUB_V1] a level written on another machine has no ports yet: they are this machine's to give"""
+    for n, lv in cells("level").items():
+        if "login_port" in lv and "session_port" in lv:
+            continue
+        lv = dict(lv); used = used_ports()
+        for k in ("login_port", "session_port"):
+            if k not in lv:
+                lv[k] = random_port(used); used.add(lv[k])
+        put("level", n, lv)
+        log("level %s: login port %d, session port %d (given here)" % (n, lv["login_port"], lv["session_port"]))
+
+
+def serve():
+    # [ADMISSION_WITH_THE_HUB_V1] (John 2026-11-02: "Having it depend on being in any one specific place is stupid")
+    # admission comes up with the hub, wherever the hub is: the credential key, the generic credential and the door are
+    # made here the first time (nothing to run by hand), and the hub's row says where it is
+    # [EVENTS_NOT_TIMERS_V1] one consumer acts on every event, in order: the region's cells changed (a held read), the
+    # organization's definitions changed (a held read on the network RAM), a space's RAM manager listening or gone. Each
+    # event is produced by the one thing that blocks on it; nothing here sleeps, polls or locks.
+    log("%s: admission for region %s, the region's RAM at %s" % (BUILD_TAG, h().get("FDF_AREA", "?"), h().get("RINA_RAM", "(none)")))
+    cmd_init()
+    door = cells("door").get(h().get("FDF_AREA", ""))
+    if not door:
+        die("no door after init: the region's RAM did not keep it")
+    said = publish_hub(None)
+    try:                                                          # [SPACE_BY_CAPABILITY_V1] the region's RAM is a space too
+        c = own_can()
+        ram().write("fdf-space", "can", h().get("FDF_AREA", ""), c, permanent=True)
+        log("this host's capability in the region's RAM (%s)" % ", ".join("%s=%s" % (k, c[k]) for k in ("name", "guid", "mem_total_kb", "cores") if k in c))
+    except fdfram.RamError as e:
+        log("this host's capability was not written to the region's RAM (%s); it is when serve next starts" % e)
+    enforce_revoked("start")
+    apply_reach("start")
+    threading.Thread(target=_region_reader, name="region-reader", daemon=True).start()
+    threading.Thread(target=_net_reader, name="net-reader", daemon=True).start()   # [ORG_OWNED_V1]
+    started = set()
+    listen(door["port"], lambda s, p, a: door_ask(s, a))
+    net = None
+    while True:
+        spaces_up()
+        levels_get_ports()
+        for n, lv in cells("level").items():                      # a level added later gets its login port at once
+            if "login_port" in lv and lv["login_port"] not in started:
+                listen(lv["login_port"], login)
+                started.add(lv["login_port"])
+        said = publish_hub(said)
+        kind, x = EV.get()
+        try:
+            handle_event(kind, x, net)
+            if kind == "net":
+                net = x
+        except (fdfram.RamError, OSError) as e:                    # said; the reader that saw it delivers the next event
+            log("%s: %s" % (kind, e))
+
+
+def handle_event(kind, x, net):
+    """[EVENTS_NOT_TIMERS_V1] one event, acted on by serve's one consumer"""
+    if kind == "cells":
+        if x is None or any(c.get("variable") == "revoked" for c in x):
+            enforce_revoked("a revocation" if x else "the region's RAM is back")   # [REVOKED_EVERYWHERE_V1]
+        apply_reach("cells changed" if x else "the region's RAM is back")
+        if net is not None and (x is None or any(c.get("variable") in ("level", "user", "revoked") for c in x)):
+            try:
+                publish_def(net, "a level, user or revocation changed")         # [ORG_OWNED_V1] its definition again
+            except fdfram.RamError as e:
+                log("ORG: the definition was not written to the network RAM (%s); written again when that RAM says it is up" % e)
+    elif kind == "net":                                       # the network RAM is there (again): this host's definition
+        try:
+            publish_def(x, "the network RAM is there")
+        except fdfram.RamError as e:
+            log("ORG: the definition was not written to the network RAM (%s); written again when that RAM says it is up" % e)
+    elif kind == "defs":
+        adopt_def(x)
+    elif kind == "space-up":
+        n, sp, p = x
+        if _space_proc.get(n) is p:
+            say_can(n, sp)
+    elif kind == "space-exit":
+        n, sp, p, was_up = x
+        if _space_proc.get(n) is p:
+            log("SPACE %s: its RAM manager exited (rc %s)%s" % (n, p.returncode,
+                "; starting it again" if was_up else " without ever listening; started again when its cell changes"))
+            del _space_proc[n]                                    # (serve's next spaces_up starts it again)
+            if not was_up:
+                _space_failed[n] = sp
+
+
+def _region_reader():
+    """[EVENTS_NOT_TIMERS_V1] a held read on the region's own family (fdf-org, *, *): its changes are serve's events. The
+    region's RAM gone: said, and read again when it says it is up (its file, fdf_watch.wait_up), from the start of the
+    family (a RAM manager started again has a new log)."""
+    last, back = 0, False
+    while True:
+        try:
+            rows = ram().read(SVC, after=last, wait_s=fdfram.HOLD_S)
+        except (fdfram.RamError, OSError) as e:
+            t = time.time()
+            log("the region's RAM %s: %s; read again when it says it is up" % (h().get("RINA_RAM", ""), e))
+            fdf_watch.after_failure(h().get("RINA_RAM", ""), e, t)
+            last, back = 0, True
+            continue                                              # (read from the start: its first rows are the event)
+        if rows:
+            last = max(c["id"] for c in rows)
+            EV.put(("cells", None if back else rows)); back = False
+
+
+# ---------------------------------------------------------------- admin commands
+def cmd_init():
+    os.makedirs(VAR, exist_ok=True)
+    if not os.path.exists(ORG_KEY):
+        old = os.umask(0o077)
+        try:
+            open(ORG_KEY, "wb").write(secrets.token_bytes(32))
+        finally:
+            os.umask(old)
+        log("credential key made: %s (root-only)" % ORG_KEY)
+    area = h()["FDF_AREA"]
+    door = cells("door").get(area)
+    if door and os.path.exists(os.path.join(ADMITTED, GENERIC_NAME + ".json")):
+        log("already initialised: door port %d, generic edge %s" % (door["port"], door.get("generic_edge")))
+        return
+    old = os.umask(0o077)
+    try:
+        priv = subprocess.run(["wg", "genkey"], capture_output=True, text=True, check=True).stdout.strip()
+    finally:
+        os.umask(old)
+    pub = subprocess.run(["wg", "pubkey"], input=priv, capture_output=True, text=True, check=True).stdout.strip()
+    ge = fdf_regions.free_generic()                          # [REGIONS_PER_MACHINE_V1] each region's own
+    door = {"port": random_port(used_ports()), "generic_pub": pub, "generic_priv": priv, "generic_edge": ge}
+    put("door", area, door)
+    write_admitted(GENERIC_NAME, {"name": GENERIC_NAME, "pubkey": pub, "edge": ge, "kind": "leaf",
+                                  "generic": True, "invited": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())})
+    log("generic credential made: key %s, edge %s; door port %d" % (pub, ge, door["port"]))
+
+
+def cmd_level(a):
+    name = a[0]
+    if not name or not all(c.isalnum() or c in " ._-" for c in name) or len(name) > 63:
+        die("level name '%s': letters, digits, space . _ -, at most 63" % name, 2)
+    levels = cells("level")
+    lv = dict(levels.get(name) or {})
+    used = used_ports()
+    for k, flag in (("login_port", "--login-port"), ("session_port", "--session-port")):   # given, else kept, else made
+        if flag in a and a.index(flag) + 1 < len(a):
+            v = a[a.index(flag) + 1]
+            if not v.isdigit() or not 1024 <= int(v) <= 65535:
+                die("%s PORT: 1024..65535" % flag, 2)
+            lv[k] = int(v)
+        if not REMOTE:                            # (REMOTE: the hub's fdf-org gives the ports: they are its machine's)
+            lv.setdefault(k, random_port(used)); used.add(lv[k])
+    lv["password"] = "--password" in a
+    lv.setdefault("reach", {"kind": "ram"})
+    spaces = []
+    i = 1
+    while i < len(a):
+        if a[i] == "--reach" and i + 1 < len(a):
+            r = a[i + 1]
+            lv["reach"] = {"kind": "list", "dests": r[5:].split(",")} if r.startswith("list:") else {"kind": r}
+            if lv["reach"]["kind"] not in ("ram", "open", "list"):
+                die("--reach ram | open | list:DEST[,DEST...]", 2)
+            i += 2
+        elif a[i] == "--space" and i + 1 < len(a):
+            spaces.append(a[i + 1]); i += 2
+        else:
+            i += 1
+    if spaces:
+        missing = [x for x in spaces if x not in cells("space")]
+        if missing:
+            die("no space %s here: fdf-org space NAME first" % ", ".join(repr(x) for x in missing), 2)
+        lv["spaces"] = spaces
+    lv["seq"] = int(time.time() * 1000)          # [ORG_OWNED_V1] the newest of a level, wherever it was set, is the org's
+    put("level", name, lv)
+    log("level %s: login port %s, session port %s, %s, reach %s%s" % (name, lv.get("login_port", "(the hub's)"), lv.get("session_port", "(the hub's)"),
+        "password" if lv["password"] else "no password", lv["reach"]["kind"],
+        "" if lv["reach"]["kind"] != "list" else " " + ",".join(lv["reach"]["dests"])))
+    if not REMOTE:
+        apply_reach("level %s" % name)            # (REMOTE: the hub's own fdf-org applies it on the tuple's event)
+
+
+def cmd_space(name):
+    if not name or not all(c.isalnum() or c in " ._-" for c in name) or len(name) > 63:
+        die("space name '%s': letters, digits, space . _ -, at most 63" % name, 2)
+    sp = cells("space").get(name)
+    if sp:
+        log("space %s: already here, its RAM manager on port %d" % (name, sp["port"]))
+        return
+    sp = {"port": random_port(used_ports()), "file": "".join(c if c.isalnum() or c in "._-" else "_" for c in name)}
+    put("space", name, sp)
+    log("space %s: its RAM manager on %s:%d (fdf-org serve starts it)" % (name, HUB_ADDR, sp["port"]))
+
+
+def cmd_user(level, user, remove=False):
+    """[ORG_OWNED_V1] a portable verifier (or, --remove, the user's removal), newest-stamped: every RAM host of the
+    organization adopts it from the network RAM (_net_reader). Run anywhere the region's RAM is reached."""
+    if level not in cells("level"):
+        die("no level %r" % level)
+    if remove:
+        put("user", "%s/%s" % (level, user), {"removed": True, "seq": int(time.time() * 1000)})
+        log("user %s at %s: removed (every RAM host of the organization adopts it)" % (user, level))
+        return
+    pw = sys.stdin.readline().rstrip("\n")
+    if not pw:
+        die("no password on stdin")
+    put("user", "%s/%s" % (level, user), dict(portable_verifier(pw), seq=int(time.time() * 1000)))
+    log("user %s at %s: password set (a verifier that checks on every RAM host of the organization)" % (user, level))
+
+
+# ---------------------------------------------------------------- [ORG_OWNED_V1] the same users everywhere, owned
+# (John 2026-11-02) a device logs in at any RAM host on its line it can reach, with the same user and password. (John
+# 2026-11-03: "the configuration's owners write it again".) Every RAM host of the organization is an owner of its
+# definition -- its levels (not their ports: each host's own) and its users' portable verifiers and removals, each
+# stamped with when it was set -- and writes it into the network RAM, (fdf-org, def, <org>.<host>), again whenever
+# that RAM changes. Each holds a read on the family and adopts, entry by entry, the newest it sees that is newer than
+# its own: a level new to it gets its own ports. Nothing is exported or imported by hand. (This replaces `fdf-org
+# export` / `import`, [ONE_ORG_ON_EVERY_TARGET_V1], which carried the credential key itself.) A user set before
+# [ORG_OWNED_V1] (a verifier under this host's own key) checks only here and is not written out: set it again.
+def net_ram():
+    """the network RAM the organization's RAM hosts are all members of: FDF_NET_RAM, else this machine's (join.env)"""
+    w = os.environ.get("FDF_NET_RAM", "")
+    if not w:
+        try:
+            w = fdfram.where()
+        except fdfram.RamError:
+            return None
+    return fdfram.Ram(w)
+
+
+def own_def():
+    levels = {n: {k: lv[k] for k in ("password", "reach", "spaces", "seq") if k in lv} for n, lv in cells("level").items()}
+    users, local_only = {}, []
+    for k, u in cells("user").items():
+        if u.get("kdf") == "pbkdf2-sha256" or u.get("removed"):
+            users[k] = {x: u[x] for x in ("kdf", "n", "salt", "hash", "removed", "seq") if x in u}
+        else:
+            local_only.append(k)
+    revoked = {n: {k: r[k] for k in ("pubkey", "seq") if k in r} for n, r in cells("revoked").items()}   # [REVOKED_EVERYWHERE_V1]
+    return {"org": h()["FDF_AREA"], "host": h().get("FDF_HUB_NAME", ""), "levels": levels, "users": users, "revoked": revoked,
+            "at": int(time.time())}, local_only
+
+
+def adopt_def(defs):
+    """the newest of each level and user among the organization's definitions, where it is newer than this host's"""
+    mine_l, mine_u = cells("level"), cells("user")
+    best_l, best_u = {}, {}
+    for d in defs:
+        for n, lv in (d.get("levels") or {}).items():
+            if int(lv.get("seq") or 0) > int((best_l.get(n) or {}).get("seq") or 0):
+                best_l[n] = (lv, d.get("host", "?"))
+        for k, u in (d.get("users") or {}).items():
+            if int(u.get("seq") or 0) > int((best_u.get(k) or ({}, ""))[0].get("seq") or 0):
+                best_u[k] = (u, d.get("host", "?"))
+    changed = []
+    used = used_ports()
+    for n, (lv, by) in best_l.items():
+        have = mine_l.get(n) or {}
+        if int(lv.get("seq") or 0) <= int(have.get("seq") or 0):
+            continue
+        new = dict(have, **{k: lv[k] for k in ("password", "reach", "spaces", "seq") if k in lv})
+        for k in ("login_port", "session_port"):                     # this host's own ports, kept or made here
+            if k not in new:
+                new[k] = random_port(used); used.add(new[k])
+        if [x for x in new.get("spaces") or [] if x not in cells("space")]:
+            log("ORG: level %s from %s names a space this host has not: not adopted" % (n, by)); continue
+        put("level", n, new); changed.append("level %s (from %s)" % (n, by))
+    for k, (u, by) in best_u.items():
+        if k.split("/", 1)[0] not in cells("level"):
+            continue                                                 # its level first (adopted above, or the next event)
+        if int(u.get("seq") or 0) <= int((mine_u.get(k) or {}).get("seq") or 0):
+            continue
+        put("user", k, u); changed.append(("user %s removed" if u.get("removed") else "user %s") % k + " (from %s)" % by)
+    mine_r = cells("revoked")                                        # [REVOKED_EVERYWHERE_V1] a revocation is never undone
+    for d in defs:
+        for n, r in (d.get("revoked") or {}).items():
+            if n not in mine_r:
+                put("revoked", n, dict(r, by=d.get("host", "?"))); mine_r[n] = r
+                changed.append("device %s REVOKED (from %s)" % (n, d.get("host", "?")))
+    if changed:
+        log("ORG: [ORG_OWNED_V1] adopted from the organization's other RAM hosts: %s" % "; ".join(changed))
+        enforce_revoked("the organization's definition")
+        apply_reach("the organization's definition")
+    return changed
+
+
+def publish_def(net, why):
+    org, me = h()["FDF_AREA"], h().get("FDF_HUB_NAME", "") or socket.gethostname()
+    d, local_only = own_def()
+    net.write(SVC, "def", "%s.%s" % (org, me), d)
+    log("ORG: [ORG_OWNED_V1] %s: this host's definition of %s in the network RAM %s: %d level(s), %d user(s), %d revoked%s" % (why, org, net.hostport,
+        len(d["levels"]), len(d["users"]), len(d["revoked"]), "; only here (a verifier under this host's own key: set it again to go everywhere): " + ", ".join(local_only) if local_only else ""))
+
+
+def _net_reader():
+    """[ORG_OWNED_V1] [EVENTS_NOT_TIMERS_V1] the organization's definitions in the network RAM: serve is told the RAM is
+    there (it writes this host's definition) and each time another host's definition changes (a held read on the family).
+    No network RAM: said once, and looked for again when join.env is written. The network RAM gone: said, and read again
+    when it says it is up."""
+    said_none = False
+    jenv = os.path.join(os.environ.get("FDF_VAR", "/opt/fdf/var"), "join.env")
+    while True:
+        net = net_ram()
+        if net is None:
+            if not said_none:
+                log("ORG: no network RAM (FDF_NET_RAM, or this machine's join.env): the organization's definition stays on this host until %s is written" % jenv)
+                said_none = True
+            fdf_watch.wait_written(jenv)
+            continue
+        org, me = h()["FDF_AREA"], h().get("FDF_HUB_NAME", "") or socket.gethostname()
+        EV.put(("net", net))
+        last = -1
+        try:
+            while True:
+                rows = net.read(SVC, "def", after=last, wait_s=fdfram.HOLD_S)
+                if not rows:
+                    continue
+                last = max(r["id"] for r in rows)
+                if not any(r["instance"].startswith(org + ".") and r["instance"] != "%s.%s" % (org, me) for r in rows if not r.get("gone")):
+                    continue
+                EV.put(("defs", [r["bag"] for r in net.read(SVC, "def") if r["instance"].startswith(org + ".") and r["instance"] != "%s.%s" % (org, me)]))
+        except (fdfram.RamError, OSError) as e:
+            t = time.time()
+            log("ORG: the network RAM %s: %s; read again when it says it is up" % (net.hostport, e))
+            fdf_watch.after_failure(net.hostport, e, t)
+
+
+def decode_line(tok):
+    if not tok.startswith("fdfjoin1."):
+        die("not a join line: %s..." % tok[:12])
+    b = tok[9:]
+    return json.loads(base64.urlsafe_b64decode(b + "=" * (-len(b) % 4)))
+
+
+def cmd_line(level, withs=()):
+    a = area()
+    lv = cells("level").get(level)
+    for _ in range(3):                                             # a level just written elsewhere: the hub gives its ports
+        if not lv or "login_port" in lv:
+            break
+        ram().read(SVC, "level", level, after=max([c["id"] for c in ram().read(SVC, "level", level)] + [0]), wait_s=10)
+        lv = cells("level").get(level)
+    if lv and "login_port" not in lv:
+        die("level %r has no login port yet: is the hub's fdf-org running?" % level)
+    door = cells("door").get(a)
+    hub = cells("hub").get(a)                                      # [ADMISSION_WITH_THE_HUB_V1] where the hub is now
+    if not REMOTE:                                                 # on the hub's own machine: the hub itself, now
+        pub = hub_pub()
+        if not pub:
+            die("`wg show %s public-key` gave nothing: is fdf-hub running?" % h()["FDF_IFACE"])
+        hub = {"name": h().get("FDF_HUB_NAME", ""), "pubkey": pub, "endpoint": h().get("FDF_ENDPOINT", ""), "addr": HUB_ADDR}
+    if not lv or not door:
+        die("no level %r, or no door (the hub's fdf-org makes the door when it starts)" % level)
+    if not hub:
+        die("the hub of %s has not said where it is: is its fdf-org running?" % a)
+    line = {"v": 1, "org": a, "level": level, "password": lv.get("password", False),
+            "generic": {"privkey": door["generic_priv"], "edge": door["generic_edge"]},
+            "managers": [{"name": hub.get("name", ""), "pubkey": hub["pubkey"], "endpoint": hub["endpoint"],
+                          "addr": hub.get("addr", HUB_ADDR), "door_port": door["port"], "login_port": lv["login_port"]}],
+            "spaces": lv.get("spaces", [])}
+    line["managers"][0]["generic"] = line["generic"]               # each RAM host has its own generic credential
+    for other in withs:                                            # [STANDBY_IN_THE_LINE_V1] the standbys, in order
+        o = decode_line(other)
+        if o.get("level") != level:
+            die("--with: that line is for level %r, not %r" % (o.get("level"), level))
+        for m in o["managers"]:
+            m.setdefault("generic", o["generic"])
+            line["managers"].append(m)
+    tok = "fdfjoin1." + base64.urlsafe_b64encode(json.dumps(line, separators=(",", ":")).encode()).decode().rstrip("=")
+    print(tok)
+    if subprocess.run(["sh", "-c", "command -v qrencode"], capture_output=True).returncode == 0:
+        subprocess.run(["qrencode", "-t", "ANSIUTF8", tok])
+
+
+def cmd_list(as_json=False):
+    if as_json:                                                   # for fdf-setup: names may hold spaces
+        print(json.dumps({"spaces": sorted(cells("space")),
+                          "levels": {n: {"password": bool(lv.get("password")), "reach": lv.get("reach", {}),
+                                         "spaces": lv.get("spaces", [])} for n, lv in cells("level").items()}}))
+        return
+    for n, sp in sorted(cells("space").items()):
+        print("space %-20s RAM manager %s:%d" % (n, HUB_ADDR, sp["port"]))
+    for n, lv in sorted(cells("level").items()):
+        print("level %-20s login %-5s session %-5s %-11s reach %s%s" % (n, lv.get("login_port", "-"), lv.get("session_port", "-"),
+              "password" if lv.get("password") else "no password", lv.get("reach", {}).get("kind"),
+              (" spaces " + ",".join(lv["spaces"])) if lv.get("spaces") else ""))
+    for n, r in ({} if REMOTE else admitted()).items():
+        if r.get("level"):
+            print("device %-16s %-14s %-12s %-10s %s %s" % (n, r["edge"], r["level"], r.get("state"), r.get("nick", ""), r.get("user", "")))
+    for n, r in sorted(cells("revoked").items()):                # [REVOKED_EVERYWHERE_V1]
+        print("revoked %-15s by %-14s at %s %s" % (n, r.get("by", "?"), time.strftime("%Y-%m-%d %H:%M", time.localtime(int(r.get("seq") or 0) / 1000)), r.get("nick", "")))
+
+
+# ---------------------------------------------------------------- [REVOKED_EVERYWHERE_V1] a lost device, revoked once
+# (John 2026-11-03: "Do revoking access") A device's name is its key's hash ([NAME_FROM_KEY_V1]), the same at every RAM
+# host it was admitted at. Its revocation is a permanent cell (fdf-org, revoked, NAME) in this region's RAM and goes
+# into this host's definition in the network RAM ([ORG_OWNED_V1]); every RAM host of the organization adopts it on
+# its event, removes the device's admission (the hub drops its peer at once: inotify) and rebuilds its reach, and its
+# door refuses that key from then on. Across a split it takes effect at the merge. (Before this, revoke deleted the
+# admission file on one host only, and the door's "revoked" state was never written: the same key could ask the door
+# again and be admitted.)
+def enforce_revoked(why):
+    gone = []
+    for n in cells("revoked"):
+        p = os.path.join(ADMITTED, n + ".json")
+        if ADMITTED and os.path.exists(p):
+            os.remove(p); gone.append(n)                         # the hub drops its peer at once (inotify)
+    if gone:
+        log("REVOKED (%s): %s: peer and reach gone here" % (why, ", ".join(gone)))
+        apply_reach("revoked " + ", ".join(gone))
+    return gone
+
+
+def cmd_revoke(name):
+    rec = ({} if REMOTE else admitted()).get(name)
+    if not rec and not (name.startswith("d-") and len(name) == 14 and all(c in "0123456789abcdef" for c in name[2:])):
+        die("%s is not admitted here and is not a device name (d-<12 hex>, from fdf-org list)" % name)
+    if name in cells("revoked"):
+        die("%s is already revoked" % name)
+    put("revoked", name, {"pubkey": (rec or {}).get("pubkey", ""), "nick": (rec or {}).get("nick", ""),
+                          "seq": int(time.time() * 1000), "by": h().get("FDF_HUB_NAME", "") or socket.gethostname()})
+    if not REMOTE:
+        enforce_revoked("revoke " + name)
+    log("%s revoked for the organization: every RAM host adopts it; its key is refused at every door" % name)
+
+
+def main():
+    global HUBENV, ADMITTED, ORG_KEY, REMOTE, HUB_ADDR
+    a = sys.argv[1:]
+    want = ""
+    if "--area" in a:
+        i = a.index("--area"); want = a[i + 1] if i + 1 < len(a) else ""; del a[i:i + 2]
+    if not a or a[0] in ("-h", "--help"):
+        print(__doc__.strip()); return 0
+    if os.geteuid() != 0:
+        die("run as root")
+    if not HUBENV:
+        HUBENV, ADMITTED, why = fdf_regions.pick(want)
+        if why:
+            # [ADMISSION_WITH_THE_HUB_V1] the hub is somewhere else: what is a tuple is done through the region's RAM
+            if want or a[0] not in ("level", "space", "line", "list", "revoke"):
+                die(why + ("" if want else "; on any machine in the region: fdf-org level | space | line | list | revoke"))
+            REMOTE = True
+    # [HUB_IS_WHERE_IT_RUNS_V1] a region directory here is not the hub: the hub is here only when its interface is up
+    # here (found on Seattle7 2026-11-02: /opt/fdf/hub/frognet/hub.env left from an earlier install, its RAM 127.0.0.1:8840,
+    # no hub running; fdf-org took the file for the hub and read a RAM that was not there)
+    if not REMOTE and not hub_pub():
+        if a[0] in ("level", "space", "line", "list", "revoke"):
+            sys.stderr.write("fdf-org: %s is here but its hub (%s) is not running here: the region's RAM is the one this machine is joined to\n" % (HUBENV, h()["FDF_IFACE"]))
+            REMOTE = True
+        else:
+            die("%s is here but its hub (%s) is not running here: this command runs where the hub runs" % (HUBENV, h()["FDF_IFACE"]))
+    if not ORG_KEY and not REMOTE:
+        ORG_KEY = os.path.join(os.path.dirname(HUBENV), "org-key")
+    if not REMOTE:                     # [HUB_ADDRESS_FROM_ITS_HOST_V1] this hub's address: its listeners, rules, answers
+        HUB_ADDR = fdf_regions.hub_addr(h())
+    c = a[0]
+    if c == "init": cmd_init()
+    elif c == "level" and len(a) >= 2: cmd_level(a[1:])
+    elif c == "space" and len(a) == 2: cmd_space(a[1])
+    elif c == "user" and len(a) in (3, 4) and a[3:] in ([], ["--remove"]): cmd_user(a[1], a[2], "--remove" in a)
+    elif c == "line" and len(a) >= 2: cmd_line(a[1], [a[i + 1] for i in range(2, len(a) - 1) if a[i] == "--with"])
+    elif c == "list": cmd_list("--json" in a)
+    elif c == "revoke" and len(a) == 2: cmd_revoke(a[1])
+    elif c == "serve": serve()
+    else: die(__doc__.split("Where things")[0].strip(), 2)
+    return 0
+
+
+if __name__ == "__main__":
+    sys.exit(main())

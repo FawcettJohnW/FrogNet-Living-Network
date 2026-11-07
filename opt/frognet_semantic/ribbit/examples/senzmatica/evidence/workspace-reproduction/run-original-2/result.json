@@ -1,0 +1,15 @@
+{
+  "mode": "original",
+  "broker": "Mosquitto 2.1.2 (authorized substitution)",
+  "checks": [
+    "configuration API responds",
+    "original MQTT command observed",
+    "original encoder bytes match",
+    "frontend API exposes applied value and UPDATED status",
+    "completion updates value/history and removes pending Message",
+    "invalid integer rejected without state change",
+    "unchanged setting adds no history or pending Message"
+  ],
+  "upstream_unchanged": true,
+  "status": "PASS"
+}

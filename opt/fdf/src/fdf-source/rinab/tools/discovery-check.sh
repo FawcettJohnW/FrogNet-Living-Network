@@ -17,7 +17,7 @@ for i in 1 2 3; do ip netns add dm$i; ip netns exec dm$i ip link set lo up
     ip netns exec dm$i ip addr add 10.60.0.1$i/24 dev v$i; ip netns exec dm$i ip link set v$i up; done
 # [FDF_NO_MEMBER_TO_MEMBER_V1] capture the shared network for the whole run: no packet may pass between two machines
 tcpdump -i dmbr -nn -U -w $D/wire.pcap > /dev/null 2>&1 & TD=$!; sleep 0.5
-rina-host --listen 10.60.0.1:$PORT --api $API > $D/host.log 2>&1 & HP=$!
+fdf-ram --listen 10.60.0.1:$PORT --api $API > $D/host.log 2>&1 & HP=$!
 for i in $(seq 100); do (exec 3<>/dev/tcp/10.60.0.1/$PORT) 2>/dev/null && break; sleep 0.05; done
 for i in 1 2 3; do ip netns exec dm$i unshare --uts bash -c "hostname machine-$i; exec rlite-uipcps -d" || echo "machine-$i: agent failed"; done
 for i in $(seq 100); do [ "$(grep -h 'FDF_DISCOVERY_V1\] announced' $D/agent.*.log 2>/dev/null | wc -l)" -ge 3 ] && break; sleep 0.05; done
@@ -32,6 +32,6 @@ python3 - "$D" <<'PY'
 import json, sys
 D = sys.argv[1]; p1 = {p["hostname"]: p for p in json.load(open(D + "/participants-1.json"))}; p2 = {p["hostname"]: p for p in json.load(open(D + "/participants-2.json"))}
 ok = sorted(p1) == ["machine-1", "machine-2", "machine-3"] and all(p1[f"machine-{i}"]["ip"] == f"10.60.0.1{i}" and p1[f"machine-{i}"]["alive"] and p1[f"machine-{i}"]["cores"] > 0 for i in (1, 2, 3))
-ok = ok and int(open(D + "/m2m.count").read()) == 0 and p2["machine-2"]["alive"] is False and p2["machine-1"]["alive"] and p2["machine-3"]["alive"]
+ok = ok and int(open(D + "/m2m.count").read()) == 0 and "machine-2" not in p2 and p2["machine-1"]["alive"] and p2["machine-3"]["alive"]   # [ANN_GOES_WITH_THE_SESSION_V1] gone is gone: not listed
 print("RESULT", "PASS" if ok else "FAIL"); sys.exit(0 if ok else 1)
 PY

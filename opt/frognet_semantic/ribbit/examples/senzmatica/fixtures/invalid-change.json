@@ -1,0 +1,16 @@
+{
+  "device": "test-device-001",
+  "productType": "remote-config-test",
+  "versionNum": "1",
+  "remoteConfigurations": [
+    {
+      "parameterCategory": "Topic Format & Interval",
+      "parameter": "Test sampling interval",
+      "parameterId": "1",
+      "inputType": "text",
+      "format": "integer",
+      "defaultValue": "not-an-integer"
+    }
+  ],
+  "updateHistory": []
+}

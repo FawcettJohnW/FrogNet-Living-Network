@@ -1,0 +1,35 @@
+<!doctype html>
+<!-- Copyright (C) 2016-2026 Fawcett Innovations LLC. SPDX-License-Identifier: GPL-2.0-only
+     print309.html -- [RT_PAGES_V1] the ICS-309 communications log of the open mission and op period: every entry from
+     every post and phone, in write order, with its message number and mark. Print it from the browser. -->
+<html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
+<title>ICS 309</title><link rel="stylesheet" href="rt.css">
+<style> @media print { nav, #say, button { display: none } body { background: #fff } } .hd td { border: 1px solid #999 } </style></head><body>
+<nav><a href="log.html">Radio Log</a> · <a href="rangers.html">Rangers</a> · <a href="map.html">Map</a> · <b>ICS-309</b> · <a href="board.html">Board</a> · <a href="messages.html">Messages</a> · <a href="summary.html">Summary</a> · <a href="aar.html">After-action</a> <button onclick="print()">Print</button></nav>
+<h1>COMMUNICATIONS LOG (ICS 309)</h1>
+<table class="hd"><tr><td>1. Incident name: <b id="inc"></b></td><td>2. Operational period: <b id="op"></b></td><td>3. Radio operator: <b id="opr"></b></td></tr></table>
+<div id="say"></div>
+<table><thead><tr><th>Time</th><th>Msg #</th><th>✓</th><th>From</th><th>Message</th><th>Logged by</th></tr></thead><tbody id="rows"></tbody></table>
+<p><small id="foot"></small></p>
+<script type="module">
+import * as RT from './rt.js'
+const D = RT.D, $ = (s) => document.querySelector(s)
+window.RT_NOTE = (t) => { const e = document.querySelector('#say'); if (e) e.textContent = t }
+const m = RT.currentMission()
+let log = new Map(), marks = new Map(), roster = new Map()
+function draw() {
+  const rows = [...log.values()].sort((a, b) => a.id - b.id), name = new Map([...roster.values()].map(r => [r.bag.callsign.toUpperCase(), r.bag.fullName]))
+  $('#rows').innerHTML = rows.map(r => { const b = r.bag, l = b.location || {}
+    const where = l.lat != null ? D.formatLatLng(l.lat, l.lng, 'DD') : (l.text || '')
+    const msg = [b.status !== 'normal' ? b.status : '', where, b.notes].filter(Boolean).join(' · ')
+    return '<tr><td>' + RT.esc(new Date(b.date).toLocaleString()) + '</td><td>' + RT.esc(D.msgNoShort(b.msgNo)) + '</td><td>' + (D.MARK_GLYPH[marks.get(r.instance)?.mark] || '') +
+      '</td><td>' + RT.esc(b.callsign) + (name.get(b.callsign.toUpperCase()) ? ' (' + RT.esc(name.get(b.callsign.toUpperCase())) + ')' : '') + '</td><td>' + RT.esc(msg) + '</td><td>' + RT.esc(b.by) + '</td></tr>' }).join('')
+  $('#foot').textContent = rows.length + ' entries; message numbers ' + (rows.length ? D.msgNoFull(rows[0].bag.msgNo) + ' ...' : '')
+}
+if (!m) { $('#say').textContent = 'choose or start a mission on the Radio Log first' } else {
+  $('#inc').textContent = m.name; $('#op').textContent = m.opPeriod; $('#opr').textContent = RT.device().name || RT.device().id
+  RT.watch('rt-log', RT.logVariable(m), (c) => { log = c; draw() })
+  RT.watch('rt-handled', m.id, (c) => { marks = RT.markOf(c); draw() })
+  RT.watch('rt-roster', m.id, (c) => { roster = c; draw() })
+}
+</script></body></html>

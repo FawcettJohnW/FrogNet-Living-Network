@@ -1,0 +1,75 @@
+<!doctype html>
+<!-- Copyright (C) 2016-2026 Fawcett Innovations LLC. SPDX-License-Identifier: GPL-2.0-only
+     index.html -- [RT_APP_UI_V1] the RangerTrak app's screens, the same on the desktop and the phone: the splash, the
+     connect screen, the map, the chat. [RT_LAYERS_V1] The views (EOC, Team, Hospital, Ambulance, the units, Public) and
+     their screens are the layers' (layers/*.js), which base.js loads: an app is the base and its layers. The app's core
+     (AppCore.java) talks to this page by JSON lines: rtNative.send(line) out, rtDeliver(line) in. -->
+<html lang="en"><head><meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1">
+<title>RangerTrak</title>
+<link rel="stylesheet" href="leaflet/leaflet.css"><link rel="stylesheet" href="app.css">
+</head><body>
+<div id="splash"><div class="brand">RangerTrak</div><div class="powered">powered by the FrogNet Living Network</div></div>
+
+<form id="connect" hidden>
+  <h1>RangerTrak</h1>
+  <label>Node <input name="door" placeholder="the node this device is on, e.g. 10.170.170.1" required></label>
+  <label>Your name <input name="name" required></label>
+  <fieldset class="roles" id="roleSet"><legend>View</legend>
+    <!-- [RT_LAYERS_V1] one radio per view this app has: its layers add them -->
+  </fieldset>
+  <div class="for-unit" data-field="unit" hidden><label><span class="unit-l">Unit</span> <input name="unit" list="units"></label>
+    <datalist id="units"></datalist></div>   <!-- [RT_LAYERS_V1] the view's own names and hint (its role's units, unitHint) -->
+  <div class="for-eoc" data-field="login" hidden><label>User <input name="user" autocomplete="username"></label>
+    <label>Password <input name="password" type="password" autocomplete="current-password"></label></div>
+  <div class="for-invite" hidden><label>FrogNet invitation <input name="invite" placeholder="fdfinv1.… (pasted once; kept on this phone)" autocomplete="off"></label>
+    <div class="meta inv-say"></div></div>
+  <button type="submit">Connect</button>
+  <button type="button" id="scanTeam" hidden>Scan to join (a team, or the EOC to start one)</button>
+  <button type="button" id="joinEoc" hidden title="[CHILDREN_JOIN_V1] start a team: name it, give the EOC's teams password (the EOC's admin sets it); this phone leads it">Join EOC</button>
+  <div id="enrollBox" hidden><div class="meta" id="enrollWho"></div>
+    <label id="enrollCallL" hidden>Your call sign <input id="enrollCall" autocomplete="off" autocapitalize="characters"></label>
+    <label>Password <input id="enrollPw" type="password" autocomplete="current-password"></label>
+    <button type="button" id="enrollGo">Join</button></div>
+  <div id="cstatus"></div>
+</form>
+
+<div id="main" hidden>
+  <header><span class="brand-s">RangerTrak</span> <span id="mission"></span> <span id="who"></span>
+    <span id="dot" title=""></span>
+    <button id="misBtn" type="button" hidden>Mission</button>
+    <button id="logBtn" type="button" hidden>Radio log</button>
+    <button id="actBtn" type="button" hidden>Actions</button>
+    <button id="reqBtn" type="button" hidden>Requests</button>
+    <button id="sensBtn" type="button" hidden>Sensors</button>
+    <button id="layersBtn" type="button">Layers</button>
+    <button id="chatBtn" type="button">Chat</button>
+    <button id="diagBtn" type="button" title="what this device holds, where it reads and writes, and why anything is not on the map">Diag</button>
+    <button id="menuBtn" type="button" hidden aria-label="more" title="more">☰</button></header>
+  <div id="menu" hidden></div>
+  <div id="map"></div>
+  <div id="layers" hidden></div>
+  <div id="legend"></div>
+  <aside id="chat" hidden>
+    <div class="tabs" id="tabs"></div>
+    <div id="log"></div>
+    <form id="sayForm"><select id="to"></select><input id="text" placeholder="message" autocomplete="off"><button>Send</button><button type="button" id="callTo" hidden>Call</button></form>
+  </aside>
+  <div id="pop" hidden><div class="pt"></div><div class="pbtn"><button type="button" class="pcall">Call</button></div><div class="pl"></div>
+    <form><select class="pto"></select><input class="ptext" placeholder="message" autocomplete="off"><button>Send</button>
+    <button type="button" class="pclose">Close</button></form>
+    <div class="pvideo"></div></div>
+  <section id="sheet" hidden><div class="sh-head"><b class="sh-title"></b><button type="button" class="sh-close">Close</button></div><div class="sh-body"></div></section>
+  <div id="status"></div>
+  <div id="notices"></div>
+</div>
+<script>
+// [MAP_NO_3D_IN_JAVAFX_V1] JavaFX's web view (the Windows app) draws CSS 3D transforms wrongly under Windows display
+// scaling: Leaflet's map came out in a corner with tiles of other sizes around it. Leaflet uses 2D positioning there.
+if (/JavaFX/.test(navigator.userAgent)) window.L_DISABLE_3D = true
+</script>
+<script src="leaflet/leaflet.js"></script>
+<script src="qrcode.js"></script>
+<script src="frogqr.js"></script>
+<script src="base.js"></script>   <!-- [RT_LAYERS_V1] the base; it loads the app's layers (layers/*.js) -->
+</body></html>

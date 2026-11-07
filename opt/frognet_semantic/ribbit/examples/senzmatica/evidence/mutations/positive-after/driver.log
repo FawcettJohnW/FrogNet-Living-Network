@@ -1,0 +1,14 @@
+PASS configuration API responds
+PASS frontend API exposes applied value and UPDATED status
+PASS completion updates value/history and removes pending Message
+PASS RAM applies setting and publishes final MQTT completion without old command
+PASS invalid integer rejected without state change
+PASS unchanged setting adds no history or pending Message
+PASS duplicate completion has no repeated history
+PASS reobserving desired state causes no repeated physical application
+PASS stale completion cannot alter legacy history
+PASS unconverted MQTT telemetry persists the actual sensor value
+PASS session loss removes capability
+PASS changes while absent do not create false applied history
+PASS returning device applies only latest pending value once
+{"mode": "ram", "broker": "Mosquitto 2.1.2 (authorized substitution)", "checks": ["configuration API responds", "frontend API exposes applied value and UPDATED status", "completion updates value/history and removes pending Message", "RAM applies setting and publishes final MQTT completion without old command", "invalid integer rejected without state change", "unchanged setting adds no history or pending Message", "duplicate completion has no repeated history", "reobserving desired state causes no repeated physical application", "stale completion cannot alter legacy history", "unconverted MQTT telemetry persists the actual sensor value", "session loss removes capability", "changes while absent do not create false applied history", "returning device applies only latest pending value once"], "upstream_unchanged": false, "status": "PASS"}

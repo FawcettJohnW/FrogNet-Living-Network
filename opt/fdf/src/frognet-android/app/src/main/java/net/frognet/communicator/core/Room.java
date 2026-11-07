@@ -134,7 +134,8 @@ public final class Room {
         String q = API + "?op=read&service=" + RamSession.urlenc(SERVICE) + "&variable=" + RamSession.urlenc(var)
                 + "&instance=" + RamSession.urlenc(scope);
         for (Object o : Json.arr(c.call("GET", q, "", 15.0).get("rows")))
-            c.call("DELETE", API + "?op=remove&id=" + Json.num(Json.obj(o).get("id")), "", 15.0);
+            c.call("DELETE", API + "?op=remove&service=" + RamSession.urlenc(SERVICE) + "&variable=" + RamSession.urlenc(var)   // [FAMILY_LOG_V1]
+                   + "&id=" + Json.num(Json.obj(o).get("id")), "", 15.0);
     }
 
     // ---- the copy of the region ------------------------------------------------------------------------------

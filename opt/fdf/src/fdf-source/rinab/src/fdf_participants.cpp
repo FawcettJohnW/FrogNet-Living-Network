@@ -9,8 +9,8 @@
 // then print {"gen":N,"participants":[...]} -- a page's long-poll returns only on a real change, never on a timer.
 int main(int argc, char** argv) {
     try {
-        rina_region::Client c; unsigned long long gen = 0; const bool wait = argc == 3 && std::string(argv[1]) == "--wait";
-        if (wait) { fdf::Transport t; fdf::Socket s(rina_region::Client::locate()); gen = t.change(s, std::stoull(argv[2])); }
+        fdf_region::Client c; unsigned long long gen = 0; const bool wait = argc == 3 && std::string(argv[1]) == "--wait";
+        if (wait) { fdf::Transport t; fdf::Socket s(fdf_region::Client::locate()); gen = t.change(s, std::stoull(argv[2])); }
         frogram::Json r = c.call("{\"op\":\"participants\"}");
         if (!r["ok"].b) { fprintf(stderr, "fdf-participants: refused: %s\n", r["error"].s.c_str()); return 1; }
         std::string out = "["; bool f = true;

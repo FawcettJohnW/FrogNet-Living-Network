@@ -1,0 +1,154 @@
+#!/usr/bin/env python3
+################################################################
+#  Copyright (C) 2016-2026 Fawcett Innovations LLC             #
+#  SPDX-License-Identifier: GPL-2.0-only                       #
+################################################################
+"""rt-post309 -- [POST_309_V1] the post's ICS-309 files: RangerTrak's Post participant (PLAN.md, "The participants").
+
+On the node at a post: held reads on the radio log, (rt-log, <mission>.<op>, <dev>.<seq>), in the app's general RAM
+(its AppHost in /etc/hosts and its port, fdf_appram: [APP_SERVICES_V1]), and every entry appended to FDF_VAR/rt/309/<mission>.<op>.csv in
+the order this post read them, each entry once by its id. The file is the post's durable record; the RAM keeps the
+cells only while it is up. [RT_213_V1] An entry that asks for an ICS-213 is also written, once, as
+FDF_VAR/rt/213/<mission>.<op>.<entry id>.txt, its fields as the 213 page shows them.
+
+Once each: the ids already in a file are read back at start, so a restart, a lost and resumed read, or a RAM change
+(everything read again there) leaves no duplicate. In order: a resumed read starts after the last row id it saw on
+that RAM; a new RAM is read from the start and only what the file lacks is appended, in that RAM's order.
+
+  rt-post309            run, on a post's node (its unit comes with the app's install: not yet; PLAN.md)
+Environment: FDF_VAR (/opt/fdf/var), FDF_PY (the fdfram module's directory).
+"""
+import calendar, csv, json, os, sys, time
+
+BUILD_TAG = "rt-post309-2026-11-04-r4"
+LIB = os.environ.get("FDF_PY") or os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "lib", "python")
+sys.path.insert(0, LIB)
+import fdfram  # noqa: E402
+import fdf_watch  # noqa: E402  [EVENTS_NOT_TIMERS_V1]
+import fdf_appram  # noqa: E402  [APP_SERVICES_V1]
+
+VAR = os.environ.get("FDF_VAR", "/opt/fdf/var")
+OUT = os.path.join(VAR, "rt", "309")
+WHERE = fdf_appram.HOSTS                     # the election writing it is the event
+COLS = ["msg_no", "date", "callsign", "status", "location", "notes", "by", "id"]
+
+
+def log(m):
+    print("[rt-post309] " + m, flush=True)
+
+
+def where():
+    return fdf_appram.where("rangertrak", "general")
+
+
+def msg_no(n):
+    if not isinstance(n, dict):
+        return ""
+    st = str(n.get("station", ""))
+    return st + ("-" if len(st) > 1 else "") + "%03d" % int(n.get("seq") or 0)
+
+
+def location(l):
+    if not isinstance(l, dict):
+        return ""
+    if l.get("lat") is not None:
+        return "%.5f, %.5f" % (l["lat"], l["lng"])
+    return str(l.get("text", ""))
+
+
+class Files:
+    def __init__(self):
+        os.makedirs(OUT, exist_ok=True)
+        self.have = {}                                  # variable -> set of entry ids in its file
+
+    def ids(self, v):
+        if v not in self.have:
+            s = set()
+            try:
+                with open(os.path.join(OUT, v + ".csv"), newline="") as f:
+                    for row in csv.DictReader(f):
+                        s.add(row["id"])
+            except FileNotFoundError:
+                pass
+            self.have[v] = s
+        return self.have[v]
+
+    def write213(self, v, i, b):
+        d213 = os.path.join(VAR, "rt", "213"); os.makedirs(d213, exist_ok=True)
+        p = os.path.join(d213, "%s.%s.txt" % (v, i))
+        if os.path.exists(p):
+            return
+        mission = v.rsplit(".", 1)[0]
+        n = b.get("msgNo") or {}
+        full = " / ".join(x for x in (str(n.get("mission", "")), "OP %s" % n["opPeriod"] if n.get("opPeriod") else "", msg_no(n)) if x)
+        when = b.get("date", "")
+        try:
+            t = time.localtime(calendar.timegm(time.strptime(when[:19], "%Y-%m-%dT%H:%M:%S")))   # the date is UTC (ISO, Z)
+            date, hm = time.strftime("%m/%d/%Y", t), time.strftime("%H:%M", t)
+        except ValueError:
+            date, hm = when, ""
+        lines = ["GENERAL MESSAGE (ICS 213)   Msg # " + full, "1. Incident Name: " + mission,
+                 "2. To (Name and Position): " + ", ".join(b.get("recipients213") or []),
+                 "3. From (Name and Position): " + str(b.get("callsign", "")), "4. Subject: " + str(b.get("subject213", "")),
+                 "5. Date: " + date, "6. Time: " + hm, "7. Message:", str(b.get("message213", "")),
+                 "8. Approved by: Name: " + str(b.get("by", "")) + "   Signature: ________   Position/Title: ________",
+                 "9. Reply:", "", "10. Replied by: Name: ________   Position/Title: ________   Signature: ________   Date/Time: ________"]
+        with open(p + ".tmp", "w") as f:
+            f.write("\n".join(lines) + "\n"); f.flush(); os.fsync(f.fileno())
+        os.replace(p + ".tmp", p)
+
+    def add(self, cells):
+        n = 0
+        for c in sorted(cells, key=lambda c: int(c.get("id", 0))):
+            v, i, b = c.get("variable", ""), c.get("instance", ""), c.get("bag") or {}
+            if c.get("gone") or not v or not i or "/" in v or v.startswith(".") or i in self.ids(v):
+                continue
+            p = os.path.join(OUT, v + ".csv")
+            new = not os.path.exists(p)
+            with open(p, "a", newline="") as f:
+                w = csv.writer(f)
+                if new:
+                    w.writerow(COLS)
+                w.writerow([msg_no(b.get("msgNo")), b.get("date", ""), b.get("callsign", ""), b.get("status", ""),
+                            location(b.get("location")), b.get("notes", ""), b.get("by", ""), i])
+                f.flush(); os.fsync(f.fileno())
+            self.have[v].add(i); n += 1
+            if b.get("generates213"):
+                self.write213(v, i, b)
+        return n
+
+
+def main():
+    files = Files()
+    log("build %s; files in %s" % (BUILD_TAG, OUT))
+    at, last = "", -1
+    while True:
+        t = time.time(); now = where()
+        if not now:                                     # [EVENTS_NOT_TIMERS_V1] its placement is the event
+            log("the app's general RAM is not served yet (%s); read again when it is written" % WHERE)
+            fdf_watch.wait_written(WHERE, t); continue
+        try:
+            rm = fdfram.Ram(now)
+            if now != at:                               # another RAM: read everything there
+                cells = rm.read("rt-log")
+                n = files.add(cells)
+                at, last = now, max([int(c.get("id", -1)) for c in cells] + [-1])
+                log("on %s: %d entries there, %d appended" % (at, len(cells), n))
+            cells = rm.read("rt-log", after=last, wait_s=8)   # 8 s: the longest it stays on a RAM this node has left
+            if cells:
+                last = max([last] + [int(c.get("id", -1)) for c in cells])
+                files.add(cells)
+        except fdfram.RamError as e:
+            # the RAM answered ESTALE (it started again: read it again now), or is gone: read again when it says it is
+            # up, or when the app's RAMs are placed again -- whichever is first
+            log("the read on %s ended (%s); read again when it is up or placed again" % (at or now, e))
+            bad, at = now, ""
+            if "ESTALE" not in str(e):
+                h, _, p = bad.rpartition(":")
+                d = os.path.join(fdf_watch.VAR, "ram")
+                while not fdf_watch.until(WHERE, lambda _p: where() != bad or any(fdf_watch._newer(os.path.join(d, n), t) for n in fdf_watch.up_names(bad)), 3600, also=(d,)):
+                    pass
+
+
+if __name__ == "__main__":
+    sys.exit(main())

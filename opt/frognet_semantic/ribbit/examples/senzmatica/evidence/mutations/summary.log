@@ -1,0 +1,6 @@
+PASS positive: 13 checks
+PASS mutant caught: generation
+PASS mutant caught: deduplication
+PASS mutant caught: physical-repeat
+PASS positive: 13 checks
+RESULT PASS 3/3 semantic controls; source/binaries restored

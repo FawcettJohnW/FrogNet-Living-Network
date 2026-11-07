@@ -1,8 +1,9 @@
 #!/bin/bash
 # make_deliverables.sh -- [ONE_TARBALL_PER_MACHINE_V1] the three r-builds from this tree, every time, all three:
+# Each file carries the build tag in its name (fdf-install-x86_64-<tag>.run ...): a re-sent file never lands as "name (1)".
 #   fdf-install-aarch64.run   Pi nodes      /opt/fdf (aarch64 binaries) + the FrogNet region patch, behind header.sh
 #   fdf-install-x86_64.run    x86 nodes     /opt/fdf (x86 static binaries) + the FrogNet region patch, behind header.sh
-#   fdf-droplet.tgz           the droplet   /opt/fdf (x86 static binaries, rina-host static) + fdf-hub.service; the
+#   fdf-droplet.tgz           the droplet   /opt/fdf (x86 static binaries, fdf-ram static) + fdf-hub.service; the
 #                                           machine's region (site key, hub.env, its RAM manager and member units) is
 #                                           then made by /opt/fdf/bin/fdf-region-create AREA PUBLIC_IP, once, there
 # Each carries /opt/fdf/BUILD (package=, build=, built=, for=). Tarred from / (paths are absolute-from-root).
@@ -26,6 +27,7 @@ FROGNET_FILES=(
   etc/sudoers.d/frognet-snapshot
   opt/frognet_semantic/core/build_id.py
   opt/frognet_semantic/core/frognet_role_elect.py
+  opt/frognet_semantic/core/app_hosts.py
   opt/frognet_semantic/core/frognet_service_hosts.py
   opt/frognet_semantic/core/not_frognet.py
   opt/frognet_semantic/core/region_capability.py
@@ -52,7 +54,10 @@ FROGNET_FILES=(
   opt/frognet_semantic/internet_tunnels_v3/tests/__init__.py
   opt/frognet_semantic/internet_tunnels_v3/tests/graph_apply_oracle.py
   opt/frognet_semantic/internet_tunnels_v3/wg.py
+  etc/systemd/system/fdf-app.service
+  etc/systemd/system/frognet-host.service
   usr/local/bin/frognet-merge-watcher.sh
+  usr/local/bin/frognet_setup_helper.bash
   usr/local/bin/frognet_dbhost_elector.py
   usr/local/bin/frognet_monitor
   usr/local/bin/frognet_monitor_py/__main__.py
@@ -70,48 +75,71 @@ FROGNET_FILES=(
   var/www/html/fln_dashboard32.html
   var/www/html/frognet_echo.php
   var/www/html/frognet_node.inc.php
+  var/www/html/frognet_setup_v4_api.php
   var/www/html/getHosts.php
   var/www/html/getSnapshot.php
   var/www/html/index.php
+  var/www/html/setup_frognet.html
 )
 for f in "${FROGNET_FILES[@]}"; do [ -f "$REPO/$f" ] || { echo "make_deliverables: $REPO/$f missing" >&2; exit 1; }; done
 TAG=$(sed -n 's/^#define FDF_BUILD_TAG "\(.*\)"/\1/p' "$H/src/fdf_version.hpp"); NOW=$(date -u +%Y-%m-%dT%H:%MZ)
-for f in "$TOP/fdf/bin/fdf-facts" "$TOP/fdf/bin/fdf-hub" "$H/tools/fdf-hub" "$TOP/fdf/lib/python/fdf_graph.py" \
+for f in "$TOP/fdf/bin/fdf-facts" "$TOP/fdf/bin/fdf-hub" "$TOP/fdf/lib/python/fdf_graph.py" \
          "$REPO/opt/frognet_semantic/internet_tunnels_v3/region.py"; do
   grep -q "BUILD_TAG = \"$TAG\"" "$f" || { echo "make_deliverables: $f does not say BUILD_TAG = \"$TAG\"" >&2; exit 1; }; done
-cmp -s "$TOP/fdf/bin/fdf-hub" "$H/tools/fdf-hub" || { echo "make_deliverables: fdf/bin/fdf-hub and rinab/tools/fdf-hub differ" >&2; exit 1; }
-for b in "$H/build/static/"{fdf-client,fdf-events,fdf-participants,fdf-attention,fdf-where,ram} "$H/build/bin/rina-host-static" "$H/build/arm64/"{fdf-client,fdf-events,fdf-participants,fdf-attention,fdf-where,ram,rina-host}; do
+for b in "$H/build/static/"{fdf-client,fdf-events,fdf-participants,fdf-attention,fdf-where,ram} "$H/build/bin/fdf-ram-static" "$H/build/arm64/"{fdf-client,fdf-events,fdf-participants,fdf-attention,fdf-where,ram,fdf-ram}; do
   [ -x "$b" ] || { echo "make_deliverables: $b missing (build first)" >&2; exit 1; }
   [ "${b##*/}" = ram ] || strings "$b" | grep -q "$TAG" || { echo "make_deliverables: $b is not $TAG" >&2; exit 1; }; done
-# [COMMS_ON_A_NODE_V1] the Communicator's servers (static, tools/build_comms_static.sh) go in every node bundle, /opt/fdf/comms
-for b in "$H/build/comms-"{x86_64,arm64}/{comms-ram,comms-media}; do
-  [ -x "$b" ] || { echo "make_deliverables: $b missing (tools/build_comms_deps.sh + tools/build_comms_static.sh)" >&2; exit 1; }; done
+# [ADDIN_V1] the Communicator's servers are an add-in now (src/bundles/make_addin.sh comms), not in the node bundles
 W=$(mktemp -d); trap 'rm -rf "$W"' EXIT
-fdf_tree() {   # $1 = root, $2 = binary dir, $3.. = binary names (as installed: rina-host-static -> rina-host)
+fdf_tree() {   # $1 = root, $2 = binary dir, $3.. = binary names (as installed: fdf-ram-static -> fdf-ram)
   local R=$1 BD=$2; shift 2; mkdir -p "$R/opt"
-  cp -a "$TOP/fdf" "$R/opt/fdf"; rm -rf "$R/opt/fdf/var" "$R/opt/fdf/hub/hub.env"; find "$R" -name __pycache__ -prune -exec rm -rf {} +
+  cp -a "$TOP/fdf" "$R/opt/fdf"; rm -rf "$R/opt/fdf/var" "$R/opt/fdf/hub/hub.env" "$R/opt/fdf/www/dc" "$R/opt/fdf/www/rt"; find "$R" -name __pycache__ -prune -exec rm -rf {} +
   for b in "$@"; do cp "$BD/${b%%:*}" "$R/opt/fdf/bin/${b##*:}"; done
   chmod 755 "$R/opt/fdf/bin/"*; }      # every /opt/fdf/bin entry runs (the installer execs fdf-region-join)
+# [ONE_FILE_UPDATE_V1] a node bundle carries the DisasterComm pages and their door (/opt/fdf/www/dc, /opt/fdf/www/rt) and
+# their Apache conf: every node is a device's edge, so every node's door answers (one file, John 2026-11-04)
+node_pages() { local R=$1; cp -a "$TOP/fdf/www/dc" "$R/opt/fdf/www/dc"; cp -a "$TOP/fdf/www/rt" "$R/opt/fdf/www/rt"
+  rm -f "$R/opt/fdf/www/rt/"*.py "$R/opt/fdf/www/rt/"*.mjs; find "$R/opt/fdf/www" -name __pycache__ -prune -exec rm -rf {} +
+  mkdir -p "$R/etc/apache2/conf-available"; cp "$TOP/../bundles/addins/dc/fdf-dc.conf" "$R/etc/apache2/conf-available/"; }
 frognet_patch() { local R=$1 f; for f in "${FROGNET_FILES[@]}"; do mkdir -p "$R/$(dirname "$f")"; cp -p "$REPO/$f" "$R/$f"; done; }
 build_file() { printf 'package=%s\nbuild=%s\nbuilt=%s\nfor=%s\n' "$1" "$TAG" "$NOW" "$2" > "$3/opt/fdf/BUILD"; }
 # [FILES_ONLY_TAR_V1] files only, no directory entries: extracting at / must not reset the owner or mode of /etc, /usr,
 # /var/www/html or any other existing directory (a missing one is created).
 tarit() { (cd "$1" && find . \( -type f -o -type l \) | sed 's|^\./||' | sort | tar --owner=0 --group=0 --no-recursion -czf - -T -); }
 # ---- x86 node
-R=$W/node; fdf_tree "$R" "$H/build/static" fdf-client fdf-events fdf-participants fdf-attention fdf-where ram; cp "$H/build/bin/rina-host-static" "$R/opt/fdf/bin/rina-host"
-mkdir -p "$R/opt/fdf/comms"; cp "$H/build/comms-x86_64/"{comms-ram,comms-media} "$R/opt/fdf/comms/"
-frognet_patch "$R"; build_file fdf-node.tgz "x86_64 FrogNet node or leaf" "$R"
-tarit "$R" > "$W/fdf-node.tgz"; sed 's/__ARCH__/x86_64/' "$TOP/deliverables/header.sh" | cat - "$W/fdf-node.tgz" > "$OUT/fdf-install-x86_64.run"
+R=$W/node; fdf_tree "$R" "$H/build/static" fdf-client fdf-events fdf-participants fdf-attention fdf-where ram; cp "$H/build/bin/fdf-ram-static" "$R/opt/fdf/bin/fdf-ram"
+node_pages "$R"; frognet_patch "$R"; build_file fdf-node.tgz "x86_64 FrogNet node or leaf" "$R"
+tarit "$R" > "$W/fdf-node.tgz"; sed 's/__ARCH__/x86_64/' "$TOP/deliverables/header.sh" | cat - "$W/fdf-node.tgz" > "$OUT/fdf-install-x86_64-$TAG.run"
 # ---- arm64 node
-R=$W/arm; fdf_tree "$R" "$H/build/arm64" fdf-client fdf-events fdf-participants fdf-attention fdf-where ram rina-host
-mkdir -p "$R/opt/fdf/comms"; cp "$H/build/comms-arm64/"{comms-ram,comms-media} "$R/opt/fdf/comms/"
-frognet_patch "$R"; build_file fdf-node-arm64.tgz "aarch64 FrogNet node (Pi)" "$R"
-tarit "$R" > "$W/fdf-node-arm64.tgz"; sed 's/__ARCH__/aarch64/' "$TOP/deliverables/header.sh" | cat - "$W/fdf-node-arm64.tgz" > "$OUT/fdf-install-aarch64.run"
-# ---- droplet
-R=$W/drop; fdf_tree "$R" "$H/build/static" fdf-client fdf-events fdf-participants fdf-attention fdf-where ram; cp "$H/build/bin/rina-host-static" "$R/opt/fdf/bin/rina-host"
+R=$W/arm; fdf_tree "$R" "$H/build/arm64" fdf-client fdf-events fdf-participants fdf-attention fdf-where ram fdf-ram
+node_pages "$R"; frognet_patch "$R"; build_file fdf-node-arm64.tgz "aarch64 FrogNet node (Pi)" "$R"
+tarit "$R" > "$W/fdf-node-arm64.tgz"; sed 's/__ARCH__/aarch64/' "$TOP/deliverables/header.sh" | cat - "$W/fdf-node-arm64.tgz" > "$OUT/fdf-install-aarch64-$TAG.run"
+# ---- region holder, one per processor ([HOLDER_PER_ARCH_V1]: a Pi holds a LAN region as well as a droplet holds one)
+R=$W/drop; fdf_tree "$R" "$H/build/static" fdf-client fdf-events fdf-participants fdf-attention fdf-where ram; cp "$H/build/bin/fdf-ram-static" "$R/opt/fdf/bin/fdf-ram"
 mkdir -p "$R/etc"; cp -a "$TOP/deliverables/etc-droplet/systemd" "$R/etc/"
-build_file fdf-droplet.tgz "region holder (droplet or LAN machine): RAM manager + hub, made by fdf-region-create AREA PUBLIC_IP" "$R"
-tarit "$R" > "$OUT/fdf-droplet.tgz"
+build_file fdf-droplet.tgz "x86_64 region holder (droplet or LAN machine): RAM manager + hub, made by fdf-region-create AREA PUBLIC_IP" "$R"
+tarit "$R" > "$OUT/fdf-droplet-x86_64-$TAG.tgz"
+R=$W/droparm; fdf_tree "$R" "$H/build/arm64" fdf-client fdf-events fdf-participants fdf-attention fdf-where ram fdf-ram
+mkdir -p "$R/etc"; cp -a "$TOP/deliverables/etc-droplet/systemd" "$R/etc/"
+build_file fdf-droplet-arm64.tgz "aarch64 region holder (a Pi on a LAN): RAM manager + hub, made by fdf-region-create AREA PUBLIC_IP" "$R"
+tarit "$R" > "$OUT/fdf-droplet-aarch64-$TAG.tgz"
+# [ADDIN_V1] the kart service, its race hosts and its players are the kart add-in, DisasterComm (/dc) the dc add-in, and
+# the Communicator's servers the comms add-in: neither is in these bundles.
+# ---- [FROGNET_TREE_TARBALL_V1] the FrogNet base for a node with no git: the tree's node file set (the manifest's
+# frognet_node_files, what frognet_install.sh --from-repo copies), laid out as the checkout is. On the node:
+#   mkdir /tmp/fntree && cd /tmp/fntree && tar xzf /tmp/frognet-tree-<tag>.tgz && bash usr/local/bin/installer/frognet_install.sh --from-repo --preserve
+RR=$(cd "$TOP/../../../.." && pwd); [ -f "$RR/usr/local/lib/frognet_world_manifest.sh" ] || { echo "make_deliverables: no FrogNet tree at $RR" >&2; exit 1; }
+grep -qx "build=$TAG" "$RR/opt/frognet_semantic/BUILD" || { echo "make_deliverables: $RR/opt/frognet_semantic/BUILD does not say build=$TAG" >&2; exit 1; }
+# [TREE_IS_WHAT_GIT_TRACKS_V1] only the files the checkout tracks: a tree where examples were built or tested (their
+# build/, bin/, results/ -- ignored by git) would otherwise ship those too (seen: 1,148 extra files, 30 -> 51 MB)
+git -C "$RR" ls-files > "$W/tracked.list" || { echo "make_deliverables: $RR is not a git checkout: the tree tarball is what it tracks" >&2; exit 1; }
+( . "$RR/usr/local/lib/frognet_world_manifest.sh"; frognet_node_files "$RR" ) | grep -Fxf "$W/tracked.list" > "$W/tree.list"
+tar -C "$RR" --owner=0 --group=0 -czf "$OUT/frognet-tree-$TAG.tgz" -T "$W/tree.list"
 chmod +x "$OUT"/*.run
-for f in "$OUT"/fdf-install-x86_64.run "$OUT"/fdf-install-aarch64.run "$OUT"/fdf-droplet.tgz; do printf '%s  %s bytes  sha256 %s\n' "${f##*/}" "$(stat -c %s "$f")" "$(sha256sum "$f" | cut -c1-16)"; done
+# [DIST_IN_THE_TREE_V1] FDF_DIST=<dir> (the tree's opt/fdf/dist): the same three files under their fixed names, which is
+# where frognet_install.sh --from-repo --invite takes the node installer from. Delivered files keep their tagged names.
+if [ -n "${FDF_DIST:-}" ]; then mkdir -p "$FDF_DIST"
+  cp "$OUT/fdf-install-x86_64-$TAG.run" "$FDF_DIST/fdf-install-x86_64.run"; cp "$OUT/fdf-install-aarch64-$TAG.run" "$FDF_DIST/fdf-install-aarch64.run"
+  cp "$OUT/fdf-droplet-x86_64-$TAG.tgz" "$FDF_DIST/fdf-droplet.tgz"; cp "$OUT/fdf-droplet-aarch64-$TAG.tgz" "$FDF_DIST/fdf-droplet-aarch64.tgz"; echo "dist: $FDF_DIST holds $TAG under the fixed names"; fi
+for f in "$OUT"/fdf-install-x86_64-$TAG.run "$OUT"/fdf-install-aarch64-$TAG.run "$OUT"/fdf-droplet-x86_64-$TAG.tgz "$OUT"/fdf-droplet-aarch64-$TAG.tgz "$OUT"/frognet-tree-$TAG.tgz; do printf '%s  %s bytes  sha256 %s\n' "${f##*/}" "$(stat -c %s "$f")" "$(sha256sum "$f" | cut -c1-16)"; done
 echo "built $TAG at $NOW"

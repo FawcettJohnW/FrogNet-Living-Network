@@ -6,7 +6,7 @@
 L=${1:?LISPERS_LISP_DIR}; H=$(cd "$(dirname "$0")/.." && pwd); B=$H/build/bin; K=fdf-area-password; N=rina-area.test
 IP=$(ip -4 -o addr show eth0 | awk '{print $4}' | cut -d/ -f1); API=/FawcettInnovations.RINA.ram_interface.php; F=$(mktemp -u /tmp/map-exp.XXXX.perm)
 ss -ulnH | grep -q ":4342 " || { echo "lispers.net is not running"; exit 2; }
-RINA_HOST_ROLE=mapping RINA_REGION_FILE=$F "$B/rina-host" --listen $IP:4342 --api $API > /dev/null 2>&1 & HP=$!
+RINA_HOST_ROLE=mapping RINA_REGION_FILE=$F "$B/fdf-ram" --listen $IP:4342 --api $API > /dev/null 2>&1 & HP=$!
 for i in $(seq 100); do (exec 3<>/dev/tcp/$IP/4342) 2>/dev/null && break; sleep 0.05; done
 "$B/rina-lisp" map-site $N $K $IP > /dev/null
 T0=$(date +%s.%N)

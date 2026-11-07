@@ -1,0 +1,4 @@
+READY
+APPLIED path=MQTT value=60 applications=1
+APPLIED path=RAM value=90 applications=2
+APPLIED path=MQTT value=120 applications=3

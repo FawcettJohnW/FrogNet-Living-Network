@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """[NET_CONFIG_IS_THE_RAM_MANAGERS_V1] (pond, config, net) -- the network's well-known configuration (what outsiders may
 reach, whether a colliding reader may map it, its hub and leaf block) -- is written only by the RAM manager itself, from
-its net.json at start (rina_region.cpp). The network API reads it like any cell but may neither write nor remove it: a
+its net.json at start (fdf_region.cpp). The network API reads it like any cell but may neither write nor remove it: a
 member that could rewrite it could open the network to itself.
 Usage: apply_net_config.py <ram_server.cpp> <ram_memory.hpp>"""
 import sys

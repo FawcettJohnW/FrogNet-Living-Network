@@ -51,14 +51,14 @@ other's /24s, and split, heal and merge as links come and go, with no external
 service. This is the LAN-only mode of a node. The node software is
 `opt/frognet_semantic/`, `usr/local/bin/`, `var/www/html/` and `etc/`.
 
-**FD&F (Farinacci, Day & Fawcett) is a different transport.** It makes separate
-machines one application network whose meeting point is a RAM manager every
-participant reaches: each participant opens its own outbound session to the RAM
-manager and never one to another member, and applications meet through shared
-memory. When FrogNet nodes are members of an FD&F region, their IP traffic
-between sites rides WireGuard hub-and-spoke through the region's hub (fdf-hub)
-on the RAM manager's host; nodes on one LAN still reach each other directly.
-This is the region mode of a node. The FD&F sources, the built binaries and the
+**FD&F (Farinacci, Day & Fawcett) is a different transport.** It joins machines
+at separate sites into one network. Members attach at the region's droplet, and
+attaching is the droplet's only special job. Between sites, the fabric carries
+IP traffic over WireGuard through the region's hub (fdf-hub), which runs on that
+host. Nodes on one LAN still reach each other directly. Routing is the fabric's
+and is transparent to every server, the droplet included. Applications meet in
+their own RAM, served by a droplet that each app's selection places on a member
+(`opt/fdf/docs/APP-SETUP-AND-OPERATION.md`). This is the region mode of a node. The FD&F sources, the built binaries and the
 installers are in `opt/fdf/`.
 
 A Ribbit program that behaves the same over FrogNet and over FD&F shows that the
@@ -80,7 +80,6 @@ programming model is not tied to one network.
 etc/                      systemd units, Apache vhosts, sysctl, sudoers, logrotate, the NetworkManager hook
 usr/local/bin/            node scripts: the installer (installer/), runMerge.bash, the monitor launcher, tooling
 usr/local/lib/            shell libraries: logging, the node file set (frognet_world_manifest.sh)
-usr/local/share/frognet/  the copies of this README, AI_READ_FIRST.md, CLAIMS.md, COPYRIGHT and LICENSE a node carries
 var/www/html/             the node's web face: landing page, getSnapshot.php, getHosts.php, the dashboard, api.php
 opt/frognet_semantic/     the node engine
   core/                   memory, codec, wire identity, handlers
@@ -102,7 +101,8 @@ docs/                     OPERATING.md, and cleanup-2026-10/ (the cleanup's reco
 
 What lands on a node is the node file set (`frognet_node_files` in
 `usr/local/lib/frognet_world_manifest.sh`): not `opt/fdf`, the book or
-`docs/`. A region node gets `/opt/fdf` from the FD&F `.run`.
+`docs/`. A region node gets `/opt/fdf` from the FD&F `.run`. The installer lays the licence and this file,
+`AI_READ_FIRST.md` and `CLAIMS.md` into `/usr/local/share/frognet` from the one copy at the root.
 
 ## Running the gates
 
@@ -122,7 +122,7 @@ bash docs/cleanup-2026-10/check-docs.sh
 ```
 
 The network-namespace tests run as root on Linux, from `opt/fdf/src/fdf-source/rinab`, against the built
-binaries in `rinab/build` (not tracked in git; `opt/fdf/README.md`, "Build from source", says how it is built):
+binaries in `rinab/build` (not tracked in git; `opt/fdf/src/fdf-source/fdf/README.md`, "Build from source", says how it is built):
 
 ```
 cd opt/fdf/src/fdf-source/rinab

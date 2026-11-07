@@ -29,7 +29,7 @@ die() { echo "run.sh: STOP: $*" >&2; exit 2; }
 ROOT=$(cd "$ROOT" 2>/dev/null && pwd) || die "no directory $1"
 [ -d "$ROOT/tests/integration" ] && [ -d "$ROOT/include/rina" ] || die "$ROOT is not the rlite source tree (no tests/integration or include/rina)"
 for t in g++ gcc protoc pkg-config ip unshare gdb ethtool; do command -v $t >/dev/null || die "missing command: $t"; done
-for p in rina-host rina-ram rlite-uipcps rinaperf rina-echo-async iporinad; do
+for p in fdf-ram rina-ram rlite-uipcps rinaperf rina-echo-async iporinad; do
     pgrep -x "$p" >/dev/null && die "a $p is already running: $(pgrep -ax "$p" | head -3 | tr '\n' ';') -- stop it first"; done
 [ -z "$(ip netns list)" ] || die "network namespaces already exist ($(ip netns list | awk '{print $1}' | tr '\n' ' ')) -- rlite's tests create their own; delete leftovers first (ip netns delete NAME)"
 ss -ltn "sport = :$PORT" | grep -q LISTEN && die "port $PORT is in use: $(ss -ltnp "sport = :$PORT" | tail -n +2) -- free it or set PORT="
@@ -49,12 +49,12 @@ export PATH=$B/bin:$PATH RINA_RAM=$HOST_LISTEN:$PORT RINA_RAM_NETNS=/proc/$$/ns/
 # [REGION_FILE_V1] the region's Permanent records (a DIF's policy and parameters); each run starts from its own
 export RINA_REGION_FILE=${RINA_REGION_FILE:-$R/region.perm}
 mkdir -p /var/run/netns
-unshare --pid --fork --mount --mount-proc bash -c "mount -t tmpfs none /var/run/netns && mount -t tmpfs none /sys/class/net && exec $B/bin/rina-host --listen $HOST_LISTEN:$PORT --api $API" > "$R/host.log" 2>&1 &
+unshare --pid --fork --mount --mount-proc bash -c "mount -t tmpfs none /var/run/netns && mount -t tmpfs none /sys/class/net && exec $B/bin/fdf-ram --listen $HOST_LISTEN:$PORT --api $API" > "$R/host.log" 2>&1 &
 UNSHARE=$!
-stop_all() { pkill -x rinaperf; pkill -x rina-echo-async; pkill -x iporinad; pkill -x rlite-uipcps; pkill -x rina-host; wait $UNSHARE 2>/dev/null; }
+stop_all() { pkill -x rinaperf; pkill -x rina-echo-async; pkill -x iporinad; pkill -x rlite-uipcps; pkill -x fdf-ram; wait $UNSHARE 2>/dev/null; }
 trap stop_all EXIT
 for i in $(seq 100); do (exec 3<>/dev/tcp/$HOST_LISTEN/$PORT) 2>/dev/null && break; sleep 0.05; done
-HOSTPID=$(pgrep -nx rina-host) || { cat "$R/host.log"; die "the host did not start"; }
+HOSTPID=$(pgrep -nx fdf-ram) || { cat "$R/host.log"; die "the host did not start"; }
 rlite-ctl > /dev/null || die "the host is up (pid $HOSTPID) but rlite-ctl cannot use it"
 say "host pid $HOSTPID on $HOST_LISTEN:$PORT, isolated; clients connect from $RINA_RAM_NETNS"
 # [AREA_NAME_IS_A_LISP_EID_V1] the host registers its area's name -> its RLOC, once (the registration's own TTL; re-registered
@@ -66,7 +66,7 @@ fi
 # machine (the run's) is the map-resolver: a mapping host on $HOST_LISTEN:4342 (its own region file; not an area host, so
 # it does not announce itself), the site for the name, and the area host's registration (its own TTL), over the session.
 if [ -n "${MAP_AREA:-}" ]; then
-    RINA_HOST_ROLE=mapping RINA_REGION_FILE=$R/mapping.perm unshare --pid --fork --mount --mount-proc bash -c "mount -t tmpfs none /var/run/netns && mount -t tmpfs none /sys/class/net && exec rina-host --listen $HOST_LISTEN:4342 --api $API" > $R/mapping-host.log 2>&1 &
+    RINA_HOST_ROLE=mapping RINA_REGION_FILE=$R/mapping.perm unshare --pid --fork --mount --mount-proc bash -c "mount -t tmpfs none /var/run/netns && mount -t tmpfs none /sys/class/net && exec fdf-ram --listen $HOST_LISTEN:4342 --api $API" > $R/mapping-host.log 2>&1 &
     for i in $(seq 100); do (exec 3<>/dev/tcp/$HOST_LISTEN/4342) 2>/dev/null && break; sleep 0.05; done
     rina-lisp map-site "$MAP_AREA" "${MAP_KEY:?MAP_KEY}" "$HOST_LISTEN" || die "no mapping region on $HOST_LISTEN:4342"
     rina-lisp map-register "$MAP_AREA" "$HOST_LISTEN" "$HOST_LISTEN" "$MAP_KEY" 86400 || die "the host could not register its area in the mapping region"
@@ -99,7 +99,7 @@ for t in ${TESTS:-tests/integration/*.sh}; do
     timeout "$TEST_S" "$t" > "$R/$name.log" 2>&1; rc=$?; e=$(date +%s.%N)
     kill $WD 2>/dev/null; wait $WD 2>/dev/null
     # [HOST_RESTARTS_IN_A_RUN_V1] an experiment may kill the host and start another (5b): the run goes on with that one
-    if ! kill -0 "$HOSTPID" 2>/dev/null && NEW=$(pgrep -nx rina-host); then say "the host is now pid $NEW (started by $name)"; HOSTPID=$NEW; fi
+    if ! kill -0 "$HOSTPID" 2>/dev/null && NEW=$(pgrep -nx fdf-ram); then say "the host is now pid $NEW (started by $name)"; HOSTPID=$NEW; fi
     rlite-ctl reset > /dev/null; rlite-ctl terminate > /dev/null; rlite-ctl reset > /dev/null
     for p in rinaperf rina-echo-async iporinad; do pkill -x $p; done
     for i in $(seq 50); do pgrep -x rlite-uipcps >/dev/null || break; sleep 0.1; done

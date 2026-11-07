@@ -8,8 +8,7 @@
 # service. The node says where they are in its pond's memory -- (pond, where, w:<guid>) {"comms":{"ram":"w:<guid>:8800",
 # "media":"w:<guid>:8994"}} (fdf-where self:<port>; IDENTITY_IN_TUPLES_V1), resolved by each reader to this node's address
 # in the reader's scope -- so the phone's Communicator and every member find them with nothing typed. The cell is the node's:
-# the region removes it when the node's session ends, and this script writes it again on the event that shows the node
-# back (fdf-events), and clears it when the servers stop. On the droplet (no .1) nothing changes: fdf-services.sh
+# it is this script's own cell, held on its own session (fdf-where --hold): gone when the servers stop or the node goes. On the droplet (no .1) nothing changes: fdf-services.sh
 # publishes the public address as before.
 set -eu
 B=${COMMS_BIN:-/opt/fdf/comms}; F=${FDF_BIN:-/opt/fdf/bin}
@@ -30,15 +29,10 @@ fi
 [ -n "${RINA_RAM:-}" ] || { echo "fdf-comms: this node has no RINA_RAM (/opt/fdf/var/join.env): it is not in a pond"; exit 1; }
 export RINA_RAM FDF_FACTS="$FACTS"
 "$B/comms-media" --listen 0.0.0.0:8994 --ram 127.0.0.1:8800 & M=$!
-trap 'kill $R $M 2>/dev/null; "$F/fdf-where" comms --clear || true' EXIT
+# [ONE_OWNER_V1] the cell is this script's own: (pond, where, w:<guid>/comms), written own:true by fdf-where --hold on its
+# own session and held while the servers run -- gone with it, written by nobody else, swept by nobody
 for i in $(seq 100); do (exec 3<>/dev/tcp/127.0.0.1/8994) 2>/dev/null && break; sleep 0.05; done
-# [IDENTITY_IN_TUPLES_V1] the cell names this node by identity (w:<guid>:<port>); each reader resolves it in its own scope
-say() { "$F/fdf-where" comms ram=self:8800 media=self:8994; }
-say || echo "fdf-comms: could not write where the Communicator is (the next region event retries)"
-echo "fdf-comms: the Communicator on this node at $DOT1:8800 / $DOT1:8994, said in the pond at $RINA_RAM"
-# the region removes the cell with this node's session; on each event, if it is gone and the servers run, write it again
-"$F/fdf-events" | while IFS= read -r ev; do
-    kill -0 $M 2>/dev/null || break
-    "$F/fdf-where" | grep -q '^  comms ' || { echo "fdf-comms: the cell is gone ($ev); writing it again"; say || true; }
-done
-wait $M
+FDF_ADDIN=comms "$F/fdf-where" --hold comms ram=self:8800 media=self:8994 & W=$!
+trap 'kill $R $M $W 2>/dev/null' EXIT
+echo "fdf-comms: the Communicator on this node at $DOT1:8800 / $DOT1:8994, said in the pond at $RINA_RAM (held by pid $W)"
+wait -n $M $W

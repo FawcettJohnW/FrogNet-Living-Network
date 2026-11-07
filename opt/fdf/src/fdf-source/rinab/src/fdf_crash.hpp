@@ -5,6 +5,35 @@
 // ulimit, or any sysctl. Async-signal-safe: only backtrace()/backtrace_symbols_fd()/write() and a tiny hand-rolled hex
 // writer -- no malloc, printf or stdio in the handler. Install once at the top of main(): fdf_crash::install("name").
 #pragma once
+#ifdef _WIN32
+// [FDF_CRASH_HANDLER_V1] on Windows ([FDF_WINDOWS_CLIENT_V1]): the same report from an unhandled exception filter --
+// the program, the exception code, the faulting address and the frames (CaptureStackBackTrace), to stderr, then the
+// process dies as it would have. No malloc or stdio in the filter.
+#include <windows.h>
+#include <io.h>
+#include <string.h>
+namespace fdf_crash {
+inline const char* g_prog = "?";
+inline void write_str(const char* s) { if (s) (void)!_write(2, s, unsigned(strlen(s))); }
+inline void write_hex(unsigned long long v) {
+    char buf[2 + sizeof(v) * 2]; char* p = buf + sizeof(buf); int n = 0;
+    do { unsigned d = unsigned(v & 0xf); *--p = char(d < 10 ? '0' + d : 'a' + d - 10); v >>= 4; ++n; } while (v && n < int(sizeof(v) * 2));
+    *--p = 'x'; *--p = '0';
+    (void)!_write(2, p, unsigned(buf + sizeof(buf) - p));
+}
+inline LONG WINAPI filter(EXCEPTION_POINTERS* ep) {
+    const DWORD code = ep && ep->ExceptionRecord ? ep->ExceptionRecord->ExceptionCode : 0;
+    void* at = ep && ep->ExceptionRecord ? ep->ExceptionRecord->ExceptionAddress : nullptr;
+    void* bt[62]; const USHORT k = CaptureStackBackTrace(0, 62, bt, nullptr);
+    write_str("\n[FDF-CRASH] "); write_str(g_prog); write_str(" exception "); write_hex(code);
+    write_str(" addr "); write_hex((unsigned long long)at); write_str(" frames");
+    for (USHORT i = 0; i < k; ++i) { write_str(" "); write_hex((unsigned long long)bt[i]); }
+    write_str("\n");
+    return EXCEPTION_CONTINUE_SEARCH;                     // the process still dies with the real exception
+}
+inline void install(const char* prog) { g_prog = prog; SetUnhandledExceptionFilter(filter); }
+}  // namespace fdf_crash
+#else
 #include <execinfo.h>
 #include <initializer_list>
 #include <signal.h>
@@ -64,3 +93,4 @@ inline void install(const char* prog) {
 }
 
 }  // namespace fdf_crash
+#endif

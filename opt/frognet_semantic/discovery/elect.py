@@ -131,6 +131,23 @@ def elect_now(region_hosts_path="/var/lib/frognet/region_hosts", logger=print, a
     etc = set_control_host(etc)
     role_lines = service_host_lines(dbhost=ctl, logger=logger, etc_hosts=etc, self_ip=self_ip)
     etc = commit_service_lines(etc, role_lines, set(ROLE_HANDLERS), ctl, logger=logger)
+    # [CONFIG_WRITTEN_AGAIN_BY_THE_MERGE_V1] databasehost-control moved: the configuration tuples written into it again
+    from core import app_hosts
+    try:
+        now_ctl = app_hosts.ip_of(etc, CONTROL_NAME)
+        if now_ctl and now_ctl != app_hosts.ip_of([l.rstrip("\n") for l in open(hosts_path)] if os.path.exists(hosts_path) else [], CONTROL_NAME):
+            app_hosts.write_configs_again(now_ctl, logger=logger)
+    except Exception as e:
+        logger("ELECT: configuration tuples not written again: %s (the next merge does)" % e)
+    # [APP_HOST_ELECTION_V1] every AppRam's AppHost (<app>Host.frognet, <team>Host.<app>), one handler per service
+    try:
+        etc = app_hosts.commit(etc, hosts_path=hosts_path, logger=logger)
+    except Exception as e:
+        logger("ELECT: app hosts not elected: %s (the standing lines kept; the next event elects)" % e)
+        try:
+            etc = [l for l in etc if not app_hosts.is_app_host_line(l)] + [l.rstrip("\n") for l in open(hosts_path) if app_hosts.is_app_host_line(l)]
+        except OSError:
+            pass
     etc = etc + ["%s %s" % (ip, nm) for ip, nm in named_given]     # [ELECT_NODES_ONLY_V1] leaves and reachers: named, never chosen
     changed = _write_if_changed(hosts_path, "\n".join(etc) + "\n", logger)
     if apply:

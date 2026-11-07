@@ -203,6 +203,13 @@
   </div>
 </section>
 
+<section class="card" id="card-hosts">
+  <h2><svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="4" width="18" height="6" rx="1"/><rect x="3" y="14" width="18" height="6" rx="1"/><line x1="7" y1="7" x2="7" y2="7"/><line x1="7" y1="17" x2="7" y2="17"/></svg>Every FrogNetHost<button id="hosts-refresh-btn" type="button" class="ghost" style="margin-left:auto; font-size:.85em">Look again</button></h2>
+  <p class="blurb">Each node applies what is asked of it here and answers; nothing reaches into a node. Clear empties a node's semantic store and old sensor tables (not the SystemRam).</p>
+  <div id="hosts-where" class="value" style="font-size:.85em"></div>
+  <div id="hosts-list"><div class="empty">Asking the SystemRam&hellip;</div></div>
+</section>
+
 <section class="card hidden" id="card-applied">
   <h2 style="font-size:1.2em;">Reboot in progress</h2>
   <div class="post-applied">
@@ -556,9 +563,49 @@ async function showPostApply(name, ip) {
 
 $('rescan-btn').onclick = () => loadWifi();
 
+// [FROGNETHOST_ADMIN_V1] every FrogNetHost, from the state tuples in the SystemRam; a request writes the Admin's tuple
+// for that node and the node answers in its own (the list is read again to show it)
+async function loadHosts() {
+  try {
+    const r = await call('hosts');
+    $('hosts-where').textContent = 'SystemRam ' + (r.system || '?') + ' \u00b7 databasehost-control ' + (r.control || 'not named');
+    const rows = (r.hosts || []).slice().sort((a, b) => (a.name || '').localeCompare(b.name || ''));
+    if (!rows.length) { $('hosts-list').innerHTML = '<div class="empty">No FrogNetHost has written its state yet.</div>'; return; }
+    $('hosts-list').innerHTML = rows.map(h => {
+      const lt = h.last || {};
+      const last = lt.op ? (lt.op + ' ' + lt.seq + (lt.ok ? ' ok' : ' FAILED: ' + (lt.why || '')) + (lt.file ? ' \u2192 ' + lt.file : '')) : 'nothing asked yet';
+      return '<div class="row" data-guid="' + escHtml(h.guid) + '" data-port="' + escHtml(String(h.ram_port || '')) + '" style="display:flex;flex-wrap:wrap;gap:.4em;align-items:center;margin:.4em 0">' +
+        '<strong style="min-width:9em">' + escHtml(h.name || '?') + '</strong><span style="min-width:8em">' + escHtml(h.gateway || '?') + '</span><span style="min-width:6em">port ' + escHtml(String(h.ram_port || '?')) + '</span>' +
+        ['clear', 'dump', 'backup', 'reboot'].map(op => '<button type="button" class="ghost host-op" data-op="' + op + '">' + op + '</button>').join('') +
+        '<button type="button" class="ghost host-setup">rename\u2026</button>' +
+        '<span class="value" style="font-size:.85em;flex-basis:100%">' + escHtml(last) + '</span></div>';
+    }).join('');
+  } catch (e) { $('hosts-list').innerHTML = '<div class="empty">' + escHtml(e.message) + '</div>'; }
+}
+document.addEventListener('click', async (e) => {
+  const b = e.target.closest('.host-op, .host-setup'); if (!b) return;
+  const node = b.closest('[data-guid]').dataset.guid;
+  const body = { node: node, op: b.dataset.op || 'setup' };
+  if (body.op === 'setup') {
+    body.name = prompt('New name for this node'); if (!body.name) return;
+    body.ip = prompt('Its gateway IP (10.x.x.1)'); if (!body.ip) return;
+    body.port = prompt('Its RAM host port (the same on every FrogNetHost)', b.closest('[data-guid]').dataset.port || '8841'); if (!body.port) return;
+  } else if ((body.op === 'clear' || body.op === 'reboot') && !confirm(body.op + ' this node?')) return;
+  try {
+    const r = await call('host-request', { body: body });
+    setStatus(body.op + ' ' + r.seq + ' asked; waiting for the node to answer', true);
+    const a = await call('host-wait', { query: 'node=' + encodeURIComponent(node) + '&op=' + body.op + '&seq=' + r.seq });
+    const lt = a.last || {};
+    setStatus(body.op + ' ' + r.seq + (lt.op ? (lt.ok ? ' done' : ' FAILED: ' + (lt.why || '')) : ' answered'), !lt.op || !!lt.ok);
+    loadHosts();
+  } catch (err) { setStatus(body.op + ': ' + err.message, false); }
+});
+$('hosts-refresh-btn').onclick = () => loadHosts();
+
+
 async function refreshAll() {
   await loadState();
-  await Promise.all([loadWifi(), loadSsidProjection()]);
+  await Promise.all([loadWifi(), loadSsidProjection(), loadHosts()]);
 }
 refreshAll();
 </script>

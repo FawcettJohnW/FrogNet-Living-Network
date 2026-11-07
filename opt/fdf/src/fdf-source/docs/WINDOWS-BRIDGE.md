@@ -1,9 +1,19 @@
 # WINDOWS-BRIDGE — the bridge on Windows (fdf-kt-2026-10-11-a12, fdf-tun-2026-10-11-b8; region r19-a14)
 
-> **State (2026-10-13).** The bridge in `opt/fdf/windows/bridge` is `fdf-kt-2026-10-11-a15 + fdf-tun-2026-10-11-b11`
-> (its BUILD.txt; the strings in fdf-tun.exe and member.jar say the same). The hardware run below was a12/b8; a15/b11
-> has not been run on Windows. Since October 2026 `etc\ponds.txt` ships as an example and `fdf-bridge.cmd` refuses to
+> **State (2026-11-01).** The bridge is built, not committed: `opt/fdf/src/frognet-android/windows/make_package.sh OUTDIR`
+> makes `fdf-windows-<build>.zip` (its BUILD.txt names the build) [ONE_COPY_V1]. The hardware run below was a12/b8. Since October 2026 `etc\ponds.txt` ships as an example and `fdf-bridge.cmd` refuses to
 > start until it names your pond. How to set it up: `docs/OPERATING.md` in the FrogNet repository.
+
+> **Build of 2026-11-03** (fdf-kt-2026-11-03-a20, fdf-tun-2026-10-11-b11, Java 21.0.8): `fdf-windows-fdf-kt-2026-11-03-a20.zip`
+> carries the member as it is now (the line's RAM managers in order, a door given up in 10 s, the space by
+> capability, the selection; [LOGIN_IN_LINE_ORDER_V1] [UNREACHABLE_IN_10S_V1] [SPACE_BY_CAPABILITY_V1]). Under Wine, the
+> zip as shipped: the bundled runtime runs the member's selftests (22 PASS) and stops at the same Wine gap below;
+> `fdf-tun.exe` starts and says what it needs. Not run on Windows hardware since a12/b8.
+> `rinab/tools/build_windows_client.sh` (fdf-client.exe, the C++ region client on the platform, [FDF_WINDOWS_CLIENT_V1])
+> builds (mingw-w64 13, static: bcrypt, iphlpapi, kernel32, msvcrt, ws2_32 only) and, under Wine against fdf-ram r39,
+> joins the region, writes its telemetry (`"kind":"windows"`) and holds its session. Its crash report on Windows is an
+> unhandled-exception filter ([FDF_CRASH_HANDLER_V1]: code, address, frames). The bridge, not fdf-client.exe, is what a
+> Windows computer runs.
 
 John 2026-10-11: "Needs to work with windows, too."
 

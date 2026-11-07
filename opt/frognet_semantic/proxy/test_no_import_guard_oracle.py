@@ -56,7 +56,10 @@ EXEMPT = {
 }
 EXEMPT_DIRS = ("internet_tunnels_v3",
                # stale copies tools left INSIDE the tree; not running code (they should not be in the tree at all)
-               ".frognet-ai-backup-", ".netbench-backup-", "_fix_meta")
+               ".frognet-ai-backup-", ".netbench-backup-", "_fix_meta",
+               # vendored third-party code, unmodified (usr/local/lib/frognet_world_manifest.sh FROGNET_THIRD_PARTY):
+               # not ours to change, so not this gate's
+               "ribbit/examples/mqtt/stock", "ribbit/examples/mqtt/front", "ribbit/examples/lispers.net/third_party")
 # John, 2026-09-25: "Leave discovery alone." Discovery's own guards, and the election / role machinery it runs on,
 # are not changed by this gate. They are REPORTED every run as PENDING so they are never out of sight.
 PENDING_DIRS = ("discovery",)

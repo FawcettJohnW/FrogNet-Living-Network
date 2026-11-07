@@ -1,0 +1,28 @@
+# fdf-hub@AREA.service -- [REGIONS_PER_MACHINE_V1] region AREA's WireGuard concentrator (fdf-hub). Ships in the
+# region-holder bundle. Its settings are /opt/fdf/hub/AREA/hub.env, which only fdf-region-create writes; without it
+# this unit does not start, and its log says why. A machine holds as many regions as it has fdf-hub@ units.
+[Unit]
+Description=FD&F hub for region %i (fdf-hub; settings: /opt/fdf/hub/%i/hub.env from fdf-region-create)
+After=network-online.target fdf-ram-%i.service
+# [ADMISSION_WITH_THE_HUB_V1] wherever the hub runs, its admission runs: the door and levels (fdf-org), and identities
+# asked from any member (fdf-identity)
+Wants=network-online.target fdf-org@%i.service fdf-identity@%i.service
+
+[Service]
+Type=simple
+EnvironmentFile=-/opt/fdf/hub/%i/hub.env
+Environment=FDF_PY=/opt/fdf/lib/python
+Environment=FDF_HUB_ENV=/opt/fdf/hub/%i/hub.env
+Environment=FDF_ADMITTED=/opt/fdf/hub/%i/admitted
+# [ONLY_THIS_MACHINES_REGION_V1] (found on Seattle7 2026-11-02: fdf-org@frognet restarted 9718 times on a copy of
+# StreamingFrog's hub.env) the unit runs only for a region this machine holds: hub.env exists and names this
+# machine. Otherwise it is skipped, said once, not failed, and not restarted; it is tried again when it is next
+# started (the hub's unit wants it).
+ExecCondition=/bin/sh -c 'f=/opt/fdf/hub/%i/hub.env; [ -s $$f ] || { echo "fdf-hub@%i: $$f does not exist: this machine holds no region %i (not started)" >&2; exit 1; }; w=$$(sed -n "s/^FDF_HUB_NAME=//p" $$f); [ "$$w" = "$$(hostname -s)" ] || { echo "fdf-hub@%i: $$f names $$w (FDF_HUB_NAME=$$w), not this machine ($$(hostname -s)): not started. Remove /opt/fdf/hub/%i if it is a stray copy" >&2; exit 1; }'
+ExecStartPre=/opt/fdf/bin/fdf-wg-impl --record
+ExecStart=/usr/bin/python3 /opt/fdf/bin/fdf-hub --area ${FDF_AREA} --iface ${FDF_IFACE} --endpoint ${FDF_ENDPOINT} --name ${FDF_HUB_NAME} --listen ${FDF_LISTEN} --facts ${FDF_FACTS} --key ${FDF_KEY} --admitted /opt/fdf/hub/%i/admitted
+Restart=always
+RestartSec=2
+
+[Install]
+WantedBy=multi-user.target

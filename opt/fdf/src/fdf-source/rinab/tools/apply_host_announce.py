@@ -2,7 +2,7 @@
 """apply_host_announce.py RAM_SERVER_CPP -- [HOST_ANNOUNCES_ITSELF_V1] (FD&F experiment 5b, John's ruling: neighbour
 propagation). Once the host is LISTENING (not before: a member reconnecting on the announcement must find it), it
 tells its own machine's agent, which announces the host change to the DIF's links. One call after the listen; the
-hook is defined by the region (src/rina_region.cpp, rina_host_listening)."""
+hook is defined by the region (src/fdf_region.cpp, rina_host_listening)."""
 import sys
 p = sys.argv[1]; s = open(p).read()
 tag = "[HOST_ANNOUNCES_ITSELF_V1]"

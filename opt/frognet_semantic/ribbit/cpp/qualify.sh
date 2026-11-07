@@ -7,7 +7,7 @@
 # results/<stamp>/. The vendors' examples qualify themselves (examples/*/tools/qualify.sh).
 #
 # Environment (all optional):
-#   FROGNET_SEMANTIC_ROOT  the FrogNet semantic engine's Python, for the S1/S2/S3 oracles (default tests/reference)
+#   FROGNET_SEMANTIC_ROOT  the FrogNet semantic engine's Python, for the S1/S2/S3 oracles (default: the live engine, ../..)
 #   STAGES            space-separated subset of: build semwire semcodec semtpl fnwp dataplane memory lockfree ramrows perf
 #   JOBS              parallel compiles (default: this machine's cores)
 set -u
@@ -15,8 +15,8 @@ cd "$(dirname "$0")"
 ROOT=$(pwd)
 STAMP=$(date +%Y%m%d-%H%M%S)
 OUT="$ROOT/results/$STAMP"; mkdir -p "$OUT" bin
-STAGES=${STAGES:-"build semwire semcodec semtpl fnwp dataplane memory lockfree ramrows perf"}
-FROGNET_SEMANTIC_ROOT=${FROGNET_SEMANTIC_ROOT:-$ROOT/tests/reference}
+STAGES=${STAGES:-"build semwire semcodec semtpl fnwp dataplane memory lockfree ramrows capabilities perf"}
+FROGNET_SEMANTIC_ROOT=${FROGNET_SEMANTIC_ROOT:-$(cd "$ROOT/../.." && pwd)}   # [ONE_COPY_V1] the live engine is the oracle
 PY=$(command -v python3 || command -v python)
 SUMMARY="$OUT/SUMMARY.txt"
 note(){ echo "$*" | tee -a "$SUMMARY"; }
@@ -64,6 +64,7 @@ if has build; then
   run bin/test-ebr-stress -std=c++20 $NOFP -O2 -pthread $I tests/test_ebr_stress.cpp
   run bin/test-lf-primitives -std=c++20 -O2 -pthread $WERR $I tests/test_lf_primitives.cpp src/lf_ebr.cpp   # [LF_PRIMITIVES_V1]
   run bin/test-ribbit-pp -std=c++20 -O2 -pthread $WERR $I tests/test_ribbit_pp.cpp src/ribbit_pp.cpp src/ribbit_space.cpp src/frogram.cpp src/ram_host.cpp src/lf_ebr.cpp -llz4 -lcrypto   # [API_PLUS_PLUS_V2]
+  run bin/test-capabilities -std=c++20 -O2 -pthread $WERR $I tests/test_capabilities.cpp src/ribbit_pp.cpp src/ribbit_space.cpp src/frogram.cpp src/ram_host.cpp src/lf_ebr.cpp -llz4 -lcrypto
   run bin/test-ram-memory -std=c++20 -O2 -pthread $WERR $I tests/test_ram_memory.cpp src/lf_ebr.cpp
   run bin/test-write-window -std=c++20 -O2 -pthread $WERR $I tests/test_write_window.cpp src/lf_ebr.cpp
   run bin/test-row-scan-bound -std=c++20 -O2 -pthread $WERR $I tests/test_row_scan_bound.cpp src/lf_ebr.cpp
@@ -160,6 +161,17 @@ if has lockfree; then
   timeout 300 ./bin/test-lf-primitives > "$OUT/lf-primitives.txt" 2>&1; grep -E '^FAIL|^RESULT' "$OUT/lf-primitives.txt" | tee -a "$SUMMARY"
   note "== API++ through real sessions: publish/subscribe, capabilities, last value, ask/answer [API_PLUS_PLUS_V2]"
   timeout 300 ./bin/test-ribbit-pp 8937 > "$OUT/ribbit-pp.txt" 2>&1; grep -E '^FAIL|^RESULT' "$OUT/ribbit-pp.txt" | tee -a "$SUMMARY"
+fi
+
+if has capabilities; then
+  note "== named capability operations through local memory and real sessions [CAPABILITY_METHODS_V1]"
+  if timeout 120 ./bin/test-capabilities 8959 > "$OUT/capabilities.txt" 2>&1; then
+    grep -E '^FAIL|^RESULT' "$OUT/capabilities.txt" | tee -a "$SUMMARY"
+    grep -q '^RESULT PASS capability API' "$OUT/capabilities.txt" || { note "capabilities FAIL: missing result"; exit 1; }
+  else
+    cat "$OUT/capabilities.txt" | tee -a "$SUMMARY"
+    note "capabilities FAIL"; exit 1
+  fi
 fi
 
 if has ramrows; then

@@ -22,6 +22,7 @@ BIN = os.path.dirname(os.path.realpath(__file__))
 LIB = os.path.join(os.path.dirname(BIN), "lib", "python")
 sys.path.insert(0, LIB if os.path.isdir(LIB) else BIN)
 import fdfram
+import fdf_watch
 WWW = os.path.join(os.path.dirname(BIN), "www", "term")
 if not os.path.isdir(WWW):
     WWW = os.path.join(BIN, "term")
@@ -46,14 +47,18 @@ class State:
             self.gen += 1
             self.cv.notify_all()
 
-    def watch_participants(self):              # one session, one watch: fdf-watch
-        exe = os.path.join(BIN, "fdf-watch" + (".exe" if os.name == "nt" else ""))
-        p = subprocess.Popen([exe, self.ram.hostport], stdout=subprocess.PIPE, text=True)
-        for line in p.stdout:
-            self.bump(participants=json.loads(line)["participants"])
-        rc = p.wait()
-        self.bump(error="the participant watch ended (fdf-watch exit %s); restart fdf-browser" % rc)
-        log("participant watch ended, exit", rc)
+    def watch_participants(self):              # [MEMBER_IS_A_TUPLE_V1][NO_PUSH_V1] a held read on the members' own cells
+        last = 0
+        while True:
+            try:
+                cells = self.ram.read("pond", "member")
+                self.bump(participants=[dict(c["bag"], alive=True) for c in cells if isinstance(c.get("bag"), dict) and c["bag"]])
+                last = max([int(c["id"]) for c in cells] + [0])
+                while not self.ram.read("pond", "member", after=last, wait_s=fdfram.HOLD_S):
+                    pass                                                   # the hold's end with nothing: held again
+            except fdfram.RamError as e:                                   # ESTALE: read again now; gone: when it is up
+                self.bump(error=str(e)); log("the members' read failed:", e)
+                t = time.time(); fdf_watch.after_failure(self.ram.hostport, e, t)
 
     def watch_terms(self):                     # held read on term.hosts: a machine starts or stops advertising
         last = -1
@@ -147,7 +152,7 @@ class H(BaseHTTPRequestHandler):
                 return self.reply(200, {"ok": True})
             if self.path == "/api/done":
                 st.sessions.pop(b["sid"], None)
-                n = sum(st.ram.remove(c["id"]) for c in st.ram.read("termout", b["sid"]))
+                n = sum(st.ram.remove(c) for c in st.ram.read("termout", b["sid"]))
                 log("session", b["sid"], "ended; removed", n, "output row(s)")
                 return self.reply(200, {"ok": True, "removed": n})
             return self.reply(404, {"error": "not found"})

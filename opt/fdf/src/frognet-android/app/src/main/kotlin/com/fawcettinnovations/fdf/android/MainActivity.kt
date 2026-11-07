@@ -65,6 +65,15 @@ class MainActivity : Activity() {
             })
         }
         drawPonds()
+        // [LEAF_BY_INVITE_V1] the one thing an operator gives this device: the invitation line, pasted once
+        val invLine = field(root, "Invitation (fdfinv1..., from fdf-identity NAME --leaf)" + (ident.invite?.let { " -- now: ${it.name} in ${it.area}, edge ${it.edge}" } ?: ""), "")
+        root.addView(Button(this).apply { text = "Use invitation"; setOnClickListener {
+            try { ident.keepInvite(invLine.text.toString()) } catch (e: Exception) { AppLog.add("invitation refused: ${e.message}"); return@setOnClickListener }
+            invLine.setText(""); AppLog.add("invitation kept; the membership starts again with it")
+            startService(Intent(this@MainActivity, MemberService::class.java).setAction(MemberService.ACTION_STOP))
+            ui.postDelayed({ ident = Identity(this@MainActivity); drawPonds()
+                val consent = VpnService.prepare(this@MainActivity)
+                if (consent != null) startActivityForResult(consent, VPN_CONSENT) else start() }, 500) } })
         val newArea = field(root, "Add a pond: area", ""); val newRam = field(root, "its RAM manager (host:port)", "")
         root.addView(Button(this).apply { text = "Add pond"; setOnClickListener {
             val a = newArea.text.toString().trim(); val r = newRam.text.toString().trim()
@@ -101,7 +110,9 @@ class MainActivity : Activity() {
         logView = TextView(this).apply { textSize = 11f; setTextIsSelectable(true) }
         root.addView(ScrollView(this).apply { addView(logView) }, LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, 0, 1f))
         setContentView(root)
-        if (Build.VERSION.SDK_INT >= 33) requestPermissions(arrayOf(Manifest.permission.POST_NOTIFICATIONS), 2)
+        // [TELEMETRY_IS_A_TUPLE_V1] the position the member reports: asked with the notifications, once
+        requestPermissions((if (Build.VERSION.SDK_INT >= 33) arrayOf(Manifest.permission.POST_NOTIFICATIONS) else emptyArray()) +
+            arrayOf(Manifest.permission.ACCESS_FINE_LOCATION, Manifest.permission.ACCESS_COARSE_LOCATION), 2)
         // a held session needs the network while the screen is off: ask once to be left out of battery optimization
         val pm = getSystemService(PowerManager::class.java)
         if (!pm.isIgnoringBatteryOptimizations(packageName))

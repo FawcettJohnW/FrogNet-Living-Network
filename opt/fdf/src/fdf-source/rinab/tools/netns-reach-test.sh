@@ -2,17 +2,17 @@
 # netns-reach-test.sh -- [REACH_V1] [NET_CONFIG_IS_A_TUPLE_V1] [IDENTITY_IN_TUPLES_V1] a node reaching a pond it is a
 # PARTICIPANT in, as that pond's (pond, config, net) allows, with a 1:1 alias for what collides with its own network.
 # Harness: netns-ponds-daemon-test.sh's (the real daemon, fdf-facts, fdf-client per pond, fdf-hub per pond).
-#   ha 198.18.0.1  pond A: rina-host, fdf-hub                       (no net.json: reach none)
-#   hb 198.18.0.2  pond B: rina-host (net.json reach all, map allowed), fdf-hub
-#   hc 198.18.0.4  pond C: rina-host (net.json reach all, map REFUSED), fdf-hub
-#   hd 198.18.0.9  pond D: rina-host, NO net.json                   (reach none)
+#   ha 198.18.0.1  pond A: fdf-ram, fdf-hub                       (no net.json: reach none)
+#   hb 198.18.0.2  pond B: fdf-ram (net.json reach all, map allowed), fdf-hub
+#   hc 198.18.0.4  pond C: fdf-ram (net.json reach all, map REFUSED), fdf-hub
+#   hd 198.18.0.9  pond D: fdf-ram, NO net.json                   (reach none)
 #   a  198.18.0.5  node in A, serves 10.7.7.0/24
 #   b  198.18.0.6  node in B, serves 10.8.8.0/24
 #   c  198.18.0.7  node in B, serves 10.7.7.0/24 -- the SAME /24 as a: two networks that collide
 #   d  198.18.0.8  node in C, serves 10.7.7.0/24
 #   n  198.18.0.3  node, forward in A, serves 10.3.3.0/24; participant in B, C and D with FDF_REACH=1
 #   e  198.18.0.11 joins A LATER serving 10.8.8.0/24 (b's /24 in B): n's reach must re-plan and alias it
-#   hf 198.18.0.12 pond F: rina-host (net.json reach all, map allowed), fdf-hub
+#   hf 198.18.0.12 pond F: fdf-ram (net.json reach all, map allowed), fdf-hub
 #   g  198.18.0.13 node in F, serves 10.7.7.0/24 -- the THIRD network with that /24 (A's a, B's c): n reaches B and F at once
 #   lf 198.18.0.10 a leaf (the phone) in A: A gives it 10.252.0.1 -- the address B gives n [REACH_SELF_ALIAS_V1]
 #   ph 198.18.0.14 stage (7), when BRIDGE_KT (fdf-member-kt) and FDF_TUN (fdf-tun) are given: the PHONE's bridge -- the Kotlin
@@ -59,12 +59,12 @@ for x in "ha 1" "hb 2" "hc 4" "hd 9" "n 3" "a 5" "b 6" "c 7" "d 8" "lf 10" "e 11
 # ---- ponds: a RAM manager (with its net.json, or none), its map site, and (hub=1) its hub
 pond() { local h=$1 ram=$2 area=$3 key=$4 port=$5 netjson=$6 hub=$7
   [ -n "$netjson" ] && echo "$netjson" > $T/$h/net.json
-  ip netns exec $h env -u RINA_MAP_AREA RINA_NET_CONFIG=$T/$h/net.json RINA_REGION_FILE=$T/$h/area.perm $B/rina-host --listen $ram --api $API > $T/$h/host.log 2>&1 &
+  ip netns exec $h env -u RINA_MAP_AREA RINA_NET_CONFIG=$T/$h/net.json RINA_REGION_FILE=$T/$h/area.perm $B/fdf-ram --listen $ram --api $API > $T/$h/host.log 2>&1 &
   sleep 1; ip netns exec $h curl -s -X POST -d "{\"op\":\"map_site\",\"name\":\"$area\",\"key\":\"$key\"}" "http://$ram$API?op=rina" > /dev/null
   [ "$hub" = 1 ] || return 0
   ip netns exec $h env RINA_RAM=$ram FDF_FACTS=$T/$h/facts.json $B/fdf-client > $T/$h/client.log 2>&1 &
   sleep 0.5
-  ip netns exec $h env RINA_RAM=$ram FDF_BIN=$B python3 $H/tools/fdf-hub --area $area --iface wg-$h --endpoint ${ram%:*}:$port --name hub-$area \
+  ip netns exec $h env RINA_RAM=$ram FDF_BIN=$B python3 $H/../fdf/bin/fdf-hub --area $area --iface wg-$h --endpoint ${ram%:*}:$port --name hub-$area \
      --key $T/$h/wg.key --listen $port --facts $T/$h/facts.json > $T/$h/hub.log 2>&1 &
   sleep 2; ip netns exec $h sysctl -q -w net.ipv4.ip_forward=1; }
 pond ha $RAMA pondA keyA 51820 "" 1

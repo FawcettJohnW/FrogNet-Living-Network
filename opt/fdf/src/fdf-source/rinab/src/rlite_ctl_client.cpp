@@ -5,7 +5,7 @@
 #include <sys/stat.h>
 #include <unistd.h>
 #include <vector>
-#include "rina_region_client.hpp"
+#include "fdf_region_client.hpp"
 #include "machine_id.hpp"
 static std::string netns() { return rina_id::machine_id(); }   // [MACHINE_IDENTITY_V1]
 int main(int argc, char** argv) {
@@ -16,7 +16,7 @@ int main(int argc, char** argv) {
     std::string args = "["; for (size_t i = 0; i < a.size(); i++) { args += (i ? "," : "") + frogram::Json::quote(a[i]); } args += "]";
     frogram::Json r;
     try {
-        rina_region::Client ram;
+        fdf_region::Client ram;
         r = ram.call("{\"op\":\"ctl\",\"ns\":" + frogram::Json::quote(netns()) + ",\"args\":" + args + "}");
     } catch (const std::exception& e) {                                   // say so and fail -- never a core dump
         const char* where = getenv("RINA_RAM");

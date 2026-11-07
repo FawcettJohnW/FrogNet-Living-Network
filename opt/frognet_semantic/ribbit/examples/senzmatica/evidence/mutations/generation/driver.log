@@ -1,0 +1,16 @@
+PASS configuration API responds
+PASS frontend API exposes applied value and UPDATED status
+PASS completion updates value/history and removes pending Message
+PASS RAM applies setting and publishes final MQTT completion without old command
+PASS invalid integer rejected without state change
+PASS unchanged setting adds no history or pending Message
+PASS duplicate completion has no repeated history
+PASS reobserving desired state causes no repeated physical application
+{"mode": "ram", "broker": "Mosquitto 2.1.2 (authorized substitution)", "checks": ["configuration API responds", "frontend API exposes applied value and UPDATED status", "completion updates value/history and removes pending Message", "RAM applies setting and publishes final MQTT completion without old command", "invalid integer rejected without state change", "unchanged setting adds no history or pending Message", "duplicate completion has no repeated history", "reobserving desired state causes no repeated physical application"], "upstream_unchanged": false, "status": "FAIL", "error": "stale completion added history"}
+Traceback (most recent call last):
+  File "/workspace/scratch/94985fc05d3f/FrogNet-Living-Network/opt/frognet_semantic/ribbit/examples/senzmatica/tools/run.py", line 116, in <module>
+    check(len(config(snapshot())['updateHistory'])==1,'stale completion added history' if len(config(snapshot())['updateHistory'])!=1 else 'stale completion cannot alter legacy history')
+  File "/workspace/scratch/94985fc05d3f/FrogNet-Living-Network/opt/frognet_semantic/ribbit/examples/senzmatica/tools/run.py", line 28, in check
+    if not ok:raise AssertionError(label)
+              ^^^^^^^^^^^^^^^^^^^^^^^^^^^
+AssertionError: stale completion added history

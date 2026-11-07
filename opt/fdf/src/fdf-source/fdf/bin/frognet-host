@@ -1,0 +1,472 @@
+#!/usr/bin/env python3
+################################################################
+#  Copyright (C) 2016-2026 Fawcett Innovations LLC             #
+#  SPDX-License-Identifier: GPL-2.0-only                       #
+################################################################
+"""frognet-host -- [FROGNETHOST_ADMIN_V1] the FrogNetHost Admin service: the console command and the node's own service.
+
+(Design: "FrogNet SystemRam, FrogNetHost Admin and App Services", section 6, John 2026-11-04.) A FrogNetHost is
+administered by writing its configuration tuple; the node holds a read on it and applies what changed. Nobody reaches
+into the node: the Admin writes the Admin's tuple, the node writes its own.
+
+  (frognethost, config, <guid>)   in databasehost-control   the SystemRam admin's: name, gateway, numbered requests
+  (frognethost, state,  <guid>)   in the SystemRam          the node's own: what it applied, each request's answer
+
+Both are cells in a RAM host (fdfram): databasehost_control.frognet and databasehost.frognet, as /etc/hosts names them
+now, port FDF_LAN_RAM_PORT (8841). Every FrogNetHost runs one ([LAN_RAM_ALWAYS_V1]); held reads are parked in it.
+
+  frognet-host status                         every FrogNetHost's state, as the SystemRam has it
+  frognet-host setup [NAME GATEWAYIP [PORT]]  this node's name, gateway (setup_lillypad) and RAM host port; asks for what is missing
+  frognet-host clear | dump | backup | reboot one numbered request, then waits for the node's answer
+      --node NAME|GUID                        another FrogNetHost (default: this one)
+      --no-wait                               write the request and print it as JSON (the Admin UI)
+  frognet-host status [--json]                the same, as JSON for the Admin UI
+  frognet-host serve                          the node's service (frognet-host.service)
+
+What each request does on the node (the node setup page's helpers and the tools already on it):
+  setup   setup_lillypad_v4.bash NAME GATEWAYIP (only when either differs from what is in place); and PORT, this node's
+          RAM host port ([RAM_PORT_CONFIGURABLE_V1], /etc/frognet/ram_port), when it differs: written, the tunnel daemon
+          (its RAM host), fdf-app and this service started again on it. Every FrogNetHost of a network uses one port.
+  clear   frognet-proxy and frognet-daemon stopped; in one transaction on the node's MySQL FrogNet database (its
+          semantic compression store and old sensor tables, not the SystemRam) the seven deletes; both started again
+  dump    those seven tables and SensorData to one SQL file under FROGNET_HOST_DIR (/var/backups/frognet)
+  backup  frognet_backup_world.bash backup <FROGNET_HOST_DIR>/frognet_world_<name>_<time>.tgz
+  reboot  systemctl reboot (the answer is written before it)
+
+A request is numbered: the console writes one past the higher of the Admin's last number and the node's last answer
+for it, so a clear that wiped the tuple, or a SystemRam that moved, never makes a request run twice.
+"""
+import json, os, queue, socket, subprocess, sys, threading, time
+
+BUILD_TAG = "frognet-host-2026-11-04-r2"
+LIB = os.environ.get("FDF_PY") or os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "lib", "python")
+sys.path.insert(0, LIB)
+import fdfram      # noqa: E402
+import fdf_watch   # noqa: E402
+
+SVC = "frognethost"
+AS_JSON = NO_WAIT = False
+OPS = ("clear", "dump", "backup", "reboot")
+HOSTS = os.environ.get("FDF_HOSTS", "/etc/hosts")
+GUID_FILE = os.environ.get("FROGNET_GUID_FILE", "/etc/fnid")
+GATEWAYS = os.environ.get("FROGNET_GATEWAYS_CONF", "/etc/frognet/gateways.conf")
+RECORD = os.environ.get("FROGNET_HOST_RECORD", "/var/lib/frognet/frognet-host.json")
+OUT_DIR = os.environ.get("FROGNET_HOST_DIR", "/var/backups/frognet")
+LILLYPAD = os.environ.get("FROGNET_SETUP_LILLYPAD", "/usr/local/bin/setup_lillypad_v4.bash")
+BACKUP = os.environ.get("FROGNET_BACKUP_WORLD", "/usr/local/bin/frognet_backup_world.bash")
+TABLES = ["frognet_request_templates", "frognet_response_templates", "SemCacheDaemon", "SemCacheDaemonRefs",
+          "SemCacheProxy", "SemCacheProxyRefs", "Sensor"]
+
+
+def log(m):
+    print("[frognet-host] %s %s" % (time.strftime("%H:%M:%S"), m), flush=True)
+
+
+# ---------------------------------------------------------------- this node
+def guid():
+    with open(GUID_FILE) as f:
+        g = f.read().strip()
+    if not g:
+        raise SystemExit("frognet-host: %s is empty: this node has no guid" % GUID_FILE)
+    return g
+
+
+def in_place():
+    """(name, gateway) as this node is set up now: gateways.conf, which setup_lillypad writes"""
+    kv = {}
+    try:
+        for ln in open(GATEWAYS):
+            if "=" in ln and not ln.lstrip().startswith("#"):
+                k, _, v = ln.strip().partition("=")
+                kv[k] = v.strip().strip('"')
+    except FileNotFoundError:
+        pass
+    return kv.get("NETWORK_NAME", ""), kv.get("GATEWAY_IP", "")
+
+
+def record():
+    try:
+        with open(RECORD) as f:
+            return json.load(f)
+    except (OSError, ValueError):
+        return {"done": {}, "last": {}}
+
+
+def save_record(r):
+    os.makedirs(os.path.dirname(RECORD), exist_ok=True)
+    with open(RECORD + ".tmp", "w") as f:
+        json.dump(r, f)
+    os.replace(RECORD + ".tmp", RECORD)
+
+
+def state_bag(r):
+    name, gw = in_place()
+    return {"guid": guid(), "name": name, "gateway": gw, "ram_port": fdfram.ram_port(), "host": socket.gethostname(), "build": BUILD_TAG,
+            "done": r.get("done", {}), "last": r.get("last", {}), "at": int(time.time())}
+
+
+# ---------------------------------------------------------------- the two RAM hosts
+def control():
+    return fdfram.Ram(fdfram.control_ram())
+
+
+def system():
+    return fdfram.Ram(fdfram.system_ram())
+
+
+def newest(cells):
+    live = [c for c in cells if not c.get("gone") and isinstance(c.get("bag"), dict)]
+    return max(live, key=lambda c: int(c.get("id", -1))) if live else None
+
+
+def read_one(rm, variable, g):
+    c = newest(rm.read(SVC, variable, g))
+    return c["bag"] if c else {}
+
+
+# ---------------------------------------------------------------- what a request does
+def run(argv, what):
+    """run one step, its output in this service's journal; the step's own words are the answer when it fails"""
+    t = time.time()
+    p = subprocess.run(argv, capture_output=True, text=True)
+    out = (p.stdout + p.stderr).strip()
+    if out:
+        for ln in out.splitlines()[-20:]:
+            log("%s: %s" % (what, ln))
+    return p.returncode == 0, ("" if p.returncode == 0 else "%s exited %d: %s" % (argv[0], p.returncode, out[-300:])), time.time() - t
+
+
+def cmd(op):
+    """a test (FROGNET_HOST_CMD_<OP>) may stand in for the real step"""
+    o = os.environ.get("FROGNET_HOST_CMD_" + op.upper())
+    return o.split() if o else None
+
+
+def do_setup(name, gw):
+    return run(cmd("setup") + [name, gw] if cmd("setup") else [LILLYPAD, name, gw], "setup")
+
+
+def do_port(port):
+    """[RAM_PORT_CONFIGURABLE_V1] this node's RAM host port: written; the tunnel daemon (it runs the RAM host) and fdf-app
+    started again on it (this service starts itself again after its answer)"""
+    t = time.time()
+    try:
+        fdfram.set_ram_port(port)
+    except (OSError, ValueError) as e:
+        return False, "the port was not written: %s" % e, time.time() - t
+    return run(cmd("port") or ["systemctl", "restart", "frognet-tunnel-daemon-v3", "fdf-app"], "port")
+
+
+def do_clear():
+    if cmd("clear"):
+        return run(cmd("clear"), "clear")
+    sql = "START TRANSACTION; " + " ".join("DELETE FROM %s;" % t for t in TABLES) + " COMMIT;"
+    ok1, why1, t1 = run(["systemctl", "stop", "frognet-proxy", "frognet-daemon"], "clear: stop")
+    ok2, why2, t2 = run(["mysql", "-u", "root", "FrogNet", "-e", sql], "clear: delete")
+    ok3, why3, t3 = run(["systemctl", "start", "frognet-daemon", "frognet-proxy"], "clear: start")
+    return ok1 and ok2 and ok3, "; ".join(w for w in (why1, why2, why3) if w), t1 + t2 + t3
+
+
+def out_file(kind, ext):
+    os.makedirs(OUT_DIR, exist_ok=True)
+    return os.path.join(OUT_DIR, "frognet_%s_%s_%s.%s" % (kind, in_place()[0] or socket.gethostname(),
+                                                           time.strftime("%Y%m%d_%H%M%S"), ext))
+
+
+def do_dump():
+    f = out_file("ram", "sql")
+    if cmd("dump"):
+        ok, why, t = run(cmd("dump") + [f], "dump")
+        return ok, why, t, f
+    t0 = time.time()
+    with open(f, "w") as out:
+        p = subprocess.run(["mysqldump", "-u", "root", "FrogNet"] + TABLES + ["SensorData"], stdout=out, stderr=subprocess.PIPE, text=True)
+    return p.returncode == 0, ("" if p.returncode == 0 else "mysqldump exited %d: %s" % (p.returncode, p.stderr.strip()[-300:])), time.time() - t0, f
+
+
+def do_backup():
+    f = out_file("world", "tgz")
+    ok, why, t = run((cmd("backup") or [BACKUP, "backup"]) + [f], "backup")
+    return ok, why, t, f
+
+
+# ---------------------------------------------------------------- the node's service
+class Serve:
+    def __init__(self):
+        self.g = guid()
+        self.r = record()
+        self.todo = queue.Queue()                     # the Admin's tuples to apply, one applier: no two steps at once
+
+    def write_state(self):
+        try:
+            system().write(SVC, "state", self.g, state_bag(self.r))
+        except fdfram.RamError as e:
+            log("the state was not written to the SystemRam (%s); written again when it is there" % e)
+
+    def apply(self, want):
+        """what the Admin's tuple asks that this node has not done; each step answered in the state tuple"""
+        done = self.r.setdefault("done", {})
+        name, gw = in_place()
+        seq = int(want.get("setup") or 0)
+        if seq > int(done.get("setup") or 0):
+            wn, wg = str(want.get("name") or name), str(want.get("gateway") or gw)
+            if (wn, wg) != (name, gw):
+                log("setup %d: %s %s (was %s %s)" % (seq, wn, wg, name or "-", gw or "-"))
+                ok, why, t = do_setup(wn, wg)
+            else:
+                ok, why, t = True, "", 0.0
+            wp, again = int(want.get("ram_port") or fdfram.ram_port()), False
+            if ok and wp != fdfram.ram_port():
+                log("setup %d: RAM host port %d (was %d)" % (seq, wp, fdfram.ram_port()))
+                ok, why, t2 = do_port(wp); t += t2; again = ok
+            self.answer("setup", seq, ok, why, t)
+            if again:                                     # the port is read at start: this service on the new one
+                log("RAM host port %d: frognet-host started again on it" % wp)
+                os.execv(sys.executable, [sys.executable] + sys.argv)
+        for op in OPS:
+            seq = int(want.get(op) or 0)
+            if seq <= int(done.get(op) or 0):
+                continue
+            log("%s %d" % (op, seq))
+            f = ""
+            if op == "clear":
+                ok, why, t = do_clear()
+            elif op == "dump":
+                ok, why, t, f = do_dump()
+            elif op == "backup":
+                ok, why, t, f = do_backup()
+            else:                                         # reboot: answered first, then done
+                self.answer(op, seq, True, "", 0.0)
+                run(cmd("reboot") or ["systemctl", "reboot"], "reboot")
+                continue
+            self.answer(op, seq, ok, why, t, f)
+
+    def answer(self, op, seq, ok, why, t, f=""):
+        self.r.setdefault("done", {})[op] = seq
+        self.r["last"] = {"op": op, "seq": seq, "ok": ok, "why": why, "s": round(t, 2), "file": f, "at": int(time.time())}
+        save_record(self.r)
+        log("%s %d %s%s" % (op, seq, "done" if ok else "FAILED: " + why, (" -> " + f) if f else ""))
+        self.write_state()
+
+    def watch_config(self):
+        """[FROGNETHOST_ADMIN_V1] a held read on this node's own config tuple in databasehost-control"""
+        last, at = -1, None
+        while True:
+            try:
+                rm = control()
+                if rm.hostport != at:
+                    last, at = -1, rm.hostport
+                    log("databasehost-control is %s" % at)
+                cells = rm.read(SVC, "config", self.g, after=last, wait_s=25)
+                for c in cells:
+                    last = max(last, int(c.get("id", -1)))
+                c = newest(cells)
+                if c:
+                    self.todo.put(c["bag"])
+            except fdfram.RamError as e:
+                t = time.time()
+                if "ESTALE" in str(e):                    # another memory at that address: read it from the start
+                    last = -1; continue
+                log("the read on databasehost-control ended (%s); read again when it is up or another one is named" % e)
+                try:
+                    now = fdfram.control_ram()
+                except fdfram.RamError:
+                    now = ""
+                fdf_watch.up_or_moved(now, t, lambda: _quiet(fdfram.control_ram), dirs=[os.path.dirname(HOSTS) or "."])
+                last = -1
+
+    def watch_state(self):
+        """this node's own state tuple, held: written again when it is gone (a clear, a new SystemRam) or when /etc/hosts
+        names another SystemRam"""
+        last, at = -1, None
+        while True:
+            try:
+                rm = system()
+                if rm.hostport != at:
+                    last, at = -1, rm.hostport
+                    log("the SystemRam is %s" % at)
+                    self.write_state()
+                cells = rm.read(SVC, "state", self.g, after=last, wait_s=25)
+                for c in cells:
+                    last = max(last, int(c.get("id", -1)))
+                if last >= 0 and not newest(rm.read(SVC, "state", self.g)):
+                    self.write_state()
+                if not cells:                             # the hold ended with nothing new: the SystemRam may have moved
+                    continue
+            except fdfram.RamError as e:
+                t = time.time()
+                if "ESTALE" in str(e):
+                    at = None; continue
+                log("the read on the SystemRam ended (%s); read again when it is up or another one is named" % e)
+                fdf_watch.up_or_moved(_quiet(fdfram.system_ram), t, lambda: _quiet(fdfram.system_ram),
+                                      dirs=[os.path.dirname(HOSTS) or "."])
+                at = None
+
+    def watch_hosts(self):
+        """[FROGNETHOST_ADMIN_V1] /etc/hosts naming another SystemRam or databasehost-control is an event even while the
+        old one still answers: the state is written in the new SystemRam at once, and the Admin's tuple is read from the
+        new databasehost-control at once (the held reads on the old ones end on their own)"""
+        d = os.path.dirname(HOSTS) or "."
+        w = fdf_watch.Inotify(d)
+        sysr, ctl = _quiet(fdfram.system_ram), _quiet(fdfram.control_ram)
+        while True:
+            w.read()
+            s2, c2 = _quiet(fdfram.system_ram), _quiet(fdfram.control_ram)
+            if s2 and s2 != sysr:
+                log("the SystemRam is %s now (was %s): this node's state is written there" % (s2, sysr or "none"))
+                self.write_state()
+            if c2 and c2 != ctl:
+                log("databasehost-control is %s now (was %s): the Admin's tuple is read there" % (c2, ctl or "none"))
+                try:
+                    b = read_one(fdfram.Ram(c2), "config", self.g)
+                    if b:
+                        self.todo.put(b)
+                except fdfram.RamError as e:
+                    log("databasehost-control %s did not answer (%s)" % (c2, e))
+            sysr, ctl = s2, c2
+
+    def applier(self):
+        while True:
+            self.apply(self.todo.get())
+
+    def run(self):
+        name, gw = in_place()
+        log("build %s; this node %s (%s, gateway %s)" % (BUILD_TAG, self.g, name or "unnamed", gw or "none"))
+        threading.Thread(target=self.applier, daemon=True).start()
+        threading.Thread(target=self.watch_hosts, daemon=True).start()
+        threading.Thread(target=self.watch_state, daemon=True).start()
+        self.watch_config()
+
+
+def _quiet(f):
+    try:
+        return f()
+    except fdfram.RamError:
+        return ""
+
+
+# ---------------------------------------------------------------- the console
+def target(name_or_guid):
+    """a FrogNetHost by its name or guid, from the state tuples in the SystemRam; this node when none is named"""
+    if not name_or_guid:
+        return guid()
+    cells = [c for c in system().read(SVC, "state") if not c.get("gone")]
+    for c in cells:
+        b = c.get("bag") or {}
+        if name_or_guid in (c.get("instance"), b.get("guid"), b.get("name")):
+            return c.get("instance")
+    raise SystemExit("frognet-host: no FrogNetHost named %s in the SystemRam (frognet-host status lists them)" % name_or_guid)
+
+
+def request(g, op, extra=None):
+    """write the Admin's tuple for node g with the next number for op, then hold a read on the node's answer"""
+    c, s = control(), system()
+    want = read_one(c, "config", g)
+    st = read_one(s, "state", g)
+    seq = max(int(want.get(op) or 0), int((st.get("done") or {}).get(op) or 0)) + 1
+    want.update(extra or {})
+    want[op] = seq
+    want["at"] = int(time.time())
+    want["by"] = os.environ.get("SUDO_USER") or os.environ.get("USER") or "root"
+    c.write(SVC, "config", g, want)
+    if NO_WAIT:
+        print(json.dumps({"ok": True, "op": op, "seq": seq, "node": g})); return 0
+    print("frognet-host: %s %d asked of %s (databasehost-control %s); waiting for its answer in the SystemRam (%s)"
+          % (op, seq, st.get("name") or g, c.hostport, s.hostport), flush=True)
+    return wait_answer(s, g, op, seq, st.get("name") or g)
+
+
+def wait_answer(s, g, op, seq, who):
+    """a held read on node g's state tuple until it has answered request `seq` of `op`"""
+    last, end = -1, time.time() + float(os.environ.get("FROGNET_HOST_WAIT_S", "900"))
+    while time.time() < end:
+        for cell in s.read(SVC, "state", g, after=last, wait_s=25):
+            last = max(last, int(cell.get("id", -1)))
+            b = cell.get("bag") or {}
+            if int((b.get("done") or {}).get(op) or 0) >= seq:
+                lt = b.get("last") or {}
+                if AS_JSON:
+                    print(json.dumps({"ok": True, "answered": True, "last": lt if lt.get("op") == op and lt.get("seq") == seq else None}))
+                    return 0
+                if lt.get("op") == op and lt.get("seq") == seq:
+                    print("frognet-host: %s %d on %s: %s%s (%.1f s)" % (op, seq, b.get("name") or who, "done" if lt.get("ok") else "FAILED: " + str(lt.get("why")),
+                                                                        (", " + lt["file"]) if lt.get("file") else "", float(lt.get("s") or 0)))
+                    return 0 if lt.get("ok") else 1
+                print("frognet-host: %s %d on %s: answered (a later request has answered since)" % (op, seq, b.get("name") or who))
+                return 0
+    if AS_JSON:
+        print(json.dumps({"ok": False, "error": "no answer from %s in %s s: is frognet-host.service running there?" % (who, os.environ.get("FROGNET_HOST_WAIT_S", "900"))}))
+        return 1
+    print("frognet-host: no answer from %s in %s s: is frognet-host.service running there? (its journal says)"
+          % (who, os.environ.get("FROGNET_HOST_WAIT_S", "900")))
+    return 1
+
+
+def status():
+    s = system()
+    rows = [c.get("bag") or {} for c in s.read(SVC, "state") if not c.get("gone")]
+    if AS_JSON:
+        print(json.dumps({"ok": True, "system": s.hostport, "control": _quiet(fdfram.control_ram), "hosts": rows})); return 0
+    print("SystemRam %s; databasehost-control %s" % (s.hostport, _quiet(fdfram.control_ram) or "not named"))
+    for b in sorted(rows, key=lambda b: b.get("name") or ""):
+        lt = b.get("last") or {}
+        print("  %-16s %-15s port %-5s %s  last: %s" % (b.get("name") or "?", b.get("gateway") or "?", b.get("ram_port") or "?", b.get("build") or "?",
+                                             ("%s %s %s" % (lt.get("op"), lt.get("seq"), "ok" if lt.get("ok") else "FAILED " + str(lt.get("why")))) if lt else "none"))
+    return 0
+
+
+def ask(q, default=""):
+    a = input("%s%s: " % (q, " [%s]" % default if default else "")).strip()
+    return a or default
+
+
+def main(argv):
+    global AS_JSON, NO_WAIT
+    args = argv[1:]
+    AS_JSON, NO_WAIT = "--json" in args, "--no-wait" in args          # the Admin UI's: an answer to read, not to wait on
+    args = [a for a in args if a not in ("--json", "--no-wait")]
+    node = None
+    if "--node" in args:
+        i = args.index("--node")
+        node = args[i + 1] if i + 1 < len(args) else ""
+        del args[i:i + 2]
+    if not args:
+        print(__doc__); return 2
+    op = args[0]
+    try:
+        if op == "serve":
+            Serve().run(); return 0
+        if op == "status":
+            return status()
+        g = target(node)
+        if op == "setup":
+            st = read_one(system(), "state", g)
+            name = args[1] if len(args) > 1 else ""
+            gw = args[2] if len(args) > 2 else ""
+            port = args[3] if len(args) > 3 else ""
+            if not (name and gw):
+                if not sys.stdin.isatty():
+                    print("frognet-host: setup NAME GATEWAYIP [PORT] (no terminal to ask in)"); return 2
+                name = name or ask("Name", st.get("name", ""))
+                gw = gw or ask("Gateway IP (10.x.x.1)", st.get("gateway", ""))
+                port = port or ask("RAM host port (the same on every FrogNetHost)", str(st.get("ram_port") or fdfram.ram_port()))
+            p = gw.split(".")
+            if not (len(p) == 4 and p[0] == "10" and p[3] == "1" and all(x.isdigit() and 0 <= int(x) <= 255 for x in p)):
+                print("frognet-host: the gateway IP must be 10.x.x.1 (got %s)" % gw); return 2
+            extra = {"name": name, "gateway": gw}
+            if port:
+                if not (port.isdigit() and 1024 <= int(port) <= 65535):
+                    print("frognet-host: the RAM host port must be 1024..65535 (got %s)" % port); return 2
+                extra["ram_port"] = int(port)
+            return request(g, "setup", extra)
+        if op in OPS:
+            return request(g, op)
+        if op == "wait" and len(args) == 3 and args[2].isdigit():    # wait OP SEQ: the Admin UI's held read on the answer
+            return wait_answer(system(), g, args[1], int(args[2]), g)
+    except fdfram.RamError as e:
+        print("frognet-host: %s" % e); return 1
+    print(__doc__); return 2
+
+
+if __name__ == "__main__":
+    sys.exit(main(sys.argv))

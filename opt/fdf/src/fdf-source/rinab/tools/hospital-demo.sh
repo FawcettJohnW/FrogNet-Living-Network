@@ -6,12 +6,12 @@
 set -u
 cd "$(dirname "$0")/.."; RUNS=${1:-3}; PORT=${PORT:-51993}; BOARD_PORT=${BOARD_PORT:-8077}; API=/FawcettInnovations.RINA.ram_interface.php
 D=$(mktemp -d /tmp/hospital-demo.XXXXXX)
-F="-std=c++20 -O2 -pthread -D_GNU_SOURCE -Ibuild/platform/ribbit_cpp -Isrc"; L="build/obj/frogram.o -llz4 -lcrypto -lresolv"
+F="-std=c++20 -O2 -pthread -D_GNU_SOURCE -I../../../../frognet_semantic/ribbit/cpp/include -Isrc"; L="build/obj/frogram.o build/obj/lf_ebr.o -llz4 -lcrypto -lresolv"
 g++ $F examples/hcm/hcm_incident.cpp $L -o $D/hcm_incident && g++ $F examples/hcm/hcm_board.cpp $L -o $D/hcm_board || { echo "the demonstration does not build"; exit 1; }
 bad=0
 for r in $(seq $RUNS); do
-    RINA_REGION_FILE=$D/a$r.perm build/rina-host --listen 127.0.0.1:$PORT --api $API > $D/hostA$r.log 2>&1 & HA=$!
-    RINA_REGION_FILE=$D/b$r.perm build/rina-host --listen 127.0.0.1:$((PORT + 1)) --api $API > $D/hostB$r.log 2>&1 & HB=$!
+    RINA_REGION_FILE=$D/a$r.perm build/fdf-ram --listen 127.0.0.1:$PORT --api $API > $D/hostA$r.log 2>&1 & HA=$!
+    RINA_REGION_FILE=$D/b$r.perm build/fdf-ram --listen 127.0.0.1:$((PORT + 1)) --api $API > $D/hostB$r.log 2>&1 & HB=$!
     for p in $PORT $((PORT + 1)); do for i in $(seq 100); do (exec 3<>/dev/tcp/127.0.0.1/$p) 2>/dev/null && break; sleep 0.05; done; done
     TAG=$$r
     echo "== run $r"

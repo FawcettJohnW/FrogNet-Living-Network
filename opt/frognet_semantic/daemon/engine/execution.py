@@ -137,6 +137,24 @@ def template_instance(req_tpl, explicit: Dict[str, Any]) -> str:
                                         getattr(req_tpl, "url_query_keys", []) or [],
                                         (getattr(req_tpl, "fragment", {}) or {}).get("field_order", []) or [])
     return _tuple_key.instance(fields, explicit)
+
+def _reply_proven(resp_tpl, dyn, body_text: str) -> bool:
+    """[REPLY_EXTRACTION_PROVEN_V1] True when the response template rebuilds exactly this answer from the extracted
+    fields (JSON compared as values: the rebuild orders keys its own way). A JSON template only: other modes are
+    trusted as before."""
+    frag = getattr(resp_tpl, "fragment", None) or {}
+    if (frag.get("mode") or getattr(resp_tpl, "mode", "")) != "json":
+        return True
+    try:
+        want = json.loads(body_text)
+    except Exception:
+        return False
+    try:
+        got = json.loads(resp_tpl.rebuild([(k, v) for k, v in dyn]))
+    except Exception:
+        return False
+    return got == want
+
 class Prepared:
     """[REFERENCES_MOVE_IN_WIRE_ORDER_V1] One decoded request, between begin() on the socket thread and execute() on a
     worker. early: a reply decided at decode time (the 7-tuple execute() returns), else None."""
@@ -334,6 +352,8 @@ class ExecutionEngine:
         if _cached is not None:
             try:
                 resp_vals = resp_tpl.extract_dynamic(_cached)
+                if resp_vals and not _reply_proven(resp_tpl, resp_vals, _cached):   # [REPLY_EXTRACTION_PROVEN_V1]
+                    raise ValueError("the cached answer is not the template's shape")
                 resp_pairs = [(k, v) for k, v in (resp_vals or [])]
                 sem_reply = self.codec.encode_reply(
                     opcode=opcode,
@@ -379,6 +399,15 @@ class ExecutionEngine:
         try:
             trace(f"[DAEMON EXTRACT] opcode={opcode} status={status} resp_text_len={len(resp_text or chr(0))} resp_text={repr((resp_text or chr(0))[:120])}")
             dyn = resp_tpl.extract_dynamic(resp_text or "")
+            # [REPLY_EXTRACTION_PROVEN_V1] (found 2026-11-02: the RangerTrak admin app, through a node's proxy, got
+            # /dc/ram.php?op=admin's answer as op=roles' shape with every value null -- {"login":true,"ok":null,"roles":
+            # {...null},"seq":null,"served":{...null}} -- because both share one response template and extraction keeps
+            # only the template's paths, reading absent ones as null.) As the C++ engine does: the template must give
+            # this answer back exactly before its fields are trusted; an answer of another shape goes RESP_RAW.
+            if dyn and not _reply_proven(resp_tpl, dyn, resp_text or ""):
+                trace(f"[REPLY_EXTRACTION_PROVEN_V1] opcode={opcode} the answer is not the template's shape: RESP_RAW "
+                      f"(fields {list(resp_tpl.fragment.get('field_order') or [])[:8]}, answer {(resp_text or '')[:120]!r})")
+                dyn = []
 
             # If extraction returns empty on a 200, the response template has
             # no extractable fields (e.g. HTML with no id-tagged elements, or
@@ -386,25 +415,27 @@ class ExecutionEngine:
             # bytes for SAME detection, send RESP_RAW on the wire.
             # This is far better than poisoning with 502 which causes permanent
             # re-bootstrap storms.
+            # [ERROR_ANSWER_IS_RAW_V1] (2026-11-02: a login the door refused -- HTTP 403, {"ok":false,"why":...} --
+            # reached the client as HTTP 200 {"ok":[],"role":null,"station":null,"user":null}: an error answer the template
+            # could not hold was sent as the fields [("value", [])], which the far end put in the template's first slot.)
+            # Any answer the template cannot hold goes RESP_RAW, with its own status: never a made-up value.
             if not dyn:
-                if status == 200:
-                    frag_fields = resp_tpl.fragment.get("fields", []) if hasattr(resp_tpl, "fragment") else []
-                    frag_mode   = resp_tpl.fragment.get("mode", "?") if hasattr(resp_tpl, "fragment") else "?"
-                    trace(f"[DAEMON EXTRACT EMPTY] opcode={opcode} mode={frag_mode} fields={frag_fields} resp_text_len={len(resp_text or '')} - raw body fallback")
-                    # [RAW_SIGNAL_V1] Return raw materials in the 3rd slot
-                    # (formerly an unused length int).  Session layer wraps
-                    # via wrap_resp_raw, caches via upsert_raw.  Do NOT wrap
-                    # here - wrapping then re-wrapping in session.py was
-                    # the version-70 bug.
-                    raw_info = {
-                        "raw":           True,
-                        "status":        int(status),
-                        "headers_bytes": _serialize_headers(resp_headers if isinstance(resp_headers, dict) else {}),
-                        "body":          resp_body_bytes,
-                    }
-                    return b"", int(status), raw_info, opcode, None, None, inst
-                # Non-200 (error responses): fallback is acceptable
-                dyn = [("value", [])]
+                frag_fields = resp_tpl.fragment.get("fields", []) if hasattr(resp_tpl, "fragment") else []
+                frag_mode   = resp_tpl.fragment.get("mode", "?") if hasattr(resp_tpl, "fragment") else "?"
+                trace(f"[DAEMON EXTRACT EMPTY] opcode={opcode} mode={frag_mode} fields={frag_fields} resp_text_len={len(resp_text or '')} - raw body fallback")
+                # [RAW_SIGNAL_V1] Return raw materials in the 3rd slot
+                # (formerly an unused length int).  Session layer wraps
+                # via wrap_resp_raw, caches via upsert_raw.  Do NOT wrap
+                # here - wrapping then re-wrapping in session.py was
+                # the version-70 bug.
+                raw_info = {
+                    "raw":           True,
+                    "status":        int(status),
+                    "headers_bytes": _serialize_headers(resp_headers if isinstance(resp_headers, dict) else {}),
+                    "body":          resp_body_bytes,
+                }
+                return b"", int(status), raw_info, opcode, None, None, inst
+
 
             sem_reply = self.codec.encode_reply(
                 opcode=int(resp_tpl.opcode),

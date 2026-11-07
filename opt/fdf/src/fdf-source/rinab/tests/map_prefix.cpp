@@ -1,10 +1,10 @@
 // map_prefix.cpp -- [MAP_PREFIX_LOCATOR_SET_V1] proof: a prefix registers with a locator set under the DIF's site key, is
 // answered by map_request and map_list, a wrong key is refused, a raw write is not a mapping, and a session-bound
 // mapping is gone when the session ends (and a watcher is told). RINA_RAM names the region.
-#include "rina_region_client.hpp"
+#include "fdf_region_client.hpp"
 #include <cstdio>
 #include <thread>
-using rina_region::Client;
+using fdf_region::Client;
 static std::string hmac_hex(const std::string& key, const std::string& msg) {
     unsigned char md[EVP_MAX_MD_SIZE]; unsigned int n = 0;
     HMAC(EVP_sha256(), key.data(), int(key.size()), reinterpret_cast<const unsigned char*>(msg.data()), msg.size(), md, &n);

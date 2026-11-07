@@ -2,6 +2,11 @@
 #include <thread>
 #include <pthread.h>
 #include <unistd.h>
+#include <ctime>
+#ifndef _WIN32
+#include <dirent.h>
+#include <sys/resource.h>
+#endif
 // Copyright (C) 2016-2026 Fawcett Innovations LLC
 // SPDX-License-Identifier: GPL-2.0-only
 //
@@ -168,13 +173,23 @@ std::map<std::string, std::string> query(const std::string& path) { std::map<std
 using Cell = ramm::Cell;
 ramm::Memory MEM;
 
+// [NOT_THIS_MEMORY_V1] a read past a place this family's log has not reached: the reader read another memory (this RAM
+// manager started again, or another one answers at the address). Said at once (409, ESTALE), so the reader knows the
+// memory it was reading is gone -- it reads again from the start and writes its own truth again -- instead of holding
+// a read that would never be answered, or answering with nothing as if nothing had changed.
+std::string stale(const std::string& sv, const std::string& vv, long long after) {
+    if (after <= 0) return "";
+    const uint64_t n = MEM.newest(sv, vv);
+    if (uint64_t(after) <= n) return "";
+    return "ESTALE: after " + std::to_string(after) + " is past this family's log (" + std::to_string(n) + "): this is not the memory that was read (the RAM manager started again)";
+}
 std::string ok_rows(const std::vector<Cell>& rows) { std::string o = "{\"ok\":true,\"rows\":[";
     for (size_t k = 0; k < rows.size(); ++k) { const Cell& c = rows[k]; char u[40]; snprintf(u, sizeof u, "%.3f", c.updated);
         o += (k ? "," : "") + std::string("{\"id\":") + std::to_string(c.id) + ",\"service\":" + Json::quote(c.service) + ",\"variable\":" + Json::quote(c.variable) +
              ",\"instance\":" + Json::quote(c.instance) + ",\"bag\":" + (c.gone ? std::string("null,\"gone\":true") : c.text()) + ",\"updated_epoch\":" + u + "}"; }
     return o + "]}"; }
 }  // (anonymous) -- the platform's public functions are outside it
-#define RIBBIT_PLATFORM_VERSION "ribbit-platform 0.69"   // 0.69: [LINGER_BY_FAMILY_V1] (F_LINGER on a cell write); 0.68: [GONE_WITH_ITS_WRITER_V1] (a gone row on the wire); 0.67: [NUMBER_DELTA_V1] [ROW_REFERENCE_OF_K_V1] [ROW_RECORD_COMPACT_V1] [REPEAT_REPLAYS_VALUES_V1]; 0.66: [ROWS_ON_THE_SEMANTIC_WIRE_V1] [MOVING_WINDOW_REFERENCE_V1] [STRING_SPLICE_V1]; 0.65: [EVERY_WRITE_ON_THE_SEMANTIC_WIRE_V1] [JSON_SURROGATE_PAIRS_V1]; 0.64: [NO_WRITE_ACK_V1] [FOLLOW_STREAM_V1] -- every node at 0.69 together
+#define RIBBIT_PLATFORM_VERSION "ribbit-platform 0.71"   // 0.71: [LISTENING_SOCKET_OUTLIVES_THE_HOST_V1] [NOT_THIS_MEMORY_V1]; 0.70: [FAMILY_LOG_V1] (no locks, no claimed ids: each family read by its own log; remove names service and variable); 0.69: [LINGER_BY_FAMILY_V1] (F_LINGER on a cell write); 0.68: [GONE_WITH_ITS_WRITER_V1] (a gone row on the wire); 0.67: [NUMBER_DELTA_V1] [ROW_REFERENCE_OF_K_V1] [ROW_RECORD_COMPACT_V1] [REPEAT_REPLAYS_VALUES_V1]; 0.66: [ROWS_ON_THE_SEMANTIC_WIRE_V1] [MOVING_WINDOW_REFERENCE_V1] [STRING_SPLICE_V1]; 0.65: [EVERY_WRITE_ON_THE_SEMANTIC_WIRE_V1] [JSON_SURROGATE_PAIRS_V1]; 0.64: [NO_WRITE_ACK_V1] [FOLLOW_STREAM_V1] -- every node at 0.69 together
 namespace ribbit {
 Reply error_reply(int status, const std::string& msg) { return Reply{status, "{\"ok\":false,\"error\":" + Json::quote(msg) + "}"}; }
 const char* platform_version() { return RIBBIT_PLATFORM_VERSION; }
@@ -222,7 +237,7 @@ public:
             out.push_back(frogram::Cell{c.id, c.service, c.variable, c.instance, c.gone ? Json() : Json::parse(c.text()), c.updated, c.gone});
         return out;
     }
-    void remove(uint64_t id) override { MEM.remove(id, true); }
+    void remove(const std::string& s, const std::string& v, uint64_t id) override { MEM.remove(s, v, id, true); }
 };
 }  // (anonymous)
 namespace ribbit {
@@ -336,13 +351,15 @@ bool api(const std::string& method, const std::string& path, const std::string& 
     }
     if (op == "write") {
         if (method != "POST") { out = bad(405, "write is POST"); return true; }
-        ramm::WritingFor wf(tl_session_id);               // [GONE_WITH_ITS_WRITER_V1] the session's own write: gone with it
+        const bool fdf = HOST->own_flag_decides();       // [OWN_FLAG_DECIDES_V1] then only an "own":true write goes with it
+        ramm::WritingFor wf(fdf ? 0 : tl_session_id);     // [GONE_WITH_ITS_WRITER_V1] the session's own write: gone with it
         {   // [WRITE_BODY_SKIMMED_V1] the body read in place: its three coordinates, and the bag's text as written, checked
             // to be one JSON object -- no tree built and serialised again (measured: a quarter of the memory host's CPU)
             std::string sv, vv, iv; size_t b0 = 0, b1 = 0;
             if (skim_write(body, sv, vv, iv, b0, b1)) {
                 if (sv.empty() || vv.empty() || iv.empty()) { out = bad(400, std::string("missing coordinate: ") + (sv.empty() ? "service" : vv.empty() ? "variable" : "instance")); return true; }
                 if (private_service(sv)) { out = bad(403, "service " + sv + " is not served"); return true; }
+                { const std::string no = HOST->refuse_write(sv, vv, iv); if (!no.empty()) { out = bad(403, no); return true; } }   // [NET_CONFIG_IS_THE_RAM_MANAGERS_V1]
                 out = Reply{200, "{\"ok\":true,\"id\":" + std::to_string(MEM.write(sv, vv, iv, body.substr(b0, b1 - b0), wall())) + "}"}; return true;
             }
         }
@@ -350,6 +367,22 @@ bool api(const std::string& method, const std::string& path, const std::string& 
         for (const char* k : {"service", "variable", "instance"}) if (in[k].type != Json::Str || in[k].s.empty()) { out = bad(400, std::string("missing coordinate: ") + k); return true; }
         if (in["bag"].type != Json::Obj) { out = bad(400, "bag must be a JSON object"); return true; }
         if (private_service(in["service"].s)) { out = bad(403, "service " + in["service"].s + " is not served"); return true; }
+        { const std::string no = HOST->refuse_write(in["service"].s, in["variable"].s, in["instance"].s); if (!no.empty()) { out = bad(403, no); return true; } }   // [NET_CONFIG_IS_THE_RAM_MANAGERS_V1]
+        if (fdf) {                                        // [OWN_FLAG_DECIDES_V1] fdf-ram's rules, word for word
+            const bool own = in["own"].type == Json::Bool && in["own"].b, perm = in["permanent"].type == Json::Bool && in["permanent"].b;
+            if (perm && own) { out = bad(400, "a tuple is permanent or goes with its session, not both"); return true; }
+            if (perm) {                                   // [PERMANENT_CELL_V1] filed durably before it is published
+                if (!HOST->keeps_permanent()) { out = bad(400, "permanent:true: this host keeps no file; a permanent tuple belongs on a RAM manager that does"); return true; }
+                const std::string bag = dump(in["bag"]);
+                HOST->permanent(in["service"].s, in["variable"].s, in["instance"].s, bag);
+                out = Reply{200, "{\"ok\":true,\"id\":" + std::to_string(MEM.write(in["service"].s, in["variable"].s, in["instance"].s, bag, wall())) + "}"}; return true;
+            }
+            if (own) {
+                if (tl_session_id == 0) { out = bad(400, "own:true needs a session (FNW1); a plain-HTTP write has none"); return true; }
+                ramm::WritingFor mine(tl_session_id);
+                out = Reply{200, "{\"ok\":true,\"id\":" + std::to_string(MEM.write(in["service"].s, in["variable"].s, in["instance"].s, dump(in["bag"]), wall())) + "}"}; return true;
+            }
+        }
         out = Reply{200, "{\"ok\":true,\"id\":" + std::to_string(MEM.write(in["service"].s, in["variable"].s, in["instance"].s, dump(in["bag"]), wall())) + "}"}; return true;
     }
     if (op == "read") {
@@ -361,6 +394,7 @@ bool api(const std::string& method, const std::string& path, const std::string& 
         if (wait > WAIT_MAX_S) wait = WAIT_MAX_S;
         if (after >= 0 && min_rows == 0) min_rows = 1;                        // "something newer than what I hold"
         const std::string sv = q["service"], vv = q["variable"], iv = q["instance"];
+        if (const std::string st = stale(sv, vv, after); !st.empty()) { out = bad(409, st); return true; }   // [NOT_THIS_MEMORY_V1]
         auto eval = [&] { return MEM.match(sv, vv, iv, after, fresh, wall()); };
         std::vector<Cell> rows = eval();
         if (wait > 0 && min_rows > 0 && rows.size() < min_rows) {
@@ -373,7 +407,8 @@ bool api(const std::string& method, const std::string& path, const std::string& 
     if (op == "remove") {
         if (method != "DELETE") { out = bad(405, "remove is DELETE"); return true; }
         long long id = atoll(q["id"].c_str()); if (id <= 0) { out = bad(400, "missing id"); return true; }
-        out = Reply{200, "{\"ok\":true,\"removed\":" + std::to_string(MEM.remove(uint64_t(id), false)) + "}"}; return true;
+        if (q["service"].empty() || q["variable"].empty()) { out = bad(400, "remove names its cell's service and variable: an id is a place in one family [FAMILY_LOG_V1]"); return true; }
+        out = Reply{200, "{\"ok\":true,\"removed\":" + std::to_string(MEM.remove(q["service"], q["variable"], uint64_t(id), false)) + "}"}; return true;
     }
     out = bad(400, "unknown op: " + op); return true;
 }
@@ -447,13 +482,40 @@ public:
         started_.fetch_add(1, std::memory_order_relaxed);
         std::thread([this] { worker(); }).detach();
     }
-    // [WAIT_TIME_TRIGGER_V1] every millisecond while anything is queued: all workers may be parked, with no push coming
+    // [WAIT_TIME_TRIGGER_V1] all workers may be busy with no push coming: the monitor grows the pool when the oldest
+    // queued task has waited past the trigger. [DUE_NOT_TICK_V1] it sleeps on its own word while nothing is queued
+    // (a push that found no free worker bumps it), and otherwise until the oldest task is due -- never on a fixed tick
+    // (was: every 1 ms while anything was queued, every 10 ms otherwise, whether or not anything was due)
     void start_monitor() {
-        if (monitor_.exchange(true, std::memory_order_acq_rel)) return;
-        std::thread([this] { for (;;) {
-            if (backlog()) { if (starved()) maybe_grow(); std::this_thread::sleep_for(std::chrono::milliseconds(1)); }
-            else std::this_thread::sleep_for(std::chrono::milliseconds(10));   // its own sleep: a push's wake is for workers
-        } }).detach();
+        if (!monitor_.exchange(true, std::memory_order_acq_rel))
+            std::thread([this] { for (;;) {
+                mon_sleeping_.store(true, std::memory_order_seq_cst);
+                const uint32_t seen = mon_.load(std::memory_order_seq_cst);
+                if (!backlog()) { futex_wait(mon_, seen, -1); mon_sleeping_.store(false, std::memory_order_seq_cst); continue; }
+                mon_sleeping_.store(false, std::memory_order_seq_cst);
+                if (starved()) maybe_grow();
+                const size_t pos = head_.load(std::memory_order_acquire); const Cell& c = cell_[pos & (N - 1)];
+                const uint64_t t = c.t.load(std::memory_order_relaxed), now = now_ns();
+                const int64_t due = c.seq.load(std::memory_order_acquire) == pos + 1 ? int64_t(t + wait_ns()) - int64_t(now) : 0;
+                futex_wait(mon_, mon_.load(std::memory_order_seq_cst), due > 0 ? due : int64_t(wait_ns()));   // the oldest task due, or one trigger on
+            } }).detach();
+        mon_.fetch_add(1, std::memory_order_seq_cst);
+        if (mon_sleeping_.load(std::memory_order_seq_cst)) futex_wake(mon_);   // only a sleeping monitor is woken
+    }
+    static void futex_wait(std::atomic<uint32_t>& w, uint32_t seen, int64_t ns) {
+#ifdef _WIN32
+        WaitOnAddress(reinterpret_cast<volatile void*>(&w), &seen, sizeof seen, ns < 0 ? INFINITE : DWORD(ns / 1000000 + 1));
+#else
+        timespec ts{time_t(ns / 1000000000), long(ns % 1000000000)};
+        syscall(SYS_futex, reinterpret_cast<uint32_t*>(&w), FUTEX_WAIT_PRIVATE, seen, ns < 0 ? nullptr : &ts, nullptr, 0);
+#endif
+    }
+    static void futex_wake(std::atomic<uint32_t>& w) {
+#ifdef _WIN32
+        WakeByAddressAll(reinterpret_cast<void*>(&w));
+#else
+        syscall(SYS_futex, reinterpret_cast<uint32_t*>(&w), FUTEX_WAKE_PRIVATE, INT_MAX, nullptr, nullptr, 0);
+#endif
     }
     bool leave_sleep() {                                       // true: a wake was on its way and this sleeper took it
         uint64_t st = sleep_.load(std::memory_order_seq_cst);
@@ -501,6 +563,8 @@ private:
     struct Cell { std::atomic<size_t> seq; std::atomic<uint64_t> t{0}; std::function<void()> f; };   // t: when queued
     alignas(64) std::atomic<size_t> head_{0}; alignas(64) std::atomic<size_t> tail_{0};
     alignas(64) std::atomic<uint32_t> work_{0};
+    alignas(64) std::atomic<uint32_t> mon_{0};                 // the monitor's word: a push no free worker took
+    std::atomic<bool> mon_sleeping_{false};
     alignas(64) std::atomic<uint64_t> sleep_{0};               // sleepers << 32 | wakes on their way
     std::atomic<bool> starting_{false}, monitor_{false};       // a worker started and not yet running; the monitor is up
     std::atomic<uint32_t> threads_{0}, peak_{0}; std::atomic<uint64_t> started_{0}, retired_{0};
@@ -542,6 +606,17 @@ private:
 struct Session;
 void run_in_order(const std::shared_ptr<Session>& s, std::function<void()> f);
 static std::atomic<uint64_t> g_session_epoch{1};   // [SESSION_EPOCH_V1] unique per session for the life of the process
+// [SESSION_HOLDERS_SAID_V1] (StreamingFrog 2026-11-02: rina-host, 6 days up, held 1,021 sockets, ~110 of them still
+// connections -- sessions shut down at their end and never closed, because something still held the Session, whose
+// destructor closes them). Every session is counted made, ended and freed; at its end the holders it still has are
+// said (deferred answers, parked reads, joined requests, and the rest by use_count); a session freed long after its end
+// says how long and what had held it; and the census -- what has ended and not been freed, the oldest of them and its
+// holders -- is said at every session's end and with every failed accept. Nothing polls.
+static std::atomic<uint64_t> g_sess_made{0}, g_sess_ended{0}, g_sess_freed{0};
+struct Session;
+struct EndedSession { std::weak_ptr<Session> w; uint64_t epoch; std::string who; double at; };
+static std::mutex g_ended_m; static std::vector<EndedSession> g_ended;
+std::string session_census();
 // [DIAG-ROWS] rows given to readers: by forwarding their writer's changes, or by comparing ([FORWARD_CHANGES_V1]); said at exit
 std::atomic<uint64_t> g_rows_fwd{0}, g_rows_cmp{0}, g_rows_shared{0};
 const bool g_rows_said = [] { std::atexit([] { const uint64_t f = g_rows_fwd.load(), c = g_rows_cmp.load();
@@ -551,9 +626,17 @@ const bool g_rows_said = [] { std::atexit([] { const uint64_t f = g_rows_fwd.loa
 struct Session {
     const uint64_t epoch = g_session_epoch.fetch_add(1, std::memory_order_relaxed);   // [SESSION_EPOCH_V1] the session's id
     int req = -1, ret = -1, data = -1;
+    // [SESSION_HOLDERS_SAID_V1] what holds this session besides its own thread: answers a region deferred, reads parked on
+    // the pool, requests joined to another's execution; and when it ended (0: not yet) and who it was
+    std::atomic<int> h_deferred{0}, h_parked{0}, h_joined{0}; std::atomic<double> ended_at{0}; std::string who;
+    Session() { g_sess_made.fetch_add(1, std::memory_order_relaxed); }
     ~Session() { if (ret >= 0) FR_CLOSE(ret); if (data >= 0) FR_CLOSE(data);
+                 g_sess_freed.fetch_add(1, std::memory_order_relaxed);
+                 const double e = ended_at.load(); if (e > 0 && wall() - e > 2.0)
+                     logline("[SESSION_HOLDERS_SAID_V1] session " + std::to_string(epoch) + " (" + who + ") freed " + std::to_string(int(wall() - e)) + " s after its end"
+                             " (last holders: deferred " + std::to_string(h_deferred.load()) + ", parked reads " + std::to_string(h_parked.load()) + ", joined " + std::to_string(h_joined.load()) + ")");
                  for (auto* f = follows.load(); f;) { auto* n = f->next; delete f; f = n; } }   /* [SESSION_FREES_ITS_SOCKETS_V1] shut down at session end, closed when the last holder lets go */
-    std::mutex data_m; std::mutex ready_m; std::condition_variable ready_cv; bool ready = false;   // set-up only
+    std::mutex data_m; std::atomic<uint32_t> ready{0};   // ready: the return socket is paired (a futex word, set-up only)
     // [CELL_WRITE_V1] the families this session's writers have named: (writer slot, family number) -> service, variable.
     // Written once each, read by any job, no lock: an insert-only open-addressed table of pointers set by CAS.
     struct Fam { uint64_t slot, fam; std::string sv, var; int32_t linger = 0; cellwire::Chain chain;   // sv, var: set by the chain's write 1, read by its later ones (the chain's job only)
@@ -682,6 +765,19 @@ struct Session {
     }
 };
 std::mutex pend_m; std::map<std::string, std::shared_ptr<Session>> pending;
+// [PAIRING_IS_AN_EVENT_V1] a session's three sockets arrive on three connections, matched by their token: each one that
+// registers bumps this word, and one still looking for its partner sleeps on it -- woken by the arrival, not by a
+// 50 ms poll -- for at most 10 s
+std::atomic<uint32_t> g_arrivals{0};
+static void arrived() { g_arrivals.fetch_add(1, std::memory_order_seq_cst); WorkRing::futex_wake(g_arrivals); }
+template <class F> static auto await_partner(F find) -> decltype(find()) {
+    const auto end = std::chrono::steady_clock::now() + std::chrono::seconds(10);
+    for (;;) { const uint32_t seen = g_arrivals.load(std::memory_order_seq_cst);
+        if (auto s = find()) return s;
+        const int64_t left = std::chrono::duration_cast<std::chrono::nanoseconds>(end - std::chrono::steady_clock::now()).count();
+        if (left <= 0) return decltype(find())();
+        WorkRing::futex_wait(g_arrivals, seen, left); }
+}
 std::map<std::string, std::weak_ptr<Session>> live;      // sessions whose return socket is up, awaiting their data socket
 std::string engine_secret() { std::random_device rd; std::string k(32, '\0'); for (auto& c : k) c = char(rd()); return k; }
 
@@ -808,7 +904,7 @@ struct CoTable {
         for (size_t i = 0; i < 32; ++i) { std::atomic<const CoEntry*>& sl = slot[(h0 + i) & (N - 1)]; const CoEntry* expect = mine;
             if (sl.compare_exchange_strong(expect, nullptr, std::memory_order_acq_rel)) break; }
         ebr.retire(mine);
-        while (list) { CoWaiter* nx = list->next; list->s->finish_and_send(list->seq, list->w, r); delete list; list = nx; }
+        while (list) { CoWaiter* nx = list->next; list->s->finish_and_send(list->seq, list->w, r); list->s->h_joined.fetch_sub(1, std::memory_order_relaxed); delete list; list = nx; }   // [SESSION_HOLDERS_SAID_V1]
     }
 };
 CoTable& co_table() { static CoTable* t = [] { CoTable* c = new CoTable;
@@ -823,6 +919,7 @@ static thread_local bool tl_deferred = false;             // the region took its
 }  // namespace
 namespace ribbit {
 void* defer_answer() { if (!tl_current) return nullptr; tl_deferred = true;   // the Work is copied only here, when deferred
+    (*tl_current->s)->h_deferred.fetch_add(1, std::memory_order_relaxed);   // [SESSION_HOLDERS_SAID_V1]
     return new RinaDeferred{*tl_current->s, tl_current->seq, *tl_current->w, tl_current->mine}; }
 uint64_t current_session() { return tl_session_id; }   // [SESSION_OF_THE_CALL_V1]
 void answer_later(void* h, const std::string& body) {
@@ -830,6 +927,7 @@ void answer_later(void* h, const std::string& body) {
     Reply r{200, body};
     if (d->mine) co_table().answer(d->mine, r);
     d->s->finish_and_send(d->seq, d->w, r);
+    d->s->h_deferred.fetch_sub(1, std::memory_order_relaxed);   // [SESSION_HOLDERS_SAID_V1]
     delete d;
 }
 }  // namespace ribbit
@@ -855,10 +953,14 @@ void engine_frame(std::shared_ptr<Session> s, uint32_t seq, const std::string& f
         // [HOST_COALESCE_V1] one execution per request in flight: join an identical one, or lead
         const CoEntry* mine = nullptr; bool joined = false;
         if (w.req_hash.size() == 16) {
-            const std::string key = w.req_hash;
+            std::string key = w.req_hash;
+            {   // [REGION_COALESCE_PER_SESSION_V1] a region operation the vendor keys by session: one execution per session
+                const size_t o = w.path.find("op="); if (o != std::string::npos) {
+                    const size_t e = w.path.find('&', o); const std::string op = w.path.substr(o + 3, e == std::string::npos ? std::string::npos : e - o - 3);
+                    if (HOST->handles(op) && !HOST->coalesces(op)) key.append(reinterpret_cast<const char*>(&s->epoch), sizeof s->epoch); } }
             CoWaiter* me = new CoWaiter{s, seq, std::move(w)};   // [WORK_MOVED_NOT_COPIED_V1] the waiter takes it...
             const bool lead = co_table().claim(key, me, mine, joined);
-            if (joined) { co_table().joined_n.fetch_add(1, std::memory_order_relaxed); return; }   // answered with the leader's answer, by our writer
+            if (joined) { co_table().joined_n.fetch_add(1, std::memory_order_relaxed); s->h_joined.fetch_add(1, std::memory_order_relaxed); return; }   // [SESSION_HOLDERS_SAID_V1] (given back when answered)   // answered with the leader's answer, by our writer
             w = std::move(me->w); delete me; if (!lead) mine = nullptr;   // ...and gives it back when this request runs
             (lead ? co_table().led : co_table().alone).fetch_add(1, std::memory_order_relaxed);
         }
@@ -866,9 +968,10 @@ void engine_frame(std::shared_ptr<Session> s, uint32_t seq, const std::string& f
         Reply r; const bool done = api(w.method, w.path, w.body, false, r); tl_current = nullptr;
         if (tl_deferred) { tl_deferred = false; return; }   // the region answers it later (ribbit::answer_later)
         if (done) { if (mine) co_table().answer(mine, r); s->finish_and_send(seq, std::move(w), r); return; }
+        s->h_parked.fetch_add(1, std::memory_order_relaxed);   // [SESSION_HOLDERS_SAID_V1]
         work_ring().push([=] { tl_session_id = s->epoch; Reply rr; api(w.method, w.path, w.body, true, rr);
                           if (mine) co_table().answer(mine, rr);
-                          s->finish_and_send(seq, w, rr); });   // a parked read, on the pool [ADAPTIVE_POOL_V1]
+                          s->finish_and_send(seq, w, rr); s->h_parked.fetch_sub(1, std::memory_order_relaxed); });   // a parked read, on the pool [ADAPTIVE_POOL_V1]
     };
     if (w.body_pending) {
         work_ring().push([s, seq, w, run] {                  // [ADAPTIVE_POOL_V1] on the pool
@@ -889,7 +992,9 @@ void engine_frame(std::shared_ptr<Session> s, uint32_t seq, const std::string& f
 // It runs on the pool: a held one waits there, never on the session's reader or in its order.
 constexpr uint8_t OP_MEM_READ = 0x7E;
 void mem_read_frame(std::shared_ptr<Session> s, uint32_t seq, std::string f) {
+    s->h_parked.fetch_add(1, std::memory_order_relaxed);   // [SESSION_HOLDERS_SAID_V1]
     work_ring().push([s, seq, f = std::move(f)] {           // [ADAPTIVE_POOL_V1]
+        struct Unpark { Session* p; ~Unpark() { p->h_parked.fetch_sub(1, std::memory_order_relaxed); } } unpark{s.get()};
         size_t p = 5; std::string why;
         auto num = [&](size_t w) -> uint64_t { if (p + w > f.size()) { why = "cut short"; return 0; }
             uint64_t v = 0; for (size_t k = 0; k < w; ++k) v = v << 8 | uint8_t(f[p + k]); p += w; return v; };
@@ -900,6 +1005,7 @@ void mem_read_frame(std::shared_ptr<Session> s, uint32_t seq, std::string f) {
         if (HOST->private_service(sv)) { s->reply(seq, std::string(MAGIC, 4) + char(OP_ERROR) + be16(403) + "service " + sv + " is not served"); return; }
         if (wait > WAIT_MAX_S) wait = WAIT_MAX_S;
         if (after >= 0 && min_rows == 0) min_rows = 1;
+        if (const std::string st = stale(sv, vv, after); !st.empty()) { s->reply(seq, std::string(MAGIC, 4) + char(OP_ERROR) + be16(409) + st); return; }   // [NOT_THIS_MEMORY_V1]
         auto eval = [&] { return MEM.match(sv, vv, iv, after, fresh, wall()); };
         std::vector<Cell> rows = eval();
         if (wait > 0 && min_rows > 0 && rows.size() < min_rows) {
@@ -955,6 +1061,7 @@ void mem_follow_frame(std::shared_ptr<Session> s, uint32_t seq, std::string f) {
     const long long after = (long long)int64_t(num(8));
     if (!why.empty() || sv.empty()) { s->reply(seq, std::string(MAGIC, 4) + char(OP_ERROR) + be16(400) + "follow: " + (why.empty() ? "missing service" : why)); return; }
     if (HOST->private_service(sv)) { s->reply(seq, std::string(MAGIC, 4) + char(OP_ERROR) + be16(403) + "service " + sv + " is not served"); return; }
+    if (const std::string st = stale(sv, vv, after); !st.empty()) { s->reply(seq, std::string(MAGIC, 4) + char(OP_ERROR) + be16(409) + st); return; }   // [NOT_THIS_MEMORY_V1]
     g_followers.fetch_add(1);
     auto* n = new Session::Follow(seq, MEM.cursor(sv, vv, iv, after));   // after < 0: from now on; else every row past it
     n->hook = ramm::Memory::hook(n->c, s->outq.wake);
@@ -983,22 +1090,23 @@ static void cell_diag_start() {
 }
 // [LINGER_BY_FAMILY_V1] The reaper: rows a session left to linger go when their time comes. A session's end pushes one
 // entry per linger its rows chose (lock-free); the reaper's one thread takes them, sleeps until the next is due, and
-// reaps it -- each row going as gone_with's do, in its family's write order. Its mutex is its own: it guards only its
-// sleep (a condition variable needs one), as a trigger's does in ram_memory.hpp.
+// reaps it -- each row going as gone_with's do, in its family's write order. [NO_LOCK_IN_THE_REAPER_V1] its sleep is a
+// futex on its own word, bumped by each add: no mutex, no condition variable.
 struct Reaper {
     struct Due { uint64_t writer; double ended, at; Due* next = nullptr; };
     std::atomic<Due*> incoming{nullptr};
-    std::mutex m; std::condition_variable cv; bool poked = false;
+    std::atomic<uint32_t> word{0};
     void add(uint64_t writer, double ended, int32_t linger) {
         Due* d = new Due{writer, ended, ended + linger};
         Due* h = incoming.load(std::memory_order_relaxed);
         do { d->next = h; } while (!incoming.compare_exchange_weak(h, d, std::memory_order_release, std::memory_order_relaxed));
-        { std::lock_guard<std::mutex> g(m); poked = true; } cv.notify_one();
+        word.fetch_add(1, std::memory_order_seq_cst); WorkRing::futex_wake(word);
         static std::once_flag started; std::call_once(started, [this] { std::thread([this] { run(); }).detach(); });
     }
     void run() {
         std::vector<Due*> due;
         for (;;) {
+            const uint32_t seen = word.load(std::memory_order_seq_cst);
             for (Due* d = incoming.exchange(nullptr, std::memory_order_acquire); d;) { Due* n = d->next; due.push_back(d); d = n; }
             const double now = wall();
             for (size_t k = 0; k < due.size();) {
@@ -1009,10 +1117,9 @@ struct Reaper {
                 } else ++k;
             }
             double next = 0; for (Due* d : due) if (!next || d->at < next) next = d->at;
-            std::unique_lock<std::mutex> l(m);
-            if (next) cv.wait_for(l, std::chrono::duration<double>(next - wall()), [&] { return poked; });
-            else cv.wait(l, [&] { return poked; });
-            poked = false;
+            const double left = next ? next - wall() : -1;
+            if (next && left <= 0) continue;                      // due now
+            WorkRing::futex_wait(word, seen, next ? int64_t(left * 1e9) + 1 : -1);
         }
     }
 };
@@ -1034,6 +1141,7 @@ static void cell_write_step(const std::shared_ptr<Session>& s, uint32_t seq, cel
             return fail(409, "cell write: " + nm->var + " write " + std::to_string(x.counter) + " is a difference against write " +
                         std::to_string(x.counter - 1) + " of its writer, which the memory does not have");
         if (private_service(nm->sv)) return fail(403, "service " + nm->sv + " is not served");
+        { const std::string no = HOST->refuse_write(nm->sv, nm->var, ""); if (!no.empty()) return fail(403, no); }   // [NET_CONFIG_IS_THE_RAM_MANAGERS_V1] (its family)
         ribbit::BagArrP bag;                              // [DECODE_ONCE_V1] decoded once, stored as it is
         cellwire::Changed changed;                        // [FORWARD_CHANGES_V1] and what it changed against its reference
         ribbit::BagArrP prev = (ref && !(x.flags & cellwire::F_KEYS)) ? ref->arr : nullptr;
@@ -1092,7 +1200,9 @@ void handle_frame(std::shared_ptr<Session> s, uint32_t seq, const std::string& f
     Reply r;
     tl_session_id = s->epoch;
     if (api(method, path, body, false, r)) { s->reply(seq, wire_reply(h, http_req, have_old ? &old : nullptr, r)); return; }
-    work_ring().push([=] { tl_session_id = s->epoch; Reply rr; Cached o = old; api(method, path, body, true, rr); s->reply(seq, wire_reply(h, http_req, have_old ? &o : nullptr, rr)); });   // a parked read, on the pool [ADAPTIVE_POOL_V1]
+    s->h_parked.fetch_add(1, std::memory_order_relaxed);   // [SESSION_HOLDERS_SAID_V1]
+    work_ring().push([=] { tl_session_id = s->epoch; Reply rr; Cached o = old; api(method, path, body, true, rr); s->reply(seq, wire_reply(h, http_req, have_old ? &o : nullptr, rr));
+                           s->h_parked.fetch_sub(1, std::memory_order_relaxed); });   // a parked read, on the pool [ADAPTIVE_POOL_V1]
     });
 }
 // [HTTP_FRONT_V1] one plain-HTTP request on this connection (ram.php's contract), through the same api() as FNW1
@@ -1127,18 +1237,19 @@ void serve(int fd, std::string peer) {
 #endif
     }   // [KEEPALIVE_5S_V1] (was [KEEPALIVE_20S_V1])
     int one = 1; setsockopt(fd, IPPROTO_TCP, TCP_NODELAY, reinterpret_cast<const fr_optval_t*>(&one), sizeof one); setsockopt(fd, SOL_SOCKET, SO_KEEPALIVE, reinterpret_cast<const fr_optval_t*>(&one), sizeof one);
-    { char pk[4]; if (::recv(fd, pk, 4, MSG_PEEK | MSG_WAITALL) == 4 && (!memcmp(pk, "GET ", 4) || !memcmp(pk, "POST", 4))) { serve_http(fd); return; } }   // [HTTP_FRONT_V1]
+    { char pk[4]; if (::recv(fd, pk, 4, MSG_PEEK | MSG_WAITALL) == 4 && (!memcmp(pk, "GET ", 4) || !memcmp(pk, "POST", 4) || !memcmp(pk, "DELE", 4))) { serve_http(fd); return; } }   // [HTTP_FRONT_V1][HTTP_FRONT_DELETE_V1] fdfram.remove
     std::string f; if (!recv_frame(fd, f) || uint8_t(f[4]) != OP_HELLO || f.size() < 6) { FR_CLOSE(fd); return; }
     std::string token = f.substr(6, uint8_t(f[5]));
     if (!token.compare(0, 7, "RETURN:")) { token = token.substr(7); std::shared_ptr<Session> s;
-        for (int i = 0; i < 200 && !s; ++i) { { std::lock_guard<std::mutex> g(pend_m); auto it = pending.find(token); if (it != pending.end()) { s = it->second; pending.erase(it); } } if (!s) std::this_thread::sleep_for(std::chrono::milliseconds(50)); }
+        s = await_partner([&] { std::shared_ptr<Session> x; std::lock_guard<std::mutex> g(pend_m); auto it = pending.find(token);
+                                if (it != pending.end()) { x = it->second; pending.erase(it); } return x; });
         if (!s) { FR_CLOSE(fd); return; }
-        s->ret = fd; { std::lock_guard<std::mutex> g(pend_m); live[token] = s; }
+        s->ret = fd; { std::lock_guard<std::mutex> g(pend_m); live[token] = s; } arrived();
         send_frame(fd, std::string(MAGIC, 4) + char(OP_HELLO) + char(3) + "ram");
-        { std::lock_guard<std::mutex> g(s->ready_m); s->ready = true; } s->ready_cv.notify_all(); return; }
+        s->ready.store(1, std::memory_order_seq_cst); WorkRing::futex_wake(s->ready); return; }
     if (!token.compare(0, 5, "DATA:")) { token = token.substr(5); std::shared_ptr<Session> s;
-        for (int i = 0; i < 200 && !s; ++i) { { std::lock_guard<std::mutex> g(pend_m); auto it = live.find(token); if (it != live.end()) { s = it->second.lock(); live.erase(it); } }
-                                             if (!s) std::this_thread::sleep_for(std::chrono::milliseconds(50)); }
+        s = await_partner([&] { std::shared_ptr<Session> x; std::lock_guard<std::mutex> g(pend_m); auto it = live.find(token);
+                                if (it != live.end()) { x = it->second.lock(); live.erase(it); } return x; });
         if (!s) { FR_CLOSE(fd); return; }
         { int sb = 0; socklen_t sl = sizeof sb; getsockopt(s->ret, SOL_SOCKET, SO_SNDBUF, reinterpret_cast<fr_optval_t*>(&sb), &sl);
           s->ceil.set_hard(size_t(sb)); }
@@ -1161,8 +1272,12 @@ void serve(int fd, std::string peer) {
             if (done) s->landed.put(done->first, std::move(done->second)); }
         s->landed.close();
         return; }
-    auto s = std::make_shared<Session>(); s->req = fd; { std::lock_guard<std::mutex> g(pend_m); pending[token] = s; }
-    { std::unique_lock<std::mutex> l(s->ready_m); if (!s->ready_cv.wait_for(l, std::chrono::seconds(10), [&] { return s->ready; })) { std::lock_guard<std::mutex> g(pend_m); pending.erase(token); FR_CLOSE(fd); return; } }
+    auto s = std::make_shared<Session>(); s->req = fd; { std::lock_guard<std::mutex> g(pend_m); pending[token] = s; } arrived();
+    { const auto end = std::chrono::steady_clock::now() + std::chrono::seconds(10);      // [PAIRING_IS_AN_EVENT_V1]
+      while (!s->ready.load(std::memory_order_seq_cst)) {
+          const int64_t left = std::chrono::duration_cast<std::chrono::nanoseconds>(end - std::chrono::steady_clock::now()).count();
+          if (left <= 0) { std::lock_guard<std::mutex> g(pend_m); pending.erase(token); FR_CLOSE(fd); return; }
+          WorkRing::futex_wait(s->ready, 0, left); } }
     logline("session up   " + peer + " " + token); uint32_t seq = 0;
     HOST->session_up(s->epoch, peer);   // [SESSION_PEER_V1] the address the session arrives from
     s->outq.wake = MEM.wake_word();                             // [FAMILY_HOOKS_V1]
@@ -1194,6 +1309,29 @@ void serve(int fd, std::string peer) {
     s->landed.close();
     if (s->dsend) s->dsend->stop();
     ::shutdown(s->ret, FR_SHUT_RDWR); if (s->data >= 0) ::shutdown(s->data, FR_SHUT_RDWR); FR_CLOSE(fd);
+    {   // [SESSION_HOLDERS_SAID_V1] ended: who still holds it (this thread's own reference is the 1 subtracted)
+        s->who = peer + " " + token; s->ended_at.store(wall()); g_sess_ended.fetch_add(1, std::memory_order_relaxed);
+        const long others = s.use_count() - 1;
+        if (others > 0) logline("[SESSION_HOLDERS_SAID_V1] session " + std::to_string(s->epoch) + " (" + s->who + ") ended, still held " + std::to_string(others) +
+                                " time(s): deferred answers " + std::to_string(s->h_deferred.load()) + ", parked reads " + std::to_string(s->h_parked.load()) +
+                                ", joined requests " + std::to_string(s->h_joined.load()) + ", queued tasks " + std::to_string(s->tpushed.load() - s->tpopped));
+        { std::lock_guard<std::mutex> g(g_ended_m); g_ended.push_back(EndedSession{s, s->epoch, s->who, s->ended_at.load()}); }
+        logline("[SESSION_HOLDERS_SAID_V1] " + session_census());
+    }
+}
+// [SESSION_HOLDERS_SAID_V1] made / ended / freed, and the ended sessions something still holds: how many, the oldest
+std::string session_census() {
+    size_t held = 0; const EndedSession* oldest = nullptr; std::shared_ptr<Session> o;
+    std::lock_guard<std::mutex> g(g_ended_m);
+    g_ended.erase(std::remove_if(g_ended.begin(), g_ended.end(), [](const EndedSession& e) { return e.w.expired(); }), g_ended.end());
+    for (auto& e : g_ended) { ++held; if (!oldest || e.at < oldest->at) oldest = &e; }
+    std::string r = "sessions made " + std::to_string(g_sess_made.load()) + ", ended " + std::to_string(g_sess_ended.load()) + ", freed " +
+                    std::to_string(g_sess_freed.load()) + "; ended and still held " + std::to_string(held);
+    if (oldest && (o = oldest->w.lock()))
+        r += " (oldest: session " + std::to_string(oldest->epoch) + " " + oldest->who + ", ended " + std::to_string(int(wall() - oldest->at)) + " s ago, held " +
+             std::to_string(o.use_count() - 1) + " time(s): deferred " + std::to_string(o->h_deferred.load()) + ", parked " + std::to_string(o->h_parked.load()) +
+             ", joined " + std::to_string(o->h_joined.load()) + ", queued " + std::to_string(o->tpushed.load() - o->tpopped) + ")";
+    return r;
 }
 }  // namespace
 // Bring the server up on `listen_on` and serve until the process ends. Returns 0 once it is listening (the accept
@@ -1205,19 +1343,50 @@ static int ram_server_start(const std::string& listen_on, bool quiet) {
 #else
     signal(SIGPIPE, SIG_IGN);
 #endif
-    int srv = int(::socket(AF_INET, SOCK_STREAM, 0)), one = 1; setsockopt(srv, SOL_SOCKET, SO_REUSEADDR, reinterpret_cast<const fr_optval_t*>(&one), sizeof one);
+    // [LISTENING_SOCKET_OUTLIVES_THE_HOST_V1] (John 2026-11-03: "no waiting ... not like a messaging thing") the listening
+    // socket may be handed in, already bound and listening: by systemd's socket activation (LISTEN_FDS, LISTEN_PID: fd 3)
+    // or by a parent that keeps it (RIBBIT_LISTEN_FD=N). A host started again on it loses nothing: a client's connect in
+    // between waits in the socket's backlog until this host accepts it -- no refusal, so nothing retries on a timer.
+    int srv = -1;
+#ifndef _WIN32
+    if (const char* lf = getenv("RIBBIT_LISTEN_FD"); lf && *lf) srv = atoi(lf);
+    else if (const char* n = getenv("LISTEN_FDS"); n && atoi(n) >= 1)
+        if (const char* lp = getenv("LISTEN_PID"); lp && atol(lp) == long(getpid())) srv = 3;
+#endif
+    const bool handed = srv >= 0;
+    int one = 1;
+    if (!handed) { srv = int(::socket(AF_INET, SOCK_STREAM, 0)); setsockopt(srv, SOL_SOCKET, SO_REUSEADDR, reinterpret_cast<const fr_optval_t*>(&one), sizeof one); }
     // [RECEIVE_WINDOW_NOT_CLAMPED_V1] The receive buffer is the kernel's to size. It was clamped to 32 KB ("the buffer is
     // the latency" -- true of the SEND side, where it still holds): with one wire carrying a whole box, the request
     // socket closed its window, the window update did not come, and the sender sat in TCP's persist timer -- measured
     // (ss -ti): rwnd_limited 92%, persist timer, the host getting a batch every ~208 ms, 4 s round trips at many-256.
     sockaddr_in a{}; a.sin_family = AF_INET; a.sin_port = htons(uint16_t(atoi(listen_on.c_str() + c + 1))); inet_pton(AF_INET, listen_on.substr(0, c).c_str(), &a.sin_addr);
-    if (::bind(srv, reinterpret_cast<sockaddr*>(&a), sizeof a) || ::listen(srv, 1024)) { int e = errno; FR_CLOSE(srv); return e ? e : EADDRINUSE; }
+    if (!handed && (::bind(srv, reinterpret_cast<sockaddr*>(&a), sizeof a) || ::listen(srv, 1024))) { int e = errno; FR_CLOSE(srv); return e ? e : EADDRINUSE; }
+    if (handed) logline("[LISTENING_SOCKET_OUTLIVES_THE_HOST_V1] listening on the socket handed in (fd " + std::to_string(srv) + ")");
     { sockaddr_in b{}; socklen_t bl = sizeof b;                       // [ANNOUNCE_PORT_V1] port 0: the one the system chose
       if (!::getsockname(srv, reinterpret_cast<sockaddr*>(&b), &bl)) LISTEN_PORT = ntohs(b.sin_port); }
     logline(HOST->vendor_id() + "-ram " + HOST->vendor_version() + " (" + RIBBIT_PLATFORM_VERSION + "): the memory and the "
             + HOST->vendor_id() + " region, answering " + API_PATH + " on " + listen_on);
-    std::thread([srv] { for (;;) { sockaddr_in p{}; socklen_t pl = sizeof p; int fd = ::accept(srv, reinterpret_cast<sockaddr*>(&p), &pl); if (fd < 0) continue;
-        char ip[64]; inet_ntop(AF_INET, &p.sin_addr, ip, sizeof ip); std::thread(serve, fd, std::string(ip)).detach(); } }).detach();
+    HOST->listening(listen_on.substr(0, c) + ":" + std::to_string(LISTEN_PORT));   // [HOST_ANNOUNCES_ITSELF_V1] before any session
+    std::thread([srv] { int last_e = 0; std::time_t last_t = 0; long failed = 0;
+      for (;;) { sockaddr_in p{}; socklen_t pl = sizeof p; int fd = ::accept(srv, reinterpret_cast<sockaddr*>(&p), &pl);
+        if (fd < 0) { const int e = errno; ++failed; const std::time_t now = std::time(nullptr);
+            if (e != last_e || now != last_t) { last_e = e; last_t = now;           // [ACCEPT_SAYS_SO_V1] once a second, with the count
+                long open = -1;
+#ifndef _WIN32
+                if (DIR* d = opendir("/proc/self/fd")) { open = 0; while (readdir(d)) ++open; closedir(d); open -= 3; }
+                struct rlimit rl{}; getrlimit(RLIMIT_NOFILE, &rl); const long lim = long(rl.rlim_cur);
+#else
+                const long lim = -1;
+#endif
+                logline("[ACCEPT_SAYS_SO_V1] accept failed: " + std::string(strerror(e)) + " (errno " + std::to_string(e) + "); fds open "
+                        + (open < 0 ? std::string("all (none left to count them with)") : std::to_string(open)) + " of limit " + std::to_string(lim)
+                        + "; failures so far " + std::to_string(failed) + "; " + session_census()); }
+            if (e == EMFILE || e == ENFILE || e == ENOBUFS || e == ENOMEM) std::this_thread::sleep_for(std::chrono::milliseconds(10));
+            continue; }
+        char ip[64]; inet_ntop(AF_INET, &p.sin_addr, ip, sizeof ip);
+        try { std::thread(serve, fd, std::string(ip)).detach(); }
+        catch (const std::exception& x) { logline(std::string("[ACCEPT_SAYS_SO_V1] no thread for a connection from ") + ip + ": " + x.what() + "; closed"); FR_CLOSE(fd); } } }).detach();
     return 0;
 }
 

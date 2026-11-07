@@ -7,11 +7,11 @@ SRC=${1:?}; OUT=${2:?}
 n1=$(grep -c '^#include "lisp_engine.hpp"$' "$SRC"); n2=$(grep -c '    if (op == "lisp") {' "$SRC")
 [ "$n1" = 1 ] && [ "$n2" = 1 ] || { echo "make_host: anchors not found exactly once (include=$n1 dispatch=$n2)" >&2; exit 1; }
 awk '
-/^#include "lisp_engine.hpp"$/ { print; print "#include \"rina_region.h\""; next }
+/^#include "lisp_engine.hpp"$/ { print; print "#include \"fdf_region.h\""; next }
 /^    if \(op == "lisp"\) \{/ {
   print "    if (op == \"rina\") {                               // [RINA_REGION_V1] the RINA region, resident, inline"
   print "        if (method != \"POST\") { out = bad(405, \"rina is POST\"); return true; }"
-  print "        try { out = Reply{200, rina_region_call(body)}; } catch (const std::exception& x) { out = bad(400, std::string(\"rina: \") + x.what()); }"
+  print "        try { out = Reply{200, fdf_region_call(body)}; } catch (const std::exception& x) { out = bad(400, std::string(\"rina: \") + x.what()); }"
   print "        return true;"
   print "    }"
   print "    if (op == \"daf\") {                                // [DAF_MODEL_V1] the DAF model, resident, inline"
@@ -22,7 +22,7 @@ awk '
   print "    if (op == \"rina_block\") {                         // [RINA_REGION_V1] waits on its own request thread"
   print "        if (method != \"POST\") { out = bad(405, \"rina_block is POST\"); return true; }"
   print "        // [DEFERRED_ANSWER_V1] the region never blocks: it answers now, or later through a continuation"
-  print "        try { out = Reply{200, rina_region_block(body)}; } catch (const std::exception& x) { out = bad(400, std::string(\"rina: \") + x.what()); }"
+  print "        try { out = Reply{200, fdf_region_block(body)}; } catch (const std::exception& x) { out = bad(400, std::string(\"rina: \") + x.what()); }"
   print "        return true;"
   print "    }"
   print; next }
@@ -31,13 +31,13 @@ awk '
   print "    // string is parsed into a map (std::stringstream + std::map + urldec on every call: ~4.4 k instructions each)."
   print "    if (path.size() == API_PATH.size() + 8 && !path.compare(API_PATH.size(), 8, \"?op=rina\")) {"
   print "        if (method != \"POST\") { out = bad(405, \"rina is POST\"); return true; }"
-  print "        try { out = Reply{200, rina_region_call(body)}; } catch (const std::exception& x) { out = bad(400, std::string(\"rina: \") + x.what()); }"
+  print "        try { out = Reply{200, fdf_region_call(body)}; } catch (const std::exception& x) { out = bad(400, std::string(\"rina: \") + x.what()); }"
   print "        return true;"
   print "    }"
   print "    if (path.size() == API_PATH.size() + 14 && !path.compare(API_PATH.size(), 14, \"?op=rina_block\")) {"
   print "        if (method != \"POST\") { out = bad(405, \"rina_block is POST\"); return true; }"
   print "        // [DEFERRED_ANSWER_V1] the region never blocks: it answers now, or later through a continuation"
-  print "        try { out = Reply{200, rina_region_block(body)}; } catch (const std::exception& x) { out = bad(400, std::string(\"rina: \") + x.what()); }"
+  print "        try { out = Reply{200, fdf_region_block(body)}; } catch (const std::exception& x) { out = bad(400, std::string(\"rina: \") + x.what()); }"
   print "        return true;"
   print "    }"
   print; next }

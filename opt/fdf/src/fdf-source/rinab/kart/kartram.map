@@ -1,0 +1,2 @@
+/* kartram.map -- libkartram.so exports its C interface and nothing else: the C++ runtime inside it stays its own */
+{ global: kr_*; local: *; };

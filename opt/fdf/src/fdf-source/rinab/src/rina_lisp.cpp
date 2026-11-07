@@ -13,7 +13,7 @@
 // Map-Notify. No retransmission timer: if the Map-Notify does not come, it says it is waiting, once, and keeps
 // waiting (a lost UDP control packet is a transport question, recorded as open in RESULTS.md, not hidden here).
 #include "lisp_area.hpp"
-#include "rina_region_client.hpp"
+#include "fdf_region_client.hpp"
 #include <openssl/hmac.h>
 #include <sys/socket.h>
 #include <unistd.h>
@@ -27,25 +27,25 @@ int main(int argc, char** argv) {
     const std::string cmd = argc > 1 ? argv[1] : "";
     try {
         if (cmd == "map-site" && argc == 5) {
-            frogram::Json r = rina_region::map_call(argv[4], "{\"op\":\"map_site\",\"name\":" + frogram::Json::quote(argv[2]) + ",\"key\":" + frogram::Json::quote(argv[3]) + "}");
+            frogram::Json r = fdf_region::map_call(argv[4], "{\"op\":\"map_site\",\"name\":" + frogram::Json::quote(argv[2]) + ",\"key\":" + frogram::Json::quote(argv[3]) + "}");
             if (!r["ok"].b) return die("map-site: " + r["error"].s);
             printf("site '%s' on the mapping region at %s\n", argv[2], argv[4]); return 0; }
         if (cmd == "map-register" && argc == 7) {                 // [AREA_HOST_REGISTERS_ITSELF_V1] the shared request
             const auto t0 = std::chrono::steady_clock::now();
-            rina_region::map_register(argv[2], argv[3], argv[4], argv[5], unsigned(std::stoul(argv[6])));
+            fdf_region::map_register(argv[2], argv[3], argv[4], argv[5], unsigned(std::stoul(argv[6])));
             printf("registered '%s' -> %s in the mapping region at %s (%.3f ms, over the session)\n", argv[2], argv[3], argv[4],
                    std::chrono::duration<double, std::milli>(std::chrono::steady_clock::now() - t0).count()); return 0; }
         if (cmd == "mr-address" && argc == 3) {                    // [MR_ADDRESS_FROM_NAME_V1] rina-lisp mr-address NAME
-            printf("%s\n%s\n", rina_region::mr_address_v4(argv[2]).c_str(), rina_region::mr_address_v6(argv[2]).c_str()); return 0; }
+            printf("%s\n%s\n", fdf_region::mr_address_v4(argv[2]).c_str(), fdf_region::mr_address_v6(argv[2]).c_str()); return 0; }
         if (cmd == "map-wait" && argc == 4) {                      // [MAP_WATCH_V1] rina-lisp map-wait NAME MAP-RESOLVER
-            const std::string to = rina_region::map_wait(argv[2], argv[3]);
+            const std::string to = fdf_region::map_wait(argv[2], argv[3]);
             printf("'%s' was registered again: -> %s\n", argv[2], to.c_str()); return 0; }
         if (cmd == "seen" && argc == 4) {                          // [SESSION_PEER_V1] rina-lisp seen HOST PORT: where it sees us from
-            frogram::Session ses(argv[2], std::stoi(argv[3]), rina_region::api());
-            frogram::Json r = ses.call("POST", rina_region::api() + "?op=rina", "{\"op\":\"seen\"}");
+            frogram::Session ses(argv[2], std::stoi(argv[3]), fdf_region::api());
+            frogram::Json r = ses.call("POST", fdf_region::api() + "?op=rina", "{\"op\":\"seen\"}");
             printf("%s:%s sees this machine at %s\n", argv[2], argv[3], r["addr"].s.c_str()); return 0; }
         if (cmd == "map-resolve" && argc == 4) {
-            const auto t0 = std::chrono::steady_clock::now(); const std::string rloc = rina_region::map_lookup(argv[2], argv[3]);
+            const auto t0 = std::chrono::steady_clock::now(); const std::string rloc = fdf_region::map_lookup(argv[2], argv[3]);
             printf("'%s' -> %s (%.3f ms, over the session)\n", argv[2], rloc.c_str(), std::chrono::duration<double, std::milli>(std::chrono::steady_clock::now() - t0).count()); return 0; }
     } catch (const std::exception& e) { return die(e.what()); }
     if (argc == 4 && std::string(argv[1]) == "resolve") {             // rina-lisp resolve NAME MAP-RESOLVER

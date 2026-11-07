@@ -25,7 +25,7 @@
 //              is dropped from the others when next touched. A wait of a session that has ended is dropped likewise.
 #pragma once
 #include "rina_memory.hpp"
-#include "door/rina_region.h"
+#include "door/fdf_region.h"
 #include <atomic>
 #include <cstdint>
 #include <functional>
@@ -90,7 +90,7 @@ inline uint64_t number() { const uint64_t n = ids().fetch_add(1, std::memory_ord
 inline void wait_published(uint64_t id) {
     for (;;) { const uint32_t seen = pub_word().gen.load(std::memory_order_acquire);
         if (published().load(std::memory_order_acquire) >= id) return;
-        rmem::sleep_on(pub_word(), seen, 0.01); }
+        rmem::sleep_on(pub_word(), seen, 1e9); }                 // [WAIT_WORD_SEQ_CST_V1] woken by the watermark's move
 }
 
 inline rmem::RecSlot* slot(const std::string& v, const std::string& i, bool create) {
@@ -117,6 +117,16 @@ inline std::vector<Row> rows(const std::string& v, const std::string& i = "", ui
 }
 // the newest change to a variable, gone records included (0: never written)
 inline uint64_t newest(const std::string& v) { uint64_t m = 0; for (auto& r : rows(v, "", 0, true)) if (r.id > m) m = r.id; return m; }
+
+// ---- [DUE_NOT_TICK_V1] time is an event only for what is due at a time (a periodic subscription, a script's every_s):
+// such a wait, not yet due, says when (due_at); one thread sleeps until the earliest such moment and wakes "tick" then.
+// (Was: a 20 ms tick, waking every periodic wait 50 times a second whether anything was due or not.)
+inline std::atomic<uint64_t>& due() { static std::atomic<uint64_t> d{UINT64_MAX}; return d; }
+inline rmem::WaitWord& due_word() { static rmem::WaitWord w; return w; }
+inline void due_at(uint64_t ms) {
+    uint64_t c = due().load(std::memory_order_acquire);
+    while (ms < c) if (due().compare_exchange_weak(c, ms, std::memory_order_acq_rel)) { rmem::bump(due_word()); return; }
+}
 
 // ---- waits
 struct WaitState { void* cont; uint64_t sid; std::atomic<bool> done{false}; };

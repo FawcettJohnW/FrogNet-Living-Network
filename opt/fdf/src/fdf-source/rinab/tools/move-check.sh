@@ -18,10 +18,10 @@ for i in 1 2 3; do ip netns add dm$i; ip netns exec dm$i ip link set lo up
     ip link add v$i type veth peer name b$i; ip link set b$i master dmbr; ip link set b$i up; ip link set v$i netns dm$i
     ip netns exec dm$i ip addr add 10.60.0.1$i/24 dev v$i; ip netns exec dm$i ip link set v$i up; done
 tcpdump -i dmbr -nn -U -w $D/wire.pcap > /dev/null 2>&1 & TD=$!; sleep 0.5
-RINA_HOST_ROLE=mapping RINA_REGION_FILE=$D/map.perm rina-host --listen 10.60.0.1:4342 --api $API > $D/mapping.log 2>&1 & MP=$!
+RINA_HOST_ROLE=mapping RINA_REGION_FILE=$D/map.perm fdf-ram --listen 10.60.0.1:4342 --api $API > $D/mapping.log 2>&1 & MP=$!
 for i in $(seq 100); do (exec 3<>/dev/tcp/10.60.0.1/4342) 2>/dev/null && break; sleep 0.05; done
 rina-lisp map-site $A $K 10.60.0.1 > /dev/null || { echo "no site"; exit 1; }
-up() { RINA_MAP_AREA=$A RINA_AREA_PASSWORD=$K RINA_REGION_FILE=$D/area.perm rina-host --listen $1:8840 --api $API > $D/area-$1.log 2>&1 & HP=$!
+up() { RINA_MAP_AREA=$A RINA_AREA_PASSWORD=$K RINA_REGION_FILE=$D/area.perm fdf-ram --listen $1:8840 --api $API > $D/area-$1.log 2>&1 & HP=$!
        for i in $(seq 100); do grep -q "RAM_MANAGER_REGISTERS_ITSELF_V1" $D/area-$1.log && break; sleep 0.05; done; grep -h "REGISTERS_ITSELF" $D/area-$1.log; }
 up 10.60.0.1
 for i in 1 2 3; do ip netns exec dm$i unshare --uts bash -c "hostname machine-$i; exec rlite-uipcps -d" || echo "machine-$i: agent failed"; done

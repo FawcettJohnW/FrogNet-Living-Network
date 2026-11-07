@@ -10,6 +10,8 @@ makes it fail. Exits nonzero on any failure.
     gets its prefixes with no new peer entry (no re-handshake)
   6 adopt-on-start: a stale never-handshook peer in the kernel is removed, a correct one is left untouched
   7 leaf: role=leaf gets its /32 as edge and allowed-ips, no /24
+  [REGIONS_PER_MACHINE_V1] every admitted edge has its host route (edge/32, on-link): the hub address is a /32 now, so
+  several regions' tunnels can end on one machine (3, 3c, 10 say so; they expected no edge route under the /16)
 """
 import importlib.util, os, sys
 spec = importlib.util.spec_from_loader("fdfhub", loader=None)
@@ -65,9 +67,9 @@ check(k.peers()["PUB-first"]["allowed"] == {"10.253.9.9/32", "10.9.9.0/24"} and 
 
 # 3 facts without a verified mapping naming this hub: peer, no /24
 want, owner, notes = desired([P(1, "n", "g-n", "10.1.1.0/24", "PUB-n")], [M("10.1.1.0/24", "hubB")], "hubA")
-check(want["PUB-n"]["allowed"] == {"10.253.1.1/32"} and not want["PUB-n"]["routes"], "3 no mapping for this hub: edge only")
+check(want["PUB-n"]["allowed"] == {"10.253.1.1/32"} and want["PUB-n"]["routes"] == {"10.253.1.1/32": ""}, "3 no mapping for this hub: edge only (its host route: [REGIONS_PER_MACHINE_V1])")
 want, owner, notes = desired([P(1, "n", "g-n", "10.1.1.0/24", "PUB-n")], [M("10.1.1.0/24", "hubB", "hubA")], "hubA")
-check("10.1.1.0/24" in want["PUB-n"]["allowed"] and want["PUB-n"]["routes"] == {"10.1.1.0/24": "10.253.1.1"}, "3c control: mapping names this hub: /24 installed")
+check("10.1.1.0/24" in want["PUB-n"]["allowed"] and want["PUB-n"]["routes"] == {"10.1.1.0/24": "10.253.1.1", "10.253.1.1/32": ""}, "3c control: mapping names this hub: /24 installed")
 want, owner, notes = desired([P(1, "n", "g-n", "10.1.1.0/24", "PUB-n")], [M("10.1.1.0/24", "hubA")], "hubA")
 check(want["PUB-n"]["allowed"] == {"10.253.1.1/32", "10.1.1.0/24"}, "3 mapping present but nothing else: still only what facts claim")
 
@@ -150,10 +152,10 @@ check("PUB-n" not in want, "9c control: a participant without reach is not peere
 # 10 [ADMITTED_BY_INVITE_V1] admission is the peer; the session is not
 adm = {"PUB-x": {"name": "x", "pubkey": "PUB-x", "edge": "10.253.1.7", "kind": "node"}}
 want, owner, notes = desired([], [], "hubA", adm)
-check(want == {"PUB-x": {"edge": "10.253.1.7", "name": "x", "guid": "", "subnet": "", "allowed": {"10.253.1.7/32"}, "routes": {}}}, "10 invited, never spoken: a peer with its edge /32 and nothing else (it must reach the region through it)")
+check(want == {"PUB-x": {"edge": "10.253.1.7", "name": "x", "guid": "", "subnet": "", "allowed": {"10.253.1.7/32"}, "routes": {"10.253.1.7/32": ""}}}, "10 invited, never spoken: a peer with its edge /32 and its host route, nothing else (it must reach the region through it)")
 x = P(1, "x", "g-x", "10.40.40.0/24", "PUB-x")
 want, owner, notes = desired([x], [M("10.40.40.0/24", "hubA")], "hubA", adm)
-check(want["PUB-x"]["allowed"] == {"10.253.1.7/32", "10.40.40.0/24"} and want["PUB-x"]["routes"] == {"10.40.40.0/24": "10.253.1.7"}, "10 joined: its /24 behind the edge the invitation gave (not one derived from the /24)")
+check(want["PUB-x"]["allowed"] == {"10.253.1.7/32", "10.40.40.0/24"} and want["PUB-x"]["routes"] == {"10.40.40.0/24": "10.253.1.7", "10.253.1.7/32": ""}, "10 joined: its /24 behind the edge the invitation gave (not one derived from the /24)")
 intruder = P(2, "evil", "g-evil", "10.41.41.0/24", "PUB-evil")
 want, owner, notes = desired([x, intruder], [M("10.40.40.0/24", "hubA"), M("10.41.41.0/24", "hubA")], "hubA", adm)
 check("PUB-evil" not in want and "10.41.41.0/24" not in owner and any("NOT ADMITTED: evil" in n for n in notes), "10 a member never invited: no peer, no /24, said")

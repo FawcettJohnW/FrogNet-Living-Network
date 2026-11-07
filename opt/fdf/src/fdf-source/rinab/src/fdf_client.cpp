@@ -12,6 +12,7 @@
 //   maps      [MAP_FROM_FACTS_V1] facts.maps = [{"eid":"10.A.B.0/24","rlocs":"hub:prio:weight,..."}]: each is a LISP
 //             Map-Register through THIS session (own:true, so it goes with the session), signed with the DIF's site key
 //             (RINA_SITE_KEY) under the site RINA_AREA. Changed -> re-registered; dropped from the file -> withdrawn.
+#include "fdf_up.hpp"
 #include "frogram.hpp"
 #include "fdf_version.hpp"
 #include "fdf_crash.hpp"
@@ -24,7 +25,11 @@
 #include <string>
 #include <thread>
 #include <mutex>
+
 #include <vector>
+#include <chrono>
+#include <cmath>
+#include <ctime>
 #ifdef _WIN32
 #include <winsock2.h>
 #include <ws2tcpip.h>
@@ -33,6 +38,9 @@
 #else
 #include <ifaddrs.h>
 #include <sys/inotify.h>
+#include <linux/futex.h>
+#include <sys/syscall.h>
+#include <climits>
 #include <sys/stat.h>
 #include <map>
 #include <openssl/evp.h>
@@ -40,6 +48,7 @@
 #include <arpa/inet.h>
 #include <net/if.h>
 #include <sys/sysinfo.h>
+#include <sys/statvfs.h>
 #include <sys/wait.h>
 #include <signal.h>
 #include <cstring>
@@ -88,6 +97,22 @@ static std::string capability() {                     // what this OS reports; t
            ",\"os\":\"" + os + "\",\"client\":\"fdf-client\"}";
 }
 
+static void gen_wait(std::atomic<uint32_t>& w, uint32_t seen, int secs) {   // until w moves past seen, or secs (<0: none)
+#ifdef _WIN32
+    WaitOnAddress(reinterpret_cast<volatile void*>(&w), &seen, sizeof seen, secs < 0 ? INFINITE : DWORD(secs) * 1000);
+#else
+    timespec ts{secs, 0};
+    syscall(SYS_futex, reinterpret_cast<uint32_t*>(&w), FUTEX_WAIT_PRIVATE, seen, secs < 0 ? nullptr : &ts, nullptr, 0);
+#endif
+}
+static void gen_bump(std::atomic<uint32_t>& w) {
+    w.fetch_add(1, std::memory_order_seq_cst);
+#ifdef _WIN32
+    WakeByAddressAll(reinterpret_cast<void*>(&w));
+#else
+    syscall(SYS_futex, reinterpret_cast<uint32_t*>(&w), FUTEX_WAKE_PRIVATE, INT_MAX, nullptr, nullptr, 0);
+#endif
+}
 #ifndef _WIN32
 static std::string facts_path() { const char* f = getenv("FDF_FACTS"); return f && *f ? f : "/opt/fdf/var/facts.json"; }
 static std::string file_text(const std::string& p) {
@@ -123,8 +148,11 @@ static std::string read_facts() {                       // the file's text, or "
 // next event runs it again), anything else = REFUSED: the reach is taken down and this session ends with it (exit 4,
 // which systemd's fdf-client@ does not restart). A reach that is not wanted (forward, or no FDF_REACH) is taken down.
 static bool reach_wanted() { const char* r = getenv("FDF_REACH"); return r && r[0] == '1' && !is_forward(); }
-static std::mutex reach_mu;
+// [NO_LOCK_IN_THE_CLIENT_V1] the reach is brought in line by ONE thread (reach_loop): every other thread only says so
+// (reach_want: a new address, if any, then a bump of reach_gen) -- no mutex. reach_addr and reach_up are that thread's.
 static std::string reach_addr;                           // the /32 this pond's region gave this machine (announce answer)
+static std::atomic<std::string*> reach_next{nullptr};    // a new address for the reach thread to take (it frees it)
+static std::atomic<uint32_t> reach_gen{0}, reach_done{0};
 static std::string reach_bin() { const char* b = getenv("FDF_BIN"); return std::string(b && *b ? b : "/opt/fdf/bin") + "/fdf-reach"; }
 // [REACH_V1] fdf-reach is run with an argv, never through a shell: the address comes from ANOTHER network's region
 // and the area from the environment, and neither may become a command (found by review 2026-10-10: popen with quotes).
@@ -145,9 +173,9 @@ static int reach_run(const std::string& verb, const std::string& addr, std::stri
     return WIFEXITED(st) ? WEXITSTATUS(st) : 128;
 }
 static char reach_term_msg[1024], reach_bin_c[512], reach_area_c[256], reach_refused_c[512];
-static bool reach_up = false;                            // guarded by reach_mu: a reach was applied and not taken down since
-static void reach_sync() {                              // the one place the reach is brought in line with the facts
-    std::lock_guard<std::mutex> lk(reach_mu); std::string out;
+static bool reach_up = false;                            // the reach thread's: a reach was applied and not taken down since
+static void reach_sync_now() {                          // the one place the reach is brought in line with the facts
+    std::string out;
     const char* a = getenv("RINA_AREA"); const std::string area = a ? a : "";
     if (!getenv("FDF_REACH")) return;
     if (!reach_wanted() || reach_addr.empty()) {           // not wanted here (forward), or no address here now: none stands
@@ -165,6 +193,27 @@ static void reach_sync() {                              // the one place the rea
     fprintf(stderr, "fdf-client: REACH REFUSED into %s: %s -- a failed reach closes this session\n", area.c_str(), out.c_str()); fflush(stderr);
     if (reach_refused_c[0]) { std::ofstream o(reach_refused_c); o << out << "\n"; }     // fdf-ponds says it
     _exit(4);
+}
+static void reach_want(const std::string* addr) {        // a new address (or none: nullptr), then the reach thread runs
+    if (addr) delete reach_next.exchange(new std::string(*addr), std::memory_order_acq_rel);
+    gen_bump(reach_gen);
+}
+static void reach_loop() {
+    uint32_t seen = 0;
+    for (;;) {
+        const uint32_t g = reach_gen.load(std::memory_order_seq_cst);
+        if (g == seen) { gen_wait(reach_gen, seen, -1); continue; }
+        seen = g;
+        if (std::string* n = reach_next.exchange(nullptr, std::memory_order_acq_rel)) { reach_addr = *n; delete n; }
+        reach_sync_now();
+        reach_done.store(g, std::memory_order_seq_cst); gen_bump(reach_done);
+    }
+}
+static void reach_sync() {                               // ask the reach thread to bring it in line, and wait until it has
+    static std::once_flag started; std::call_once(started, [] { std::thread(reach_loop).detach(); });
+    reach_want(nullptr);
+    const uint32_t want = reach_gen.load(std::memory_order_seq_cst);
+    for (uint32_t d; int32_t((d = reach_done.load(std::memory_order_seq_cst)) - want) < 0;) gen_wait(reach_done, d, -1);
 }
 // [REACH_V1] gone is gone: when this session ends the reach goes with it. SIGTERM (systemd stop, a test's kill, or
 // fdf-reach itself after a re-plan refused the reach) runs `fdf-reach down` before exiting -- fork/exec/waitpid, all
@@ -211,61 +260,197 @@ static std::string hmac_hex(const std::string& key, const std::string& msg) {
 // session registered (eid -> rlocs). Says what it did; a refusal is said with the region's reason, never retried.
 // [MAPS_ASSERTED_V1] with assert=true the region is READ first (map_list): every mapping of mine it lacks, or holds with
 // other locators, is forgotten from `have` so it is registered again below. The client keeps no belief about what the
-// region holds; it asserts the truth every ASSERT_SEC. (Seattle7 16:22: registered at :35, gone from the region by
-// 16:24 with the session up -- the manager's late cleanup of the PREVIOUS session, whose id this one reused, erased it;
-// `have` still said "registered", so it stayed gone until a restart.)
-static void sync_maps(frogram::Session& s, const std::string& api, std::map<std::string, std::string>& have, bool assert_region = false) {
-    static std::mutex one_at_a_time; std::lock_guard<std::mutex> lk(one_at_a_time);   // the watch thread and the assert thread share `have`
+// region holds. (Seattle7 16:22: registered at :35, gone from the region by 16:24 with the session up -- the manager's
+// late cleanup of the PREVIOUS session, whose id this one reused, erased it. The timer that asserted every 30 s is gone
+// [EVENTS_NOT_TIMERS_V1]: on the platform a session's id is its epoch, never reused [SESSION_EPOCH_V1]; sync_maps runs
+// at the session's start and on every change of the facts.)
+// [ONE_OWNER_V1] this member's mappings are its own: signed with the site key (eid|rloc|ttl|ts, HMAC-SHA256, as
+// map_register was) and written in its own (pond, member) cell -- the region verifies them when it is read, and writes
+// nothing for them
+static std::string signed_maps() {
     const char* site = getenv("RINA_AREA"); const char* key = getenv("RINA_SITE_KEY");
-    std::map<std::string, std::string> want;
-    const std::string facts = read_facts();
-    if (!facts.empty()) { try { frogram::Json f = frogram::Json::parse(facts);
-        for (auto& m : f["maps"].a) if (!m["eid"].s.empty()) want[m["eid"].s] = m["rlocs"].s; } catch (...) {} }
-    if (want.empty() && have.empty()) return;
-    if (assert_region && site && *site && !want.empty()) {
-        std::map<std::string, std::string> held;
-        try { frogram::Json l = s.call("POST", api + "?op=rina", "{\"op\":\"map_list\",\"site\":" + frogram::Json::quote(site) + "}");
-              for (auto& m : l["mappings"].a) held[m["eid"].s] = m["rloc"].s; } catch (const std::exception& x) { fprintf(stderr, "fdf-client: map_list failed: %s\n", x.what()); return; }
-        for (auto& [eid, rlocs] : want) {
-            auto h = held.find(eid);
-            if (h == held.end() || h->second != rlocs) {
-                if (have.count(eid)) fprintf(stderr, "fdf-client: mapping %s is NOT in the region though this session registered it (%s); registering again\n", eid.c_str(), h == held.end() ? "missing" : "other locators");
-                have.erase(eid);
-            }
-        }
-    }
-    if (!site || !*site || !key || !*key) { fprintf(stderr, "fdf-client: facts.maps present but RINA_AREA / RINA_SITE_KEY not set: nothing registered\n"); return; }
-    for (auto it = have.begin(); it != have.end();) {
-        if (want.count(it->first)) { ++it; continue; }
-        // [MAP_REFUSAL_SAID_V1] Session::call throws Refused on ok:false; a refusal is said here and the membership goes on
-        try { s.call("POST", api + "?op=rina", "{\"op\":\"map_remove\",\"name\":" + frogram::Json::quote(it->first) + "}"); printf("fdf-client: mapping %s withdrawn\n", it->first.c_str()); }
-        catch (const frogram::Refused& x) { fprintf(stderr, "fdf-client: mapping %s withdraw refused: %s\n", it->first.c_str(), x.what()); }
-        it = have.erase(it);
-    }
-    for (auto& [eid, rlocs] : want) {
-        if (have.count(eid) && have[eid] == rlocs) continue;
-        struct timespec t; clock_gettime(CLOCK_REALTIME, &t); char ts[40]; snprintf(ts, sizeof ts, "%lld.%09ld", (long long)t.tv_sec, t.tv_nsec);
-        const std::string ttl = "86400", msg = eid + "|" + rlocs + "|" + ttl + "|" + ts;
-        try {
-            s.call("POST", api + "?op=rina", "{\"op\":\"map_register\",\"site\":" + frogram::Json::quote(site) + ",\"name\":" + frogram::Json::quote(eid) +
-                ",\"rloc\":" + frogram::Json::quote(rlocs) + ",\"ttl\":\"" + ttl + "\",\"ts\":\"" + ts + "\",\"auth\":" + frogram::Json::quote(hmac_hex(key, msg)) + ",\"own\":true}");
-            have[eid] = rlocs; printf("fdf-client: mapping %s -> %s registered (site %s)\n", eid.c_str(), rlocs.c_str(), site);
-        } catch (const frogram::Refused& x) {                    // [MAP_REFUSAL_SAID_V1] said with what it means; the session is kept
-            const std::string e = x.what();
-            fprintf(stderr, "fdf-client: mapping %s -> %s REFUSED by the region: %s%s\n", eid.c_str(), rlocs.c_str(), e.c_str(),
-                    e.find("EPERM") != std::string::npos ? " = RINA_SITE_KEY in /opt/fdf/var/site.env is not the key map_site holds for this area (HMAC mismatch)" :
-                    e.find("ENOENT") != std::string::npos ? " = the region has no map_site for RINA_AREA (run map_site on the RAM manager first)" :
-                    e.find("EALREADY") != std::string::npos ? " = a newer registration is already held" :
-                    e.find("EEXIST") != std::string::npos ? " = another live member holds this mapping; it is theirs until they leave (asserted again every FDF_ASSERT_SEC)" : "");
-        }
+    const std::string facts = read_facts(); std::string out = "["; bool f = true;
+    if (facts.empty()) return "[]";
+    frogram::Json fj; try { fj = frogram::Json::parse(facts); } catch (...) { return "[]"; }
+    if (fj["maps"].a.empty()) return "[]";
+    if (!site || !*site || !key || !*key) { fprintf(stderr, "fdf-client: facts.maps present but RINA_AREA / RINA_SITE_KEY not set: no mapping said\n"); return "[]"; }
+    struct timespec t; clock_gettime(CLOCK_REALTIME, &t); char now_ts[40]; snprintf(now_ts, sizeof now_ts, "%lld.%09ld", (long long)t.tv_sec, t.tv_nsec);
+    const std::string ttl = "86400";
+    // [WRITTEN_WHEN_IT_CHANGES_V1] a mapping keeps its signature while it is the same (re-signed at half its ttl): the
+    // cell is the same text, so a member whose truth did not change writes nothing (seen: BAMacBook's cell rewritten
+    // every 3 s, only maps[0].ts and auth different, every write a wake of every reader)
+    static std::map<std::string, std::pair<std::string, std::string>> signed_at;   // eid -> (rloc, ts); one thread writes the cell
+    for (auto& m : fj["maps"].a) {
+        const std::string eid = m["eid"].s, rloc = m["rlocs"].s; if (eid.empty()) continue;
+        auto& sa = signed_at[eid];
+        if (sa.first != rloc || sa.second.empty() || double(t.tv_sec) - strtod(sa.second.c_str(), nullptr) > 43200) sa = {rloc, now_ts};
+        const std::string ts = sa.second;
+        out += (f ? "" : ",") + std::string("{\"eid\":") + frogram::Json::quote(eid) + ",\"rloc\":" + frogram::Json::quote(rloc) + ",\"site\":" + frogram::Json::quote(site) +
+               ",\"ttl\":\"" + ttl + "\",\"ts\":\"" + ts + "\",\"auth\":" + frogram::Json::quote(hmac_hex(key, eid + "|" + rloc + "|" + ttl + "|" + ts)) + "}"; f = false;
     }
     fflush(stdout);
+    return out + "]";
 }
 #endif
+// [TELEMETRY_IS_A_TUPLE_V1] what this machine reports, (pond, telem, <its ns>): written on THIS session with own:true,
+// so it is the session's and goes with the member ([OWNED_CELL_GOES_WITH_THE_SESSION_V1]). Looked at every FDF_TELEM_S
+// seconds (default 30; 0: nothing reported) -- CPU, memory, disk, battery and addresses have no event to wait on -- and
+// written only when it moved: memory 5 %, disk 1 %, battery 1 % or plugged/unplugged, CPU 10 points, load 0.5, addresses.
+// Position: none on these machines (no GPS); the phone's member reports its own.
+struct Telem { double mem_total_mb = 0, mem_avail_mb = 0, disk_total_gb = 0, disk_free_gb = 0, cpu_pct = -1, load1 = -1, up_s = 0;
+               int bat_pct = -1; bool charging = false; std::string os, ips; };
+static std::string num(double v, int prec = 1) { char b[64]; snprintf(b, sizeof b, "%.*f", prec, v); return b; }
+#ifdef _WIN32
+static unsigned long long ft(const FILETIME& f) { return (static_cast<unsigned long long>(f.dwHighDateTime) << 32) | f.dwLowDateTime; }
+#endif
+static Telem telem_now() {
+    Telem t; t.ips = ipv4s();
+#ifdef _WIN32
+    MEMORYSTATUSEX m; m.dwLength = sizeof m;
+    if (GlobalMemoryStatusEx(&m)) { t.mem_total_mb = m.ullTotalPhys / 1048576.0; t.mem_avail_mb = m.ullAvailPhys / 1048576.0; }
+    ULARGE_INTEGER fr, tot, tf; if (GetDiskFreeSpaceExA("C:\\", &fr, &tot, &tf)) { t.disk_free_gb = fr.QuadPart / 1073741824.0; t.disk_total_gb = tot.QuadPart / 1073741824.0; }
+    SYSTEM_POWER_STATUS ps; if (GetSystemPowerStatus(&ps) && ps.BatteryLifePercent != 255) { t.bat_pct = ps.BatteryLifePercent; t.charging = ps.ACLineStatus == 1; }
+    static unsigned long long pi = 0, pk = 0, pu = 0; FILETIME i, k, u;          // CPU busy since the last look
+    if (GetSystemTimes(&i, &k, &u)) { const unsigned long long I = ft(i), K = ft(k), U = ft(u);
+        if (pk + pu) { const double total = double((K - pk) + (U - pu)), idle = double(I - pi); if (total > 0) t.cpu_pct = 100.0 * (total - idle) / total; }
+        pi = I; pk = K; pu = U; }
+    t.up_s = GetTickCount64() / 1000.0;
+    t.os = "Windows";
+#else
+    struct sysinfo si; if (sysinfo(&si) == 0) { t.mem_total_mb = double(si.totalram) * si.mem_unit / 1048576.0; t.up_s = si.uptime; t.load1 = si.loads[0] / 65536.0; }
+    { std::ifstream mi("/proc/meminfo"); std::string k; unsigned long long v; std::string unit;
+      while (mi >> k >> v >> unit) if (k == "MemAvailable:") { t.mem_avail_mb = v / 1024.0; break; } }
+    struct statvfs fs; if (statvfs("/", &fs) == 0) { t.disk_free_gb = double(fs.f_bavail) * fs.f_frsize / 1073741824.0; t.disk_total_gb = double(fs.f_blocks) * fs.f_frsize / 1073741824.0; }
+    for (const char* b : {"/sys/class/power_supply/BAT0", "/sys/class/power_supply/BAT1"}) {
+        std::ifstream c(std::string(b) + "/capacity"), st(std::string(b) + "/status"); int pct; std::string s2;
+        if (c >> pct) { t.bat_pct = pct; if (st >> s2) t.charging = s2 == "Charging" || s2 == "Full"; break; } }
+    { std::ifstream o("/etc/os-release"); std::string l; while (std::getline(o, l)) if (l.compare(0, 12, "PRETTY_NAME=") == 0) { t.os = l.substr(12); if (t.os.size() > 1 && t.os[0] == '"') t.os = t.os.substr(1, t.os.size() - 2); } }
+    if (t.os.empty()) t.os = "Linux";
+#endif
+    return t;
+}
+static std::string telem_moved(const Telem& a, const Telem* b) {
+    if (!b) return "first";
+    if (a.ips != b->ips) return "addresses";
+    if (std::abs(a.mem_avail_mb - b->mem_avail_mb) >= 0.05 * (a.mem_total_mb > 0 ? a.mem_total_mb : 1)) return "memory";
+    if (std::abs(a.disk_free_gb - b->disk_free_gb) >= 0.01 * (a.disk_total_gb > 0 ? a.disk_total_gb : 1)) return "disk";
+    if (a.bat_pct != b->bat_pct || a.charging != b->charging) return "battery";
+    if (a.cpu_pct >= 0 && b->cpu_pct >= 0 && std::abs(a.cpu_pct - b->cpu_pct) >= 10) return "cpu";
+    if (a.load1 >= 0 && std::abs(a.load1 - b->load1) >= 0.5) return "load";
+    return "";
+}
+// [SETTINGS_ARE_TUPLES_V1] this machine's settings are its tuple (pond, cap, <ns>), permanent: whoever writes it (a
+// settings page, fdf-monitor --set, any program) this client follows it -- telem_on, telem_period_s -- with a held read on
+// its own session. None yet: written once from what it has (FDF_TELEM_S, default 30), so every monitor shows it.
+// [NO_LOCK_IN_THE_CLIENT_V1] the settings are atomics; a change bumps telem_gen, the word the telemetry thread sleeps
+// on (a futex: no mutex, no condition variable)
+static std::atomic<bool> telem_on{true}; static std::atomic<int> telem_every{30}; static std::atomic<uint32_t> telem_gen{0};
+
+static void settings_loop(frogram::Session& s, const std::string& api, const std::string& ns, const std::string& name) {
+    frogram::Memory mem(s, api); int64_t after = -1;
+    for (;;) {
+        std::vector<frogram::Cell> rows;
+        try { rows = mem.read("pond", "cap", ns, after, after < 0 ? 0 : 600); }
+        catch (const std::exception& x) { fprintf(stderr, "fdf-client: [SETTINGS_ARE_TUPLES_V1] reading (pond, cap, %s) failed: %s -- the next session follows it again\n", ns.c_str(), x.what()); return; }
+        bool found = false; frogram::Json bag;
+        for (auto& c : rows) { if (int64_t(c.id) > after) after = int64_t(c.id); if (c.instance == ns) { found = true; bag = c.bag; } }
+        if (after < 0 && !found) {
+            const bool on = telem_on.load(); const int every = telem_every.load();
+            const std::string b = "{\"name\":" + frogram::Json::quote(name) + ",\"telem_on\":" + (on ? "true" : "false") + ",\"telem_period_s\":" + std::to_string(every) +
+                                  ",\"at\":" + std::to_string(time(nullptr)) + ",\"by\":\"fdf-client, from what it had (FDF_TELEM_S)\"}";
+            try { s.call("POST", api + "?op=write", "{\"service\":\"pond\",\"variable\":\"cap\",\"instance\":" + frogram::Json::quote(ns) + ",\"bag\":" + b + ",\"permanent\":true}");
+                  printf("fdf-client: [SETTINGS_ARE_TUPLES_V1] (pond, cap, %s) did not exist: written from this machine's own: %s\n", ns.c_str(), b.c_str()); fflush(stdout); }
+            catch (const std::exception& x) { fprintf(stderr, "fdf-client: [SETTINGS_ARE_TUPLES_V1] writing (pond, cap, %s) failed: %s\n", ns.c_str(), x.what()); }
+            after = 0; continue;
+        }
+        if (after < 0) after = 0;
+        if (!found || bag.size() == 0) continue;
+        const bool was_on = telem_on.load(); const int was_every = telem_every.load();   // only this thread writes them
+        if (bag["telem_on"].type == frogram::Json::Bool) telem_on.store(bag["telem_on"].b);
+        if (bag["telem_period_s"].type == frogram::Json::Num && bag["telem_period_s"].n >= 1) telem_every.store(int(bag["telem_period_s"].n));
+        if (telem_on.load() != was_on || telem_every.load() != was_every) {
+            printf("fdf-client: [SETTINGS_ARE_TUPLES_V1] (pond, cap, %s): telemetry %s, every %d s (was %s, %d s)\n", ns.c_str(), telem_on.load() ? "on" : "off", telem_every.load(), was_on ? "on" : "off", was_every);
+            fflush(stdout); gen_bump(telem_gen);
+        }
+    }
+}
+
+static void telemetry_loop(frogram::Session& s, const std::string& api, const std::string& ns, const std::string& name) {
+    { const char* e = getenv("FDF_TELEM_S");
+      if (e) { telem_every.store(atoi(e) > 0 ? atoi(e) : 30); telem_on.store(atoi(e) > 0); } }
+    std::thread([&s, api, ns, name] { settings_loop(s, api, ns, name); }).detach();
+#ifdef _WIN32
+    telem_now();                                                                 // the first CPU sample: the next one has a delta
+#endif
+    printf("fdf-client: [TELEMETRY_IS_A_TUPLE_V1] reporting (pond, telem, %s) on this session, written when it moved; what and how often: (pond, cap, %s)\n", ns.c_str(), ns.c_str()); fflush(stdout);
+    Telem last; bool have = false, reported = false; unsigned long long writes = 0; uint32_t gen = 0;
+    for (;;) {
+        const uint32_t g = telem_gen.load(std::memory_order_seq_cst); if (gen != g) { gen = g; have = false; }
+        const bool on = telem_on.load(); const int every = telem_every.load();
+        if (!on) {                                                                   // off: taken back now, not at session end
+            if (reported) try { s.call("POST", api + "?op=write", "{\"service\":\"pond\",\"variable\":\"telem\",\"instance\":" + frogram::Json::quote(ns) + ",\"bag\":{},\"own\":true}");
+                                printf("fdf-client: telemetry off: (pond, telem, %s) emptied\n", ns.c_str()); fflush(stdout); reported = false; }
+                           catch (const std::exception& x) { fprintf(stderr, "fdf-client: telemetry off, emptying (pond, telem) failed: %s (it goes with the session)\n", x.what()); }
+            gen_wait(telem_gen, gen, -1); continue;
+        }
+        Telem t = telem_now();
+        const std::string why = telem_moved(t, have ? &last : nullptr);
+        if (!why.empty()) {
+            std::string bag = "{\"name\":" + frogram::Json::quote(name) +
+#ifdef _WIN32
+                ",\"kind\":\"windows\"" +
+#else
+                ",\"kind\":\"linux\"" +
+#endif
+                ",\"build\":" + frogram::Json::quote(FDF_BUILD_TAG) + ",\"model\":" + frogram::Json::quote(host_name()) + ",\"os\":" + frogram::Json::quote(t.os) +
+                ",\"cores\":" + std::to_string(std::thread::hardware_concurrency()) +
+                ",\"mem\":{\"total_mb\":" + num(t.mem_total_mb, 0) + ",\"avail_mb\":" + num(t.mem_avail_mb, 0) + "}" +
+                ",\"disk\":{\"total_gb\":" + num(t.disk_total_gb) + ",\"free_gb\":" + num(t.disk_free_gb) + "}" +
+                (t.bat_pct >= 0 ? ",\"battery\":{\"pct\":" + std::to_string(t.bat_pct) + ",\"charging\":" + (t.charging ? "true" : "false") + "}" : std::string()) +
+                (t.cpu_pct >= 0 ? ",\"cpu_pct\":" + num(t.cpu_pct) : std::string()) + (t.load1 >= 0 ? ",\"load1\":" + num(t.load1, 2) : std::string()) +
+                ",\"net\":{\"ips\":" + t.ips + "},\"up_s\":" + num(t.up_s, 0) + ",\"at\":" + num(double(time(nullptr)), 0) + "}";
+            try {
+                s.call("POST", api + "?op=write", "{\"service\":\"pond\",\"variable\":\"telem\",\"instance\":" + frogram::Json::quote(ns) +
+                       ",\"bag\":" + bag + ",\"own\":true}");
+                last = t; have = true; reported = true; ++writes;
+                if (writes <= 2 || writes % 100 == 0) { printf("fdf-client: telemetry written (#%llu, %s): %s\n", writes, why.c_str(), bag.c_str()); fflush(stdout); }
+            } catch (const std::exception& x) { fprintf(stderr, "fdf-client: telemetry write failed (%s): %s -- written again when it next moves\n", why.c_str(), x.what()); }
+        }
+        gen_wait(telem_gen, gen, every);                                             // the period, or at once when the settings change
+    }
+}
+
+// [MEMBER_IS_A_TUPLE_V1] (John 2026-11-03: "no notifications ... not like a messaging thing") this member's own truth,
+// (pond, member, <its ns>) = {ns, name, ips, cap, facts}, written on THIS session with own:true: it is there while the
+// member is (it goes with the session), and whoever wants the members holds a read on the family -- no event pushed to
+// a watcher, no relay (fdf-events) turning the region's notices into lines.
+static void write_member(frogram::Session& s, const std::string& api, const std::string& ns, const std::string& name, const std::string& facts,
+                         const std::string& addr = "") {
+    std::string f = "null";
+    if (!facts.empty()) { try { frogram::Json fj = frogram::Json::parse(facts); f = facts;
+        // [LEAF_BY_INVITE_V1] a leaf's address is its edge: said in its own facts (the readers place it by facts.addr)
+        if (!addr.empty() && fj["addr"].type == frogram::Json::Null) { const size_t b = f.find_first_not_of(" \t\r\n", 1);
+            f = "{\"addr\":" + frogram::Json::quote(addr) + (b != std::string::npos && f[b] == '}' ? "" : ",") + f.substr(1); } } catch (...) {} }
+#ifdef _WIN32
+    const std::string maps = "[]";
+#else
+    const std::string maps = signed_maps();
+#endif
+    const std::string body = "{\"service\":\"pond\",\"variable\":\"member\",\"instance\":" + frogram::Json::quote(ns) + ",\"bag\":{\"ns\":" +
+           frogram::Json::quote(ns) + ",\"name\":" + frogram::Json::quote(name) + ",\"ips\":" + ipv4s() + ",\"cap\":" + frogram::Json::quote(capability()) +
+           ",\"facts\":" + f + ",\"maps\":" + maps + ",\"build\":\"" FDF_BUILD_TAG "\"},\"own\":true}";
+    // [WRITTEN_WHEN_IT_CHANGES_V1] the same truth on the same session is not written again
+    static const frogram::Session* last_s = nullptr; static std::string last_body;
+    if (&s == last_s && body == last_body) return;
+    s.call("POST", api + "?op=write", body);
+    last_s = &s; last_body = body;
+    printf("fdf-client: this member's own cell written (%s)%s\n", ns.c_str(), maps == "[]" ? "" : (", with its mappings " + maps.substr(0, 120)).c_str()); fflush(stdout);
+}
 static frogram::Json announce(frogram::Session& s, const std::string& api, const std::string& ns, const std::string& name) {
     const std::string facts = read_facts();
-    return s.call("POST", api + "?op=rina", "{\"op\":\"announce\",\"ns\":" + frogram::Json::quote(ns) + ",\"name\":" + frogram::Json::quote(name) +
+    frogram::Json a = s.call("POST", api + "?op=rina", "{\"op\":\"announce\",\"ns\":" + frogram::Json::quote(ns) + ",\"name\":" + frogram::Json::quote(name) +
                   ",\"ips\":" + ipv4s() + ",\"cap\":" + frogram::Json::quote(capability()) + (facts.empty() ? "" : ",\"facts\":" + frogram::Json::quote(facts)) + "}");
+    return a;
 }
 
 int main(int argc, char** argv) {
@@ -300,43 +485,44 @@ int main(int argc, char** argv) {
         frogram::Session s(where.substr(0, c), atoi(where.c_str() + c + 1), api);
         auto rina = [&](const std::string& body) { return s.call("POST", api + "?op=rina", body); };
         frogram::Json r = rina("{\"op\":\"node\",\"ns\":" + frogram::Json::quote(ns) + ",\"devs\":\"\"}");                 // alive: this session
-        const unsigned long long after = (unsigned long long)r["after"].n;
         // [JOIN_REFUSED_WAITS_V1] a refused announcement (EEXIST: my served /24 is a live member's, PLAN-RAM-DISCOVERY §4)
         // is said at ERROR with the holder's name, and this process WAITS for the region to change (a member left or
         // re-announced) before trying again -- not exit 1 and a systemd restart every 2 s against the RAM manager.
-        std::string announced;                                  // [FACTS_BASELINE_IS_WHAT_WAS_ANNOUNCED_V1]
+        std::string announced, given;                           // [FACTS_BASELINE_IS_WHAT_WAS_ANNOUNCED_V1]
         for (unsigned long long jat = 0;;) {
             const std::string facts = read_facts(); announced = facts;
             const std::string body = s.call_text("POST", api + "?op=rina", "{\"op\":\"announce\",\"ns\":" + frogram::Json::quote(ns) + ",\"name\":" + frogram::Json::quote(name) +
                   ",\"ips\":" + ipv4s() + ",\"cap\":" + frogram::Json::quote(capability()) + (facts.empty() ? "" : ",\"facts\":" + frogram::Json::quote(facts)) + "}");
             frogram::Json a; try { a = frogram::Json::parse(body); } catch (...) { fprintf(stderr, "fdf-client: unreadable answer to the announcement: %s\n", body.substr(0, 200).c_str()); return 1; }
-            if (a["ok"].b) {   // [LEAF_ADDR_FROM_THE_REGION_V1] a leaf's /32 is the region's to give: said, never chosen here
+            if (a["ok"].b) {   // [LEAF_BY_INVITE_V1] a leaf's /32 is its invitation's edge, said back by the region's check
+                given = a["addr"].s;
                 if (!a["addr"].s.empty()) {
 #ifndef _WIN32
-                    if (reach_wanted()) { std::lock_guard<std::mutex> lk(reach_mu); reach_addr = a["addr"].s;
+                    if (reach_wanted()) { const std::string ad = a["addr"].s; reach_want(&ad);
                         printf("fdf-client: the region gave this machine %s here, to reach this network [REACH_V1]\n", a["addr"].s.c_str()); fflush(stdout); }
                     else
 #endif
                     { printf("fdf-client: the region gave this leaf %s (its WireGuard Address)\n", a["addr"].s.c_str()); fflush(stdout); } }
                 break; }
             if (a["error"].s != "EEXIST") { fprintf(stderr, "fdf-client: the announcement was refused: %s %s\n", a["error"].s.c_str(), a["why"].s.c_str()); return 1; }
-            fprintf(stderr, "fdf-client: JOIN REFUSED by the region: %s. Not a member until that changes; waiting for the region to change (no retry loop).\n", a["why"].s.c_str());
-            const std::string jp = "join:" + ns;
-            s.call_text("POST", api + "?op=rina", "{\"op\":\"watch_participants\",\"proc\":" + frogram::Json::quote(jp) + "}");
-            const std::string t = s.call_text("POST", api + "?op=rina_block", "{\"op\":\"wait\",\"proc\":" + frogram::Json::quote(jp) + ",\"after\":" + std::to_string(jat) + "}", 3.0e8);
-            for (size_t i = 2; i < t.size();) { const size_t tab = t.find('\t', i), nl = t.find('\n', i); if (tab == std::string::npos || nl == std::string::npos) break;
-                const unsigned long long n = std::stoull(t.substr(i, tab - i)); if (n > jat) jat = n; i = nl + 1; }
-            fprintf(stderr, "fdf-client: the region changed; trying the announcement again\n");
+            fprintf(stderr, "fdf-client: JOIN REFUSED by the region: %s. Not a member until that changes; waiting for the members to change (a held read, no retry loop).\n", a["why"].s.c_str());
+            // [MEMBER_IS_A_TUPLE_V1] the region changing is the members' family changing: (pond, member), held
+            frogram::Memory mm(s, api);
+            if (jat == 0) for (auto& c : mm.read("pond", "member")) if (c.id > jat) jat = c.id;
+            for (auto& c : mm.read("pond", "member", "", (int64_t)jat, 600.0)) if (c.id > jat) jat = c.id;
+            fprintf(stderr, "fdf-client: the members changed; trying the announcement again\n");
         }
         { frogram::Json v = rina("{\"op\":\"version\"}");
           printf("fdf-client: build %s; region at %s is build %s\n", FDF_BUILD_TAG, where.c_str(), v["ok"].b ? v["server"].s.c_str() : "(no version op: older than fdf-2026-10-09-r2)"); }
         printf("fdf-client: %s joined the region at %s, announced %s%s%s\n", name.c_str(), where.c_str(), ipv4s().c_str(),
                read_facts().empty() ? "" : " with facts", is_forward() ? "" : " as a PARTICIPANT (not the forward pond)"); fflush(stdout);
+        fdf_say_up(where, "fdf-client " FDF_BUILD_TAG);                               // [EVENTS_NOT_TIMERS_V1] the region's RAM is there again
+        std::thread([&s, api, ns, name] { telemetry_loop(s, api, ns, name); }).detach();     // [TELEMETRY_IS_A_TUPLE_V1]
+        write_member(s, api, ns, name, announced, given);   // [MEMBER_IS_A_TUPLE_V1][ONE_OWNER_V1] its announcement and its mappings, its own
 #ifndef _WIN32
-        std::map<std::string, std::string> have_maps; sync_maps(s, api, have_maps);       // [MAP_FROM_FACTS_V1]
         // [IPCP_FACTS_V1] re-announce when the facts file changes. Watch the DIRECTORY (editors and `mv` replace the file,
         // which would orphan a watch on the inode); react to our file's name only. Held in the kernel; nothing polls.
-        std::thread([&s, api, ns, name, &have_maps, announced] {
+        std::thread([&s, api, ns, name, announced] {
             const std::string path = facts_path(), dir = path.substr(0, path.rfind('/')), base = path.substr(path.rfind('/') + 1);
             // [WATCH_FAILURE_SAYS_SO_V1] without this watch the node stays in the region and never re-announces a changed
             // fact: a member that looks alive and is wrong. Say so, with the reason and the limit to raise.
@@ -367,8 +553,8 @@ int main(int argc, char** argv) {
                   was_fwd = f; }
                 try { frogram::Json a = announce(s, api, ns, name);
                       if (a["ok"].b) printf("fdf-client: facts changed, re-announced%s\n", a["addr"].s.empty() ? "" : (" (leaf " + a["addr"].s + ")").c_str()); else fprintf(stderr, "fdf-client: re-announcement refused: %s %s\n", a["error"].s.c_str(), a["why"].s.c_str());
-                      { std::lock_guard<std::mutex> lk(reach_mu); reach_addr = reach_wanted() ? a["addr"].s : std::string(); }   // [REACH_V1]
-                      fflush(stdout); sync_maps(s, api, have_maps); reach_sync(); }
+                      { const std::string ad = reach_wanted() ? a["addr"].s : std::string(); reach_want(&ad); }   // [REACH_V1]
+                      fflush(stdout); write_member(s, api, ns, name, now, a["addr"].s); reach_sync(); }
                 catch (const std::exception& x) { fprintf(stderr, "fdf-client: re-announce failed: %s -- ending this session so a fresh one re-announces and re-registers\n", x.what()); session_over(1); }
             }
         }).detach();
@@ -398,29 +584,29 @@ int main(int argc, char** argv) {
                 if (after < 0) after = 0;
             }
         }).detach();
-        // [MAPS_ASSERTED_V1] every ASSERT_SEC: the region is read and my mappings re-registered if it lacks them. Nothing is
-        // written when the region already holds them, so a steady region sees no event from this.
-        std::thread([&s, api, &have_maps] {
-            const char* e = getenv("FDF_ASSERT_SEC"); const int every = e && atoi(e) > 0 ? atoi(e) : 30;
-            for (;;) { sleep(every); try { sync_maps(s, api, have_maps, true); } catch (const std::exception& x) { fprintf(stderr, "fdf-client: assert failed: %s -- ending this session for a fresh one\n", x.what()); session_over(1); } }
-        }).detach();
+        // [EVENTS_NOT_TIMERS_V1] (was [MAPS_ASSERTED_V1]: every 30 s the region was read and this member's mappings
+        // registered again if it lacked them -- a timer standing in for a defect.) A mapping goes with the session that
+        // registered it ([OWNED_MAPPING_IS_NOT_RESTORED_V1]); this session registers them at its start and again on every
+        // change of its facts.
 #endif
 #ifndef _WIN32
         reach_sync();                                                            // [REACH_V1] after the join
 #endif
-        for (unsigned long long at = after;;) {                                    // hold: the session IS this machine's membership
-            const std::string t = s.call_text("POST", api + "?op=rina_block", "{\"op\":\"wait\",\"proc\":" + frogram::Json::quote("agent:" + ns) +
-                                              ",\"after\":" + std::to_string(at) + "}", 3.0e8);
-            for (size_t p = 2; p < t.size();) { const size_t tab = t.find('\t', p), nl = t.find('\n', p); if (tab == std::string::npos || nl == std::string::npos) break;
-                const unsigned long long n = std::stoull(t.substr(p, tab - p)); if (n > at) at = n; p = nl + 1; }
+        // [MEMBER_IS_A_TUPLE_V1] hold: the session IS this machine's membership, and the region changing is the members'
+        // family changing -- one held read on (pond, member) (was: a wait on this machine's input space, where the region
+        // pushed a notice to every agent on every change)
+        { frogram::Memory held(s, api); int64_t at = 0;
+          for (auto& c : held.read("pond", "member")) if (int64_t(c.id) > at) at = int64_t(c.id);
+          for (;;) {
+            for (auto& c : held.read("pond", "member", "", at, 600)) if (int64_t(c.id) > at) at = int64_t(c.id);
 #ifndef _WIN32
             reach_sync();                                                        // [REACH_V1] every region event
 #endif
-        }
+          } }
     } catch (const std::exception& x) {
         fprintf(stderr, "fdf-client: the session to %s ended: %s\n", where.c_str(), x.what());
 #ifndef _WIN32
-        if (getenv("FDF_REACH")) { std::string o; reach_run("down", "", o); if (!o.empty()) fprintf(stderr, "fdf-client: %s\n", o.c_str()); }   // gone is gone
+        if (getenv("FDF_REACH")) { const std::string none; reach_want(&none); reach_sync(); }   // gone is gone: the reach thread takes it down
 #endif
         return 1; }
 }

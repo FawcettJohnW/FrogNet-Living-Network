@@ -26,6 +26,7 @@
 #  include <poll.h>
 #  include <sys/socket.h>
 #  include <unistd.h>
+#  include <fcntl.h>
    typedef ssize_t ssize_t_fr;
 #  define FR_CLOSE(fd)      ::close(fd)
 #  define FR_POLL           ::poll
@@ -74,7 +75,20 @@ int dial(const std::string& host, int port) {
     for (addrinfo* a = res; a; a = a->ai_next) {
         fd = int(::socket(a->ai_family, a->ai_socktype, a->ai_protocol));
         if (fd < 0) continue;
+#ifndef _WIN32
+        {   // [CONNECT_BOUNDED_V1] at most 5 s per address
+            int fl = fcntl(fd, F_GETFL, 0); fcntl(fd, F_SETFL, fl | O_NONBLOCK);
+            int rc = ::connect(fd, a->ai_addr, int(a->ai_addrlen));
+            if (rc != 0 && errno == EINPROGRESS) {
+                pollfd pf{}; pf.fd = fd; pf.events = POLLOUT;
+                if (::poll(&pf, 1, 5000) == 1) { int err = 0; socklen_t el = sizeof err; getsockopt(fd, SOL_SOCKET, SO_ERROR, &err, &el); rc = err ? -1 : 0; }
+            }
+            fcntl(fd, F_SETFL, fl);
+            if (rc == 0) break;
+        }
+#else
         if (::connect(fd, a->ai_addr, int(a->ai_addrlen)) == 0) break;
+#endif
         FR_CLOSE(fd); fd = -1;
     }
     freeaddrinfo(res);
@@ -996,7 +1010,8 @@ std::vector<Cell> Memory::read(const std::string& sv, const std::string& var, co
         c.instance = r["instance"].s; c.bag = r["bag"]; c.updated = r["updated_epoch"].n; c.gone = r["gone"].b; out.push_back(c); }
     return out;
 }
-void Memory::remove(uint64_t id) { s_.call("DELETE", api_ + "?op=remove&id=" + std::to_string(id)); }
+void Memory::remove(const std::string& service, const std::string& variable, uint64_t id) {
+    s_.call("DELETE", api_ + "?op=remove&service=" + urlenc(service) + "&variable=" + urlenc(variable) + "&id=" + std::to_string(id)); }
 void Memory::follow(const std::string& sv, const std::string& var, const std::string& inst, int64_t after,
                     std::function<void(std::vector<RawCell>&, const std::string&)> on) {
     std::string f; f.append(MAGIC, 4); f += char(OP_MEM_FOLLOW);

@@ -11,14 +11,15 @@ and re-measure" produce the current numbers.
 ## Layout
 
 - `platform/ribbit-v0.63`: the platform, vendored untouched (from redis-on-ribbit.tgz).
-- `tools/build.sh`: builds `build/rina-host`. It applies the Redis host's four platform patches
-  (apply_reply_proof/same_miss/coalesce/wire_order.py) plus `tools/apply_session_hook.py`
-  (`[SESSION_IS_LIVENESS_V1]`, `[RINA_RESIDENT_V1]`, `[RAW_HELD_READ_V1]`, `[RAW_GET_V1]`), then glues in the
-  region with `tools/make_host.sh` (one include, one dispatch block, and `[REGION_FAST_PATH_V1]` before the query parse), the way the Redis host is made.
-- `src/rina_region.cpp`: the RINA region, resident in the host (`op=rina` inline, `op=rina_block` held). It contains
+- `tools/build.sh`: builds `build/fdf-ram`, the RAM manager ([FDF_RAM_ON_PLATFORM_V1]): the Ribbit platform's host
+  (`opt/frognet_semantic/ribbit/cpp`, `ribbit::RamHost`) with `src/fdf_ram.cpp` as its vendor and the region as its
+  operations (`RAM-MANAGER-ON-PLATFORM.md`). It replaced rina-host (the v0.63 server patched by `tools/apply_*.py` and
+  glued with `tools/make_host.sh`); those patches now build only the client side (`frogram.cpp`). `build_static_host.sh`
+  makes the static x86-64 one (`build/static/fdf-ram`), `build_arm64.sh` the aarch64 one.
+- `src/fdf_region.cpp`: the RINA region, resident in the host (`op=rina` inline, `op=rina_block` held). It contains
   `[CREDIT_ON_DEMAND_V1]`, `[CREDIT_BY_QUARTERS_V1]`, `[RAW_HELD_READ_V1]`, `[RAW_GET_V1]` and `[RESOLVE_ONLY_FOR_UDP4_V1]`.
 - `src/librina_region.cpp`: rlite's `rina/api.h` on the region. Each program has one session and one held `wait`;
-  sends are posted; credit is asked for only when out of it (`[CREDIT_ON_DEMAND_V1]`). `src/rina_region_client.hpp`: `[REGION_ANSWER_IS_DATA_V1]`, `[OPENSSL_NO_ATEXIT_V1]`.
+  sends are posted; credit is asked for only when out of it (`[CREDIT_ON_DEMAND_V1]`). `src/fdf_region_client.hpp`: `[REGION_ANSWER_IS_DATA_V1]`, `[OPENSSL_NO_ATEXIT_V1]`.
 - `src/rina_node.cpp`: the machine agent, installed as rlite-uipcps.
 - `src/rlite_ctl.cpp`, `src/ctl_host.*`, `src/rlite_ctl_client.cpp`: rlite-ctl, one call per command, run in the
   region.

@@ -204,6 +204,11 @@ FROGNET_THIRD_PARTY=(
     # [GPS_LEAFLET_LOCAL_V1] Leaflet 1.9.4 (BSD-2-Clause) and pointhi/leaflet-color-markers (BSD-2-Clause), unmodified,
     # each with its LICENSE, so gps_dashboard.html works on a network with no internet. Shipped with var/www/html.
     var/www/html/vendor/leaflet
+    # Eclipse Mosquitto (Roger Light et al.), EPL-2.0 / EDL-1.0, vendored for the MQTT example: stock/ unmodified, the
+    # baseline the example is measured against; front/ the MQTT server the example builds on the RAM. Each carries its own
+    # LICENSE.txt and NOTICE.md; the GPL notice is never stamped on them.
+    opt/frognet_semantic/ribbit/examples/mqtt/stock
+    opt/frognet_semantic/ribbit/examples/mqtt/front
 )
 
 FROGNET_NEVER_SHIP=(
