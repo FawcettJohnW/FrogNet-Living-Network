@@ -3,8 +3,10 @@
 #  Copyright (C) 2016-2026 Fawcett Innovations LLC             #
 #  SPDX-License-Identifier: GPL-2.0-only                       #
 ################################################################
-"""test_frognet_host.py -- [FROGNETHOST_ADMIN_V1] the FrogNetHost Admin against two real RAM hosts (fdf-ram):
-databasehost-control and the SystemRam, named by a hosts file the test rewrites. The node's service (frognet-host
+"""test_frognet_host.py -- [FROGNETHOST_ADMIN_V1][ROLES_ON_API_V1] the FrogNetHost Admin against two real role hosts:
+two api.php (this tree's var/www/html, each on its own MariaDB database) on port 80 of two loopback addresses, as
+databasehost-control and the SystemRam, named by a hosts file the test rewrites. The node's port 80 (127.0.0.1) serves
+held_fire.php, where the role hosts fire the held reads. The node's service (frognet-host
 serve) runs with its steps stood in for (FROGNET_HOST_CMD_*: setup rewrites gateways.conf as setup_lillypad does, dump
 and backup write their file, clear and reboot record that they ran); the console asks and waits for the answer.
 
@@ -17,9 +19,9 @@ and backup write their file, clear and reboot record that they ran); the console
   7  status lists the node from the new SystemRam
   8  databasehost-control moves too: the Admin's tuple written in the new one is applied (clear 4)
   9  the Admin UI's page API: hosts, host-request, host-wait (the held read on the answer)
- 10  [RAM_PORT_CONFIGURABLE_V1] setup with a new RAM host port: written to the node's ram_port file, the services started
-     again (stood in for), and the node on the new port: its state, with the port, in the SystemRam on that port
-usage: tools/test_frognet_host.py [BUILD_DIR_WITH_fdf-ram]
+ 10  rule 7: the node holds ONE read -- its config tuple at databasehost-control -- and none on the SystemRam
+Needs: root (port 80, /run/frognet/held), MariaDB running with root access by socket, php with mysqli and curl.
+usage: tools/test_frognet_host.py
 """
 import json, os, shutil, socket, subprocess, sys, tempfile, time
 
@@ -27,6 +29,7 @@ H = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 F = os.path.join(H, "..", "fdf")
 B = sys.argv[1] if len(sys.argv) > 1 else os.path.join(H, "build", "static")
 sys.path.insert(0, os.path.join(F, "lib", "python"))
+os.environ["FROGNET_CORE"] = os.path.normpath(os.path.join(H, "..", "..", "..", "..", "frognet_semantic", "core"))   # this tree's
 import fdfram  # noqa: E402
 
 FAILS = []
@@ -39,16 +42,36 @@ def free():
 
 T = tempfile.mkdtemp(prefix="frognet-host-")
 procs = []
-# two RAM hosts at one port (the RAM host port is the same on every node), on two loopback addresses for two nodes
-PORT = free()
-def ram_at(ip, name):
-    procs.append(subprocess.Popen([os.path.join(B, "fdf-ram"), "--listen", "%s:%d" % (ip, PORT), "--api", fdfram.API],
-                                  env=dict(os.environ, RINA_REGION_FILE=T + "/%s.perm" % name, RINA_NET_CONFIG=T + "/none", FDF_VAR=T + "/var"),
-                                  stdout=subprocess.DEVNULL, stderr=open(T + "/%s.log" % name, "w")))
+WWW = os.path.normpath(os.path.join(H, "..", "..", "..", "..", "..", "var", "www", "html"))
+PW = "fhtest" + str(os.getpid())
+def serve_www(ip, files, db=None):
+    """php -S on ip:80 serving `files` from this tree's var/www/html; api.php on its own database `db`"""
+    d = os.path.join(T, "www-" + ip)
+    os.makedirs(d)
+    for f in files:
+        shutil.copy(os.path.join(WWW, f), d)
+    if db:
+        cfg = (open(os.path.join(WWW, "config.php")).read().replace("__FROGNET_DB_PASS__", PW)
+               .replace("define('DB_NAME', 'FrogNet');", "define('DB_NAME', '%s');" % db)
+               .replace("define('DB_USER', 'FrogUser');", "define('DB_USER', 'FhTestUser');"))    # the test's own user
+        open(os.path.join(d, "config.php"), "w").write(cfg)
+        sql = ("DROP DATABASE IF EXISTS %s; CREATE DATABASE %s;" % (db, db) +
+               "".join("CREATE USER IF NOT EXISTS 'FhTestUser'@'%s' IDENTIFIED BY '%s'; ALTER USER 'FhTestUser'@'%s' IDENTIFIED BY '%s'; "
+                       "GRANT ALL ON %s.* TO 'FhTestUser'@'%s';" % (h, PW, h, PW, db, h) for h in ("localhost", "127.0.0.1")))
+        subprocess.run(["mysql", "-e", sql], check=True)
+        for f in ("Create_Database.sql", "schema_fixups.sql"):
+            subprocess.run("sed 's/`FrogNet`/`%s`/g; s/^USE FrogNet;/USE %s;/' %s | mysql" % (db, db, os.path.join(WWW, f)), shell=True, check=True,
+                           stdout=subprocess.DEVNULL)
+    procs.append(subprocess.Popen(["php", "-S", "%s:80" % ip, "-t", d], env=dict(os.environ, PHP_CLI_SERVER_WORKERS="4"),
+                                  stdout=subprocess.DEVNULL, stderr=open(T + "/php-%s.log" % ip, "w")))
     for _ in range(100):
-        try: socket.create_connection((ip, PORT), 0.2).close(); return
+        try: socket.create_connection((ip, 80), 0.2).close(); return
         except OSError: time.sleep(0.05)
-ram_at("127.0.0.2", "a"); ram_at("127.0.0.3", "b")
+subprocess.run(["ip", "addr", "add", "127.0.0.2/8", "dev", "lo"], capture_output=True)
+subprocess.run(["ip", "addr", "add", "127.0.0.3/8", "dev", "lo"], capture_output=True)
+serve_www("127.0.0.2", ["api.php", "config.php"], db="fhtest_a")       # a role host: api.php on port 80
+serve_www("127.0.0.3", ["api.php", "config.php"], db="fhtest_b")
+serve_www("127.0.0.1", ["held_fire.php"])                             # this node's port 80: where its holds fire
 
 hosts = T + "/hosts"
 def name_hosts(control_ip, system_ip):
@@ -68,9 +91,7 @@ dump = stub("dump", 'echo "-- dump" > "$1"')
 backup = stub("backup", 'echo tgz > "$1"')
 reboot = stub("reboot", 'echo x >> %s/reboots' % T)
 
-open(T + "/ram_port", "w").write("%d\n" % PORT)
-os.environ.pop("FDF_LAN_RAM_PORT", None)
-env = dict(os.environ, FDF_HOSTS=hosts, FDF_RAM_PORT_FILE=T + "/ram_port", FROGNET_HOST_CMD_PORT=stub("port", 'echo x >> %s/ports' % T), FROGNET_GUID_FILE=T + "/fnid", FROGNET_GATEWAYS_CONF=gw,
+env = dict(os.environ, FDF_HOSTS=hosts, FROGNET_HOSTS=hosts, FROGNET_GUID_FILE=T + "/fnid", FROGNET_GATEWAYS_CONF=gw,
            FROGNET_HOST_RECORD=T + "/record.json", FROGNET_HOST_DIR=T + "/out", FDF_VAR=T + "/var",
            FDF_PY=os.path.join(F, "lib", "python"), FROGNET_HOST_WAIT_S="20",
            FROGNET_HOST_CMD_SETUP=setup, FROGNET_HOST_CMD_CLEAR=clear, FROGNET_HOST_CMD_DUMP=dump,
@@ -80,8 +101,8 @@ def console(*a):
     p = subprocess.run([sys.executable, fh] + list(a), env=env, capture_output=True, text=True, stdin=subprocess.DEVNULL, timeout=60)
     return p.returncode, (p.stdout + p.stderr).strip()
 def state(ip):
-    cs = [c for c in fdfram.Ram("%s:%d" % (ip, PORT)).read("frognethost", "state", "guid-node-one") if not c.get("gone")]
-    return cs[-1]["bag"] if cs else {}
+    cs = [c for c in fdfram.RoleRam(ip).read("frognethost", "state", "guid-node-one") if not c.get("gone")]
+    return cs[0]["bag"] if cs else {}                                  # the newest first
 def wait_for(pred, limit=10.0):
     t0 = time.time()
     while time.time() - t0 < limit:
@@ -113,7 +134,7 @@ try:
     n = len(open(T + "/clears").read().split())
     check(rc == 0 and "clear 2" in out and n == 2, "4 a second clear is clear 2; the clear step ran %d times: %s" % (n, out.splitlines()[-1]))
 
-    c = fdfram.Ram("127.0.0.2:%d" % PORT)
+    c = fdfram.RoleRam("127.0.0.2")
     for cell in c.read("frognethost", "config", "guid-node-one"):
         if not cell.get("gone"): c.remove(cell)
     rc, out = console("clear")
@@ -123,7 +144,7 @@ try:
     t0 = time.time(); name_hosts("127.0.0.2", "127.0.0.3")
     s, dt = wait_for(lambda: state("127.0.0.3"))
     check(bool(s) and s.get("name") == "NewName" and s.get("done", {}).get("clear") == 3,
-          "6 the SystemRam moved to the other RAM host: the node's state written there %.0f ms after the hosts file named it" % (dt * 1000))
+          "6 the SystemRam moved to the other role host: the node's state written there %.0f ms after the hosts file named it" % (dt * 1000))
 
     rc, out = console("status")
     check(rc == 0 and "NewName" in out and "127.0.0.3" in out, "7 status from the new SystemRam: %s" % out.replace("\n", " | ")[:200])
@@ -133,7 +154,7 @@ try:
     check(rc == 0 and "clear 4" in out and n == 4, "8 databasehost-control moved too: the Admin's tuple written there is applied, clear 4 (%d runs): %s"
           % (n, out.splitlines()[-1]))
     # 9  the Admin UI's page API (frognet_setup_v4_api.php under php -S): the list, a request, the held read on its answer
-    www = os.path.join(H, "..", "..", "..", "..", "..", "var", "www", "html")
+    www = WWW
     wport = free()
     procs.append(subprocess.Popen(["php", "-S", "127.0.0.1:%d" % wport, "-t", www], env=dict(env, FROGNET_HOST_BIN=fh),
                                   stdout=subprocess.DEVNULL, stderr=open(T + "/php.log", "w")))
@@ -148,24 +169,13 @@ try:
     wt = json.loads(urllib.request.urlopen(api + "host-wait&node=guid-node-one&op=dump&seq=%d" % rq.get("seq", 0), timeout=30).read())
     check(hl.get("ok") and [h.get("name") for h in hl.get("hosts", [])] == ["NewName"] and rq.get("seq") == 2 and (wt.get("last") or {}).get("ok"),
           "9 the page API: hosts %s; host-request dump -> seq %s; host-wait -> %s" % ([h.get("name") for h in hl.get("hosts", [])], rq.get("seq"), wt.get("last")))
-    # 10 a new RAM host port
-    P2 = free()
-    for ip, nm in (("127.0.0.3", "c"),):
-        procs.append(subprocess.Popen([os.path.join(B, "fdf-ram"), "--listen", "%s:%d" % (ip, P2), "--api", fdfram.API],
-                                      env=dict(os.environ, RINA_REGION_FILE=T + "/%s.perm" % nm, RINA_NET_CONFIG=T + "/none", FDF_VAR=T + "/var"),
-                                      stdout=subprocess.DEVNULL, stderr=open(T + "/%s.log" % nm, "w")))
-    time.sleep(0.5)
-    rc, out = console("setup", "NewName", "10.42.42.1", str(P2))
-    def on_p2():
-        try:
-            cs = [c for c in fdfram.Ram("127.0.0.3:%d" % P2).read("frognethost", "state", "guid-node-one") if not c.get("gone")]
-            return cs[-1]["bag"] if cs and cs[-1]["bag"].get("ram_port") == P2 else None
-        except fdfram.RamError:
-            return None
-    s, dt = wait_for(on_p2, 15)
-    check(rc == 0 and open(T + "/ram_port").read().strip() == str(P2) and os.path.exists(T + "/ports") and bool(s),
-          "10 setup with RAM host port %d: the file says %s, the services started again, and the node's state on the new port %.0f ms after: %s"
-          % (P2, open(T + "/ram_port").read().strip(), dt * 1000, out.splitlines()[-1:]))
+    # 10 rule 7: the node's service holds one read, on its config tuple at databasehost-control, and none on the
+    #    SystemRam (the console's reads are the console's: they are not the node's)
+    p = subprocess.run(["mysql", "-N", "-e", "SELECT SensorType, NameExact, NameLike, HolderID FROM fhtest_b.HeldRead"], capture_output=True, text=True)
+    hb = [l.split("\t") for l in p.stdout.strip().splitlines() if l.strip()]
+    mine = [h for h in hb if h[3] == "frognet-host.%d" % serve.pid]
+    check(len(mine) == 1 and mine[0][:2] == ["frognethost", "config.guid-node-one"],
+          "10 the node's service holds one read, (frognethost, config, guid-node-one), and none on its state: %s" % mine)
 finally:
     for p in procs:
         if p.poll() is None: p.terminate()
