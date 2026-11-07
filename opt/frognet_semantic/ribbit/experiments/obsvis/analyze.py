@@ -48,7 +48,8 @@ def load(run):
     return {"ctl": json.load(open(os.path.join(run, "controller.json"))),
             "truth": sum((j(p, "truth.json") for p in PARTS), []),
             "o3": sum((j(p, "o3.json") for p in PARTS), []), "o4": j("p1", "o4.json"),
-            "cap1": j("p1", "packets.json"), "cap2": j("srv", "packets.json"), "mosq": j("srv", "mosquitto.json")}
+            "cap1": j("p1", "packets.json"), "cap2": j("srv", "packets.json"), "capw": j("srv", "packets_wg.json"),
+            "mosq": j("srv", "mosquitto.json")}
 
 
 def lagged(up, down, w):
@@ -111,7 +112,7 @@ def features(R, cond):
     o3u, o3d, key = {}, {}, {}
     if cond == "B":
         for l in R["mosq"]:
-            m = re.match(r"(\d+): (Received|Sending) PUBLISH (?:from|to) (\S+) \(.*?'chat/(\S+?)'.*?\((\d+) bytes\)\)", l)
+            m = re.match(r"([\d.]+) \d+: (Received|Sending) PUBLISH (?:from|to) (\S+) \(.*?'chat/(\S+?)'.*?\((\d+) bytes\)\)", l)
             if not m: continue
             t, how, who, topic, n = float(m.group(1)), m.group(2), m.group(3), m.group(4), int(m.group(5))
             if how == "Received" and who in PARTS:
@@ -120,13 +121,16 @@ def features(R, cond):
             elif how == "Sending" and who in PARTS:
                 o3d.setdefault(who, []).append((t, n))
     else:
+        hc = host_clock(R)
         for e in R["o3"]:
             who = nm.get(e["conn"])
+            t = hc(e)
+            if t is None: continue
             if e["op"] == "put":
-                o3u.setdefault(who, []).append((e["t"], e["bytes"]))
+                o3u.setdefault(who, []).append((t, e["bytes"]))
                 if cond == "C" and e["var"] in PARTS: key[(who, e["var"])] = key.get((who, e["var"]), 0) + 1
             elif e["op"] == "release" and e.get("rows"):
-                o3d.setdefault(who, []).append((e["t"], e["bytes"]))
+                o3d.setdefault(who, []).append((t, e["bytes"]))
             elif e["op"] in ("park", "follow") and cond == "D" and e["var"] in PARTS:   # D: j follows i's family
                 key[(e["var"], who)] = key.get((e["var"], who), 0) + 1
     T3 = timing_feats(o3u, o3d, SCOPE["O3"])
@@ -141,11 +145,41 @@ def features(R, cond):
         elif e.get("svc") == "ChatServer":
             j, i = e.get("var"), e.get("scope")
         else:
-            continue                                    # Chat.<producer>.out / Chat.Out.<producer>: no consumer in it
+            continue                                    # Chat.<producer>.* / Chat.Out.*: no consumer in it
         if i in PARTS and j in PARTS: k4[(i, j)] = k4.get((i, j), 0) + 1
     t4 = max(1, sum(k4.values()))
     out["O4"] = {p: [k4.get(p, 0) / t4, float(k4.get(p, 0) > 0)] for p in SCOPE["O4"]}
     return out
+
+
+UNMATCHED = {"n": 0, "of": 0}
+
+
+def host_clock(R):
+    """O3's clock is the host's: the operations are logged at the client library, so each is placed at the host's own
+    packet for it, from srv's capture inside the tunnels (by connection). A put: the first packet from its connection to
+    the host at or after 50 ms before the client logged it; a release: the last packet from the host to its connection at
+    or before the client logged it. An operation with no such packet within 1 s is left out and counted."""
+    import bisect
+    up, dn = {}, {}
+    for t, s, d, proto, sp, dp, ln in R["capw"]:
+        if proto != 6 or ln <= 52: continue             # TCP carrying data (not bare ACKs)
+        if dp == 8811: up.setdefault(s, []).append(t)
+        elif sp == 8811: dn.setdefault(d, []).append(t)
+    for v in list(up.values()) + list(dn.values()): v.sort()
+    def at(e):
+        UNMATCHED["of"] += 1
+        if e["op"] == "put":
+            v = up.get(e["conn"], []); i = bisect.bisect_left(v, e["t"] - 0.05)
+            if i < len(v) and v[i] - e["t"] < 1.0: return v[i]
+        elif e["op"] == "release":
+            v = dn.get(e["conn"], []); i = bisect.bisect_right(v, e["t"]) - 1
+            if i >= 0 and e["t"] - v[i] < 1.0: return v[i]
+        else:
+            return e["t"]
+        UNMATCHED["n"] += 1
+        return None
+    return at
 
 
 def costs(R):
@@ -247,7 +281,7 @@ def main():
         p = c["plan"]
         runs.setdefault((p["cond"], p["traffic"], p.get("stress_name")), []).append((int(p["seed"]), run, c.get("ok")))
     rng = np.random.default_rng(20261106)
-    report = {"build": "obsvis-analyze-2026-11-06-r4", "train": sorted(TR), "test": sorted(TE), "cells": []}
+    report = {"build": "obsvis-analyze-2026-11-07-r5", "train": sorted(TR), "test": sorted(TE), "cells": []}
     for (cond, traffic, stress), rs in sorted(runs.items(), key=lambda x: (x[0][2] or "", x[0][1], x[0][0])):
         tr, te, cost, failed = {o: [] for o in SCOPE}, {o: [] for o in SCOPE}, [], []
         for seed, run, ok in sorted(rs):
@@ -265,6 +299,7 @@ def main():
         print("%-5s %-9s %-11s " % (cond, traffic, stress or "baseline") + "  ".join(
             "%s %s" % (o, ("%.2f [%.2f,%.2f]" % (cell[o]["lr"]["auc"], *cell[o]["lr"]["ci95"])) if cell[o]["lr"] else "n/a") for o in SCOPE), flush=True)
     if a.json:
+        report["o3_host_clock"] = {"operations": UNMATCHED["of"], "unmatched": UNMATCHED["n"]}
         json.dump(report, open(a.json, "w"), indent=1)
     return report
 

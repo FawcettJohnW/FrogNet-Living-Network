@@ -79,6 +79,11 @@ class Space:
         if _l.space_follow(self.h, space.encode(), topic.encode(), int(after), cb, ce, None, ctypes.byref(err)) != 0:
             _fail(err, "follow %s/%s" % (space, topic))
 
+    def linger(self, space, topic, seconds):
+        err = ctypes.c_void_p()
+        if _l.space_linger(self.h, space.encode(), topic.encode(), int(seconds), ctypes.byref(err)) != 0:
+            _fail(err, "linger %s/%s" % (space, topic))
+
     def flush(self, timeout_s=5.0):
         return bool(_l.space_flush(self.h, float(timeout_s)))
 

@@ -27,17 +27,20 @@
 # chat example's own schema and client (ChatServer.<recipient>.<producer>, its held reads); D and D-all on ribbit::Space,
 # the one publish/subscribe library the conversions (MQTT, Redis) are built on: each write is the producer's own cell in
 # its ring (as the MQTT conversion's publishes: <writer>.<n mod RING>) and each consumer holds standing follows --
-#   D      own truth: (Chat, <producer>, <producer>.<n mod RING>); a follow on each producer followed
-#   Dall   read-all:  (Chat, Out, <producer>.<n mod RING>); one follow on (Chat, Out), filtered here
+#   D      own truth: (Chat, <producer>, <producer>.<n mod RING>) for chat, (Chat, <producer>, <producer>) for telemetry;
+#          a follow on each producer followed
+#   Dall   read-all:  (Chat, Out, <producer>.<n mod RING>) for chat, (Chat, Out, <producer>) for telemetry; one follow on
+#          (Chat, Out), filtered here
 import argparse, json, os, signal, socket, ssl, struct, subprocess, sys, threading, time
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, HERE); sys.path.insert(0, os.path.join(HERE, "build"))
 import bed, ram, workload  # noqa: E402
 
-BUILD = "obsvis-agent-2026-11-07-r4"
+BUILD = "obsvis-agent-2026-11-07-r5"
 HOLD_S = 30.0
-RING = 64                  # a producer's cells: write n is <producer>.<n mod RING>
+RING = 64                  # a producer's chat cells: write n is <producer>.<n mod RING> (telemetry: one cell, <producer>)
+LINGER_S = 5               # a session's writes outlive it by this long (the MQTT conversion's LINGER_S, [LINGER_BY_FAMILY_V1])
 CHUNK = 200000
 HZ = os.sysconf("SC_CLK_TCK")
 
@@ -55,11 +58,12 @@ class Rec(list):
 
 class Child:
     """a process of this agent's (a server, tcpdump), ready when its output says so -- its output read as it comes"""
-    def __init__(self, argv, ready, log):
+    def __init__(self, argv, ready, log, stamp=False):
         self.f = open(log, "a"); self.ev = threading.Event(); self.lines = []
         self.p = subprocess.Popen(argv, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True)
         def rd():
             for l in self.p.stdout:
+                if stamp: l = "%.6f %s" % (time.time(), l)       # its arrival time: the line's own timestamp is whole seconds
                 self.f.write(l); self.f.flush(); self.lines.append(l)
                 if ready in l: self.ev.set()
             self.ev.set()
@@ -82,20 +86,26 @@ class Child:
 
 
 def pcap_records(path):
-    """the headers of an Ethernet pcap: [t, src, dst, proto, sport, dport, ip_len]"""
+    """the headers of an Ethernet or raw-IP (a WireGuard interface's) pcap: [t, src, dst, proto, sport, dport, ip_len]"""
     out = []
     with open(path, "rb") as f:
         g = f.read(24)
         if len(g) < 24: return out
         e = "<" if g[:4] in (b"\xd4\xc3\xb2\xa1", b"\x4d\x3c\xb2\xa1") else ">"
         nano = g[:4] in (b"\x4d\x3c\xb2\xa1", b"\xa1\xb2\x3c\x4d")
+        raw = struct.unpack(e + "I", g[20:24])[0] in (12, 14, 101)
         while True:
             h = f.read(16)
             if len(h) < 16: break
             s, us, incl, _ = struct.unpack(e + "IIII", h)
             d = f.read(incl)
-            if len(d) < 34 or d[12:14] != b"\x08\x00": continue
-            ip = d[14:]; ihl = (ip[0] & 15) * 4; proto = ip[9]
+            if raw:
+                if len(d) < 20 or d[0] >> 4 != 4: continue
+                ip = d
+            else:
+                if len(d) < 34 or d[12:14] != b"\x08\x00": continue
+                ip = d[14:]
+            ihl = (ip[0] & 15) * 4; proto = ip[9]
             sp = dp = 0
             if proto in (6, 17) and len(ip) >= ihl + 4:
                 sp, dp = struct.unpack(">HH", ip[ihl:ihl + 4])
@@ -116,7 +126,7 @@ class Agent:
         self.errors, self.seen, self.mine, self.fol = [], set(), set(), []
         self.stop, self.rearm, self.epoch = threading.Event(), threading.Condition(), 0
         self.moving, self.moved = threading.Event(), threading.Event()
-        self.cap = self.srv = None; self.used = []; self.extra = {}
+        self.cap = self.capw = self.srv = None; self.used = []; self.extra = {}
 
     def say(self, m):
         print("[%s] %s" % (self.name, m), flush=True)
@@ -182,6 +192,20 @@ class Agent:
             self.cap = Child(["tcpdump", "-i", "eth0", "-s", "96", "-U", "-n", "-w", pc, "not host %s" % bed.CTL], "listening on",
                              os.path.join(self.outdir, "tcpdump-%s.log" % self.name))
             self.pcap = pc
+        if self.name == "srv" and self.cond in ("C", "D", "Dall"):   # the host's side of the tunnels: O3's clock
+            pw = os.path.join(self.outdir, "cap-srv-wg.pcap")
+            self.capw = Child(["tcpdump", "-i", bed.WGIF("srv"), "-s", "96", "-U", "-n", "-w", pw], "listening on",
+                              os.path.join(self.outdir, "tcpdump-srv-wg.log"))
+            self.pcapw = pw
+        if self.name == "rt":                                        # the links' bytes, the control region's left out
+            sh_nft = ["nft", "-f", "-"]
+            rules = "table inet obsvis {\n" + "".join("  counter c%d {}\n" % bed.K[n] for n in workload.PARTS + ["srv"]) + \
+                    "  chain links { type filter hook forward priority 0; policy accept;\n" + \
+                    "".join('    iifname "r%d" ip daddr != %s ip saddr != %s counter name c%d\n' % (bed.K[n], bed.CTL, bed.CTL, bed.K[n])
+                            for n in workload.PARTS + ["srv"]) + "  }\n}\n"
+            subprocess.run(["nft", "delete", "table", "inet", "obsvis"], capture_output=True)
+            r = subprocess.run(sh_nft, input=rules, capture_output=True, text=True)
+            if r.returncode: self.err("nft: " + r.stderr.strip())
         if self.name == "srv":
             self.srv = self.start_server(0)
         if self.part:
@@ -204,7 +228,7 @@ class Agent:
                                   "cafile %s/ca.crt\ncertfile %s/srv.crt\nkeyfile %s/srv.key\ntls_version tlsv1.3\n" % (bed.ADDR("srv"), d, d, d))
             if os.environ.get("OBSVIS_B_NODELAY") == "1":     # diagnostic only: Mosquitto's default is Nagle on (set_tcp_nodelay false)
                 open(conf, "a").write("set_tcp_nodelay true\n")
-            s = Child(["mosquitto", "-c", conf], " running", os.path.join(self.outdir, "o3-mosquitto.log"))
+            s = Child(["stdbuf", "-oL", "mosquitto", "-c", conf], " running", os.path.join(self.outdir, "o3-mosquitto.log"), stamp=True)
         else:
             s = Child([os.path.join(HERE, "build", "chat-ram"), "--listen", "0.0.0.0:8811"], "answering",
                       os.path.join(self.outdir, "srv-chat-ram-%d.log" % n))
@@ -239,6 +263,9 @@ class Agent:
         if self.cap:
             self.cap.stop(signal.SIGINT)
             self.extra["packets"] = pcap_records(self.pcap)
+        if getattr(self, "capw", None):
+            self.capw.stop(signal.SIGINT)
+            self.extra["packets_wg"] = pcap_records(self.pcapw)
         extra = {}
         if self.name == "srv":
             if self.srv: self.used.append(self.srv.stop())
@@ -249,9 +276,11 @@ class Agent:
         if self.name == "rt":
             links = {}
             for n in workload.PARTS + ["srv"]:
-                j = json.loads(subprocess.run(["ip", "-s", "-j", "link", "show", "r%d" % bed.K[n]], capture_output=True, text=True).stdout)[0]["stats64"]
-                links[n] = {"to_router_bytes": j["rx"]["bytes"], "from_router_bytes": j["tx"]["bytes"],
-                            "to_router_packets": j["rx"]["packets"], "from_router_packets": j["tx"]["packets"]}
+                c = json.loads(subprocess.run(["nft", "-j", "list", "counter", "inet", "obsvis", "c%d" % bed.K[n]],
+                                              capture_output=True, text=True).stdout)["nftables"]
+                c = [x["counter"] for x in c if "counter" in x][0]
+                links[n] = {"to_router_bytes": c["bytes"], "to_router_packets": c["packets"]}   # not to or from the control region
+            subprocess.run(["nft", "delete", "table", "inet", "obsvis"], capture_output=True)
             extra["links"] = links
         if self.name == "p1":
             self.p1_cap_done = True
@@ -385,7 +414,7 @@ class Agent:
 
     def reconnect_C(self):
         self.cl = self.chat.Client(bed.WG("srv"), 8811)
-        if getattr(self, "last", None): self.send_C(self.last, again=True)
+        if self.kind == "telemetry" and getattr(self, "last", None): self.send_C(self.last, again=True)   # a latest value, re-asserted
 
     def read_C(self):
         after, ep = 0, self.epoch
@@ -412,9 +441,14 @@ class Agent:
     def families(self):
         return [("Chat", p) for p in sorted(self.mine)] if self.cond == "D" else [("Chat", "Out")]
 
+    def own(self):
+        """this participant's own family: D its own topic, D-all the shared Out"""
+        return ("Chat", self.name) if self.cond == "D" else ("Chat", "Out")
+
     def up_D(self):
         self.r = ram.Space("%s:8811" % bed.WG("srv")); self.n = 0
-        for sp, topic in self.families():                  # standing follows, from now on: the memory streams each batch
+        self.r.linger(*self.own(), LINGER_S)              # its writes outlive a session by 5 s: the MQTT conversion's choice
+        for sp, topic in self.families():                  # standing follows: what the family holds, then each batch as it lands
             self.follow_D(sp, topic)
         if self.o4 is not None: self.insider("Chat" if self.cond != "C" else "ChatServer")
 
@@ -431,28 +465,34 @@ class Agent:
                 if "m" in r["bag"]: self.recv(r["bag"])
         def ended(why):
             if not self.stop.is_set(): self.err("follow %s/%s ended: %s" % (sp, topic, why))
-        self.r.follow(sp, topic, on, after=-1, ended=ended)
+        self.r.follow(sp, topic, on, after=0, ended=ended)
 
     def reconnect_D(self):
         """a fresh server (or this participant moved): its session again, its follows again, its own state again"""
         self.r = ram.Space("%s:8811" % bed.WG("srv"))
+        self.r.linger(*self.own(), LINGER_S)
         for sp, topic in self.families():
             self.follow_D(sp, topic)
-        if getattr(self, "last", None): getattr(self, "send_" + self.cond)(self.last, again=True)
+        if self.kind == "telemetry" and getattr(self, "last", None):   # a latest value is re-asserted; a message is not re-sent
+            getattr(self, "send_" + self.cond)(self.last, again=True)
 
     reconnect_Dall = reconnect_D
 
+    def slot(self):
+        """chat: distinct events, a ring of this producer's cells; telemetry: a latest value, this producer's one cell,
+        rewritten every reading (an unchanged reading is the same bytes in the same cell: the wire's hash-only repeat)"""
+        if self.kind == "telemetry":
+            return self.name
+        n = self.n; self.n += 1
+        return "%s.%d" % (self.name, n % RING)
+
     def send_D(self, body, again=False):
         self.last = body
-        slot = "%s.%d" % (self.name, self.n % RING); self.n += 1
-        self.r.write("Chat", self.name, slot, json.loads(body))
-        self.o3(conn=bed.WG(self.name), op="put", svc="Chat", var=self.name, scope=slot, bytes=len(body), again=again)
+        sp, topic = self.own(); slot = self.slot()
+        self.r.write(sp, topic, slot, json.loads(body))
+        self.o3(conn=bed.WG(self.name), op="put", svc=sp, var=topic, scope=slot, bytes=len(body), again=again)
 
-    def send_Dall(self, body, again=False):
-        self.last = body
-        slot = "%s.%d" % (self.name, self.n % RING); self.n += 1
-        self.r.write("Chat", "Out", slot, json.loads(body))
-        self.o3(conn=bed.WG(self.name), op="put", svc="Chat", var="Out", scope=slot, bytes=len(body), again=again)
+    send_Dall = send_D
 
     # ================================================================== O4: the insider follows the whole service
     def insider(self, svc):

@@ -36,8 +36,20 @@ NOTES = [
     "**H4: not run.** The Ribbit wire has no padding flag.",
     "**D and D-all are built on ribbit::Space** (`space_c.cpp`, a C ABI over `ribbit_space.hpp`), the one "
     "publish/subscribe library the platform's MQTT and Redis conversions use, in place of the brief's small shim.",
-    "**O3 for C, D and D-all is logged at the client library boundary.** chat-ram has no operation trace hook; the log "
-    "records exactly the operations the host decodes, and nothing the host would not see.",
+    "**O3 for C, D and D-all: the operations at the client library boundary, on the host's clock.** chat-ram has no "
+    "operation trace hook, so each operation is logged where the client library makes it and then placed at the host's "
+    "own packet for it, from srv's capture inside the tunnels (a put at the first packet from its connection, a release "
+    "at the last packet to its connection). The operations are the ones the host decodes; the timing is the host's.",
+    "**Telemetry is a latest value; chat is distinct events.** In D and D-all a producer's telemetry is one cell, "
+    "`<producer>`, rewritten every reading; an unchanged reading is the same bytes in the same cell, which the wire sends "
+    "as a hash-only repeat. Chat is a ring of the producer's cells, `<producer>.<n mod 64>`. C keeps the chat example's "
+    "own per-recipient sends for both workloads: it is the messaging-on-RAM comparator.",
+    "**Lifetimes and reads.** D and D-all producers linger their writes 5 s past a session's end (the MQTT conversion's "
+    "choice); consumers read what a family holds and then hold (a standing follow from the start). After a fresh server "
+    "or a move, a latest value is re-asserted and a message is not re-sent.",
+    "**Wire bytes** are the bytes each participant and srv sent into the router, counted by nftables with the control "
+    "region's traffic left out.",
+    "**B's operator log** is stamped with each line's arrival time (Mosquitto's own timestamp is whole seconds).",
     "**O1 in the relayed builds (0.57 everywhere).** p1's link carries only p1's tunnel or broker connection, so the "
     "attacker's only usable feature is the pair's direction (p1 producing or p1 consuming). 0.57 is that base rate: it "
     "says nothing about which peer. Precision at top-k is the same 0.57.",
@@ -135,9 +147,8 @@ def main():
     w("## Observers\n")
     w("- **O1:** p1's link, from a tcpdump capture of headers only (`-s 96`). Scored on the 14 pairs that involve p1.")
     w("- **O2:** srv's link, captured the same way. Scored on all 56 pairs. A has no server, so O2 sees nothing for A.")
-    w("- **O3:** the server operator. For C, D and D-all, this is the operations the host decodes, logged at the client "
-      "library boundary: chat-ram has no operation trace hook. For B it is Mosquitto's own log (`log_type all`). Scored on "
-      "all 56 pairs.")
+    w("- **O3:** the server operator. For C, D and D-all, this is the operations the host decodes, on the host's clock "
+      "(see the notes). For B it is Mosquitto's own log (`log_type all`). Scored on all 56 pairs.")
     w("- **O4:** p1 as an authorized insider, reading the whole service. Scored on the 42 pairs without p1.\n")
     w("**Attacker:** a logistic regression on lagged per-pair features. The features are timing at w of 10 ms, 50 ms, "
       "200 ms, 1 s and 2 s, packet-size bins, and the keys each observer can read. It was trained on the training seeds "
