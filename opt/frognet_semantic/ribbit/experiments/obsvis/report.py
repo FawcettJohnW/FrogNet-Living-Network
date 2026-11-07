@@ -44,7 +44,7 @@ def summary(an, w):
       "server sends each new write in the family to the reader.")
     w("")
     w("## Finding\n")
-    w("The words below follow the AUC. \"Found\" means the CI is at or above 0.90. \"At chance\" means the CI "
+    w("The words below follow the AUC. \"Found\" means the whole CI is at or above 0.90. \"At chance\" means the CI "
       "includes 0.50. \"Partly found\" is everything between.\n")
     word = {"recovered": "found", "at chance": "at chance", "partly recovered": "partly found", "not measured": "not measured"}
     names = (("A", "Direct TLS (A)"), ("B", "MQTT broker (B)"), ("C", "Recipient keys on shared memory (C)"),
@@ -72,7 +72,8 @@ def summary(an, w):
     w("- The exact AUC values are in the tables further down.\n")
 
     w("## What each observer can see directly\n")
-    w("By construction of each build (the code in this harness), before any inference:\n")
+    w("This follows from how each build works (the code in this harness). It is what each observer sees before any "
+      "analysis.\n")
     w("| condition | the server's link (O2) | the server operator (O3) | an authorized insider (O4) |")
     w("|---|---|---|---|")
     w("| A | (no server) a participant's link shows its direct peers' addresses | (none) | (none) |")
