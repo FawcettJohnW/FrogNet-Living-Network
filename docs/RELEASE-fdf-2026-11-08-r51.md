@@ -1,4 +1,4 @@
-# fdf-2026-11-07-r50: roles on api.php, held reads in the core
+# fdf-2026-11-08-r51 (r50 withdrawn): roles on api.php, held reads in the core
 
 Branch `roles-on-api-20261107` (from `integrate-20261031`). Design: `AI_READ_FIRST.md` section 10a.
 
@@ -47,5 +47,14 @@ These netns tests fail here exactly as they fail on `integrate-20261031`, run wi
 compared): hub (2), egress (1, E2), c-behind-ab (2), lan-only (4), leaf-tunnel (6), ponds-daemon (4, at the 570 s cap)
 and reach (27, at the cap). placement fails 5 here and 15 on the base.
 
-Bundles: `fdf-node-aarch64-fdf-2026-11-07-r50.tgz` (Pi nodes), `fdf-node-x86_64-fdf-2026-11-07-r50.tgz` and
-`fdf-droplet-x86_64-fdf-2026-11-07-r50.tgz`. `opt/fdf/dist` holds the same build under the fixed names.
+Bundles: `fdf-node-aarch64-fdf-2026-11-08-r51.tgz` (Pi nodes), `fdf-node-x86_64-fdf-2026-11-08-r51.tgz` and
+`fdf-droplet-x86_64-fdf-2026-11-08-r51.tgz`. `opt/fdf/dist` holds the same build under the fixed names.
+
+## r50 withdrawn
+
+r50's node bundle carried `daemon/engine/server.py` and `session.py` without the `core/semcache_wire.py` they import.
+On a node with an older tree, `frognet-daemon` failed on import (`OP_REQ_SAME_MISS`), so port 9009 refused and no
+remote request was answered (Seattle3B, 2026-11-08). r51's node bundle carries FrogNet's whole runtime from one tree
+(`[FROGNET_RUNTIME_WHOLE_V1]` in `make_deliverables.sh`): core, daemon, proxy, discovery, internet_tunnels_v3,
+frognet_route, the web root, usr/local/bin and lib, the units, tmpfiles and sysctl. It never carries the node's
+config.php or DB_CONFIG.json.

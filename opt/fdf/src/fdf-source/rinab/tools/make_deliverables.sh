@@ -112,7 +112,17 @@ fdf_tree() {   # $1 = root, $2 = binary dir, $3.. = binary names (as installed: 
 node_pages() { local R=$1; cp -a "$TOP/fdf/www/dc" "$R/opt/fdf/www/dc"; cp -a "$TOP/fdf/www/rt" "$R/opt/fdf/www/rt"
   rm -f "$R/opt/fdf/www/rt/"*.py "$R/opt/fdf/www/rt/"*.mjs; find "$R/opt/fdf/www" -name __pycache__ -prune -exec rm -rf {} +
   mkdir -p "$R/etc/apache2/conf-available"; cp "$TOP/../bundles/addins/dc/fdf-dc.conf" "$R/etc/apache2/conf-available/"; }
-frognet_patch() { local R=$1 f; for f in "${FROGNET_FILES[@]}"; do mkdir -p "$R/$(dirname "$f")"; cp -p "$REPO/$f" "$R/$f"; done; }
+# [FROGNET_RUNTIME_WHOLE_V1] (Seattle3B 2026-11-08: r50 shipped daemon/engine/server.py alone; the node's older
+# core/semcache_wire.py has no OP_REQ_SAME_MISS and frognet-daemon died on import) the node patch carries FrogNet's
+# whole runtime from one tree, never a mix: core, daemon, proxy, discovery, internet_tunnels_v3, frognet_route, the
+# top-level modules, the web root, usr/local/bin and lib, the units, tmpfiles and sysctl -- the node manifest's files
+# (frognet_node_files), less what is the node's own: the database password files (config.php, DB_CONFIG.json are
+# placeholders in the tree), the simulator's env, tests and caches.
+frognet_runtime() { ( . "$REPO/usr/local/lib/frognet_world_manifest.sh" && frognet_node_files "$REPO" ) | grep -E \
+  '^(opt/frognet_semantic/(core|daemon|proxy|discovery|internet_tunnels_v3|frognet_route)/|opt/frognet_semantic/[^/]+\.py$|opt/frognet_semantic/BUILD$|var/www/html/|usr/local/bin/|usr/local/lib/|etc/systemd/system/[^/]+\.(service|socket|timer)$|etc/tmpfiles\.d/|etc/sysctl\.d/)' \
+  | grep -vE '(^var/www/html/config\.php$|^opt/frognet_semantic/DB_CONFIG\.json$|/sim/sim\.env$|/__pycache__/|/\.pytest_cache/|/tests?/|\.pyc$)'; }
+frognet_patch() { local R=$1 f; { printf '%s\n' "${FROGNET_FILES[@]}"; frognet_runtime; } | sort -u | while read -r f; do
+  [ "$f" = var/www/html/config.php ] && continue; [ -f "$REPO/$f" ] || continue; mkdir -p "$R/$(dirname "$f")"; cp -p "$REPO/$f" "$R/$f"; done; }
 build_file() { printf 'package=%s\nbuild=%s\nbuilt=%s\nfor=%s\n' "$1" "$TAG" "$NOW" "$2" > "$3/opt/fdf/BUILD"; }
 # [FILES_ONLY_TAR_V1] files only, no directory entries: extracting at / must not reset the owner or mode of /etc, /usr,
 # /var/www/html or any other existing directory (a missing one is created).
