@@ -39,4 +39,13 @@ the installed machines' copies (`[CONFIG_WRITTEN_AGAIN_BY_THE_MERGE_V1]`).
 
 `simulation/run_all.py` PASS, with 84/84 discovery oracles. Also: `test_frognet_host` 10/10, `test_fdf_app` 13/13,
 `test_rt_pages` 28/28, `netns-system-space-test` 21/21, `netns-enroll-test` 12/12 and `test_writer_gone_oracle` 4/4.
-The rest of the netns suite is listed in the delivery message.
+
+These netns tests pass: admit-kt, graph, hub-addr, invisible, join-kt, org, region-loop, regions, space, spaces,
+targets, member-death, latency and scale.
+
+These netns tests fail here exactly as they fail on `integrate-20261031`, run with the same binaries (the fail lines
+compared): hub (2), egress (1, E2), c-behind-ab (2), lan-only (4), leaf-tunnel (6), ponds-daemon (4, at the 570 s cap)
+and reach (27, at the cap). placement fails 5 here and 15 on the base.
+
+Bundles: `fdf-node-aarch64-fdf-2026-11-07-r50.tgz` (Pi nodes), `fdf-node-x86_64-fdf-2026-11-07-r50.tgz` and
+`fdf-droplet-x86_64-fdf-2026-11-07-r50.tgz`. `opt/fdf/dist` holds the same build under the fixed names.
