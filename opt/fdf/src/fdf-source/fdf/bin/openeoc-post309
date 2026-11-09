@@ -28,7 +28,7 @@ import fdf_watch  # noqa: E402  [EVENTS_NOT_TIMERS_V1]
 import fdf_appram  # noqa: E402  [APP_SERVICES_V1]
 
 VAR = os.environ.get("FDF_VAR", "/opt/fdf/var")
-OUT = os.path.join(VAR, "rt", "309")
+OUT = os.path.join(VAR, "openeoc", "309")
 WHERE = fdf_appram.HOSTS                     # the election writing it is the event
 COLS = ["msg_no", "date", "callsign", "status", "location", "notes", "by", "id"]
 
@@ -74,7 +74,7 @@ class Files:
         return self.have[v]
 
     def write213(self, v, i, b):
-        d213 = os.path.join(VAR, "rt", "213"); os.makedirs(d213, exist_ok=True)
+        d213 = os.path.join(VAR, "openeoc", "213"); os.makedirs(d213, exist_ok=True)
         p = os.path.join(d213, "%s.%s.txt" % (v, i))
         if os.path.exists(p):
             return

@@ -201,7 +201,7 @@ try:
             pg = ctx.new_page()
             clog = open(T + "/console-%s.log" % name, "a")            # [DIAG-WATCH] the page's own account of every read and write
             ctx.on("console", lambda msg: (clog.write("%.3f %s %s\n" % (time.time(), msg.page.url.rsplit("/", 1)[-1] if msg.page else "", msg.text)), clog.flush()))
-            pg.goto("http://127.0.0.1:%d/rt/log.html" % fwd[ip].port)
+            pg.goto("http://127.0.0.1:%d/openeoc/log.html" % fwd[ip].port)
             pg.wait_for_function("document.body.dataset.connected === '1'")
             pg.fill("#dev input[name=name]", name); pg.click("#saveDev")
             if team:                                  # [APP_ACCESS_V1] the role is the user's, activated at their login
@@ -394,7 +394,7 @@ try:
         check(ok and any(x[3] == "W7AAA" for x in rb) and len(rb) == len(rows(a)), "11 B's uplink back: both cut-off entries on A %.1f s later; A's entry from the cut on B; %d rows on A, %d on B" % (dt, len(rows(a)), len(rb)))
         # 12
         fwd["127.0.11.4"] = From("127.0.11.4", posts["A"])
-        bd = br.new_context().new_page(); bd.goto("http://127.0.0.1:%d/rt/board.html" % fwd["127.0.11.4"].port); n12 = []
+        bd = br.new_context().new_page(); bd.goto("http://127.0.0.1:%d/openeoc/board.html" % fwd["127.0.11.4"].port); n12 = []
         for _ in range(250):
             n12 = bd.eval_on_selector_all("#rows tr", "rs => rs.map(r => r.children[0].textContent)")
             if len(n12) == len(rows(a)): break
@@ -405,7 +405,7 @@ try:
         # 13
         def file309(post):
             try:
-                with open(T + "/%s/rt/309/26-0142.2.csv" % post, newline="") as f: return list(__import__("csv").DictReader(f))
+                with open(T + "/%s/openeoc/309/26-0142.2.csv" % post, newline="") as f: return list(__import__("csv").DictReader(f))
             except FileNotFoundError: return []
         want = [x[0] for x in rows(a)]
         t0 = time.time()
@@ -466,8 +466,8 @@ try:
         until(lambda: (sm.text_content("#totals") or "").startswith("%d entries" % n_all) and "Communications" in (sm.text_content("#aar") or ""))
         tot, natt, aar = sm.text_content("#totals"), sm.text_content("#natt"), sm.text_content("#aar")
         e213 = a.get_attribute("#rows tr:last-child", "data-i")
-        until(lambda: os.path.exists(T + "/A/rt/213/26-0142.2.%s.txt" % e213))
-        f213 = open(T + "/A/rt/213/26-0142.2.%s.txt" % e213).read() if os.path.exists(T + "/A/rt/213/26-0142.2.%s.txt" % e213) else ""
+        until(lambda: os.path.exists(T + "/A/openeoc/213/26-0142.2.%s.txt" % e213))
+        f213 = open(T + "/A/openeoc/213/26-0142.2.%s.txt" % e213).read() if os.path.exists(T + "/A/openeoc/213/26-0142.2.%s.txt" % e213) else ""
         check("4. Subject: Water" in f213 and "laptop-b-" in f213 and "2. To (Name and Position): IC, EOC" in f213,
               "15 post A's 213 file for it: %s" % f213.splitlines()[:5])
         check(any("IC, EOC" in c for c in form) and any("Water" in c for c in form) and any("Need 20 L" in c for c in form)
@@ -480,7 +480,7 @@ try:
         if SHOTS:
             os.makedirs(SHOTS, exist_ok=True)
             lg = br.new_context(viewport={"width": 1100, "height": 760}).new_page()
-            fwd["127.0.11.7"] = From("127.0.11.7", posts["A"]); lg.goto("http://127.0.0.1:%d/rt/log.html" % fwd["127.0.11.7"].port)
+            fwd["127.0.11.7"] = From("127.0.11.7", posts["A"]); lg.goto("http://127.0.0.1:%d/openeoc/log.html" % fwd["127.0.11.7"].port)
             lg.wait_for_function("document.body.dataset.connected === '1'"); lg.fill("#login input[name=user]", "kim")
             for name, pg in (("1-login", lg), ("2-radio-log", b), ("3-messages", mb), ("4-map", mp), ("5-summary", sm), ("6-ics213", p13), ("7-ics309", pr), ("8-board", bd)):
                 try:
@@ -491,7 +491,7 @@ try:
         # 16 [APP_FOCUS_V1]
         fresh = {}
         for ip, q in (("127.0.11.5", "?role=eoc"), ("127.0.11.6", "")):
-            fwd[ip] = From(ip, posts["A"]); pg = br.new_context().new_page(); pg.goto("http://127.0.0.1:%d/rt/index.html%s" % (fwd[ip].port, q))
+            fwd[ip] = From(ip, posts["A"]); pg = br.new_context().new_page(); pg.goto("http://127.0.0.1:%d/openeoc/index.html%s" % (fwd[ip].port, q))
             pg.wait_for_url(lambda u: "index.html" not in u, timeout=10000); fresh[q or "none"] = pg.url.rsplit("/", 1)[-1]
         for pg in b.context.pages[1:]:              # a browser holds at most 6 connections to one host: B has a page
             pg.close()                              # open per check by now, each holding one; a user has a few
