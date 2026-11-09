@@ -15,7 +15,7 @@ const cap = (t) => t ? t.toLowerCase().replace(/(^| )(.)/g, (x, a, c) => a + c.t
 // kinds: how each is drawn on the map (a layer adds its own with RT.kind)
 const KINDS = {
   team:      { label: 'Teams',      shape: '',    size: 18, color: '#888' },
-  eoc:       { label: 'EOC',        shape: 'sq',  size: 20, color: '#6b4fd8', ch: 'E' },
+  eoc:       { label: 'Command Center', shape: 'sq',  size: 20, color: '#6b4fd8', ch: 'C' },
   ambulance: { label: 'Ambulances', shape: 'sq',  size: 18, color: '#e23b3b', ch: '+' },
   boat:      { label: 'Boats',      shape: 'sq',  size: 18, color: '#1565c0', ch: 'B' },
   victim:    { label: 'Victims',    shape: '',    size: 12, color: '#f2c200', ch: '' },
@@ -279,7 +279,7 @@ $('#scanTeam').onclick = () => { $('#cstatus').textContent = 'scan the frog QR c
 // line, at the node in the Node field: the same as scanning the EOC's QR -- the team's name, the teams password, Join
 $('#joinEoc').onclick = () => {
   const d = $('#connect').door.value.trim()
-  if (!d) { $('#cstatus').textContent = 'the Node first: the node the EOC is on (e.g. 10.170.170.1)'; $('#connect').door.focus(); return }
+  if (!d) { $('#cstatus').textContent = 'the Node first: the node the Command Center is on (e.g. 10.170.170.1)'; $('#connect').door.focus(); return }
   const url = 'http://' + d.replace(/^https?:\/\//, '').replace(/\/.*/, '') + '/dc/ram.php'
   enrollScan({ line: FrogQR.enrollLine(url, 'openeoc', '*'), url, app: 'openeoc', user: '', manual: true })   // [EOC_LEADS_V1] the user typed here
 }
@@ -310,7 +310,7 @@ function enrollScan(m) {
     $('#enrollCall').setAttribute('autocapitalize', 'words')
     $('#enrollWho').textContent = 'Create your team · ' + m.app + ' · ' + m.url.replace(/^https?:\/\//, '').replace(/\/.*/, '')
     $('#enrollBox').hidden = false; $('#enrollPw').value = ''; (m.manual ? $('#enrollUser') : $('#enrollCall')).focus()
-    $('#cstatus').textContent = m.manual ? 'the user the EOC gave you, your team\'s name and your password' : "your team's name and your password: you lead the team"
+    $('#cstatus').textContent = m.manual ? 'the user the Command Center gave you, your team\'s name and your password' : "your team's name and your password: you lead the team"
     return
   }
   // [TEAM_JOIN_V1] a team's QR: the call sign is yours, the password the team's. [CHILDREN_JOIN_V1] the EOC's QR (its
@@ -324,15 +324,15 @@ function enrollScan(m) {
   $('#enrollCallL').querySelector('.ecl').textContent = eoc ? "Your team's name" : 'Your call sign'
   $('#enrollCall').setAttribute('autocapitalize', eoc ? 'words' : 'characters')
   // [TEAMS_AUTHORIZED_V1] a QR with a login is a Team's the admin authorized (or an EOC user's): its password claims it here
-  $('#enrollWho').textContent = (eoc ? 'Join the EOC · ' : m.team ? 'Team · ' : m.key ? 'Join as ' + m.user + ' · ' : 'Claim ' + m.user + ' · ') + m.app + ' · ' + m.url.replace(/^https?:\/\//, '').replace(/\/.*/, '')
+  $('#enrollWho').textContent = (eoc ? 'Join the Command Center · ' : m.team ? 'Team · ' : m.key ? 'Join as ' + m.user + ' · ' : 'Claim ' + m.user + ' · ') + m.app + ' · ' + m.url.replace(/^https?:\/\//, '').replace(/\/.*/, '')
   $('#enrollBox').hidden = false; $('#enrollPw').value = ''; (m.team && !callFromName ? $('#enrollCall') : $('#enrollPw')).focus()
-  $('#cstatus').textContent = eoc ? "your team's name and the EOC's teams password" : callFromName ? 'the team password (you join as ' + nm + ')' : m.team ? 'your call sign and the team password' : m.key ? m.user + "'s own password, from your team lead" : m.user + "'s password: this device claims it"
+  $('#cstatus').textContent = eoc ? "your team's name and the Command Center's teams password" : callFromName ? 'the team password (you join as ' + nm + ')' : m.team ? 'your call sign and the team password' : m.key ? m.user + "'s own password, from your team lead" : m.user + "'s password: this device claims it"
 }
 $('#enrollGo').onclick = () => {
   if (!S.enrollLine) return
   if (S.enrollLead) {                                    // [EOC_LEADS_V1] create the team: the user, the team's name, the password
     const u = $('#enrollUser').value.trim(), t = $('#enrollCall').value.trim()
-    if (!/^[A-Za-z0-9][A-Za-z0-9._-]{0,39}$/.test(u)) { $('#cstatus').textContent = 'your user: the one the EOC gave you'; $('#enrollUser').focus(); return }
+    if (!/^[A-Za-z0-9][A-Za-z0-9._-]{0,39}$/.test(u)) { $('#cstatus').textContent = 'your user: the one the Command Center gave you'; $('#enrollUser').focus(); return }
     if (!/^[A-Za-z0-9][A-Za-z0-9 ._-]{0,39}$/.test(t)) { $('#cstatus').textContent = "the team's name: letters, digits, space . _ - (at most 40)"; $('#enrollCall').focus(); return }
     if (!$('#enrollPw').value) { $('#cstatus').textContent = 'your password'; $('#enrollPw').focus(); return }
     $('#cstatus').textContent = 'creating team ' + t + '…'; $('#enrollGo').disabled = true
@@ -687,7 +687,7 @@ function toList() {
   const s = $('#to'); const cur = s.value; s.innerHTML = ''
   // [DM_TO_ANYONE_PRESENT_V1] direct: every person present now (their own presence cell), real devices first, then
   // anyone talked to already; the simulated ones are reached from the map
-  const people = Object.entries(S.who).filter(([id, b]) => b && talkable(id, b) && !b.sim).map(([id, b]) => ['dev:' + id, b.name + (b.team ? ' (' + b.team + ')' : b.kind === 'eoc' ? ' (EOC)' : '')])
+  const people = Object.entries(S.who).filter(([id, b]) => b && talkable(id, b) && !b.sim).map(([id, b]) => ['dev:' + id, b.name + (b.team ? ' (' + b.team + ')' : b.kind === 'eoc' ? ' (Command Center)' : '')])
   const known = new Set(people.map(p => p[0]))
   const opts = [['all', 'Everyone']].concat(teamsHere().map(x => ['team:' + x, 'Team ' + x])).concat(people)
     .concat(Object.entries(S.direct).filter(([id]) => !known.has('dev:' + id)).map(([id, n]) => ['dev:' + id, n]))

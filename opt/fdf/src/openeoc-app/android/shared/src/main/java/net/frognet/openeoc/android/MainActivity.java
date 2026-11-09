@@ -350,7 +350,7 @@ public final class MainActivity extends Activity implements LocationListener {
         }
         if (!memberStarted || memberRestart) {          // [APP_IS_SELF_CONTAINED_V1] this app joins (its VPN question, once)
             if (!Member.has(this)) {                    // [ADMITTED_BY_INVITE_V1] the region answers invited keys only
-                deliver(Json.o("ev", "error", "text", "no FrogNet invitation: scan the EOC's QR code, or paste its line (or one from fdf-identity <name> --leaf) on this screen"));
+                deliver(Json.o("ev", "error", "text", "no FrogNet invitation: scan the Command Center's QR code, or paste its line (or one from fdf-identity <name> --leaf) on this screen"));
                 return;
             }
             Member.name(this, prefs.getString("name", Build.MODEL));
@@ -745,7 +745,7 @@ public final class MainActivity extends Activity implements LocationListener {
             if (e instanceof java.io.IOException && nodeLan().isEmpty() && !Member.has(this)) {
                 String w = wifiAddr(), lan = lanShape(), gw = gwOf(lan);
                 why += ". This phone is on " + (w.isEmpty() ? "no Wi-Fi" : w) + (gw.isEmpty() ? "" : " (gateway " + gw + (Boolean.FALSE.equals(gwIsNode.get(gw)) ? ", not a FrogNet node" : "") + ")")
-                     + " and has not joined FrogNet yet: join the EOC node's Wi-Fi, then scan the code again (" + l.url.replaceAll("^https?://", "").replaceAll("/.*", "") + " is reached from there)";
+                     + " and has not joined FrogNet yet: join the Command Center node's Wi-Fi, then scan the code again (" + l.url.replaceAll("^https?://", "").replaceAll("/.*", "") + " is reached from there)";
             }
             note("[ENROLL_V1] not enrolled: " + why); deliver(Json.o("ev", "enrollFailed", "text", why)); return;
         }

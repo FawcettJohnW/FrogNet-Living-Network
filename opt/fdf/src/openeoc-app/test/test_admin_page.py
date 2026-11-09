@@ -94,7 +94,7 @@ with sync_playwright() as pw:
     # 5b [EOC_USER_QR_V1] an EOC user's QR: for the EOC app, its line the user's
     pg.click("#qrClose"); pg.click("[data-qr=EOCAdmin]"); pg.wait_for_selector("#qr:not([hidden]) #qrImg svg")
     wq, lq = pg.inner_text("#qrWho"), pg.inner_text("#qrLine")
-    check("EOC user" in wq and "the EOC app scans this" in wq and lq == "fdfenroll1 http://10.170.170.1/dc/ram.php openeoc EOCAdmin",
+    check("Command Center user" in wq and "the Command Center app scans this" in wq and lq == "fdfenroll1 http://10.170.170.1/dc/ram.php openeoc EOCAdmin",
           "5b an EOC user's QR: %r · %r" % (wq, lq))
     pg.click("#qrClose")
     # 6 [ADMIN_ON_NOW_V1] who is on now, in its group's row; one in no group said so
@@ -114,7 +114,7 @@ with sync_playwright() as pw:
       return { top: kids(document.querySelector('#onTree > ul > li')), teams: kids(f('Teams')), alpha: kids(f('alpha')), rc: kids(f('Red Cross')), out: kids(f('In no group')),
                drone: (f('Drone 1') || {}).textContent || '' } })()""")
     if SHOTS: pg.locator("#onTree").screenshot(path=os.path.join(SHOTS, "admin-tree.png"))
-    check("joined" in rc and "Dan" in rc and tr["top"] == ["EOC", "Teams", "In no group"] and tr["teams"] == ["alpha", "bravo", "Red Cross"]
+    check("joined" in rc and "Dan" in rc and tr["top"] == ["Command Center", "Teams", "In no group"] and tr["teams"] == ["alpha", "bravo", "Red Cross"]
           and tr["alpha"] == ["Pat"] and sorted(tr["rc"]) == ["Dan", "Drone 1"] and "drone" in tr["drone"] and tr["out"] == ["Win PC"] and not errs,
           "7 Red Cross's row %r; the tree %s; errors %s" % (rc.replace("\t", " | ")[:140], tr, errs))
     br.close()

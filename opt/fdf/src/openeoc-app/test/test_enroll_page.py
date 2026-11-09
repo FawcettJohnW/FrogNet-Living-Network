@@ -175,7 +175,7 @@ with tempfile.TemporaryDirectory() as tmp, sync_playwright() as pw:
     s8 = [x for x in e.evaluate("__sent") if x[0] == "enroll"]
     e.evaluate("rtDeliver(JSON.stringify({ev: 'enrolled', user: 'dana', role: 'eoc', lead: false, door: '10.170.170.1', invited: 'openeoc-dana in frognet'}))")
     c8 = ([x[1] for x in e.evaluate("__sent") if x[0] == "send" and x[1].get("op") == "connect"] or [{}])[-1]
-    check(st8["u"] == "dana" and st8["ro"] and not st8["team"] and st8["go"] == "Log in" and st8["who"].startswith("EOC")
+    check(st8["u"] == "dana" and st8["ro"] and not st8["team"] and st8["go"] == "Log in" and st8["who"].startswith("Command Center")
           and s8 == [["enroll", {"line": l8, "password": "dana-2026"}]] and c8.get("role") == "eoc" and c8.get("user") == "dana" and c8.get("password") == "dana-2026",
           "8 the EOC app scans an EOC user's QR: %s; Log in enrolls %s; connects %s" % (st8, s8, {k: c8.get(k) for k in ("door", "role", "user")}))
     b.close()

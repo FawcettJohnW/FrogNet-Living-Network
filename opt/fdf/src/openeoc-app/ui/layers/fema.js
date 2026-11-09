@@ -63,7 +63,7 @@ RT.layer('fema', (RT) => {
     ['where', 'Division / location', 'text'], ['here', 'At my location', 'here'], ['opPeriod', 'Operational period', 'number'],
     ['resources', 'Resources assigned', 'text'], ['comms', 'Communications (channel, frequency, phone)', 'text'], ['instructions', 'Special instructions', 'area']],
     list: ['to', 'work', 'opPeriod'], updates: [['text', 'Progress', 'area']] }
-  B.staff = { title: 'EOC staffing', status: ['On duty', 'Off duty'], fields: [
+  B.staff = { title: 'Command Center staffing', status: ['On duty', 'Off duty'], fields: [
     ['post', 'Position', positions, true], ['person', 'Name', 'text', true], ['agency', 'Agency', 'text'], ['contact', 'Contact', 'text'],
     ['shift', 'Shift', ['Day', 'Night', 'Alpha', 'Bravo']]], list: ['post', 'person', 'agency'], updates: [['text', 'Comment', 'area']] }   // post: the core's "position" is the filer's
   B.lifelines = { title: 'Community lifelines', overviewWrites: true, status: LL_STATUS, fields: [
@@ -95,19 +95,19 @@ RT.layer('fema', (RT) => {
   RT.fema = { orgs, reports, call, worst, recs, inc, opNow, LL, CAT, struct }
   RT.screen('fema-ll', () => {
     const rp = reports()
-    sheet('fema-ll', 'Community lifelines', `<button type="button" onclick="RT.open('fema')">◂ EOC</button>
-      <div class="meta">The EOC's call on each lifeline, and what the organizations on the network report into it (hospitals, shelters, roads, units).</div>
+    sheet('fema-ll', 'Community lifelines', `<button type="button" onclick="RT.open('fema')">◂ Command Center</button>
+      <div class="meta">The Command Center's call on each lifeline, and what the organizations on the network report into it (hospitals, shelters, roads, units).</div>
       ${LL.map(([k, n]) => { const c = call(n), d = worst(rp[k].map(x => x[1])), st = c ? c.status || 'Unknown' : d
-        return `<div class="card ll"><b><span class="lld" style="background:${COLOR[st]}"></span> ${esc(n)}</b> <span class="meta">${c ? 'EOC: ' + esc(st) : 'from the reports: ' + esc(d)}${c && c.why ? ' · ' + esc(c.why) : ''}</span>
+        return `<div class="card ll"><b><span class="lld" style="background:${COLOR[st]}"></span> ${esc(n)}</b> <span class="meta">${c ? 'Command Center: ' + esc(st) : 'from the reports: ' + esc(d)}${c && c.why ? ' · ' + esc(c.why) : ''}</span>
           ${rp[k].map(([s, x, note]) => `<div class="meta"><span class="lld" style="background:${COLOR[x]}"></span> ${esc(s)}${note ? ': ' + esc(note) : ''}</div>`).join('')}
-          ${RT.me().overview ? `<button type="button" onclick="S.icsBack='fema-ll';RT.open('ics-new','lifelines',{lifeline:'${esc(n)}',status:'${c ? esc(c.status || '') : esc(d)}'})">Make the EOC's call</button>` : ''}</div>` }).join('')}`)
+          ${RT.me().overview ? `<button type="button" onclick="S.icsBack='fema-ll';RT.open('ics-new','lifelines',{lifeline:'${esc(n)}',status:'${c ? esc(c.status || '') : esc(d)}'})">Make the Command Center's call</button>` : ''}</div>` }).join('')}`)
   })
 
   // ------------------------------------------------------------ the organizations on the network, by their app
   RT.screen('fema-orgs', () => {
     const o = orgs(), as = recs('assign')
-    sheet('fema-orgs', 'Organizations', `<button type="button" onclick="RT.open('fema')">◂ EOC</button>
-      <div class="meta">Everyone on the network, by the app they joined with. A category is here because its app joined; the EOC allocates none.</div>
+    sheet('fema-orgs', 'Organizations', `<button type="button" onclick="RT.open('fema')">◂ Command Center</button>
+      <div class="meta">Everyone on the network, by the app they joined with. A category is here because its app joined; the Command Center allocates none.</div>
       ${Object.entries(o).sort().map(([k, by]) => { const c = CAT[k] || [cap(k), '•']
         return `<h3>${c[1]} ${esc(c[0])} <span class="meta">${Object.keys(by).length}</span></h3>` + Object.entries(by).sort().map(([n, ds]) => {
           const open = as.filter(a => a.to === n && !['Complete', 'Canceled'].includes(a.status)).length
@@ -120,7 +120,7 @@ RT.layer('fema', (RT) => {
   // ------------------------------------------------------------ staffing by the incident's structure
   RT.screen('fema-staff', () => {
     const st = recs('staff'), who = (p) => st.find(x => x.post === p)
-    sheet('fema-staff', 'EOC staffing', `<button type="button" onclick="RT.open('fema')">◂ EOC</button>
+    sheet('fema-staff', 'Command Center staffing', `<button type="button" onclick="RT.open('fema')">◂ Command Center</button>
       <div class="meta">${esc(inc().structure || 'ICS or ICS-like')} (set on the Incident board). Each position: who holds it now.</div>
       ${Object.entries(struct()).map(([sec, ps]) => `<h3>${esc(sec)}</h3><table class="ics">${ps.map(p => { const x = who(p)
         return `<tr><th>${esc(p)}</th><td>${x ? esc(x.person) + (x.agency ? ' · ' + esc(x.agency) : '') + ' · ' + esc(x.status || 'On duty') : '<span class="meta">vacant</span>'}</td>
@@ -132,11 +132,11 @@ RT.layer('fema', (RT) => {
     const i = inc(), obj = recs('objectives').filter(o => o.status !== 'Dropped' && (+o.opPeriod || opNow()) === opNow())
     const as = recs('assign').filter(a => !['Complete', 'Canceled'].includes(a.status)), rr = recs('rr').filter(r => !['Complete', 'Closed', 'Canceled', 'Rejected'].includes(r.status))
     const rp = reports()
-    sheet('fema', 'EOC', `<div class="meta">${i.name ? esc(i.name) + ' · ' + esc(i.level || '') + ' · ' + esc(i.ictype || '') + ' · op period ' + opNow() : 'No incident yet: set it on the Incident board'}</div>
+    sheet('fema', 'Command Center', `<div class="meta">${i.name ? esc(i.name) + ' · ' + esc(i.level || '') + ' · ' + esc(i.ictype || '') + ' · op period ' + opNow() : 'No incident yet: set it on the Incident board'}</div>
       <div class="llrow">${LL.map(([k, n]) => { const c = call(n), st = c ? c.status || 'Unknown' : worst(rp[k].map(x => x[1]))
         return `<span class="llp" title="${esc(n)}: ${esc(st)}"><span class="lld" style="background:${COLOR[st]}"></span>${esc(n.split(/[ (,]/)[0])}</span>` }).join('')}</div>
       <div class="sens">
-        <button type="button" onclick="RT.open('fema-ll')"><b>Community lifelines</b> <span class="meta">the EOC's call and the reports</span></button>
+        <button type="button" onclick="RT.open('fema-ll')"><b>Community lifelines</b> <span class="meta">the Command Center's call and the reports</span></button>
         <button type="button" onclick="RT.open('fema-orgs')"><b>Organizations</b> <span class="meta">${Object.values(orgs()).reduce((a, by) => a + Object.keys(by).length, 0)} on the network</span></button>
         <button type="button" onclick="RT.open('fema-staff')"><b>Staffing</b> <span class="meta">${recs('staff').filter(s => s.status !== 'Off duty').length} on duty</span></button>
         <button type="button" onclick="RT.open('ics-list','objectives')"><b>Objectives (ICS-202)</b> <span class="meta">${obj.length} this period</span></button>
@@ -146,16 +146,16 @@ RT.layer('fema', (RT) => {
       </div>`)
     RT.sectioned('fema')
   })
-  RT.button('femaBtn', 'EOC', () => RT.open('fema'), 'the EOC function: lifelines, organizations, staffing, objectives, assignments, requests', '#icsBtn')
+  RT.button('femaBtn', 'Command', () => RT.open('fema'), 'the Command Center function: lifelines, organizations, staffing, objectives, assignments, requests', '#icsBtn')
 
   // ------------------------------------------------------------ a Team's or unit's own assignments
   RT.screen('fema-mine', () => {
     const me = cap(S.team), as = recs('assign').filter(a => a.to === me)
-    sheet('fema-mine', 'Assignments: ' + me, `<div class="meta">What the EOC assigned ${esc(me)}. Open one to acknowledge it and report progress.</div>
+    sheet('fema-mine', 'Assignments: ' + me, `<div class="meta">What the Command Center assigned ${esc(me)}. Open one to acknowledge it and report progress.</div>
       <table class="ics"><tr><th>Assignment</th><th>Where</th><th>Op</th><th>Status</th></tr>${as.map(a => `<tr onclick="RT.open('ics-rec','assign','${esc(a.id)}')"><td>${esc(a.work)}</td><td>${esc(a.where || '')}</td><td>${esc(a.opPeriod || '')}</td><td>${esc(a.status || 'Assigned')}</td></tr>`).join('')
       || '<tr><td colspan="4" class="meta">none yet</td></tr>'}</table>`)
   })
-  RT.button('mineBtn', 'Assignments', () => RT.open('fema-mine'), "the EOC's assignments to this team or unit", '#layersBtn')
+  RT.button('mineBtn', 'Assignments', () => RT.open('fema-mine'), "the Command Center's assignments to this team or unit", '#layersBtn')
   RT.hook('connected', () => {
     $('#femaBtn').hidden = !RT.me().overview
     $('#mineBtn').hidden = RT.me().overview || !S.team || !!RT.me().only
@@ -170,7 +170,7 @@ RT.layer('fema', (RT) => {
   RT.on('ics', () => {
     if (RT.me().overview || !S.team) return
     const mine = recs('assign').filter(a => a.to === cap(S.team)).map(a => a.id)
-    if (seen) for (const id of mine) if (!seen.has(id)) status('the EOC assigned ' + cap(S.team) + ': ' + (RT.icsNow('assign', id).work || ''))
+    if (seen) for (const id of mine) if (!seen.has(id)) status('the Command Center assigned ' + cap(S.team) + ': ' + (RT.icsNow('assign', id).work || ''))
     seen = new Set(mine)
   })
 })

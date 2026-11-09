@@ -144,7 +144,7 @@ RT.layer('ics', (RT) => {
   })
   RT.screen('ics-new', (b, prefill) => {
     const d = B[b], r = prefill || {}
-    if (!canWrite(d)) { status('only the EOC sets the ' + d.title.toLowerCase()); return }
+    if (!canWrite(d)) { status('only the Command Center sets the ' + d.title.toLowerCase()); return }
     sheet('ics-new', 'New: ' + d.title, `<button type="button" onclick="RT.open('ics-list','${b}')">◂ ${esc(d.title)}</button>
       <form class="icsform">${d.fields.map(f => { const t = typeof f[2] === 'function' ? f[2]() : f[2]
         return field(Array.isArray(t) && r[f[0]] === undefined ? [f[0], f[1], [''].concat(t), f[3]] : [f[0], f[1], t, f[3]], r[f[0]]) }).join('')}${d.status ? field(['status', 'Status', d.status], r.status) : ''}
@@ -203,7 +203,7 @@ RT.layer('ics', (RT) => {
       }
     }
   })
-  RT.button('icsBtn', 'Boards', () => RT.open('ics'), 'the EOC boards: incident, activity log, resource requests, sitreps, shelters, roads, damage, logs', '#layersBtn')
+  RT.button('icsBtn', 'Boards', () => RT.open('ics'), 'the Command Center boards: incident, activity log, resource requests, sitreps, shelters, roads, damage, logs', '#layersBtn')
   RT.hook('connected', () => { $('#icsBtn').hidden = !!RT.me().only })
   // the incident's name and level on the status line
   RT.on('ics', () => { const i = now('incident', 'incident'); if (i.incName) $('#mission').textContent = i.incName + (i.level ? ' · ' + i.level.split(':')[0] : '') })

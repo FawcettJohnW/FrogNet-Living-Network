@@ -33,7 +33,7 @@ manifest's `LAYERS`; Windows: `--layers=` on the launcher, the zip carries those
 | app | layers |
 | --- | --- |
 | OpenEOC (every view; Windows client, Android `app`) | help, field, eoc, team, medical, units, public |
-| OpenEOC EOC (`eoc`, `OpenEOC-EOC.cmd`) | help, field, eoc, medical |
+| OpenEOC Command Center (`eoc`, `OpenEOC-CommandCenter.cmd`) | help, field, eoc, medical, ics, fema |
 | OpenEOC Team (`team`) | help, field, team |
 | OpenEOC Public (`public`) | help, public |
 | OpenEOC Hospital (`hospital`) | help, medical |
@@ -46,6 +46,26 @@ role's `act`/`req`, or `RT.button`). **A new view**: `RT.role(...)` in a layer's
 `--lock=` and `--layers=`. **The admin app**: a layer's own panel is `ui-admin/layers/<name>.js` calling
 `RTA.panel(title, fn)` (none yet). Gates: `test/test_app.py` (32 checks; the Team and Public apps run with their own
 layers only), `test/test_team_host.py`, `android/typecheck.sh`.
+
+## r67 / admin r20: the EOC is the Command Center ([COMMAND_CENTER_V1], door dc-door-2026-11-09-cc1)
+
+John 2026-11-09: "the thing we are calling the EOC is really the Command Center. Rename it across the board so it shows up correctly."
+
+Renamed, everywhere the view shows (the logged-in `eoc` view):
+- its name, title and window title: OpenEOC Command Center;
+- its map kind, its people in the To list, and its header button (**Command**, the FEMA function's screen);
+- the boards' and the lifelines' wording, and the public's "Report to the Command Center";
+- the admin tool's "Command Center users", and the EOC category as it is shown;
+- the core's, the phone's and the door's messages;
+- the Android EOC app's label: OpenEOC Command Center;
+- the Windows zip and launcher: `OpenEOC-CommandCenter-windows-x64-<build>.zip`, `OpenEOC-CommandCenter.cmd`.
+
+Not renamed:
+- the view's id `eoc`, the Android module `eoc` and its application id, so the installed app updates in place;
+- the admin's category value `EOC`, which the configuration on the nodes holds;
+- the code's names (`EOC_*` tags);
+- EOCAdmin;
+- FEMA/NIMS terms: EOC Director, EOC Management, EOC structure, EOC activation level, EOC position.
 
 ## r66: the lead is asked at start; the hotspot is seen ([LEAD_STARTS_ASKED_V1], [HOTSPOT_SEEN_V1])
 

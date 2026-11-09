@@ -5,12 +5,12 @@
 // Its acks and overview: the service requests it acknowledges (field), everything under way (other layers' sections).
 'use strict'
 RT.layer('eoc', (RT) => {
-  RT.role('eoc', { label: 'EOC', title: 'OpenEOC EOC', field: 'login', who: () => 'EOC', kinds: 'all', teams: 'all',
+  RT.role('eoc', { label: 'Command Center', title: 'OpenEOC Command Center', field: 'login', who: () => 'Command Center', kinds: 'all', teams: 'all',
                    log: true, acks: true, overview: true, act: ['Actions', 'field'], req: ['Requests', 'requests'],
                    connected() { send({ op: 'compliance' }) } })
 
   // the reports to the EOC, on its Requests; a notice when one comes in
-  RT.section('requests', () => RT.me().overview ? `<h3>Reports to the EOC (${Object.keys(S.reports || {}).length})</h3>` +
+  RT.section('requests', () => RT.me().overview ? `<h3>Reports to the Command Center (${Object.keys(S.reports || {}).length})</h3>` +
     (Object.values(S.reports || {}).sort((a, b) => (b.at || 0) - (a.at || 0)).map(r => `<div class="card"><b>${esc(r.category)}</b> from ${esc(r.name)}
       <div class="meta">${r.at ? new Date(r.at * 1000).toLocaleTimeString() : ''}${typeof r.lat === 'number' ? ` · <a href="#" onclick="showOnMap(${r.lat},${r.lng});return false">map</a>` : ''}</div><div>${esc(r.text)}</div></div>`).join('') || '<div class="meta">none</div>') : '', 'bottom')
   let reportsSeen = -1
@@ -59,7 +59,7 @@ RT.layer('eoc', (RT) => {
       <h3>Leads</h3>${ls === null ? '<div class="meta">asking the node…</div>' : `<table class="ics"><tr><th>Lead</th><th>Roles</th><th>Team</th><th></th></tr>
       ${Object.entries(ls).sort().map(([n, l]) => `<tr><td><b>${esc(n)}</b></td><td>${esc((l.roles || ['*']).join(', '))}</td><td>${l.team ? esc(l.team) + (l.kind ? ' <span class="meta">(' + esc(l.kind) + ')</span>' : '') : '<span class="meta">not created yet</span>'}</td>
         <td><button type="button" onclick="RT.open('leads','${esc(n)}')">QR</button> <button type="button" onclick="send({op:'leadRemove',lead:'${esc(n)}'})">Remove</button></td></tr>`).join('') || '<tr><td colspan="4" class="meta">none yet</td></tr>'}</table>`}
-      ${qr ? `<div class="card leadqr"><b>${esc(qr)}</b> scans this on the EOC's Wi-Fi, names the team, gives their password, and creates it.<div class="qrbox">${FrogQR.svg(FrogQR.enrollLine(doorUrl(), 'openeoc', qr), { px: 300 })}</div>
+      ${qr ? `<div class="card leadqr"><b>${esc(qr)}</b> scans this on the Command Center's Wi-Fi, names the team, gives their password, and creates it.<div class="qrbox">${FrogQR.svg(FrogQR.enrollLine(doorUrl(), 'openeoc', qr), { px: 300 })}</div>
         <div class="meta">${esc(doorUrl())} · the password is not in the code</div></div>` : ''}`)
     if (was) { const f = document.querySelector('#sheet .leadform'); for (const k in keep) f[k].value = keep[k] }
     document.querySelector('#sheet .leadform').onsubmit = (e) => {

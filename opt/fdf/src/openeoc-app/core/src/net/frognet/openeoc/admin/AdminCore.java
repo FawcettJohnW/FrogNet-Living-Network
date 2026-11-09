@@ -51,7 +51,7 @@ import java.util.Map;
  */
 public final class AdminCore {
     public interface Ui { void deliver(String json); }
-    public static final String BUILD = "openeoc-admin-2026-11-09-r19";
+    public static final String BUILD = "openeoc-admin-2026-11-09-r20";
 
     private final Ui ui;
     private volatile String door = "", app = "", user = "";

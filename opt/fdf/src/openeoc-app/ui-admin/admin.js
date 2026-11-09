@@ -59,6 +59,8 @@ window.rtDeliver = function (line) {
 //   an EOC user: a user of the EOC's role (the role in category EOC; made, as "eoc", with the first EOC user).
 // Gone from here: categories, the groups in them and their user lists, and the EOC's one teams password ("join").
 const EOC_CAT = 'EOC'
+// [COMMAND_CENTER_V1] the category's name in the configuration stays EOC; on the screen it is the Command Center
+const catName = (c) => c === EOC_CAT ? 'Command Center' : c
 function fromCurrent(c) {
   const rams = new Set(c.rams || [])
   const roles = {}
@@ -105,7 +107,7 @@ function groups(m) {
     if (g) (inGroup[g] = inGroup[g] || []).push(tag); else others.push(tag + (w.team || w.unit ? ` <span class="mu">(says ${esc(w.team || w.unit)}: no such group)</span>` : ''))
   }
   const leads = {}; for (const [u, x] of Object.entries(c.users || {})) if ((x || {}).lead) (leads[x.role] = leads[x.role] || []).push(u)
-  const catSay = (x) => (x || {}).category || 'its app\'s, at its claim'
+  const catSay = (x) => catName((x || {}).category) || 'its app\'s, at its claim'
   const rows = Object.entries(c.roles || {}).sort((a, b) => catSay(a[1]).localeCompare(catSay(b[1])) || a[0].localeCompare(b[0]))
   $('#groups').innerHTML = rows.map(([r, x]) => {
     const p = places[r] || {}, own = rams.has(r)
@@ -116,7 +118,7 @@ function groups(m) {
     return `<tr><td><b>${esc(r)}</b></td><td>${esc(catSay(x))}</td><td>${lives}</td><td>${at}</td><td>${esc((leads[r] || []).join(', ')) || '<span class="mu">none</span>'}</td>
       <td>${(inGroup[r] || []).join('<br>') || '<span class="mu">nobody</span>'}</td></tr>`
   }).join('') + Object.entries(kidOf).filter(([k]) => (c.roles || {})[k] === undefined).sort().map(([k, x]) =>
-    `<tr><td><b>${esc(x.name)}</b> <span class="mu">joined</span></td><td>Teams</td><td>on its lead's phone <span class="mu">joined the EOC ${x.at ? esc(new Date(x.at * 1000).toLocaleString()) : ''}${x.from ? ' from ' + esc(x.from) : ''}</span></td>
+    `<tr><td><b>${esc(x.name)}</b> <span class="mu">joined</span></td><td>Teams</td><td>on its lead's phone <span class="mu">joined the Command Center ${x.at ? esc(new Date(x.at * 1000).toLocaleString()) : ''}${x.from ? ' from ' + esc(x.from) : ''}</span></td>
       <td><span class="mu">its lead's phone</span></td><td>${esc(x.name)} <span class="mu">(by the old teams password)</span></td><td>${(inGroup[k] || []).join('<br>') || '<span class="mu">nobody</span>'}</td></tr>`).join('')
     || '<tr><td colspan="6" class="mu">no groups</td></tr>'
   tree(c, kidOf, leads, devsIn, devsOut)
@@ -133,7 +135,7 @@ function tree(c, kidOf, leads, devsIn, devsOut) {
   const cats = {}, catOf = (x) => (x || {}).category || 'Not claimed yet'
   for (const [r, x] of Object.entries(c.roles || {})) (cats[catOf(x)] = cats[catOf(x)] || []).push([r, r, 'group', (leads[r] || []).join(', ')])
   for (const [k, x] of Object.entries(kidOf)) if ((c.roles || {})[k] === undefined) (cats.Teams = cats.Teams || []).push([k, x.name, (x.kind || 'team') + ', joined', x.name])
-  const body = Object.keys(cats).sort().map(cat => `<li><b>${esc(cat)}</b><ul>` + cats[cat].sort((a, b) => a[1].localeCompare(b[1])).map(([k, name, kind, lead]) => {
+  const body = Object.keys(cats).sort().map(cat => `<li><b>${esc(catName(cat))}</b><ul>` + cats[cat].sort((a, b) => a[1].localeCompare(b[1])).map(([k, name, kind, lead]) => {
     const ds = devsIn[k] || []
     return `<li><b>${esc(name)}</b> <span class="mu">${esc(kind)} · lead ${esc(lead || 'none')} · ${ds.length} on now</span>${ds.length ? '<ul>' + ds.map(dev).join('') + '</ul>' : ''}</li>`
   }).join('') + '</ul></li>').join('')
@@ -150,7 +152,7 @@ function draw() {
     const isN = !(A.cur.roles || {})[r]
     return `<tr><td><b>${esc(r)}</b>${isN ? '<span class="pill">new</span>' : ''}${login && login !== r ? ` <span class="mu">login ${esc(login)}</span>` : ''}
         ${also.length ? `<div class="mu also">also signed in by ${also.map(u => `${esc(u)} <button type="button" class="x" data-del-user="${esc(u)}" title="remove ${esc(u)}">✕</button>`).join(' ')}</div>` : ''}</td>
-      <td>${x.cat ? esc(x.cat) : '<span class="mu">its app\'s, when it is claimed</span>'}</td>
+      <td>${x.cat ? esc(catName(x.cat)) : '<span class="mu">its app\'s, when it is claimed</span>'}</td>
       <td>${login ? `<input type="password" data-pw="${esc(login)}" value="${esc(A.pw[login] || '')}" placeholder="${isNew(login) ? 'required' : 'keep'}" autocomplete="new-password">`
                   : `<input type="password" data-tpw="${esc(r)}" placeholder="give it a password: it has no login" autocomplete="new-password">`}</td>
       <td class="c"><button type="button" data-qr="${esc(login)}" ${!login || isNew(login) ? 'disabled title="apply first"' : ''}>QR</button></td>
@@ -160,7 +162,7 @@ function draw() {
   $('#eocUsers').innerHTML = eu.map(u => `<tr><td><b>${esc(u)}</b>${isNew(u) ? '<span class="pill">new</span>' : ''}</td>
       <td><input type="password" data-pw="${esc(u)}" value="${esc(A.pw[u] || '')}" placeholder="${isNew(u) ? 'required' : 'keep'}" autocomplete="new-password"></td>
       <td class="c"><button type="button" data-qr="${esc(u)}" ${isNew(u) ? 'disabled title="apply first"' : ''}>QR</button></td>
-      <td class="c"><button type="button" class="x" data-del-user="${esc(u)}" title="remove ${esc(u)}">✕</button></td></tr>`).join('') || '<tr><td colspan="4" class="mu">no EOC users yet</td></tr>'
+      <td class="c"><button type="button" class="x" data-del-user="${esc(u)}" title="remove ${esc(u)}">✕</button></td></tr>`).join('') || '<tr><td colspan="4" class="mu">no Command Center users yet</td></tr>'
   $('#login').checked = e.login; $('#pRel').checked = e.partition === 'relocate'; $('#pFail').checked = e.partition === 'fail'
   $('#sel').innerHTML = Object.entries(e.sel).map(([r, s]) => `<tr><td><b>${esc(r)}</b></td>
     <td><input type="text" data-sel="${esc(r)}" data-k="need" value="${esc(s.need)}" placeholder="e.g. mysql_running"></td>
@@ -173,16 +175,16 @@ function changes() {
   const a = toConfig(fromCurrent(A.cur)), b = toConfig(A.edit), out = []
   const eocA = new Set(Object.keys(a.roles).filter(r => a.roles[r].category === EOC_CAT)), eocB = new Set(Object.keys(b.roles).filter(r => b.roles[r].category === EOC_CAT))
   for (const r of Object.keys(b.roles)) if (!a.roles[r] && !eocB.has(r)) out.push('Team ' + r)
-  for (const r of Object.keys(a.roles)) if (!b.roles[r]) out.push((eocA.has(r) ? 'no EOC role ' : 'no Team ') + r)
+  for (const r of Object.keys(a.roles)) if (!b.roles[r]) out.push((eocA.has(r) ? 'no Command Center role ' : 'no Team ') + r)
   for (const r of Object.keys(b.roles)) if (a.roles[r] && a.roles[r].default !== b.roles[r].default) out.push(r + (b.roles[r].default ? ' with no login' : ' at login only'))
-  if ((A.cur || {}).join) out.push("no EOC teams password (each Team has its own)")   // [TEAMS_AUTHORIZED_V1] the old shared one goes at the next Apply
+  if ((A.cur || {}).join) out.push("no Command Center teams password (each Team has its own)")   // [TEAMS_AUTHORIZED_V1] the old shared one goes at the next Apply
   const ar = new Set(a.rams), br = new Set(b.rams)
   for (const r of br) if (!ar.has(r) && !(b.roles[r] && !a.roles[r])) out.push('RAM ' + r)
   for (const r of ar) if (!br.has(r) && !(a.roles[r] && !b.roles[r])) out.push('no RAM ' + r)
-  for (const u of Object.keys(b.users)) if (!a.users[u]) { if (!(b.users[u].role === u && !a.roles[u])) out.push((eocB.has(b.users[u].role) ? 'EOC user ' : 'user ') + u) }
+  for (const u of Object.keys(b.users)) if (!a.users[u]) { if (!(b.users[u].role === u && !a.roles[u])) out.push((eocB.has(b.users[u].role) ? 'Command Center user ' : 'user ') + u) }
     else if (a.users[u].role !== b.users[u].role) out.push(u + ' → ' + b.users[u].role)
   for (const u of Object.keys(b.users)) if (a.users[u] && !!a.users[u].lead !== !!b.users[u].lead) out.push(u + (b.users[u].lead ? ' leads ' : ' no longer leads ') + b.users[u].role)
-  for (const u of Object.keys(a.users)) if (!b.users[u] && b.roles[a.users[u].role]) out.push('remove ' + (eocA.has(a.users[u].role) ? 'EOC user ' : 'user ') + u)
+  for (const u of Object.keys(a.users)) if (!b.users[u] && b.roles[a.users[u].role]) out.push('remove ' + (eocA.has(a.users[u].role) ? 'Command Center user ' : 'user ') + u)
   for (const u of Object.keys(A.pw)) if (A.pw[u] && a.users[u]) out.push('new password for ' + u)
   if (a.login !== b.login) out.push(b.login ? 'login required' : 'login not required')
   if (a.partition !== b.partition) out.push('partition: ' + b.partition)
@@ -242,7 +244,7 @@ $('#addEoc').onclick = () => {
   if (e.roles[u.toLowerCase()] && !eocRoles(e).includes(u.toLowerCase())) return say(u + ' is a Team: give the user another name')
   if (!pw) return say(u + ': give its password')
   let er = eocRoles(e)[0]
-  if (!er) { er = 'eoc'; if (e.roles[er]) return say('there is a Team named eoc: the EOC role cannot be made'); e.roles[er] = { team: false, def: false, cat: EOC_CAT } }
+  if (!er) { er = 'eoc'; if (e.roles[er]) return say('there is a Team named eoc: the Command Center role cannot be made'); e.roles[er] = { team: false, def: false, cat: EOC_CAT } }
   e.users[u] = { role: er, lead: false }; A.pw[u] = pw
   $('#newEoc').value = ''; $('#newEocPw').value = ''; say(''); draw()
 }
@@ -292,7 +294,7 @@ function showQr(u) {
     const x = (A.cur.users || {})[u] || {}      // [TEAMS_AUTHORIZED_V1] a Team's: its lead's device scans it and gives the Team's password
     // [EOC_USER_QR_V1] an EOC user's: the EOC app (or EOCAdmin) scans it, the user filled in, and gives the user's password
     $('#qrWho').textContent = (x.lead ? 'Team ' + x.role + ' · its lead scans this and gives the Team\'s password'
-      : eocRoles(A.edit).includes(x.role) ? u + ' · EOC user · the EOC app scans this and gives ' + u + "'s password" : u + ' · ' + x.role) + ' · ' + url
+      : eocRoles(A.edit).includes(x.role) ? u + ' · Command Center user · the Command Center app scans this and gives ' + u + "'s password" : u + ' · ' + x.role) + ' · ' + url
   }
   $('#qrDoor').oninput = draw; draw(); $('#qr').hidden = false
 }

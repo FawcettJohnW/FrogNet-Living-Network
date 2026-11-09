@@ -49,7 +49,7 @@ public final class AppCore {
 
     public static final String APP = "openeoc";
     public static final String API = "/FawcettInnovations.RINA.ram_interface.php";
-    public static final String BUILD = "openeoc-app-2026-11-09-r66";
+    public static final String BUILD = "openeoc-app-2026-11-09-r67";
 
     private final Ui ui;
     private String door = "", dev = "", name = "", role = "", team = "", user = "", mission = "";
@@ -186,7 +186,7 @@ public final class AppCore {
     }
     private boolean eocLoggedIn() { return !user.isEmpty() && !eocPassword.isEmpty(); }
     private void leadAdd(Map<String, Object> m) throws Exception {
-        if (!eocLoggedIn()) throw new Exception("only the EOC, logged in, adds leads");
+        if (!eocLoggedIn()) throw new Exception("only the Command Center, logged in, adds leads");
         String lead = Json.str(m.get("lead")).trim(), pw = Json.str(m.get("password"));
         if (!lead.matches("[A-Za-z0-9][A-Za-z0-9._-]{0,39}")) throw new Exception("a lead's name: letters, digits, . _ - (at most 40)");
         if (pw.length() < 4) throw new Exception("a password of at least 4 characters for " + lead);
@@ -195,11 +195,11 @@ public final class AppCore {
         if (roles.isEmpty()) throw new Exception("the roles " + lead + " can run: * for all, or a list");
         doorCall("op=lead&app=" + APP, Json.write(Json.o("user", user, "password", eocPassword, "lead", lead, "roles", roles,
                 "verifier", net.frognet.ram.Enroll.verifier(pw))));
-        say("lead " + lead + " added (" + roles + "): " + lead + " scans the EOC's QR, names the team, and creates it");
+        say("lead " + lead + " added (" + roles + "): " + lead + " scans the Command Center's QR, names the team, and creates it");
         leads();
     }
     private void leadRemove(String lead) throws Exception {
-        if (!eocLoggedIn()) throw new Exception("only the EOC, logged in, removes leads");
+        if (!eocLoggedIn()) throw new Exception("only the Command Center, logged in, removes leads");
         doorCall("op=lead&app=" + APP, Json.write(Json.o("user", user, "password", eocPassword, "lead", lead, "remove", true)));
         say("lead " + lead + " removed"); leads();
     }
@@ -310,7 +310,7 @@ public final class AppCore {
                 // [FEMA_EOC_V1] EOCAdmin is an EOC user's: a role in the EOC category opens it
                 if (!(c.equals(want) || one.equals(want) || (want.equals("eocadmin") && one.equals("eoc"))))
                     throw new Exception("user " + user + " has role '" + r + "' (category " + (cat.isEmpty() ? "unknown: " + why : cat) + "), not the "
-                            + (want.equals("eoc") ? "EOC" : want.equals("eocadmin") ? "EOCAdmin" : want) + "'s: in the admin app, put " + r + " in the " + (want.equals("eoc") || want.equals("eocadmin") ? "EOC" : cap(want)) + " category (" + BUILD + ")");
+                            + (want.equals("eoc") ? "Command Center" : want.equals("eocadmin") ? "EOCAdmin" : want) + "'s: in the admin app, put " + r + " in the " + (want.equals("eoc") || want.equals("eocadmin") ? "EOC" : cap(want)) + " category (" + BUILD + ")");   // the admin's category is named EOC
             }
             role = want;                                    // the admin's role name in any case ([RT_EOC_APP_V1])
             team = "";
@@ -418,7 +418,7 @@ public final class AppCore {
             Map<String, Object> c = h.family("host").get(mine);
             if (c == null || !hostAddr.equals(Json.str(c.get("ram"))) || !dev.equals(Json.str(c.get("dev"))))
                 if (h.write("host", mine, Json.o("team", cap(team), "ram", hostAddr, "dev", dev, "name", name, "at", System.currentTimeMillis() / 1000), true))
-                    say("[TEAM_HOST_V1] team " + cap(team) + "'s RAM is on this phone: the EOC reaches it at " + hostAddr);
+                    say("[TEAM_HOST_V1] team " + cap(team) + "'s RAM is on this phone: the Command Center reaches it at " + hostAddr);
         }
         synchronized (this) {
             Map<String, String> now = withTeamRams(doorRams);
@@ -439,7 +439,7 @@ public final class AppCore {
         Map<String, Object> c = Json.obj(m.get("card"));
         card = Json.o("team", cap(team), "door", Json.str(c.get("door")).isEmpty() ? door : Json.str(c.get("door")), "join", Json.str(c.get("join")),
                       "via", Json.str(c.get("via")), "lead", name, "at", System.currentTimeMillis() / 1000);
-        say("[TEAM_HOST_V1] hosting team " + cap(team) + "'s RAM on this phone (" + hosting + ")" + (hostAddr.isEmpty() ? "; the EOC is not told where (no address on the network yet)" : "; the EOC is told " + hostAddr));
+        say("[TEAM_HOST_V1] hosting team " + cap(team) + "'s RAM on this phone (" + hosting + ")" + (hostAddr.isEmpty() ? "; the Command Center is not told where (no address on the network yet)" : "; the Command Center is told " + hostAddr));
         place(m, "here");
         onHosts();
         TeamStore f = teams.get(team.toLowerCase()); if (f != null) onTeam(team.toLowerCase());
@@ -507,7 +507,7 @@ public final class AppCore {
             if (mis.up() && !standingAsked) {
                 standingAsked = true;
                 if (mis.write("settings", "standing", Json.o("name", "Standing operations", "event", "Standing operations", "opPeriod", 1, "at", -1, "by", "OpenEOC (no mission started)"), false))
-                    say("no mission had been started on this network: Standing operations is the mission until the EOC starts one");
+                    say("no mission had been started on this network: Standing operations is the mission until the Command Center starts one");
                 else out("ev", "error", "text", "no mission on this network, and the standing mission could not be written (no session to the general RAM)");
             }
             return;

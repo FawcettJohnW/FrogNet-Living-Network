@@ -56,7 +56,7 @@ final class Member {
     static String invited(Context c) {
         try {
             Identity id = new Identity(c); Invite iv = id.getInvite(); JoinLine jl = id.getJoin();
-            return iv != null ? iv.getName() + " in " + iv.getArea() : jl != null ? "the EOC " + jl.getOrg() + " (level " + jl.getLevel() + ")" : "";
+            return iv != null ? iv.getName() + " in " + iv.getArea() : jl != null ? "the Command Center " + jl.getOrg() + " (level " + jl.getLevel() + ")" : "";
         } catch (RuntimeException e) { return ""; }
     }
     /** the join line kept, for a team lead's card ("" : none) */

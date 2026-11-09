@@ -302,7 +302,7 @@ with sync_playwright() as pw:
           "31 the Public app (layers " + pl + "): no view to choose (titled OpenEOC Public), opens on its home; Back from the map goes Home; a page error is said on the status line: '%s'" % err[:80])
     if SHOTS: pa.screenshot(path=os.path.join(SHOTS, "public-app-phone.png"))
     pk = dict(PICKED)
-    check(set(pk) == {"eoc1", "alpha9", "pub1", "hosp1", "med12"} and any(t.startswith("OpenEOC EOC") for t in pk["eoc1"]) and len(pk["eoc1"]) >= 5,
+    check(set(pk) == {"eoc1", "alpha9", "pub1", "hosp1", "med12"} and any(t.startswith("OpenEOC Command Center") for t in pk["eoc1"]) and len(pk["eoc1"]) >= 5,
           "33 [RT_APP_PICKER_V1] the OpenEOC app asks which app first (%s); the Team and Public apps do not: asked on %s" % (pk.get("eoc1"), sorted(pk)))
     # [RT_DIAG_V1] the team member's Diagnostics: its followers up, its position written and in the positions RAM, its message back
     tm.evaluate("$('#sheet').hidden=true"); tm.click("#diagBtn"); tm.wait_for_function("/Where this device reads/.test($('#sheet').textContent) && /Last message/.test($('#sheet').textContent)", timeout=8000)

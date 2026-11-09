@@ -106,7 +106,7 @@ try:
         pg.fill(".leadform [name=lead]", "zed"); pg.fill(".leadform [name=password]", "zed-2026"); pg.fill(".leadform [name=roles]", "team, plumber"); pg.click(".leadform .go")
         check("not a role: plumber" in pg.inner_text("#status"), "3 a role that is not one is refused on the screen: " + pg.inner_text("#status"))
         nk = door("op=lead&app=openeoc", {"user": "kim", "password": "kim-2026", "lead": "eve", "roles": ["*"], "verifier": {"salt": "00" * 16, "n": 200000, "hash": "0" * 64}})
-        check("not an EOC user" in str(nk.get("why")), "4 a team's user (kim) cannot add a lead at the door: " + str(nk.get("why")))
+        check("not a Command Center user" in str(nk.get("why")), "4 a team's user (kim) cannot add a lead at the door: " + str(nk.get("why")))
 
         # the lead's phone: the EOC's QR, scanned: the name filled in, the team's name blank
         tm = br.new_page(viewport={"width": 412, "height": 860}); tm.on("pageerror", lambda e: errs.append("team: " + str(e)))

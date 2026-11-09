@@ -49,7 +49,7 @@
 // the network, typed by nobody. A device this node gave no lease has none here, and is told so.
 header('Content-Type: application/json');
 // [DOOR_SAYS_ITS_BUILD_V1] every answer says which door answered: the header, and "door" in the admin and roles answers
-const DOOR_BUILD = 'dc-door-2026-11-09-sysram1';   // [ROLES_ON_API_V1] [EOC_LEADS_V1] [TEAM_ON_SYSTEMRAM_V1]
+const DOOR_BUILD = 'dc-door-2026-11-09-cc1';   // [COMMAND_CENTER_V1] the EOC is the Command Center in what it says   // [ROLES_ON_API_V1] [EOC_LEADS_V1] [TEAM_ON_SYSTEMRAM_V1]
 // [SENSORS_BY_THE_DOOR_V1] the sensor store (api.php on databasehost.frognet) by the address this node's /etc/hosts gives
 // it: an app through the tunnel has no .frognet names (the phone's DNS is its carrier's), the address routes
 function door_sensors() {
@@ -302,7 +302,7 @@ function team_of_lead($app, $lead) {
 function eoc_user($app, $in) {
     $cfg = app_cfg($app); $u = check_user($app, $in);
     $r = (string)($u['role'] ?? ''); $c = strtolower((string)(($cfg['roles'][$r] ?? [])['category'] ?? ''));
-    if (strtolower($r) !== 'eoc' && $c !== 'eoc') fail(403, 'user ' . ($in['user'] ?? '') . " has role $r, not an EOC user's: only the EOC adds users");
+    if (strtolower($r) !== 'eoc' && $c !== 'eoc') fail(403, 'user ' . ($in['user'] ?? '') . " has role $r, not a Command Center user's: only the Command Center adds users");
     return $u;
 }
 function child_ok($name) { return is_string($name) && preg_match('/^[A-Za-z0-9][A-Za-z0-9 ._-]{0,39}$/', $name) && $name !== 'general'; }
@@ -314,7 +314,7 @@ function check_user($app, $in) {
     if (is_array($ld)) {
         if (!verified($ld['verifier'] ?? null, $in['password'] ?? '')) fail(403, "that user and password are not this app's");
         $t = team_of_lead($app, $user);
-        if ($t === '') fail(403, "user $user has not created a team yet: scan the EOC's QR for $user and name the team");
+        if ($t === '') fail(403, "user $user has not created a team yet: scan the Command Center's QR for $user and name the team");
         return ['role' => $t, 'lead' => true, 'child' => true];
     }
     // [CHILDREN_JOIN_V1] a child the app's join password made: its lead is whoever has that password and the child's name
@@ -539,7 +539,7 @@ if ($op === 'read') {
         $bag = ['name' => $ld, 'verifier' => ['salt' => (string)$v['salt'], 'n' => intval($v['n']), 'hash' => (string)$v['hash']], 'roles' => $roles, 'by' => (string)$in['user'], 'at' => time()];
     }
     role_write(ctl_host(), 'fdf-app', 'lead', $app . '.' . $ld, $bag);
-    error_log('dc ram.php: [EOC_LEADS_V1] ' . $app . ': user ' . $ld . (empty($in['remove']) ? ' added' : ' removed') . ' by the EOC user ' . $in['user']);
+    error_log('dc ram.php: [EOC_LEADS_V1] ' . $app . ': user ' . $ld . (empty($in['remove']) ? ' added' : ' removed') . ' by the Command Center user ' . $in['user']);
     echo json_encode(['ok' => true, 'lead' => $ld, 'removed' => !empty($in['remove']), 'door' => DOOR_BUILD]);
 } elseif ($op === 'leads') {
     // [EOC_LEADS_V1] the users the EOC added and the team each created: names only, never a verifier
@@ -590,7 +590,7 @@ if ($op === 'read') {
         if (!child_ok($team)) fail(400, "a team's name: letters, digits, space . _ -, at most 40 (not general)");
         $kind = preg_replace('/[^a-z0-9_-]/', '', strtolower((string)($in['kind'] ?? 'team'))) ?: 'team';
         $can = $ld['roles'] ?? ['*'];
-        if (!in_array('*', $can, true) && !in_array($kind, $can, true)) fail(403, "$nm can run " . implode(', ', $can) . ", not $kind: the EOC gives a lead its roles (Leads)");
+        if (!in_array('*', $can, true) && !in_array($kind, $can, true)) fail(403, "$nm can run " . implode(', ', $can) . ", not $kind: the Command Center gives a lead its roles (Leads)");
         $kids = children($app); $was = $kids[$team] ?? null;
         if (isset($cfg['users'][$team]) || isset($cfg['roles'][$team])) fail(409, "$team is a group the admin configured: name your team something else");
         if (is_array($was) && (string)($was['lead'] ?? '') !== $nm) fail(409, "team $team is " . ((string)($was['lead'] ?? '') !== '' ? (string)$was['lead'] . "'s" : 'already on the network') . ': there is no replacement; name your team something else');
@@ -605,7 +605,7 @@ if ($op === 'read') {
     }
     if ($op === 'enroll' && $nm !== '' && !isset($cfg['users'][$nm]) && is_array($cfg['join'] ?? null)) {
         if (!child_ok($nm)) fail(400, "a team's name: letters, digits, space . _ -, at most 40 (not general)");
-        if (!verified($cfg['join'], $in['password'] ?? '')) fail(403, "that is not the EOC's teams password");
+        if (!verified($cfg['join'], $in['password'] ?? '')) fail(403, "that is not the Command Center's teams password");
         $kids = children($app);
         if (!isset($kids[$nm])) {
             $b = ['name' => $nm, 'kind' => (string)($in['kind'] ?? 'team') ?: 'team', 'at' => time(), 'from' => $_SERVER['REMOTE_ADDR'] ?? ''];
@@ -641,7 +641,7 @@ if ($op === 'read') {
         // [EOC_LEADS_V1] a lead the EOC added: its team is its role
         if (!verified($ld['verifier'] ?? null, $in['password'] ?? '')) fail(403, "that user and password are not this app's");
         $role = team_of_lead($app, $user);
-        if ($role === '') fail(403, "user $user has not created a team yet: scan the EOC's QR for $user and name the team");
+        if ($role === '') fail(403, "user $user has not created a team yet: scan the Command Center's QR for $user and name the team");
     } elseif ($user !== '' && !isset($cfg['users'][$user]) && isset(children($app)[$user])) {
         // [CHILDREN_JOIN_V1] a team that joined, its lead logging in with the EOC's teams password: the team is its role
         if (!verified($cfg['join'] ?? null, $in['password'] ?? '')) fail(403, "that user and password are not this app's");
@@ -677,7 +677,7 @@ if ($op === 'read') {
         echo json_encode(['ok' => true, 'place' => $bag, 'door' => DOOR_BUILD], JSON_UNESCAPED_SLASHES);
         exit;
     }
-    if (!empty($u['child']) && ($in['at'] ?? '') === 'databasehost') fail(400, "team $role joined the EOC: it lives on its lead's phone (Host team); the SystemRam serves the RAMs the admin configured");
+    if (!empty($u['child']) && ($in['at'] ?? '') === 'databasehost') fail(400, "team $role joined the Command Center: it lives on its lead's phone (Host team); the SystemRam serves the RAMs the admin configured");
     if (empty($u['child']) && !in_array($role, $cfg['rams'] ?? [], true)) fail(400, "group $role has no RAM of its own (the app's RAMs: " . implode(',', $cfg['rams'] ?? []) . ')');
     $at = (string)($in['at'] ?? ''); $guid = (string)($in['guid'] ?? '');
     if ($at !== 'here' && $at !== 'databasehost') fail(400, "at: here (the lead's device, named by its guid), databasehost or systemram");

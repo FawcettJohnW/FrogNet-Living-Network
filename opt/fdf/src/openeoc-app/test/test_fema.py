@@ -110,7 +110,7 @@ try:
     # 3 the EOC's call on Energy
     eoc.click(".card.ll:has-text('Energy') button")
     eoc.select_option(".icsform [name=status]", "Unstable"); eoc.fill(".icsform [name=why]", "Feeder 7 down, 18,400 customers out"); eoc.click(".icsform .go")
-    eoc.wait_for_function("S.sheet==='fema-ll' && document.querySelector('#sheet').innerText.includes('EOC: Unstable')", timeout=10000)
+    eoc.wait_for_function("S.sheet==='fema-ll' && document.querySelector('#sheet').innerText.includes('Command Center: Unstable')", timeout=10000)
     tm.wait_for_function("RT.fema.call('Energy (Power and Fuel)') && RT.fema.call('Energy (Power and Fuel)').status==='Unstable'", timeout=10000)
     check(True, "3 the EOC's call on Energy, Unstable, on the EOC and on Alpha's app")
 
@@ -131,7 +131,7 @@ try:
     eoc.click("#femaBtn"); eoc.click("text=Organizations"); eoc.click(".card:has-text('Alpha') button:has-text('Assign')")
     check(eoc.input_value(".icsform [name=to]") == "Alpha", "5a Assign from Organizations names Alpha: " + eoc.input_value(".icsform [name=to]"))
     eoc.fill(".icsform [name=work]", "Welfare checks, Maple St to Elm St"); eoc.fill(".icsform [name=comms]", "Tac 1, 146.520 simplex"); eoc.click(".icsform .go")
-    tm.wait_for_function("document.querySelector('#status').textContent.includes('the EOC assigned Alpha')", timeout=10000)
+    tm.wait_for_function("document.querySelector('#status').textContent.includes('the Command Center assigned Alpha')", timeout=10000)
     tm.evaluate("RT.open('fema-mine')"); tm.wait_for_selector("#sheet td:has-text('Welfare checks')")
     tm.click("#sheet tr:has-text('Welfare checks')"); tm.select_option(".icsupd [name=status]", "Acknowledged"); tm.fill(".icsupd [name=text]", "on our way"); tm.click(".icsupd .go")
     eoc.wait_for_function("Object.values(S.ics.assign||{}).length===1 && RT.icsNow('assign',Object.keys(S.ics.assign)[0]).status==='Acknowledged'", timeout=10000)

@@ -76,7 +76,7 @@ RT.layer('paper', (RT) => {
       fields: () => head().concat([['ictype', 'Incident complexity', 'text'], ['level', 'EOC activation level', 'text'], ['lifelines', 'Community lifelines', 'area'],
         ['orgs', 'Organizations reporting', 'area'], ['needs', 'Critical resource needs', 'area'], ['events', 'Significant events', 'area'], ['outlook', 'Projected outlook', 'area']], prep),
       fill: () => Object.assign(headV(), prepV(), { ictype: inc().ictype, level: inc().level, lifelines: L(llLines()), orgs: L(orgLines()), needs: L(rrLines()), events: L(sig()) }) },
-    { id: '211', name: 'ICS 211 · Check-In List', purpose: 'Everyone who checked in: EOC staff and the organizations.',
+    { id: '211', name: 'ICS 211 · Check-In List', purpose: 'Everyone who checked in: Command Center staff and the organizations.',
       fields: () => head().concat([['list', 'Checked in (name, agency, position or organization, time)', 'area']], prep),
       fill: () => Object.assign(headV(), prepV(), { list: L(F.recs('staff').filter(s => s.status !== 'Off duty').map(s => `${s.person} · ${s.agency || ''} · ${s.post} · ${at(s.at)}`)
         .concat(F.recs('signin').filter(s => s.status !== 'Signed out').map(s => `${s.person} · ${s.agency || ''} · ${s.post || ''} · ${at(s.at)}`)).concat(orgLines())) }) },
@@ -100,7 +100,7 @@ RT.layer('paper', (RT) => {
     { id: '221', name: 'ICS 221 · Demobilization Check-Out', purpose: 'A resource or person released from the incident.',
       fields: () => [['incident', 'Incident name', 'text'], ['resource', 'Resource or person released', 'text'], ['at', 'Release date / time', 'dt'],
         ['checks', 'Checked out with (supply, communications, documentation, finance)', 'area'], ['remarks', 'Remarks', 'area']], fill: () => ({ incident: inc().name, at: nowLocal() }) },
-    { id: 'sitrep', name: 'Situation Report', purpose: "The EOC's periodic report to the jurisdiction and the state.",
+    { id: 'sitrep', name: 'Situation Report', purpose: "The Command Center's periodic report to the jurisdiction and the state.",
       fields: () => head().concat([['summary', 'Summary', 'area'], ['lifelines', 'Community lifelines', 'area'], ['orgs', 'Organizations', 'area'], ['requests', 'Resource requests outstanding', 'area'],
         ['events', 'Significant events', 'area'], ['next', 'Next report', 'dt']], prep),
       fill: () => Object.assign(headV(), prepV(), { summary: L([`${inc().name || ''}, ${inc().ictype || ''}, ${inc().level || ''}, operational period ${op()}.`, inc().summary]),
