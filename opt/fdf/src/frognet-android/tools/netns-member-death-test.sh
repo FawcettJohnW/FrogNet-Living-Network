@@ -5,7 +5,7 @@
 #   (2) silent death: the member's link goes down (no FIN)                 -> first event on the watcher (keepalive)
 #   (3) silent region: packets from the region dropped at the member        -> the MEMBER says its session ended
 #       (proves the member's own keepalive 5+3x5 s: without it the OS default is 2 h)
-# usage: bash netns-member-death-test.sh <dir with rina-host, fdf-client, fdf-events> <fdf-member-kt launcher>
+# usage: bash netns-member-death-test.sh <dir with fdf-ram, fdf-client, fdf-events> <fdf-member-kt launcher>
 set -u
 B=$1; K=$2; T=$(mktemp -d); API=/FawcettInnovations.RINA.ram_interface.php
 ms() { date +%s%3N; }
@@ -15,7 +15,7 @@ ip link add br-m type bridge && ip link set br-m up
 i=1; for n in hub cpp kt w; do ip netns add $n; ip netns exec $n ip link set lo up
   ip link add v-$n type veth peer name v-$n-b; ip link set v-$n netns $n; ip link set v-$n-b master br-m up
   ip netns exec $n ip addr add 10.77.0.$i/24 dev v-$n; ip netns exec $n ip link set v-$n up; i=$((i+2)); done
-ip netns exec hub env RINA_REGION_FILE=$T/area.perm $B/rina-host --listen 10.77.0.1:8840 --api $API > $T/host.log 2>&1 &
+ip netns exec hub env RINA_REGION_FILE=$T/area.perm $B/fdf-ram --listen 10.77.0.1:8840 --api $API > $T/host.log 2>&1 &
 sleep 1
 echo '{"role":"leaf","name":"cpp-leaf","guid":"cpp-leaf-1","pubkey":"PUBcpp"}' > $T/cpp.json
 echo '{"role":"leaf","name":"kt-leaf","guid":"kt-leaf-1","pubkey":"PUBkt"}' > $T/kt.json
@@ -25,7 +25,7 @@ start() {   # start <ns> <log>: the member of that ns
   for j in $(seq 100); do grep -q "joined the region" $T/$2 2>/dev/null && return 0; sleep 0.1; done; echo "  $1 did not join"; cat $T/$2; return 1; }
 watcher() { ip netns exec w env RINA_RAM=10.77.0.1:8840 $B/fdf-events 2>/dev/null | while IFS= read -r l; do echo "$(ms) $l"; done > $T/$1 &
   for j in $(seq 50); do grep -q ready $T/$1 2>/dev/null && return; sleep 0.1; done; }
-first_event() { for j in $(seq 1200); do l=$(grep -m1 -E " (p|m)$" $T/$1 2>/dev/null); [ -n "$l" ] && { echo $l; return; }; sleep 0.05; done; echo "none"; }
+first_event() { for j in $(seq 1200); do l=$(grep -m1 -P "^[0-9]+ (p|m)(\t|$)" $T/$1 2>/dev/null); [ -n "$l" ] && { echo $l; return; }; sleep 0.05; done; echo "none"; }
 pid_in() { ip netns pids $1 | while read p; do c=$(cat /proc/$p/comm 2>/dev/null); [ "$c" = fdf-client ] || [ "$c" = java ] && echo $p; done | head -1; }
 for who in cpp kt; do
   echo "=== $who"
@@ -33,12 +33,12 @@ for who in cpp kt; do
   start $who c1.$who.log || exit 1; sleep 1; watcher d1.$who.log
   t0=$(ms); kill -9 $(pid_in $who); e=$(first_event d1.$who.log)
   echo "  (1) clean death  -> '$(echo $e | awk '{print $2}')' on the watcher after $(( $(echo $e | awk '{print $1}') - t0 )) ms"
-  pkill -f "fdf-events" 2>/dev/null; sleep 0.5
+  ip netns pids w | xargs -r kill 2>/dev/null; sleep 0.5
   # (2) silent: the member's link down
   start $who c2.$who.log || exit 1; sleep 1; watcher d2.$who.log
   t0=$(ms); ip netns exec $who ip link set v-$who down; e=$(first_event d2.$who.log)
   echo "  (2) silent death -> '$(echo $e | awk '{print $2}')' on the watcher after $(( $(echo $e | awk '{print $1}') - t0 )) ms"
-  pkill -f "fdf-events" 2>/dev/null; ip netns pids $who | xargs -r kill -9; ip netns exec $who ip link set v-$who up; sleep 0.5
+  ip netns pids w | xargs -r kill 2>/dev/null; ip netns pids $who | xargs -r kill -9; ip netns exec $who ip link set v-$who up; sleep 0.5
   # (3) silent region, seen by the member: drop everything from the region at the member
   start $who c3.$who.log || exit 1; sleep 1
   t0=$(ms); ip netns exec $who iptables -A INPUT -s 10.77.0.1 -j DROP

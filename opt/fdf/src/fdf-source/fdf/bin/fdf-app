@@ -1,0 +1,876 @@
+#!/usr/bin/env python3
+################################################################
+#  Copyright (C) 2016-2026 Fawcett Innovations LLC             #
+#                                                              #
+#  SPDX-License-Identifier: GPL-2.0-only                       #
+#                                                              #
+#  This program is free software; you can redistribute it      #
+#  and/or modify it under the terms of the GNU General Public  #
+#  License as published by the Free Software Foundation;       #
+#  version 2 of the License, and no other version.             #
+#                                                              #
+#  This program is distributed in the hope that it will be     #
+#  useful, but WITHOUT ANY WARRANTY; without even the implied  #
+#  warranty of MERCHANTABILITY or FITNESS FOR A PARTICULAR     #
+#  PURPOSE.  See the GNU General Public License for details.   #
+#                                                              #
+#  See COPYRIGHT and LICENSE at the root of this tree.         #
+################################################################
+"""fdf-app -- an app's AppRams on the machines it is installed on (the doc "FrogNet SystemRam, FrogNetHost Admin and
+App Services -- Design", 2026-11-04, sections 5, 7 and 9; opt/fdf/docs/APP-SETUP-AND-OPERATION.md).
+
+Where things are [APP_SERVICES_V1]:
+  databasehost-control (databasehost_control.frognet's RAM host) -- the configuration tuples, and nothing else of an app:
+      (fdf-app, config, <app>)          the app's ONE configuration, owned by its Admin: {config: the text (rams, ports,
+                                        roles, categories, users as verifiers, login, partition, select), seq, mac (HMAC
+                                        under the admin key), user, admin: {user, salt, n, check}, at}. Written by the
+                                        Admin (the first `fdf-app install`, or the admin app through the door); the
+                                        installed machines read it and never write a copy of their own. When
+                                        databasehost-control moves, the merge writes it again ([CONFIG_WRITTEN_AGAIN_BY_THE_MERGE_V1]).
+      (fdf-app, config, <app>.<team>)   a Team's own, owned by its lead (through the door): {at: here|databasehost, guid, seq, user}
+  the SystemRam (databasehost.frognet's RAM host):
+      (fdf-app, can, <app>.<ram>.<guid>) each installed machine's capability for each AppRam it offers, held by this
+                                        program's own session (`ram hold`): gone the moment this service is gone
+      (fdf-app, applied, <app>.<guid>)  this machine's answer to the configuration's seq: adopted, or why not
+  /etc/hosts -- every AppRam is a service; its AppHost is elected (core/app_hosts.py, [APP_HOST_ELECTION_V1]) and
+      every node writes it: <app>Host.frognet for the general AppRam, <team>Host.<app> for a Team's.
+  the port -- each AppRam's own, picked at random between 20000 and 65535 when the service is created, kept in the
+      configuration tuple ("ports"), used by every later instance wherever it runs; a new port in the tuple restarts
+      the service on it.
+
+  fdf-app config APP RAM[,RAM...] [--partition relocate|fail] [--login] [--category NAME]... [--role NAME[:default][@CATEGORY]]...
+                 [--user USER:PASSWORD=ROLE[+lead]]... [--join TEAMS_PASSWORD] [--serve RAM[,RAM]] [--select RAM=KEY[,-KEY]...]... [--need RAM=KEY[,KEY]...]...
+                 [--admin USER:PASSWORD]
+        the app's first installation by its Admin: this machine's copy (FDF_APPS/<app>.json, the admin key kept there
+        only) and the app's one configuration tuple, signed, written into databasehost-control (a port picked for every
+        RAM). --serve: the RAMs this machine offers (default all); --select/--need: the app's selection (fdf_select.py).
+  fdf-app install APP [config's arguments] [--admin USER:PASSWORD]
+        [APP_INSTALL_V1] the one command on a machine's console: the app's one configuration tuple, read from
+        databasehost-control, shown and adopted as it is (changes are the admin app's); none there: the first install
+        (the arguments, or the questions). None named at all (no databasehost_control.frognet): nothing installed.
+  fdf-app where APP RAM
+        host:port of APP's AppRam RAM now: its AppHost (/etc/hosts) and its port (the configuration tuple), or nothing
+  fdf-app serve
+        on each installed machine: hold this machine's capability tuple for every AppRam it offers in the SystemRam;
+        hold a read on the configuration tuples and adopt a newer one (its mac checked against the admin key), answering
+        in (fdf-app, applied); serve each AppRam whose AppHost /etc/hosts names this machine, on its port.
+
+Environment: FDF_HOSTS (/etc/hosts), FDF_LAN_RAM_PORT (8841), RINA_CONTROL_RAM / RINA_SYSTEM_RAM (host:port, for a
+test), FDF_FACTS, FDF_APPS (/opt/fdf/apps), FDF_VAR (/opt/fdf/var), FDF_BIN (/opt/fdf/bin).
+"""
+import hashlib, hmac, json, os, queue, random, signal, socket, subprocess, sys, threading, time
+
+BUILD_TAG = "fdf-app-2026-11-06-r17"
+LIB = os.environ.get("FDF_PY") or os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "lib", "python")
+sys.path.insert(0, LIB)
+import fdfram  # noqa: E402
+import fdf_select  # noqa: E402  [APP_SELECTION_V1]
+import fdf_watch  # noqa: E402  [EVENTS_NOT_TIMERS_V1]
+
+VAR = os.environ.get("FDF_VAR", "/opt/fdf/var")
+APPS = os.environ.get("FDF_APPS", "/opt/fdf/apps")
+BIN = os.environ.get("FDF_BIN", "/opt/fdf/bin")
+FACTS = os.environ.get("FDF_FACTS", os.path.join(VAR, "facts.json"))
+HOSTS = os.environ.get("FDF_HOSTS", "/etc/hosts")
+SVC = "fdf-app"
+PORT_LO, PORT_HI = 20000, 65535
+
+
+def log(m):
+    print("[fdf-app] " + m, flush=True)
+
+
+def ctl_ram():
+    return fdfram.Ram(fdfram.control_ram())
+
+
+def sys_ram():
+    return fdfram.Ram(fdfram.system_ram())
+
+
+def _quiet(f):
+    try:
+        return f()
+    except fdfram.RamError:
+        return ""
+
+
+def facts():
+    with open(FACTS) as f:
+        return json.load(f)
+
+
+def dot1(f):
+    for r in f.get("addrs") or []:
+        if r.get("kind") == "own" and str(r.get("ip", "")).endswith(".1"):
+            return r["ip"]
+    return ""
+
+
+# ---------------------------------------------------------------- access [APP_ACCESS_V1]
+def verifier(pw):
+    """a password as the access definition keeps it: PBKDF2-SHA256, its own salt; never the password"""
+    salt = os.urandom(16)
+    return {"kdf": "pbkdf2-sha256", "n": 200000, "salt": salt.hex(),
+            "hash": hashlib.pbkdf2_hmac("sha256", pw.encode(), salt, 200000).hex()}
+
+
+# [CATEGORIES_V1] (John 2026-11-02) the EOC admin defines, tab by tab, the categories the event uses (Teams, Power, Water,
+# Ambulance, Hospitals ...); within a category, groups that are "the equivalent of a Team, except for the thing they are
+# servicing", with their leads. A group is a role; its category is the tab it is on. A role from a configuration made
+# before categories is in Teams. The order of `categories` is the order of the tabs.
+DEFAULT_CATEGORY = "Teams"
+def category_ok(c):
+    return isinstance(c, str) and 0 < len(c) <= 40 and all(ch.isalnum() or ch in " _-" for ch in c) and c.strip() == c
+
+
+def categorize(roles_in, cats_in):
+    """(roles {name: {default, category}}, categories [ordered]) from what was given: every role's category is one of
+    the categories (a category a role names and the list lacks is added after the listed ones, in role order)"""
+    cats = []
+    for c in cats_in or []:
+        if not category_ok(c):
+            raise ValueError("category %r: letters, digits, space, _ and -, at most 40" % (c,))
+        if c not in cats:
+            cats.append(c)
+    roles = {}
+    for k, v in (roles_in or {}).items():
+        if not (isinstance(k, str) and k and k != "general" and all(ch.isalnum() or ch in "_-" for ch in k)):
+            continue
+        cat = (v or {}).get("category") or DEFAULT_CATEGORY
+        if not category_ok(cat):
+            raise ValueError("role %s: category %r: letters, digits, space, _ and -, at most 40" % (k, cat))
+        if cat not in cats:
+            cats.append(cat)
+        roles[k] = {"default": bool((v or {}).get("default")), "category": cat}
+    return roles, cats
+
+
+def admin_salt(app, user):
+    """[ADMIN_APP_V1] the same on every member, so every member derives the same key from the same line"""
+    return hashlib.sha256(("fdf-app-admin:%s:%s" % (app, user)).encode()).digest()[:16]
+
+
+ADMIN_N = 200000
+
+
+def admin_key(app, user, pw):
+    return hashlib.pbkdf2_hmac("sha256", pw.encode(), admin_salt(app, user), ADMIN_N)
+
+
+def admin_check(key):
+    """what the admin app compares to know its password is this app's admin's: an HMAC of a fixed text"""
+    return hmac.new(key, b"fdf-admin-check", hashlib.sha256).hexdigest()
+
+
+def admin_public(c):
+    """the admin definition as the network RAM may carry it: no key"""
+    a = c.get("admin") or {}
+    if not a.get("key"):
+        return {}
+    return {"user": a.get("user", ""), "salt": a.get("salt", ""), "n": a.get("n", ADMIN_N), "check": a.get("check", "")}
+
+
+
+# ---------------------------------------------------------------- services, names and ports [APP_SERVICES_V1]
+def service_name(app, ram):
+    """the AppRam's service: the app for its general AppRam, the Team for a Team's (core/app_hosts.py the same)"""
+    return app if ram == "general" else ram
+
+
+def host_name(app, ram):
+    return "%sHost.frognet" % app if ram == "general" else "%sHost.%s" % (ram, app)   # a Team's scoped to its app
+
+
+def host_of(name):
+    """the address /etc/hosts names for `name` now, or "" """
+    try:
+        for line in open(HOSTS):
+            p = line.split("#", 1)[0].split()
+            if len(p) >= 2 and name in p[1:]:
+                return p[0]
+    except FileNotFoundError:
+        pass
+    return ""
+
+
+def port_free(port):
+    s = socket.socket()
+    try:
+        s.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+        s.bind(("0.0.0.0", port))
+        return True
+    except OSError:
+        return False
+    finally:
+        s.close()
+
+
+def used_ports(rm=None):
+    """every port a service already has: this machine's configurations, and databasehost-control's when it answers"""
+    used = set()
+    for c in installed().values():
+        used |= {int(p) for p in (c.get("ports") or {}).values()}
+    if rm is not None:
+        try:
+            for x in rm.read(SVC, "config"):
+                cfg = parse_text((x.get("bag") or {}).get("config"))
+                used |= {int(p) for p in ((cfg or {}).get("ports") or {}).values() if isinstance(p, int)}
+        except fdfram.RamError:
+            pass
+    return used
+
+
+def pick_port(used):
+    """a port for a new service: random in 20000..65535, not one another service has, not in use here"""
+    while True:
+        p = random.randint(PORT_LO, PORT_HI)
+        if p not in used and port_free(p):
+            used.add(p)
+            return p
+
+
+def installed():
+    """{app: this machine's copy of its configuration} for every app installed here"""
+    out = {}
+    try:
+        for n in sorted(os.listdir(APPS)):
+            if n.endswith(".json"):
+                with open(os.path.join(APPS, n)) as f:
+                    out[n[:-5]] = json.load(f)
+    except FileNotFoundError:
+        pass
+    return out
+
+
+def save_installed(app, cfg):
+    """this machine's own copy of APP's configuration, FDF_APPS/<app>.json (0600: it holds the admin key); the copy the
+    merge writes again into a new databasehost-control (its "signed" tuple, its "places_signed")"""
+    os.makedirs(APPS, exist_ok=True)
+    p = os.path.join(APPS, app + ".json")
+    with open(p + ".tmp", "w") as f:
+        json.dump(cfg, f)
+    os.chmod(p + ".tmp", 0o600)
+    os.replace(p + ".tmp", p)
+
+
+# ---------------------------------------------------------------- the one configuration tuple
+TEXT_KEYS = ("rams", "ports", "partition", "login", "roles", "categories", "users", "join", "select")
+
+
+def parse_text(text):
+    try:
+        c = json.loads(str(text or ""))
+        return c if isinstance(c, dict) else None
+    except ValueError:
+        return None
+
+
+def sign(app, c, seq):
+    """the app's one configuration tuple, as its Admin writes it: the text, its seq, the HMAC under the admin key"""
+    text = json.dumps({k: c.get(k) for k in TEXT_KEYS}, sort_keys=True)
+    a = c.get("admin") or {}
+    key = bytes.fromhex(a.get("key") or "")
+    mac = hmac.new(key, ("%s\n%d" % (text, seq)).encode(), hashlib.sha256).hexdigest() if key else ""
+    return {"config": text, "seq": seq, "mac": mac, "user": a.get("user", ""), "admin": admin_public(c), "at": int(time.time())}
+
+
+def checked(app, bag, mine):
+    """(the configuration in BAG, "") when it is this app's Admin's -- its mac under the admin key this machine keeps
+    (an app with no admin: no mac, and no key here) -- and well formed; (None, why) otherwise"""
+    text, seq = str(bag.get("config") or ""), int(bag.get("seq") or 0)
+    key = bytes.fromhex(((mine.get("admin") or {}).get("key")) or "")
+    if key:
+        if not hmac.compare_digest(hmac.new(key, ("%s\n%d" % (text, seq)).encode(), hashlib.sha256).hexdigest(), str(bag.get("mac") or "")):
+            # [ADMIN_REKEY_V1] the key kept here is another admin password's (set at this machine's install, or its copy from
+            # before r47): the Admin's change is not adopted until this machine is given the admin's password
+            return None, ("refused: this machine keeps a different admin key (another admin password than the admin app's); "
+                          "on it: fdf-app install %s --admin %s:PASSWORD" % (app, (bag.get("admin") or {}).get("user") or "USER"))
+    elif bag.get("mac"):
+        return None, "signed by an admin, and this machine has no admin key (fdf-app install %s --admin USER:PASSWORD)" % app
+    n = parse_text(text)
+    if n is None:
+        return None, "the configuration is not JSON"
+    try:
+        rams = [r for r in n.get("rams") or [] if isinstance(r, str) and r]
+        if "general" not in rams:
+            raise ValueError("the RAMs must include general")
+        ports = n.get("ports") or {}
+        for r in rams:
+            p = ports.get(r)
+            if not isinstance(p, int) or not PORT_LO <= p <= PORT_HI:
+                raise ValueError("RAM %s has no port (%s..%s) in the configuration" % (r, PORT_LO, PORT_HI))
+        if len({ports[r] for r in rams}) != len(rams):
+            raise ValueError("two RAMs have one port")
+        roles, cats = categorize(n.get("roles"), n.get("categories"))
+        users = {}
+        for u, v in (n.get("users") or {}).items():
+            ver = (v or {}).get("verifier") or {}
+            if (v or {}).get("role") not in roles or set(ver) < {"kdf", "n", "salt", "hash"} or ver.get("kdf") != "pbkdf2-sha256":
+                raise ValueError("user %s: a role this configuration has and a pbkdf2-sha256 verifier" % u)
+            users[u] = {"role": v["role"], "verifier": {k: ver[k] for k in ("kdf", "n", "salt", "hash")}, "lead": bool(v.get("lead"))}
+        part = n.get("partition", "relocate")
+        if part not in ("relocate", "fail"):
+            raise ValueError("partition relocate or fail")
+        sel = fdf_select.check(n.get("select") or {})
+    except (ValueError, TypeError, AttributeError) as e:
+        return None, "not adopted: %s" % e
+    return {"rams": rams, "ports": {r: ports[r] for r in rams}, "partition": part, "login": bool(n.get("login")),
+            "roles": roles, "categories": cats, "users": users, "select": sel}, ""
+
+
+def adopted(app, mine, cfg, bag):
+    """this machine's copy with the Admin's configuration in it (its admin key, what it serves and the places kept)"""
+    keep = {k: mine[k] for k in ("admin", "serve", "places", "places_signed") if k in mine}
+    return dict(cfg, app=app, seq=int(bag.get("seq") or 0), signed=bag, **keep)
+
+
+def newest_config(rm, app):
+    """the app's one configuration tuple in databasehost-control: (fdf-app, config, <app>), or None"""
+    cs = [c for c in rm.read(SVC, "config", app) if not c.get("gone") and isinstance(c.get("bag"), dict) and c["bag"]]
+    return max(cs, key=lambda c: int(c["bag"].get("seq") or 0))["bag"] if cs else None
+
+
+def where(app, r):
+    """host:port of APP's AppRam r now: its AppHost (/etc/hosts) and its port (the configuration tuple), or "" """
+    h = host_of(host_name(app, r))
+    if not h:
+        return ""
+    port = ((installed().get(app) or {}).get("ports") or {}).get(r)
+    if not port:
+        try:
+            port = ((parse_text((newest_config(ctl_ram(), app) or {}).get("config")) or {}).get("ports") or {}).get(r)
+        except fdfram.RamError:
+            port = None
+    return "%s:%s" % (h, port) if port else ""
+
+
+# ---------------------------------------------------------------- serving
+class Server:
+    def __init__(self):
+        self.f = facts()
+        self.me = self.f.get("guid")
+        self.addr = os.environ.get("FDF_APP_LISTEN") or dot1(self.f)
+        self.procs = {}                      # (app, ram) -> (Popen, port)
+        self.socks = {}                      # (app, ram) -> its listening socket, kept while served here
+        self.holds = {}                      # (app, ram) -> (`ram hold` Popen, the SystemRam it holds on)
+        self.events = queue.Queue()
+        self.answered = {}                   # app -> the configuration seq this machine has answered
+        w = None
+        while not (_quiet(fdfram.control_ram) and _quiet(fdfram.system_ram)):   # the election writing /etc/hosts is the event
+            if w is None:
+                log("%s names no databasehost_control.frognet and databasehost.frognet yet: waiting for the election" % HOSTS)
+                w = fdf_watch.Inotify(os.path.dirname(HOSTS) or ".")
+            w.read()
+        if w is not None:
+            w.close()
+
+    # ---- the Admin's configuration, adopted
+    def adopt(self):
+        """[APP_SERVICES_V1] the app's one configuration tuple (and its Teams' places) from databasehost-control: a newer
+        seq, the Admin's (its mac), adopted into this machine's copy; this machine's answer in the SystemRam"""
+        rm, changed = ctl_ram(), False
+        cells = {c.get("instance", ""): c["bag"] for c in rm.read(SVC, "config") if not c.get("gone") and isinstance(c.get("bag"), dict) and c["bag"]}
+        for a, mine in installed().items():
+            bag = cells.get(a)
+            if bag:
+                seq = int(bag.get("seq") or 0)
+                if seq > int(mine.get("seq") or 0) and seq != self.answered.get(a):
+                    self.answered[a] = seq
+                    cfg, why = checked(a, bag, mine)
+                    if cfg is not None:
+                        mine = adopted(a, mine, cfg, bag)
+                        save_installed(a, mine)
+                        changed = True
+                        log("%s: the Admin's configuration %d adopted (RAMs %s; ports %s; %d users)" % (a, seq, ",".join(cfg["rams"]),
+                            ",".join("%s=%d" % kv for kv in sorted(cfg["ports"].items())), len(cfg["users"])))
+                    else:
+                        log("%s: the Admin's configuration %d %s" % (a, seq, why))
+                    try:
+                        sys_ram().write(SVC, "applied", "%s.%s" % (a, self.me), {"seq": seq, "ok": not why, "why": why, "guid": self.me,
+                                                                              "member": self.f.get("name") or "", "at": int(time.time())})
+                    except fdfram.RamError as e:
+                        log("%s: the answer to configuration %d not written in the SystemRam (%s)" % (a, seq, e))
+            # [GROUP_PLACE_V1] a Team's own configuration tuple, its lead's: where its AppRam lives
+            places, signed = dict(mine.get("places") or {}), dict(mine.get("places_signed") or {})
+            for r in mine.get("rams") or []:
+                b = cells.get("%s.%s" % (a, r))
+                if not b or int(b.get("seq") or 0) <= int((places.get(r) or {}).get("seq") or 0):
+                    continue
+                u = (mine.get("users") or {}).get(b.get("user", "")) or {}
+                if not (u.get("lead") and u.get("role") == r and b.get("at") in ("here", "databasehost") and (b.get("at") != "here" or b.get("guid"))):
+                    log("%s: Team %s's place by %r is not its lead's: not adopted" % (a, r, b.get("user")))
+                    continue
+                places[r] = {"at": b["at"], "guid": b.get("guid", "") if b["at"] == "here" else "", "seq": int(b["seq"]), "user": b["user"]}
+                signed[r] = b
+                log("%s: Team %s placed %s%s by its lead %s (adopted)" % (a, r, b["at"], " on " + places[r]["guid"] if places[r]["guid"] else "", b["user"]))
+            if places != (mine.get("places") or {}):
+                save_installed(a, dict(mine, places=places, places_signed=signed))
+                changed = True
+        return changed
+
+    # ---- this machine's capability, held
+    def hold_capability(self):
+        """[CAPABILITY_HELD_BY_ITS_SESSION_V1] (fdf-app, can, <app>.<ram>.<guid>) in the SystemRam for every AppRam this
+        machine offers, written own:true by `ram hold` on its own session and held: gone the moment this service is gone.
+        Another SystemRam named: held there (the ones on the old one ended)."""
+        at = _quiet(fdfram.system_ram)
+        cap = {k: v for k, v in (self.f.get("capability") or {}).items() if isinstance(v, (int, float, str, bool))}
+        want = {}
+        for a, c in installed().items():
+            for r in c.get("rams") or []:
+                if c.get("serve") and r not in c["serve"]:
+                    continue
+                want[(a, r)] = dict(cap, guid=self.me, addr=self.addr, member=self.f.get("name") or "", serve=[r])
+        for k, (h, on) in list(self.holds.items()):
+            if k not in want or on != at:
+                if h.poll() is None:
+                    h.terminate()
+                del self.holds[k]
+        if not at:
+            return
+        for k, bag in want.items():
+            h = self.holds.get(k, (None, None))[0]
+            if h is not None and h.poll() is None:
+                continue
+            a, r = k
+            h = subprocess.Popen([os.path.join(BIN, "ram"), "hold", SVC, "can", "%s.%s.%s" % (a, r, self.me), json.dumps(bag)],
+                                 env=dict(os.environ, RINA_RAM=at), stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
+            ready = h.stdout.readline().strip() == "ready"
+            self.holds[k] = (h, at)
+            def ended(h=h, k=k, ready=ready):
+                for _ in h.stdout:
+                    pass
+                err = h.stderr.read(); h.wait()
+                if ready:
+                    self.events.put("again: %s's capability for %s ended (rc %s%s)" % (k[0], k[1], h.returncode, ": " + err.strip()[:120] if err.strip() else ""))
+                else:
+                    log("%s's capability for %s not written in the SystemRam %s (rc %s): %s" % (k[0], k[1], at, h.returncode, err.strip()[:200]))
+            threading.Thread(target=ended, daemon=True).start()
+            if ready:
+                log("%s's capability for %s held in the SystemRam %s" % (a, r, at))
+
+    # ---- the AppRams this machine is the AppHost of
+    def start(self, app, r, port):
+        p = self.procs.get((app, r))
+        if p is not None and p[0].poll() is None and p[1] == port:
+            return
+        if p is not None:
+            self.stop(app, r)
+        env = dict(os.environ, RINA_REGION_FILE=os.path.join(VAR, "app-%s-%s.perm" % (app, r)))
+        env.pop("RINA_MAP_AREA", None)
+        # [LISTENING_SOCKET_OUTLIVES_THE_HOST_V1] the RAM's listening socket is this AppHost's for as long as it serves it
+        ls = socket.socket(); ls.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+        try:
+            ls.bind((self.addr, port)); ls.listen(1024)
+        except OSError as e:
+            ls.close()
+            log("%s's AppRam %s: port %d on %s not available (%s); the next event tries again" % (app, r, port, self.addr, e))
+            return
+        self.socks[(app, r)] = ls
+        env["RIBBIT_LISTEN_FD"] = str(ls.fileno())
+        proc = subprocess.Popen([os.path.join(BIN, "fdf-ram"), "--listen", "%s:%d" % (self.addr, port), "--api", fdfram.API],
+                                env=env, stdout=subprocess.DEVNULL, pass_fds=(ls.fileno(),), stderr=open(os.path.join(VAR, "app-%s-%s.log" % (app, r)), "a"))
+        self.procs[(app, r)] = (proc, port)
+        log("serving %s's AppRam %s (%s) on %s:%d (pid %d)" % (app, r, host_name(app, r), self.addr, port, proc.pid))
+        def exited():                              # [EVENTS_NOT_TIMERS_V1] its exit is the event it is started again on
+            proc.wait()
+            self.events.put("again: %s's AppRam %s exited (rc %s)" % (app, r, proc.returncode))
+        threading.Thread(target=exited, daemon=True).start()
+
+    def stop(self, app, r):
+        ls = self.socks.pop((app, r), None)
+        if ls is not None:
+            ls.close()
+        p = self.procs.pop((app, r), None)
+        if p is not None and p[0].poll() is None:
+            p[0].terminate()
+            try:
+                p[0].wait(5)
+            except subprocess.TimeoutExpired:
+                p[0].kill()
+            log("no longer serving %s's AppRam %s" % (app, r))
+
+    def serve(self, why):
+        want = {}
+        for a, c in installed().items():
+            for r in c.get("rams") or []:
+                port = (c.get("ports") or {}).get(r)
+                if port and self.addr and host_of(host_name(a, r)) == self.addr:
+                    want[(a, r)] = int(port)
+        for k in list(self.procs):
+            if k not in want:
+                self.stop(*k)
+        for (a, r), port in sorted(want.items()):
+            self.start(a, r, port)
+
+    def decide(self, why):
+        try:
+            self.adopt()
+        except fdfram.RamError as e:
+            log("%s: databasehost-control did not answer (%s); adopted again when it is up or another one is named" % (why, e))
+        self.hold_capability()
+        self.serve(why)
+
+    # ---- the events
+    def watch_config(self):
+        """[EVENTS_NOT_TIMERS_V1] a held read on the configuration tuples in databasehost-control"""
+        last, at = -1, None
+        while True:
+            hp = _quiet(fdfram.control_ram)
+            if hp != at:
+                last, at = -1, hp
+            t = time.time()
+            try:
+                cs = fdfram.Ram(hp).read(SVC, "config", after=last, wait_s=25)
+                if cs:
+                    last = max(int(c.get("id", -1)) for c in cs)
+                    self.events.put("configuration")
+            except fdfram.RamError as e:
+                if "ESTALE" in str(e):
+                    last = -1; self.events.put("again: another databasehost-control memory"); continue
+                log("the read on databasehost-control %s ended (%s); read again when it is up or another one is named" % (hp, e))
+                fdf_watch.up_or_moved(hp, t, lambda: _quiet(fdfram.control_ram) or hp, dirs=[os.path.dirname(HOSTS) or "."])
+                last = -1
+                self.events.put("again: databasehost-control")
+
+    def watch_hosts(self):
+        """/etc/hosts written (an AppHost elected, the SystemRam or databasehost-control moved) is the event"""
+        w = fdf_watch.Inotify(os.path.dirname(HOSTS) or ".")
+        seen = None
+        while True:
+            try:
+                now = open(HOSTS).read()
+            except OSError:
+                now = ""
+            if now != seen:
+                if seen is not None:
+                    self.events.put("hosts")
+                seen = now
+            w.read()
+
+    def run(self):
+        log("build %s; machine %s at %s; apps here: %s; databasehost-control %s, the SystemRam %s"
+            % (BUILD_TAG, self.me, self.addr, ", ".join(installed()) or "none", _quiet(fdfram.control_ram), _quiet(fdfram.system_ram)))
+        threading.Thread(target=self.watch_hosts, daemon=True).start()
+        threading.Thread(target=self.watch_config, daemon=True).start()
+        self.decide("again: start")
+        while True:
+            why = self.events.get()
+            while not self.events.empty():           # a burst is one decision, on the newest state
+                self.events.get()
+            self.decide(why)
+
+    def shutdown(self, *_):
+        for k in list(self.procs):
+            self.stop(*k)
+        for h, _ in self.holds.values():
+            if h.poll() is None:
+                h.terminate()
+        sys.exit(0)
+
+
+# ---------------------------------------------------------------- [APP_INSTALL_V1] one command on a member's console
+# (John 2026-11-04: "They log into the Linux console of a machine joined to the network. They run one command that looks
+# at the args, if present, or runs an interactive session asking the questions it needs to know.") The install asks the
+# databasehost-control for the app's configuration tuple: (fdf-app, config, <app>.*). The one the read returns is the app as it is
+# set up -- no choosing between members' tuples and no search: every member holds a read on that family already ("Just
+# the one you have"). Found: it is shown and adopted as it is (John 2026-11-04: "There is no --clone": changes are
+# the admin app's); this member keeps a local copy for failover. Not found: this is the app's first
+# install -- the args, or the questions. The admin key is never in databasehost-control (only its salt and check value): the
+# installing member asks the admin password once, checks it against the check value, and keeps the key, so it can verify
+# the admin app's later changes. Being on the network is the trust: nothing else is asked.
+def _ask(q, default=""):
+    a = input("%s%s: " % (q, " [%s]" % default if default != "" else "")).strip()
+    return a if a else default
+
+
+def _yes(q, default=True):
+    while True:
+        a = input("%s [%s]: " % (q, "Y/n" if default else "y/N")).strip().lower()
+        if not a:
+            return default
+        if a in ("y", "yes", "n", "no"):
+            return a[0] == "y"
+
+
+def _new_password(q):
+    import getpass
+    while True:
+        a = getpass.getpass("%s: " % q)
+        if not a:
+            print("  (a password is needed)"); continue
+        if getpass.getpass("%s again: " % q) == a:
+            return a
+        print("  (they differ; again)")
+
+
+def _admin_for(app, pub, given):
+    """the admin key for the admin PUB names: from --admin USER:PASSWORD or asked, checked against PUB's check value"""
+    import getpass
+    user = pub.get("user", "")
+    for t in range(3):
+        if given:
+            who, _, pw = given.partition(":")
+            if who != user:
+                print("fdf-app: --admin names %s; %s's admin is %s" % (who, app, user)); return None
+        else:
+            pw = getpass.getpass("%s's admin password (%s): " % (app, user))
+        k = admin_key(app, user, pw)
+        if hmac.compare_digest(admin_check(k), pub.get("check", "")):
+            return {"user": user, "salt": admin_salt(app, user).hex(), "n": ADMIN_N, "key": k.hex(), "check": admin_check(k)}
+        print("fdf-app: that is not %s's admin password (its check value does not match)" % user)
+        if given:
+            return None
+    return None
+
+
+def _show(app, c):
+    roles = c.get("roles") or {}
+    print("  RAMs:      %s" % ", ".join(c.get("rams") or []))
+    for cat in c.get("categories") or [DEFAULT_CATEGORY]:
+        rs = ["%s%s" % (r, " (default)" if v.get("default") else "") for r, v in roles.items() if v.get("category", DEFAULT_CATEGORY) == cat]
+        if rs:
+            print("  %-10s %s" % (cat + ":", ", ".join(rs)))
+    us = c.get("users") or {}
+    print("  users:     %s" % (", ".join("%s=%s%s" % (u, v.get("role"), " (lead)" if v.get("lead") else "") for u, v in sorted(us.items())) or "none"))
+    print("  login:     %s; when the primary is unreachable: %s" % ("required" if c.get("login") else "not required", c.get("partition") or "relocate"))
+    print("  admin:     %s" % ((c.get("admin") or {}).get("user") or "none (the admin app cannot change it)"))
+
+
+def _questions(app, c):
+    """the app's configuration asked for, C's values (if any) offered as the answers"""
+    roles = c.get("roles") or {}
+    rams = [r for r in _ask("Teams, each with its own RAM (comma-separated)", ",".join(r for r in (c.get("rams") or []) if r != "general")).split(",") if r.strip()]
+    rams = ["general"] + [r.strip() for r in rams if r.strip() != "general"]
+    others = _ask("Other roles, no RAM of their own (comma-separated, e.g. eoc)", ",".join(r for r in roles if r not in rams))
+    names = rams[1:] + [r.strip() for r in others.split(",") if r.strip()]
+    new_roles = {}
+    for r in names:
+        old = roles.get(r) or {}
+        # a Team (its own RAM) is in Teams; any other role is its own category (its tab) unless the admin says otherwise
+        cat = _ask("  %s: category (its tab)" % r, old.get("category") or (DEFAULT_CATEGORY if r in rams else r))
+        new_roles[r] = {"default": _yes("  %s: a client may take it with no login (its default screen)?" % r, bool(old.get("default", r in rams))), "category": cat}
+    roles, cats = categorize(new_roles, c.get("categories"))
+    users = {u: v for u, v in (c.get("users") or {}).items() if v.get("role") in roles}
+    if users:
+        print("Users kept (their passwords as verifiers): %s" % ", ".join(sorted(users)))
+    while True:
+        u = _ask("Add a user (empty: done)")
+        if not u:
+            break
+        role = ""
+        while role not in roles:
+            role = _ask("  %s's role (%s)" % (u, ", ".join(roles)))
+        users[u] = {"role": role, "verifier": verifier(_new_password("  %s's password" % u)), "lead": _yes("  %s leads %s?" % (u, role), False)}
+    login = _yes("Login required?", bool(c.get("login")))
+    part = ""
+    while part not in ("relocate", "fail"):
+        part = _ask("When the primary is unreachable: relocate or fail", c.get("partition") or "relocate")
+    return {"rams": rams, "roles": roles, "categories": cats, "users": users, "login": login, "partition": part}
+
+
+
+
+def restart_service():
+    r = subprocess.run((os.environ.get("FDF_APP_RESTART") or "systemctl restart fdf-app").split())
+    print("fdf-app: fdf-app.service %s" % ("restarted: it holds this machine's capability in the SystemRam and serves what the election gives it"
+                                         if r.returncode == 0 else "did NOT restart (systemctl %d): journalctl -u fdf-app" % r.returncode))
+    return 0 if r.returncode == 0 else 1
+
+
+def first_install(app, c, rm, old=None):
+    """[APP_SERVICES_V1] the app's first installation, by its Admin: a port picked for every RAM (one it had kept), the
+    one configuration tuple signed and written into databasehost-control, this machine's copy saved"""
+    used = used_ports(rm) - {int(p) for p in ((old or {}).get("ports") or {}).values()}
+    ports = {}
+    for r in c["rams"]:
+        p = ((old or {}).get("ports") or {}).get(r)
+        ports[r] = int(p) if p else pick_port(used)
+    c = dict(c, ports=ports)
+    seq = int(time.time() * 1000)
+    have = None
+    try:
+        have = newest_config(rm, app)
+    except fdfram.RamError as e:
+        print("fdf-app: databasehost-control did not answer (%s): nothing installed" % e); return 1
+    if have and int(have.get("seq") or 0) >= seq:
+        print("fdf-app: %s has a newer configuration in databasehost-control (seq %s): install it with  fdf-app install %s" % (app, have.get("seq"), app)); return 2
+    bag = sign(app, c, seq)
+    try:
+        rm.write(SVC, "config", app, bag)
+    except fdfram.RamError as e:
+        print("fdf-app: the configuration was not written into databasehost-control (%s): nothing installed" % e); return 1
+    save_installed(app, dict(c, seq=seq, signed=bag))
+    a = c.get("admin") or {}
+    print("fdf-app: %s set up: its one configuration (seq %d) in databasehost-control %s; RAMs %s; roles %s%s%s"
+          % (app, seq, rm.hostport, ", ".join("%s on port %d" % (r, ports[r]) for r in c["rams"]), ",".join(c["roles"]) or "none",
+             ", login required" if c.get("login") else "", ", admin " + a["user"] if a.get("user") else ", no admin (the admin app cannot change it)"))
+    return 0
+
+
+def install(argv):
+    app = argv[2]
+    if not (app and all(ch.isalnum() or ch in "_-" for ch in app)):
+        print("fdf-app: APP: letters, digits, _ and -"); return 2
+    args = argv[3:]
+    given_admin = ([args[i + 1] for i, a in enumerate(args[:-1]) if a == "--admin"] or [None])[-1]
+    rest = args
+    mine0 = installed().get(app)
+    if mine0 and mine0.get("signed") and not rest:
+        print("fdf-app: %s is installed on this machine already (%s); its configuration is changed in the admin app"
+              % (app, os.path.join(APPS, app + ".json"))); return 0
+    # [APP_SERVICES_V1] (the design, section 5) "On bootstrap, if there is no SystemRam and the app is not FrogNetHost,
+    # error out and bail": no databasehost-control named or answering, nothing is installed
+    try:
+        rm = ctl_ram()
+        bag = newest_config(rm, app)
+    except fdfram.RamError as e:
+        print("fdf-app: databasehost-control is not reachable from here (%s): nothing installed. The first FrogNetHost "
+              "makes it; install the app on a node of a network that has one" % e); return 1
+    tty = sys.stdin.isatty()
+    if mine0 and not mine0.get("signed"):
+        # [APP_SERVICES_V1] a copy from before r47 (no one configuration tuple yet): the first machine upgraded writes the
+        # app's one tuple from it (its admin key signs it, a port picked for every RAM); every other one adopts that tuple
+        # with the admin key it keeps
+        if bag is None:
+            print("fdf-app: %s: this machine's configuration from before r47 becomes the app's one configuration tuple" % app)
+            c = {k: mine0[k] for k in ("rams", "partition", "login", "roles", "categories", "users", "admin", "select", "serve", "places") if k in mine0}
+            c["app"] = app
+            return first_install(app, c, rm) or restart_service()
+        pub = bag.get("admin") or {}
+        if given_admin and pub.get("user"):          # [ADMIN_REKEY_V1] the admin's key replaces the one kept here
+            a = _admin_for(app, pub, given_admin)
+            if a is None:
+                print("fdf-app: nothing changed"); return 2
+            mine0 = dict(mine0, admin=a)
+        cfg, why = checked(app, bag, mine0)
+        if cfg is None:
+            print("fdf-app: the configuration in databasehost-control %s: nothing changed" % why); return 2
+        save_installed(app, adopted(app, mine0, cfg, bag))
+        print("fdf-app: %s: the one configuration tuple (seq %s) adopted with this machine's admin key" % (app, bag.get("seq")))
+        return restart_service()
+    if bag is None:
+        if rest and not rest[0].startswith("--"):
+            print("fdf-app: %s: its first install, from the arguments" % app)
+            rc = main([argv[0], "config", app] + rest)
+            return rc or restart_service()
+        if not tty:
+            print("fdf-app: %s: its first install, and no terminal to ask in: give the arguments (fdf-app config's)" % app); return 2
+        print("fdf-app: %s is not set up anywhere on this network yet: this is its first install." % app)
+        c = _questions(app, {})
+        user = _ask("The app's administrator (for the admin app)", "admin")
+        k = admin_key(app, user, _new_password("%s's password" % user))
+        c.update({"app": app, "admin": {"user": user, "salt": admin_salt(app, user).hex(), "n": ADMIN_N, "key": k.hex(), "check": admin_check(k)},
+                  "select": {}})
+        rc = first_install(app, c, rm)
+        return rc or restart_service()
+    cfg0 = parse_text(bag.get("config")) or {}
+    print("fdf-app: %s is set up on this network (its configuration, seq %s, in databasehost-control %s):" % (app, bag.get("seq"), rm.hostport))
+    _show(app, dict(cfg0, admin=bag.get("admin") or {}))    # the admin is the tuple's (its salt and check value), not the text's
+    # [ADMIN_REKEY_V1] installed already and run again with --admin: the key is replaced, what this machine serves and its
+    # Teams' places are kept
+    mine = {k: mine0[k] for k in ("serve", "places", "places_signed") if k in (mine0 or {})}
+    pub = bag.get("admin") or {}
+    if pub.get("user"):
+        if not given_admin and not tty:
+            print("fdf-app: %s has an admin (%s): give --admin %s:PASSWORD (its key is kept here, never in a tuple)" % (app, pub["user"], pub["user"])); return 2
+        a = _admin_for(app, pub, given_admin)
+        if a is None:
+            print("fdf-app: nothing installed"); return 2
+        mine["admin"] = a
+    cfg, why = checked(app, bag, mine)
+    if cfg is None:
+        print("fdf-app: the configuration in databasehost-control %s: nothing installed" % why); return 2
+    serve = [r for i, x in enumerate(rest[:-1]) if x == "--serve" for r in rest[i + 1].split(",") if r]
+    if serve:
+        mine["serve"] = serve
+    save_installed(app, adopted(app, mine, cfg, bag))
+    print("fdf-app: %s installed on this machine (%s); its RAMs %s" % (app, os.path.join(APPS, app + ".json"),
+          ", ".join("%s on port %d" % (r, cfg["ports"][r]) for r in cfg["rams"])))
+    return restart_service()
+
+
+def main(argv):
+    if len(argv) >= 3 and argv[1] == "config":
+        rams = [r for r in argv[3].split(",") if r] if len(argv) > 3 else []
+        opt = lambda k: [argv[i + 1] for i, a in enumerate(argv[:-1]) if a == k]
+        part = (opt("--partition") or ["relocate"])[0]
+        if not rams or part not in ("relocate", "fail"):
+            print(__doc__); return 2
+        os.makedirs(APPS, exist_ok=True)
+        p = os.path.join(APPS, argv[2] + ".json")
+        try:
+            with open(p) as f:
+                old = json.load(f)
+        except (OSError, ValueError):
+            old = {}
+        ok_name = lambda x: bool(x) and x != "general" and all(ch.isalnum() or ch in "_-" for ch in x)
+        roles, users = {}, {}
+        for t in opt("--role"):                       # NAME[:default][@CATEGORY]   [CATEGORIES_V1]
+            t, _, cat = t.partition("@")
+            name, _, flag = t.partition(":")
+            if not ok_name(name) or flag not in ("", "default") or (cat and not category_ok(cat)):
+                print("fdf-app: --role NAME[:default][@CATEGORY], NAME letters, digits, _ and - (not 'general'); CATEGORY letters, digits, space, _ and -"); return 2
+            roles[name] = {"default": flag == "default", "category": cat or DEFAULT_CATEGORY}
+        try:
+            roles, cats = categorize(roles, opt("--category"))
+        except ValueError as e:
+            print("fdf-app: %s" % e); return 2
+        for u in opt("--user"):                       # USER:PASSWORD=ROLE[+lead]
+            who, _, rest = u.partition(":")
+            pw, _, role = rest.rpartition("=")
+            lead = role.endswith("+lead"); role = role[:-5] if lead else role
+            if not who or not pw or role not in roles:
+                print("fdf-app: --user USER:PASSWORD=ROLE[+lead], ROLE one of the --role names"); return 2
+            users[who] = {"role": role, "verifier": verifier(pw), "lead": lead}   # [ENROLL_V1]
+        join = (old or {}).get("join")                # [CHILDREN_JOIN_V1] --join PASSWORD: the EOC's teams password (its verifier)
+        for pw in opt("--join")[-1:]:
+            if not pw:
+                print("fdf-app: --join PASSWORD (the EOC's teams password)"); return 2
+            join = verifier(pw)
+        sel = {}                                      # [APP_SELECTION_V1] --select RAM=KEY,-KEY  --need RAM=KEY,KEY  (RAM * for all)
+        for flag, part_ in (("--select", "rank"), ("--need", "need")):
+            for t in opt(flag):
+                r, _, keys = t.partition("=")
+                sel.setdefault(r, {"need": [], "rank": []})[part_] = [k for k in keys.split(",") if k]
+        try:
+            sel = fdf_select.check(sel)
+        except ValueError as e:
+            print("fdf-app: %s (--select RAM=KEY[,-KEY]..., --need RAM=KEY[,KEY]..., RAM one of the app's or *)" % e); return 2
+        if any(r != "*" and r not in rams for r in sel):
+            print("fdf-app: --select/--need name a RAM the app does not have: %s" % ",".join(r for r in sel if r != "*" and r not in rams)); return 2
+        serve = [r for t in opt("--serve") for r in t.split(",") if r]
+        if any(r not in rams for r in serve):
+            print("fdf-app: --serve names a RAM the app does not have"); return 2
+        admin = old.get("admin") or {}
+        for u in opt("--admin")[-1:]:                 # [ADMIN_APP_V1] USER:PASSWORD
+            who, _, pw = u.partition(":")
+            if not who or not pw:
+                print("fdf-app: --admin USER:PASSWORD"); return 2
+            k = admin_key(argv[2], who, pw)
+            admin = {"user": who, "salt": admin_salt(argv[2], who).hex(), "n": ADMIN_N, "key": k.hex(), "check": admin_check(k)}
+        try:
+            rm = ctl_ram()
+        except fdfram.RamError as e:
+            print("fdf-app: databasehost-control is not reachable from here (%s): nothing installed. The first FrogNetHost "
+                  "makes it; install the app on a node of a network that has one" % e); return 1
+        c = {"app": argv[2], "rams": rams, "partition": part, "login": "--login" in argv, "roles": roles, "categories": cats,
+             "users": users, "admin": admin, "select": sel, **({"serve": serve} if serve else {}), **({"join": join} if join else {})}   # no --serve: every RAM, those the admin adds too
+        return first_install(argv[2], c, rm, old)
+    if len(argv) >= 3 and argv[1] == "install":
+        return install(argv)
+    if len(argv) == 4 and argv[1] == "where":
+        print(where(argv[2], argv[3])); return 0
+    if len(argv) == 2 and argv[1] == "serve":
+        s = Server()
+        signal.signal(signal.SIGTERM, s.shutdown)
+        signal.signal(signal.SIGINT, s.shutdown)
+        s.run(); return 0
+    print(__doc__); return 2
+
+
+
+
+if __name__ == "__main__":
+    sys.exit(main(sys.argv))

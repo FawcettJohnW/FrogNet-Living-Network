@@ -1,0 +1,34 @@
+################################################################
+#  Copyright (C) 2016-2026 Fawcett Innovations LLC             #
+#                                                              #
+#  SPDX-License-Identifier: GPL-2.0-only                       #
+#                                                              #
+#  This program is free software; you can redistribute it      #
+#  and/or modify it under the terms of the GNU General Public  #
+#  License as published by the Free Software Foundation;       #
+#  version 2 of the License, and no other version.             #
+#                                                              #
+#  This program is distributed in the hope that it will be     #
+#  useful, but WITHOUT ANY WARRANTY; without even the implied  #
+#  warranty of MERCHANTABILITY or FITNESS FOR A PARTICULAR     #
+#  PURPOSE.  See the GNU General Public License for details.   #
+#                                                              #
+#  See COPYRIGHT and LICENSE at the root of this tree.         #
+################################################################
+[Unit]
+Description=SenzMatica test: MongoDB for the backend
+After=network-online.target 
+Wants=network-online.target
+# never give up: a role that cannot reach its peers keeps trying every 2 s until they are back
+StartLimitIntervalSec=0
+
+[Service]
+
+ExecStartPre=/bin/cat /opt/senz/BUILD
+ExecStart=/opt/senz/env/bin/mongod --nounixsocket --bind_ip 127.0.0.1 --port 27027 --dbpath /opt/senz/var/mongo --setParameter diagnosticDataCollectionEnabled=false
+StandardInput=null
+Restart=always
+RestartSec=2
+
+[Install]
+WantedBy=multi-user.target

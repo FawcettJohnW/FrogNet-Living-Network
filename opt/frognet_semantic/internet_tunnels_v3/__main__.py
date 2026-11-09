@@ -72,7 +72,6 @@ def _run_daemon():
 
     config.log.info("Shutting down...")
     shutdown_all()
-    time.sleep(2)
     config.PID_FILE.unlink(missing_ok=True)
     config.log.info("Goodbye.")
 

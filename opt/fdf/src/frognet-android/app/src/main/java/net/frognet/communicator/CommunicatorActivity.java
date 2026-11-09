@@ -60,6 +60,15 @@ public class CommunicatorActivity extends Activity {
     // its forward pond's members say they run -- (pond, where, <ns>) {"comms":{"ram","media"}} -- and the device's name.
     // Opened any other way (or with no Communicator in the pond) it says so and joins nothing.
     public static final String X_RAM = "ram", X_MEDIA = "media", X_NAME = "name", X_POND = "pond", X_FROM = "from";
+    // [COMMS_OPENED_FOR_A_CALL_V1] another app (OpenEOC's Call) opens this screen with ACTION_CALL: the same servers
+    // and name, and the call it is for -- X_CALL, place a call to that person once they are in the room; X_ANSWER,
+    // answer that person's ring -- with the devices the user chose: X_FRONT (front or back camera), X_VIDEO (false: no
+    // camera), X_MIC and X_OUT (an AudioDeviceInfo id: the microphone, and the speaker / earpiece / headset).
+    public static final String ACTION_CALL = "net.frognet.communicator.CALL";
+    public static final String X_CALL = "call", X_ANSWER = "answer", X_FRONT = "front", X_VIDEO = "video", X_MIC = "mic", X_OUT = "out";
+    private volatile String autoCall = null, autoAnswer = null;
+    private long autoUntil = 0;
+    private boolean noVideo = false;
     private String pond = "", hostedBy = "";
 
     private final Handler ui = new Handler(Looper.getMainLooper());
@@ -177,10 +186,32 @@ public class CommunicatorActivity extends Activity {
             Diag.log("[app] opened without the pond's Communicator (ram=" + r + " media=" + m + "): nothing to join"); return false; }
         myName = prefs.getString("name", "").isEmpty() ? (i.getStringExtra(X_NAME) != null ? i.getStringExtra(X_NAME) : Build.MODEL) : prefs.getString("name", "");
         ramAddr = r; mediaAddr = m; pond = String.valueOf(i.getStringExtra(X_POND)); hostedBy = String.valueOf(i.getStringExtra(X_FROM));
+        readCall(i);
         int c = mediaAddr.lastIndexOf(':');
         mediaHost = mediaAddr.substring(0, c);
         mediaPort = Integer.parseInt(mediaAddr.substring(c + 1));
         return true;
+    }
+
+    /** [COMMS_OPENED_FOR_A_CALL_V1] the call this screen was opened for, and the devices chosen for it */
+    private void readCall(android.content.Intent i) {
+        if (i == null) return;
+        if (i.getStringExtra(X_CALL) != null && !i.getStringExtra(X_CALL).isEmpty()) autoCall = i.getStringExtra(X_CALL);
+        if (i.getStringExtra(X_ANSWER) != null && !i.getStringExtra(X_ANSWER).isEmpty()) autoAnswer = i.getStringExtra(X_ANSWER);
+        if (autoCall != null || autoAnswer != null) autoUntil = System.currentTimeMillis() + 90000;   // a ring older than this is not this call
+        if (i.hasExtra(X_FRONT)) prefs.edit().putBoolean("front", i.getBooleanExtra(X_FRONT, true)).apply();
+        noVideo = i.hasExtra(X_VIDEO) && !i.getBooleanExtra(X_VIDEO, true);
+        if (audio != null) audio.prefer(i.getIntExtra(X_MIC, 0), i.getIntExtra(X_OUT, 0));
+        if (autoCall != null || autoAnswer != null)
+            Diag.log("[app] opened for a call: " + (autoCall != null ? "calling " + autoCall : "answering " + autoAnswer)
+                    + " (camera " + (noVideo ? "off" : prefs.getBoolean("front", true) ? "front" : "back") + ", mic " + i.getIntExtra(X_MIC, 0) + ", out " + i.getIntExtra(X_OUT, 0) + ")");
+    }
+
+    @Override
+    protected void onNewIntent(android.content.Intent i) {           // singleTask: a second Call while this screen is open
+        super.onNewIntent(i);
+        setIntent(i);
+        readCall(i);
     }
 
     private void show(View v) {
@@ -249,6 +280,10 @@ public class CommunicatorActivity extends Activity {
         }
         // [RINGS_ONLY_WHILE_OFFERED_V1] an invitation rings only while it is at most 60 s old and its caller still offers
         // that session in CallsAnnounce; checked every tick, so the ring stops when the caller hangs up or goes away.
+        if (core == null && autoCall != null) {                 // [COMMS_OPENED_FOR_A_CALL_V1] call them once they are here
+            if (System.currentTimeMillis() > autoUntil) { Diag.log("[app] " + autoCall + " did not come into the room: not called"); autoCall = null; }
+            else for (Room.Member mb : ros) if (mb.name != null && mb.name.equalsIgnoreCase(autoCall)) { String w = autoCall; autoCall = null; call(mb.name); break; }
+        }
         if (core == null) {
             List<Room.Offer> inv = r.invitations(), off = r.offers();
             if (ringing != null) {
@@ -260,6 +295,9 @@ public class CommunicatorActivity extends Activity {
                 for (Room.Offer o : inv) {
                     if (answered.contains(o.session) || !offered(o, off)) continue;
                     ring(o);
+                    if (autoAnswer != null && o.offeredBy != null && o.offeredBy.equalsIgnoreCase(autoAnswer) && System.currentTimeMillis() <= autoUntil) {
+                        autoAnswer = null; answer();                 // the user already answered, in the app that opened this
+                    }
                     break;
                 }
         }
@@ -393,6 +431,7 @@ public class CommunicatorActivity extends Activity {
         camera.setDisplayRotation(displayDeg());
         camera.setDeviceOrientation(deviceQuarter);
         if (orient.canDetectOrientation()) orient.enable();
+        if (noVideo) { Diag.log("[video] no camera: chosen for this call"); return; }
         camera.start(prefs.getBoolean("front", true));
         if (selfTV.isAvailable()) camera.setSelfView(selfTV.getSurfaceTexture(), selfTV.getWidth(), selfTV.getHeight());
         camera.setSending(true);

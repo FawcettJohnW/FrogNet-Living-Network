@@ -35,7 +35,11 @@ Wants=network-online.target
 Environment=FDF_FACTS=/opt/fdf/var/facts.json
 Environment=RIBBIT_TEMPLATES=/opt/fdf/templates/fdf.prime
 EnvironmentFile=-/opt/fdf/var/site.env
-ExecStart=/opt/fdf/bin/fdf-client $WHERE
+# [SYSTEM_SPACE_V1] RINA_RAM is the configured RAM manager; where the system space is NOW (the tunnel daemon walks
+# its list: a standby, or the LAN's) is system-ram.env, read after it, and the daemon restarts this unit on a change
+Environment=RINA_RAM=$WHERE
+EnvironmentFile=-/opt/fdf/var/system-ram.env
+ExecStart=/opt/fdf/bin/fdf-client \${RINA_RAM}
 Restart=always
 RestartSec=2
 
@@ -59,10 +63,42 @@ RestartSec=5
 [Install]
 WantedBy=multi-user.target
 UNIT
+cat > /etc/systemd/system/fdf-app.service <<UNIT
+# [APP_SERVICES_V1] the apps installed on this machine (/opt/fdf/apps/<app>.json): adopts each app's one configuration
+# tuple, holds this machine's capability tuples in the SystemRam, serves the AppRams /etc/hosts names this machine for.
+# Shipped with the node bundle (an update carries it); fdf-join writes the same unit.
+[Unit]
+Description=FD&F apps: hold this machine's capability, serve the AppRams it is the AppHost of
+After=network-online.target
+
+[Service]
+Environment=FDF_FACTS=/opt/fdf/var/facts.json
+ExecStart=/usr/bin/python3 /opt/fdf/bin/fdf-app serve
+Restart=always
+RestartSec=2
+
+[Install]
+WantedBy=multi-user.target
+UNIT
+[Unit]
+Description=FD&F apps: serve the app RAMs this member is chosen for, and say where each is
+After=fdf-client.service
+Wants=fdf-client.service
+
+[Service]
+Environment=FDF_FACTS=/opt/fdf/var/facts.json
+ExecStart=/usr/bin/python3 /opt/fdf/bin/fdf-app serve
+Restart=always
+RestartSec=2
+
+[Install]
+WantedBy=multi-user.target
+UNIT
 systemctl daemon-reload
-systemctl enable fdf-facts.service fdf-client.service
-systemctl restart fdf-facts.service
-sleep 1
-systemctl restart fdf-client.service
-echo "joined: RINA_RAM=$WHERE written to /opt/fdf/var/join.env; fdf-facts.service and fdf-client.service started"
+systemctl enable fdf-facts.service fdf-client.service fdf-app.service
+T1=$(date +%s.%N); systemctl restart fdf-facts.service
+# [EVENTS_NOT_TIMERS_V1] fdf-facts writing this machine's facts is the event the client starts on (at most 10 s)
+python3 /opt/fdf/lib/python/fdf_watch.py written /opt/fdf/var/facts.json "$T1" 10 || echo "fdf-join: fdf-facts has not written /opt/fdf/var/facts.json in 10 s: journalctl -u fdf-facts" >&2
+systemctl restart fdf-client.service fdf-app.service
+echo "joined: RINA_RAM=$WHERE written to /opt/fdf/var/join.env; fdf-facts.service, fdf-client.service and fdf-app.service started"
 echo "check:  systemctl status fdf-client   |   journalctl -u fdf-client -f   |   /opt/fdf/bin/fdf-ls"

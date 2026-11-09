@@ -1,0 +1,54 @@
+Step 4, nodes [SYSTEM_SPACE_V1], 2026-10-31, one box, wireguard-go.
+netns-system-space-test.sh: invitations 3/3 PASS, LOGIN=1 (fdf-org + fdf-login --node) 3/3 PASS.
+Incumbent daemon tests, new code vs HEAD (same box, same wireguard-go):
+  region-loop  16/16 PASS (HEAD 16/16)
+  invisible    22/22 PASS (first run 1 FAIL: check 8 greps 'REGION: lost'; the loss line keeps that wording now)
+  egress       5 pass 11 fail  (HEAD identical: 5 pass 11 fail)
+  reach        13 pass 42 fail (HEAD identical: 13 pass 42 fail)
+  lan-only     15 pass 4 fail  (HEAD 13 pass 6 fail)
+  ponds-daemon HEAD fails already (switch section); not rerun
+  org 1/1 PASS, space 1/1 PASS after the fdf-login change
+
+== LOGIN=1 run 1:
+PASS  hubA up on 51820, its RAM manager at 10.253.253.254:8840
+PASS  hubB up on 51820, its RAM manager at 10.253.253.254:8840
+PASS  LOGIN=1: one join line for level Nodes names hubA then hubB (fdfjoin1.eyJ2IjoxLCJvcmciOiJmcm9nbmV0LnR...)
+PASS  z: fdf-login --node: logged in at 198.18.0.1:51820: level Nodes, RINA_RAM=10.253.253.254:52403;logged in at 198.18.0.2:51820: level Nodes, RINA_RAM=10.253.253.254:42807;node: system space hubA, hubB for the tunnel daemon (/opt/fdf/var/system-space.json); site.env, hub.json, join.env written;
+PASS  z: system-space.json from the login: [('hubA', '10.253.253.254:52403', '10.253.1.1'), ('hubB', '10.253.253.254:42807', '10.253.1.1')]
+PASS  z: fdf-login left no interface of its own (the daemon owns the tunnels)
+PASS  w: fdf-login --node: logged in at 198.18.0.1:51820: level Nodes, RINA_RAM=10.253.253.254:52403;logged in at 198.18.0.2:51820: level Nodes, RINA_RAM=10.253.253.254:42807;node: system space hubA, hubB for the tunnel daemon (/opt/fdf/var/system-space.json); site.env, hub.json, join.env written;
+PASS  w: system-space.json from the login: [('hubA', '10.253.253.254:52403', '10.253.1.2'), ('hubB', '10.253.253.254:42807', '10.253.1.2')]
+PASS  w: fdf-login left no interface of its own (the daemon owns the tunnels)
+PASS  both on hubA, the first on the list; hubA's RAM manager lists both (0.6 s)
+PASS  z routes w's 10.4.4.0/24 over the LAN (via its lease 10.3.3.20)
+PASS  w has its own tunnel to hubA, through z: wg0 
+PASS  hubA's RAM manager gone: both on hubB, the next on the list, hubB lists both (2.4 s)
+PASS  hubA's RAM manager back: both on hubA again (5.4 s; the standing attempt is every 5 s)
+PASS  both WAN RAM managers gone: both on the LAN's highest, w's 10.4.4.1:8841, which lists both (2.2 s)
+PASS  on the LAN: no WireGuard on z or w ()
+PASS  on the LAN: z still routes w's /24
+PASS  on the LAN: w's .1 -> z's .1
+PASS  hubA back: both on hubA from the LAN (5.9 s)
+PASS  z's hub channel is back up
+RESULT PASS
+
+== invitations run 1:
+PASS  hubA up on 51820, its RAM manager at 10.253.253.254:8840
+PASS  hubB up on 51820, its RAM manager at 10.253.253.254:8840
+PASS  z and w invited at hubA and hubB
+PASS  z: fdf-region-join --files-only with hubA's line
+PASS  z: system-space.json: [('hubA', '10.253.253.254:8840', '10.253.1.1'), ('hubB', '10.253.253.254:8840', '10.253.1.1')]
+PASS  w: fdf-region-join --files-only with hubA's line
+PASS  w: system-space.json: [('hubA', '10.253.253.254:8840', '10.253.1.2'), ('hubB', '10.253.253.254:8840', '10.253.1.2')]
+PASS  both on hubA, the first on the list; hubA's RAM manager lists both (2.4 s)
+PASS  z routes w's 10.4.4.0/24 over the LAN (via its lease 10.3.3.20)
+PASS  w has its own tunnel to hubA, through z: wg0 
+PASS  hubA's RAM manager gone: both on hubB, the next on the list, hubB lists both (2.3 s)
+PASS  hubA's RAM manager back: both on hubA again (6.0 s; the standing attempt is every 5 s)
+PASS  both WAN RAM managers gone: both on the LAN's highest, w's 10.4.4.1:8841, which lists both (2.2 s)
+PASS  on the LAN: no WireGuard on z or w ()
+PASS  on the LAN: z still routes w's /24
+PASS  on the LAN: w's .1 -> z's .1
+PASS  hubA back: both on hubA from the LAN (5.7 s)
+PASS  z's hub channel is back up
+RESULT PASS

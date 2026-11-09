@@ -36,8 +36,12 @@ char* tuples_get_all(tuples_client* c, const char* service, int fresh_s, double 
 int tuples_remove(tuples_client* c, const char* service, const char* var, const char* scope, char** err) {
     try { return c->c.remove_tuple(service, var, scope) ? 1 : 0; } catch (const std::exception& x) { fail(err, x); return -1; }
 }
-int tuples_remove_id(tuples_client* c, int64_t id, char** err) {
-    try { c->c.remove(uint64_t(id)); return 0; } catch (const std::exception& x) { fail(err, x); return -1; }
+int tuples_remove_id(tuples_client* c, const char* service, const char* var, int64_t id, char** err) {   // [FAMILY_LOG_V1] a removal names its family
+    try { c->c.remove(service, var, uint64_t(id)); return 0; } catch (const std::exception& x) { fail(err, x); return -1; }
+}
+char* tuples_get_after(tuples_client* c, const char* service, const char* var, double wait_s, int64_t after, char** err) {
+    try { return dup(ribbit::TuplesClient::to_json(c->c.get_all(service, 0, wait_s, 1, var ? var : "", after))); }
+    catch (const std::exception& x) { fail(err, x); return nullptr; }
 }
 char* tuples_my_ip(tuples_client* c, char** err) {
     try { return dup(c->c.my_ip()); } catch (const std::exception& x) { fail(err, x); return nullptr; }

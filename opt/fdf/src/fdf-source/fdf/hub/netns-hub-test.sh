@@ -23,13 +23,13 @@ i=1; for n in hub n1 n2; do ip netns add $n; ip netns exec $n ip link set lo up
   ip netns exec $n ip addr add 10.77.0.$i/24 dev v-$n; ip netns exec $n ip link set v-$n up; i=$((i+1)); done
 NS() { local n=$1; shift; ip netns exec $n env RINA_RAM=10.77.0.1:8840 "$@"; }
 # ---- the region, in hub
-NS hub env -u RINA_MAP_AREA RINA_REGION_FILE=$T/hub/area.perm $B/rina-host --listen 10.77.0.1:8840 --api $API > $T/hub/host.log 2>&1 &
+NS hub env -u RINA_MAP_AREA RINA_REGION_FILE=$T/hub/area.perm $B/fdf-ram --listen 10.77.0.1:8840 --api $API > $T/hub/host.log 2>&1 &
 sleep 1; U="http://10.77.0.1:8840$API?op=rina"
 NS hub curl -s -X POST -d "{\"op\":\"map_site\",\"name\":\"$SITE\",\"key\":\"$KEY\"}" "$U" > /dev/null
 # ---- the hub: its fdf-client (facts written by fdf-hub) and fdf-hub itself
 NS hub env FDF_FACTS=$T/hub/facts.json $B/fdf-client > $T/hub/client.log 2>&1 &
 sleep 0.5
-NS hub env FDF_BIN=$B python3 $H/tools/fdf-hub --area $SITE --iface wg-hub --endpoint 10.77.0.1:51820 --name hubA \
+NS hub env FDF_BIN=$B python3 $H/../fdf/bin/fdf-hub --area $SITE --iface wg-hub --endpoint 10.77.0.1:51820 --name hubA \
    --key $T/hub/wg.key --listen 51820 --facts $T/hub/facts.json > $T/hub/hub.log 2>&1 &
 sleep 2
 check $([ "$(NS hub wg show wg-hub listen-port 2>/dev/null)" = 51820 ] && echo 0 || echo 1) "hub: wg-hub up, listening on 51820"
@@ -125,7 +125,7 @@ ip netns exec hub2 ip addr add 10.77.0.4/24 dev v-hub2; ip netns exec hub2 ip li
 NS hub2 env FDF_FACTS=$T/hub2/facts.json $B/fdf-client > $T/hub2/client.log 2>&1 &
 sleep 0.5
 # (wireguard-go's control socket is named by interface and is NOT per-namespace: hub B's interface needs its own name)
-NS hub2 env FDF_BIN=$B python3 $H/tools/fdf-hub --area $SITE --iface wg-hubB --endpoint 10.77.0.4:51820 --name hubB \
+NS hub2 env FDF_BIN=$B python3 $H/../fdf/bin/fdf-hub --area $SITE --iface wg-hubB --endpoint 10.77.0.4:51820 --name hubB \
    --key $T/hub2/wg.key --listen 51820 --facts $T/hub2/facts.json > $T/hub2/hub.log 2>&1 &
 sleep 2; NS hub2 sysctl -q -w net.ipv4.ip_forward=1; HUB2PUB=$(NS hub2 wg show wg-hubB public-key)
 check $([ -n "$HUB2PUB" ] && echo 0 || echo 1) "hubB: up; its ipcp row (role=hub) is in the region"

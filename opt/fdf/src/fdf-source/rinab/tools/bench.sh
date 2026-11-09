@@ -17,8 +17,8 @@ run() {   # $1 label, $2 bin dir, $3 host command
   timeout 120 rinaperf -z srv -t perf -c 20000 2>&1 | grep -E "Packets|Sender|Receiver"
   pkill -x rinaperf; rlite-ctl reset >/dev/null 2>&1; rlite-ctl terminate >/dev/null 2>&1; sleep 1; kill $H; wait $H 2>/dev/null; pkill -x rlite-uipcps
 }
-pkill -x rina-host; pkill -x rina-ram; pkill -x rlite-uipcps; sleep 0.5
+pkill -x fdf-ram; pkill -x rina-ram; pkill -x rlite-uipcps; sleep 0.5
 OLD=${OLD:?OLD=<Mode B as handed off>/ribbit/examples/rina/rlite}
 run "Mode B as handed off" $OLD/bin "$OLD/bin/rina-ram --listen 127.0.0.1:8842"
 NEW=$(cd "$(dirname "$0")/../build" && pwd)
-run "RINA region (Redis model)" $NEW/bin "$NEW/bin/rina-host --listen 127.0.0.1:8842 --api /FawcettInnovations.RINA.ram_interface.php"
+run "RINA region (Redis model)" $NEW/bin "$NEW/bin/fdf-ram --listen 127.0.0.1:8842 --api /FawcettInnovations.RINA.ram_interface.php"

@@ -1,0 +1,23 @@
+---- start at 10.666 s
+---- start at supervisor 1793249354.270621075
+READY
+APPLIED path=RAM value=60 applications=1
+APPLIED path=RAM value=90 applications=2
+SESSION_ENDED recv: Connection timed out (no answer from the far end within the 5 s keepalive / user timeout) -- ending this process for a fresh one
+---- exited rc=1
+---- start at supervisor 1793249365.367372280
+READY
+APPLIED path=RAM value=120 applications=1
+---- start at 34.312 s
+---- start at supervisor 1793249377.777862779
+READY
+APPLIED path=RAM value=180 applications=1
+APPLIED path=RAM value=210 applications=2
+APPLIED path=RAM value=240 applications=3
+SESSION_ENDED the far end closed the connection -- ending this process for a fresh one
+---- exited rc=1
+---- start at supervisor 1793249398.093527592
+READY
+APPLIED path=RAM value=240 applications=0
+APPLIED path=RAM value=270 applications=1
+SESSION_ENDED the far end closed the connection -- ending this process for a fresh one

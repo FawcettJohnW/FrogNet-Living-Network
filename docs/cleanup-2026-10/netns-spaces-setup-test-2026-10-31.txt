@@ -1,0 +1,31 @@
+Steps 5 [SPACES_V1] and 6 [FDF_SETUP_V1], 2026-10-31, one box, wireguard-go.
+netns-spaces-test.sh 3/3 PASS; netns-setup-test.sh 3/3 PASS; after the fdf-org change: netns-org-test PASS, netns-space-test PASS, netns-system-space-test LOGIN=1 PASS
+
+== netns-spaces-test.sh run 1:
+PASS  0 each RAM host runs each space's RAM manager: A Responders :54221 Admin :46735; B Responders :30324 Admin :57864
+PASS  1 r logged in: logged in at 198.18.0.1:51820: level Responders, RINA_RAM=10.253.253.254:55694;logged in at 198.18.0.3:51820: level Responders, RINA_RAM=10.253.253.254:20624;
+PASS  1 r: where each of its spaces is, per RAM host: [('hubA', [('Responders', '10.253.253.254:54221')]), ('hubB', [('Responders', '10.253.253.254:30324')])]
+PASS  1 q logged in: logged in at 198.18.0.1:51820: level HQ, RINA_RAM=10.253.253.254:39961;logged in at 198.18.0.3:51820: level HQ, RINA_RAM=10.253.253.254:44004;
+PASS  1 q: where each of its spaces is, per RAM host: [('hubA', [('Responders', '10.253.253.254:54221'), ('Admin', '10.253.253.254:46735')]), ('hubB', [('Responders', '10.253.253.254:30324'), ('Admin', '10.253.253.254:57864')])]
+PASS  2 q's application on A in Responders and Admin, r's in Responders (0.3 s, 0.0 s)
+PASS  2 r's level joins no Admin, and it says so: NOT IN Admin: space 'Admin': this device's level joins it at no RAM host (/tmp/claude-0/netns-spaces/r/login.json)
+PASS  3 reach on A: q's edge to Admin open, r's to Admin closed, r's to Responders open
+PASS  4 each truth in its own space on A: q's in Admin and Responders, r's in Responders only, nothing crossed
+PASS  5 Admin on A cut off: q's Admin on B in 7.7 s; q's Responders on hubA, r's on hubA: each space its own list
+PASS  5 q's Admin truth written again on B
+PASS  6 the cut healed: q's Admin back on A in 1.0 s
+PASS  7 Admin's RAM manager on A killed: fdf-org said so and started it again ([ORG] 20:04:32 SPACE Admin: its RAM manager exited (rc 0); starting it again)
+PASS  7 q's Admin on A after it, its truth there again (moves: hubA->hubB hubB->hubA )
+RESULT PASS
+
+== netns-setup-test.sh run 1:
+PASS  1 the wizard ran to the end (rc 0): 1 what this machine needs|2 the RAM manager and the hub|3 the credential manager|4 the RAM spaces (one shared memory e|
+PASS  2 spaces and levels as answered: {"spaces": ["EOC Admin", "Responders"], "levels": {"First Responders": {"password": false, "reach": {"kind": "ram"}, "spaces": ["Responders"]}, "Headquarters": {"password": true, "reach": {"kind": "ram"}, "spaces": ["Responders", "EOC Admin"]}}}
+PASS  2 the user chief at Headquarters (its verifier, never the password)
+PASS  2 one line per level, kept in /tmp/claude-0/netns-setup/A/var/lines (First Responders.line Headquarters.line , mode 700)
+PASS  3 r joined with First Responders' line, no password: logged in at 198.18.0.1:51820: level First Responders, RINA_RAM=10.253.253.254:35538
+PASS  3 q's wrong password refused: refused: wrong user or password
+PASS  3 q joined with Headquarters' line as chief: logged in at 198.18.0.1:51820: level Headquarters, RINA_RAM=10.253.253.254:24887
+PASS  4 q's application in EOC Admin and Responders, r's in Responders only (CHANGE Responders hubA;CHANGE EOC Admin hubA;CHANGE Responders hubA;NOT IN EOC Admin;)
+PASS  5 the wizard again, nothing added (rc 0): everything kept, the same lines; it showed what is here: 3 line(s)
+RESULT PASS

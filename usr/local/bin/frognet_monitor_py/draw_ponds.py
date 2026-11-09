@@ -51,6 +51,32 @@ def _alias_of(ip, alias):
     return ""
 
 
+def _ago(ts):
+    import time
+    try:
+        d = int(time.time() - float(ts))
+    except (TypeError, ValueError):
+        return "-"
+    return "%ds" % d if d < 120 else "%dm" % (d // 60) if d < 7200 else "%dh" % (d // 3600)
+
+
+def telem_lines(p):
+    """[TELEMETRY_IS_A_TUPLE_V1] the pond's (pond, telem) tuples, one line per device: what it is, where, its battery,
+    its network, how long ago it said so. The tuple is the device's own: a device that left has none."""
+    out = []
+    for t in p.get("telem") or []:
+        loc = t.get("loc") or {}
+        where = ("%.5f,%.5f +-%.0fm" % (loc["lat"], loc["lon"], loc.get("acc_m") or 0)) if "lat" in loc and "lon" in loc else "no position"
+        b = t.get("battery") or {}
+        batt = ("batt %d%%%s" % (b["pct"], "+" if b.get("charging") else "")) if "pct" in b else ""
+        net = (t.get("net") or {}).get("type", "")
+        env = t.get("env") or {}
+        e = ("  %.1f hPa" % env["pressure_hpa"]) if "pressure_hpa" in env else ""
+        line = "     telem %-12s %-8s %s  %s  %s%s  (%s ago)" % (str(t.get("name", "?"))[:12], str(t.get("kind", ""))[:8], where, batt, net, e, _ago(t.get("at")))
+        out.append((line, CP_CYAN))
+    return out
+
+
 def pond_lines(data):
     """[(text, color_pair)] for the section, from the snapshot (getSnapshot.php's object). Pure: the tests call it too.
     The forward pond's entry carries no members: they are the snapshot's `members` (the peer table), counted here."""
@@ -82,6 +108,7 @@ def pond_lines(data):
             c = p.get("config")
             out.append((head + (" config reach %s, map %s" % (c.get("reach"), c.get("map")) if c else " publishes no config"),
                         CP_DIM if not p.get("forward") else 0))
+        out.extend(telem_lines(p))                    # [TELEMETRY_IS_A_TUPLE_V1] its devices' own reports
         if p.get("forward"):
             continue                                  # its members are the peer table above
         for m in p.get("members") or []:

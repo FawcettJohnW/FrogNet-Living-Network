@@ -1,0 +1,26 @@
+# fdf-org@AREA.service -- [ORG_LEVELS_V1][REGIONS_PER_MACHINE_V1] region AREA's credential manager (fdf-org serve): the
+# door, every level's login port and the reach rules (nftables table fdf_org_<area>). [ADMISSION_WITH_THE_HUB_V1] the
+# hub's unit wants it, so it runs wherever the hub runs; it makes its own key, generic credential and door the first time.
+[Unit]
+Description=FD&F organization for region %i: levels, login and reach (fdf-org serve)
+After=network-online.target fdf-hub@%i.service
+Wants=network-online.target fdf-hub@%i.service
+
+[Service]
+Type=simple
+Environment=FDF_PY=/opt/fdf/lib/python
+Environment=FDF_BIN=/opt/fdf/bin
+Environment=FDF_HUB_ENV=/opt/fdf/hub/%i/hub.env
+Environment=FDF_ADMITTED=/opt/fdf/hub/%i/admitted
+Environment=FDF_ORG_KEY=/opt/fdf/hub/%i/org-key
+# [ONLY_THIS_MACHINES_REGION_V1] (found on Seattle7 2026-11-02: fdf-org@frognet restarted 9718 times on a copy of
+# StreamingFrog's hub.env) the unit runs only for a region this machine holds: hub.env exists and names this
+# machine. Otherwise it is skipped, said once, not failed, and not restarted; it is tried again when it is next
+# started (the hub's unit wants it).
+ExecCondition=/bin/sh -c 'f=/opt/fdf/hub/%i/hub.env; [ -s $$f ] || { echo "fdf-org@%i: $$f does not exist: this machine holds no region %i (not started)" >&2; exit 1; }; w=$$(sed -n "s/^FDF_HUB_NAME=//p" $$f); [ "$$w" = "$$(hostname -s)" ] || { echo "fdf-org@%i: $$f names $$w (FDF_HUB_NAME=$$w), not this machine ($$(hostname -s)): not started. Remove /opt/fdf/hub/%i if it is a stray copy" >&2; exit 1; }'
+ExecStart=/usr/bin/python3 -u /opt/fdf/bin/fdf-org serve
+Restart=always
+RestartSec=2
+
+[Install]
+WantedBy=multi-user.target

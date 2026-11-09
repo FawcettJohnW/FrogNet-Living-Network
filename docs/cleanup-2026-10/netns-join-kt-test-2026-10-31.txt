@@ -1,0 +1,10 @@
+[JOIN_LINE_V1] the Kotlin member's login with a join line, on the bridge, 2026-10-31: netns-join-kt-test.sh 3/3 PASS; fdf-member-kt selftest PASS.
+
+PASS  0 each RAM host runs each space's RAM manager: A Responders :40783 Admin :20052; B Responders :50610 Admin :56911
+PASS  1 a wrong password refused (exit 3): LOGIN FAILED: login at 198.18.0.1:51820 refused: wrong user or password
+PASS  2 q logged in at both through the bridge: joined: hubA edge 10.253.1.1 RAM 100.64.0.2:52591; hubB edge 10.253.1.1 RAM 100.64.0.4:22124
+PASS  2 each door on the generic credential's island: door at 198.18.0.1:51820: I am d-5a7075fa3f80, edge 10.253.1.1;door at 198.18.0.3:51820: I am d-5a7075fa3f80, edge 10.253.1.1;
+PASS  3 q's application in Responders and Admin on A, its truth in each (0.0 s, 0.0 s)
+PASS  4 Admin on A cut off: q's Admin on B in 13.2 s, its truth there; Responders still on hubA
+PASS  4 the cut healed: q's Admin back on A in 0.8 s
+RESULT PASS

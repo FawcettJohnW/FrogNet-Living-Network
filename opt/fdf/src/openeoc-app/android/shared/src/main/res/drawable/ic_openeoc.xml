@@ -1,0 +1,17 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Copyright (C) 2016-2026 Fawcett Innovations LLC. SPDX-License-Identifier: GPL-2.0-only
+     [OPENEOC_BRAND_V1] the OpenEOC mark (brand/openeoc-mark.svg) as every OpenEOC app's launcher icon: the open ring,
+     command (orange) and the three linked nodes, on white. -->
+<vector xmlns:android="http://schemas.android.com/apk/res/android" android:width="108dp" android:height="108dp" android:viewportWidth="400" android:viewportHeight="400">
+    <path android:pathData="M72,0 H328 A72,72 0 0 1 400,72 V328 A72,72 0 0 1 328,400 H72 A72,72 0 0 1 0,328 V72 A72,72 0 0 1 72,0 Z" android:fillColor="#FFFFFFFF"/>
+    <path android:pathData="M318.8,248.3 A128,128 0 1,0 248.3,318.8" android:strokeColor="#FF1F5E3D" android:strokeWidth="30" android:strokeLineCap="round"/>
+    <path android:pathData="M200,144 L144,200" android:strokeColor="#FF1F5E3D" android:strokeWidth="14" android:strokeLineCap="round"/>
+    <path android:pathData="M200,144 L256,200" android:strokeColor="#FF1F5E3D" android:strokeWidth="14" android:strokeLineCap="round"/>
+    <path android:pathData="M144,200 L200,256" android:strokeColor="#FF1F5E3D" android:strokeWidth="14" android:strokeLineCap="round"/>
+    <path android:pathData="M256,200 L200,256" android:strokeColor="#FF1F5E3D" android:strokeWidth="14" android:strokeLineCap="round"/>
+    <path android:pathData="M144,200 L256,200" android:strokeColor="#FF1F5E3D" android:strokeWidth="14" android:strokeLineCap="round"/>
+    <path android:pathData="M174,144 a26,26 0 1,0 52,0 a26,26 0 1,0 -52,0 Z" android:fillColor="#FFE8792B"/>
+    <path android:pathData="M122,200 a22,22 0 1,0 44,0 a22,22 0 1,0 -44,0 Z" android:fillColor="#FF1F5E3D"/>
+    <path android:pathData="M234,200 a22,22 0 1,0 44,0 a22,22 0 1,0 -44,0 Z" android:fillColor="#FF1F5E3D"/>
+    <path android:pathData="M178,256 a22,22 0 1,0 44,0 a22,22 0 1,0 -44,0 Z" android:fillColor="#FF1F5E3D"/>
+</vector>

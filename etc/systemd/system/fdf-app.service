@@ -1,0 +1,15 @@
+# [APP_SERVICES_V1] the apps installed on this machine (/opt/fdf/apps/<app>.json): adopts each app's one configuration
+# tuple, holds this machine's capability tuples in the SystemRam, serves the AppRams /etc/hosts names this machine for.
+# Shipped with the node bundle (an update carries it); fdf-join writes the same unit.
+[Unit]
+Description=FD&F apps: hold this machine's capability, serve the AppRams it is the AppHost of
+After=network-online.target
+
+[Service]
+Environment=FDF_FACTS=/opt/fdf/var/facts.json
+ExecStart=/usr/bin/python3 /opt/fdf/bin/fdf-app serve
+Restart=always
+RestartSec=2
+
+[Install]
+WantedBy=multi-user.target

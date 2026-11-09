@@ -9,8 +9,8 @@ ROOT=$1; T=$2; N=${3:-30}; PORT=${PORT:-8853}; H=$(cd "$(dirname "$0")/.." && pw
 export RINA_EXIT_TRACE=${RINA_EXIT_TRACE:-}
 export PATH=${WRAP:+$WRAP:}$B/bin:$PATH RINA_RAM=127.0.0.1:$PORT RINA_RAM_NETNS=/proc/$$/ns/net
 mkdir -p /var/run/netns
-unshare --pid --fork --mount --mount-proc bash -c "mount -t tmpfs none /var/run/netns && mount -t tmpfs none /sys/class/net && exec $B/bin/rina-host --listen 127.0.0.1:$PORT --api /FawcettInnovations.RINA.ram_interface.php" > /tmp/lt-host.log 2>&1 &
-trap 'pkill -x rinaperf; pkill -x rlite-uipcps; pkill -x rina-host' EXIT
+unshare --pid --fork --mount --mount-proc bash -c "mount -t tmpfs none /var/run/netns && mount -t tmpfs none /sys/class/net && exec $B/bin/fdf-ram --listen 127.0.0.1:$PORT --api /FawcettInnovations.RINA.ram_interface.php" > /tmp/lt-host.log 2>&1 &
+trap 'pkill -x rinaperf; pkill -x rlite-uipcps; pkill -x fdf-ram' EXIT
 for i in $(seq 100); do (exec 3<>/dev/tcp/127.0.0.1/$PORT) 2>/dev/null && break; sleep 0.05; done
 cd "$ROOT"
 for i in $(seq "$N"); do

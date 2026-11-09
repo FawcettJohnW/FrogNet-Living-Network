@@ -1,0 +1,31 @@
+<!doctype html>
+<!-- Copyright (C) 2016-2026 Fawcett Innovations LLC. SPDX-License-Identifier: GPL-2.0-only
+     index.html -- [APP_FOCUS_V1] the client app's door: it connects first (its host name, its role), then opens on its
+     role's screen. The role is the user's, activated at login, or the client's default (?role=eoc: an EOC client) when
+     the admin made it one. Everything else is the same app: a role's own RAM opens on its messages, eoc on the
+     Summary, no role on the Radio Log. -->
+<html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
+<title>OpenEOC</title><link rel="stylesheet" href="rt.css"></head><body>
+<h1>OpenEOC</h1>
+<div id="say">connecting…</div>
+<fieldset id="login" hidden><label>User <input name="user" size="12"></label><label>Password <input name="password" type="password" size="12"></label>
+  <button type="button" id="doLogin">Log in</button></fieldset>
+<script type="module">
+import * as RT from './rt.js'
+const $ = (s) => document.querySelector(s), say = (t) => { $('#say').textContent = t }
+const role0 = new URLSearchParams(location.search).get('role') || ''
+const FOCUS = { eoc: 'summary.html', '': 'log.html' }
+async function open() {
+  const rams = await RT.rams(), r = RT.device().team || ''
+  location.replace(FOCUS[r] || (rams[r] ? 'messages.html' : 'log.html'))
+}
+async function go() {
+  try { await RT.connect(role0); await open() }
+  catch (e) { if (e.needsLogin) { $('#login').hidden = false; say(e.message) } else { say('not connected: ' + e.message); setTimeout(go, 2000) } }
+}
+$('#doLogin').onclick = async () => {
+  try { await RT.login({ user: $('#login [name=user]').value.trim(), password: $('#login [name=password]').value }); await go() }
+  catch (e) { say('not logged in: ' + e.message) }
+}
+go()
+</script></body></html>

@@ -1,4 +1,4 @@
-// bench_discovery.cpp -- [DAF_VS_FDF_DISCOVERY_BENCH_V1] "who exists", measured side by side on ONE rina-host:
+// bench_discovery.cpp -- [DAF_VS_FDF_DISCOVERY_BENCH_V1] "who exists", measured side by side on ONE fdf-ram:
 //   FDF  the existing FD&F discovery: a machine says `node` (its liveness) and `announce`s its facts (op=rina); readers
 //        list `participants`; a watcher registers `watch_participants` and holds `wait` on its input space (op=rina_block)
 //   DAF  the DAF model: a member `enroll`s and `join`s the whatevercast name "nodes" (op=daf); readers `resolve` it with

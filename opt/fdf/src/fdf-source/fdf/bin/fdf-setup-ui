@@ -1,0 +1,180 @@
+#!/usr/bin/env python3
+################################################################
+#  Copyright (C) 2016-2026 Fawcett Innovations LLC             #
+#  SPDX-License-Identifier: GPL-2.0-only                       #
+################################################################
+"""fdf-setup-ui -- [FDF_SETUP_UI_V1] a program in front of fdf-setup: the whole definition of a region on one screen,
+every field filled with its default, every field changeable. John, 2026-11-01: "The UI can be a front-end for
+fdf-setup." "This needs to be a program, not a site." It runs in the terminal (over ssh too) and changes nothing
+itself: Apply hands the definition to `fdf-setup --define` and shows what it said.
+
+  sudo fdf-setup-ui [--area AREA]     a new region (its defaults), or AREA as it is here
+Keys: Up/Down move; Enter changes the field (or does the action); a adds a level or a user on those lines; d deletes
+the level or user under the cursor; q quits without applying.
+"""
+import curses, json, os, subprocess, sys, tempfile
+
+BIN = os.environ.get("FDF_BIN", "/opt/fdf/bin")
+sys.path.insert(0, os.environ.get("FDF_PY", "/opt/fdf/lib/python"))
+import fdf_regions  # noqa: E402
+
+REACH_HELP = "ram (the region only) | open (everything) | list:ADDR[:PORT],..."
+
+
+def setup(*args, stdin=None):
+    return subprocess.run([sys.executable, os.path.join(BIN, "fdf-setup")] + list(args), input=stdin,
+                          capture_output=True, text=True)
+
+
+def start(area):
+    """the definition to edit: the defaults, with AREA's levels when this machine holds it"""
+    d = json.loads(setup("--defaults").stdout)
+    if area:
+        d["area"] = area
+    if d["area"] in fdf_regions.areas():
+        env = dict(l.strip().split("=", 1) for l in open(os.path.join(fdf_regions.areas()[d["area"]], "hub.env"))
+                   if "=" in l and not l.startswith("#"))
+        d["address"] = env.get("FDF_ENDPOINT", ":").rsplit(":", 1)[0]
+        d["ram_port"] = int(env.get("RINA_RAM", ":0").rsplit(":", 1)[1])
+        d["hub_port"] = int(env.get("FDF_LISTEN", "0"))
+        r = subprocess.run([sys.executable, os.path.join(BIN, "fdf-org"), "--area", d["area"], "list", "--json"],
+                           capture_output=True, text=True)
+        try:
+            have = json.loads(r.stdout.strip().splitlines()[-1]).get("levels", {})
+        except (ValueError, IndexError):
+            have = {}
+        if have:
+            d["levels"] = [{"name": n, "password": v["password"],
+                            "reach": v["reach"].get("kind", "ram") if v["reach"].get("kind") != "list"
+                            else "list:" + ",".join(v["reach"].get("dests", []))} for n, v in have.items()]
+            d["users"] = []                   # users already set are kept; only new or changed ones are listed here
+    return d
+
+
+def rows(d):
+    """(label, value, key) for every line on the screen"""
+    out = [("Region name", d["area"], ("area",)), ("Address members reach", d["address"], ("address",)),
+           ("RAM manager port (TCP)", str(d["ram_port"]), ("ram_port",)), ("Hub port (UDP)", str(d["hub_port"]), ("hub_port",)),
+           ("", "", None), ("LEVELS", "a: add  d: delete", ("add-level",))]
+    for i, lv in enumerate(d["levels"]):
+        ports = " ports %s/%s" % (lv.get("login_port", "auto"), lv.get("session_port", "auto"))
+        out.append(("  " + lv["name"], "%s, reach %s,%s" % ("password" if lv["password"] else "no password", lv["reach"], ports), ("level", i)))
+    out += [("", "", None), ("USERS", "a: add  d: delete", ("add-user",))]
+    for i, u in enumerate(d["users"]):
+        out.append(("  " + u["user"], "at %s, password %s" % (u["level"], "set" if u["password"] else "NOT SET"), ("user", i)))
+    out += [("", "", None), ("[ Apply ]", "hand the definition to fdf-setup --define", ("apply",)), ("[ Quit ]", "change nothing", ("quit",))]
+    return out
+
+
+def prompt(scr, q, default="", secret=False):
+    h, w = scr.getmaxyx()
+    scr.move(h - 2, 0); scr.clrtoeol(); scr.addstr(h - 2, 0, (q + (" [%s]" % default if default and not secret else "") + ": ")[:w - 1])
+    curses.echo() if not secret else curses.noecho()
+    curses.curs_set(1)
+    try:
+        s = scr.getstr(h - 2, min(len(q) + len(default) + 6, w - 20) if not secret else min(len(q) + 2, w - 20), 120).decode().strip()
+    finally:
+        curses.noecho(); curses.curs_set(0)
+    return s or ("" if secret else default)
+
+
+def edit(scr, d, key):
+    k = key[0]
+    if k in ("area", "address"):
+        d[k] = prompt(scr, "new " + k, d[k])
+    elif k in ("ram_port", "hub_port"):
+        v = prompt(scr, "new " + k.replace("_", " "), str(d[k]))
+        if v.isdigit():
+            d[k] = int(v)
+    elif k in ("level", "add-level"):
+        lv = d["levels"][key[1]] if k == "level" else {"name": "", "password": False, "reach": "ram"}
+        lv["name"] = prompt(scr, "level name", lv["name"]) or lv["name"]
+        if not lv["name"]:
+            return
+        lv["password"] = prompt(scr, "needs a user and password? y/n", "y" if lv["password"] else "n").lower().startswith("y")
+        lv["reach"] = prompt(scr, "reach: " + REACH_HELP, lv["reach"])
+        for p in ("login_port", "session_port"):
+            v = prompt(scr, p.replace("_", " ") + " (empty: chosen)", str(lv.get(p, "")))
+            if v.isdigit():
+                lv[p] = int(v)
+            else:
+                lv.pop(p, None)
+        if k == "add-level":
+            d["levels"].append(lv)
+    elif k in ("user", "add-user"):
+        u = d["users"][key[1]] if k == "user" else {"level": "", "user": "", "password": ""}
+        pw_levels = [l["name"] for l in d["levels"] if l["password"]]
+        u["user"] = prompt(scr, "user name", u["user"]) or u["user"]
+        if not u["user"]:
+            return
+        u["level"] = prompt(scr, "level (%s)" % ", ".join(pw_levels), u["level"] or (pw_levels[0] if pw_levels else ""))
+        p = prompt(scr, "password for %s (typed, not shown)" % u["user"], secret=True)
+        if p:
+            u["password"] = p
+        if k == "add-user":
+            d["users"].append(u)
+
+
+def apply(scr, d):
+    fd, path = tempfile.mkstemp(prefix="fdf-setup-", suffix=".json")      # 0600: it holds passwords for a moment
+    try:
+        with os.fdopen(fd, "w") as f:
+            json.dump(d, f)
+        r = setup("--define", path)
+    finally:
+        os.unlink(path)
+    scr.clear()
+    lines = (r.stdout + r.stderr).splitlines()
+    h, w = scr.getmaxyx()
+    scr.addstr(0, 0, ("fdf-setup --define: %s" % ("done" if r.returncode == 0 else "stopped (rc %d)" % r.returncode))[:w - 1], curses.A_BOLD)
+    for i, ln in enumerate(lines[-(h - 3):]):
+        scr.addstr(i + 1, 0, ln[:w - 1])
+    scr.addstr(h - 1, 0, "any key: back"[:w - 1]); scr.getch()
+    return r.returncode == 0
+
+
+def main(scr, area):
+    curses.curs_set(0)
+    d = start(area)
+    at = 0
+    while True:
+        rs = rows(d)
+        sel = [i for i, r in enumerate(rs) if r[2]]
+        at = min(at, len(sel) - 1)
+        scr.clear()
+        h, w = scr.getmaxyx()
+        scr.addstr(0, 0, ("FrogNet region: %s   (every field has its default; Enter changes it)" % d["area"])[:w - 1], curses.A_BOLD)
+        for i, (label, val, key) in enumerate(rs[: h - 4]):
+            attr = curses.A_REVERSE if key and sel[at] == i else (curses.A_BOLD if label.isupper() else 0)
+            scr.addstr(i + 2, 0, ("%-26s %s" % (label, val))[:w - 1], attr)
+        scr.refresh()
+        c = scr.getch()
+        key = rs[sel[at]][2]
+        if c in (curses.KEY_UP, ord("k")):
+            at = max(0, at - 1)
+        elif c in (curses.KEY_DOWN, ord("j")):
+            at = min(len(sel) - 1, at + 1)
+        elif c == ord("q"):
+            return 1
+        elif c == ord("a"):
+            in_users = key[0] in ("user", "add-user")
+            edit(scr, d, ("add-user",) if in_users else ("add-level",))
+        elif c == ord("d") and key[0] in ("level", "user"):
+            (d["levels"] if key[0] == "level" else d["users"]).pop(key[1])
+        elif c in (curses.KEY_ENTER, 10, 13):
+            if key[0] == "quit":
+                return 1
+            if key[0] == "apply":
+                if apply(scr, d):
+                    return 0
+            else:
+                edit(scr, d, key)
+
+
+if __name__ == "__main__":
+    a = sys.argv[1:]
+    if "-h" in a or "--help" in a:
+        print(__doc__.strip()); sys.exit(0)
+    if os.geteuid() != 0:
+        sys.exit("fdf-setup-ui: run as root")
+    sys.exit(curses.wrapper(main, a[a.index("--area") + 1] if "--area" in a and a.index("--area") + 1 < len(a) else ""))

@@ -1,4 +1,4 @@
-// The Android app: an FD&F leaf. The member protocol is :member (pure Kotlin, proven on a JVM against a real rina-host);
+// The Android app: an FD&F leaf. The member protocol is :member (pure Kotlin, proven on a JVM against a real fdf-ram);
 // the tunnels are fdf-tun (tun/, wireguard-go + the 1:1 rewrite) on one VpnService TUN; wireguard-android is kept for its keys.
 plugins {
     id("com.android.application")
@@ -11,8 +11,8 @@ android {
         applicationId = "com.fawcettinnovations.fdf.android"
         minSdk = 29                       // Android 10: the Communicator's camera/codec paths (it was minSdk 29 on its own)
         targetSdk = 34
-        versionCode = 1
-        versionName = "fdf-kt-2026-10-11-a15"
+        versionCode = 19
+        versionName = "fdf-kt-2026-10-28-a19"
     }
     compileOptions { sourceCompatibility = JavaVersion.VERSION_17; targetCompatibility = JavaVersion.VERSION_17 }
     kotlinOptions { jvmTarget = "17" }

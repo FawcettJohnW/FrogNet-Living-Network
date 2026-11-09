@@ -83,7 +83,7 @@ std::vector<Tuple> TuplesClient::get_all(const std::string& service, int fresh_s
 bool TuplesClient::remove_tuple(const std::string& service, const std::string& var, const std::string& scope) {
     auto cells = read(service, var, scope);
     if (cells.empty()) return false;
-    for (auto& c : cells) remove(c.id);
+    for (auto& c : cells) remove(service, var, c.id);   // [FAMILY_LOG_V1] a removal names its family
     return true;
 }
 

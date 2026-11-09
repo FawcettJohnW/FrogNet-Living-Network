@@ -12,7 +12,8 @@
 #   (b) every command in docs/OPERATING.md's code blocks: each program it runs exists in the tree at the path a node
 #       or the checkout has it (a cd in the block is followed), or is an OS command (on PATH here, or in OS_CMDS below).
 #   (c) no word of WORDS in DOCS outside an ALLOW entry (each with its reason).
-#   (d) the copies are the same file: usr/local/share/frognet/{README.md,AI_READ_FIRST.md,CLAIMS.md,COPYRIGHT,LICENSE}
+#   (d) [ONE_COPY_V1] one copy: usr/local/share/frognet/{README.md,AI_READ_FIRST.md,CLAIMS.md,COPYRIGHT,LICENSE} are not
+#       committed (the root's are the one copy; the installer lays the node's)
 #       = the repo root's; opt/fdf/README.md and hub/ = opt/fdf/src/fdf-source/fdf/'s; the Windows bridge's README.txt
 #       = the Android tree's windows/README.txt with CRLF line ends.
 # Every problem is printed. Exit 0 = no problem; exit 1 = at least one.
@@ -32,15 +33,15 @@ DOCS = [
     "opt/frognet_semantic/FROGNET_PRIMER_load_me_first.md",
     "opt/frognet_semantic/simulation/SIM_STATUS.md",
     "var/www/html/README.md", "var/www/html/README.txt",
-    "opt/fdf/README.md", "opt/fdf/hub/README.md",
-    "opt/fdf/hub/DEPLOY-REGION-2026-10-09.md", "opt/fdf/hub/HANDOFF-REGION-2026-10-09.md",
-    "opt/fdf/hub/PLAN-FROGNET-ON-FDF.md",
+    "opt/fdf/src/fdf-source/fdf/README.md", "opt/fdf/src/fdf-source/fdf/hub/README.md",
+    "opt/fdf/src/fdf-source/fdf/hub/DEPLOY-REGION-2026-10-09.md", "opt/fdf/src/fdf-source/fdf/hub/HANDOFF-REGION-2026-10-09.md",
+    "opt/fdf/src/fdf-source/fdf/hub/PLAN-FROGNET-ON-FDF.md",
     "opt/fdf/src/fdf-source/docs/PLAN-BRIDGE.md", "opt/fdf/src/fdf-source/docs/PLAN-PONDS.md",
     "opt/fdf/src/fdf-source/docs/WINDOWS-BRIDGE.md",
     "opt/fdf/src/frognet-android/docs/ANDROID-HANDOFF.md",
     "opt/fdf/src/frognet-android/docs/COMMUNICATOR-ANDROID-r5.md",
     "opt/fdf/src/frognet-android/windows/README.txt",
-    "opt/fdf/windows/bridge/README.txt", "opt/fdf/windows/README-windows.txt",
+    "opt/fdf/windows/README-windows.txt",
 ] + sorted(subprocess.run(["git", "ls-files", "-co", "--exclude-standard", "*AI_README.md"],
                           capture_output=True, text=True).stdout.split())
 DOCS = [d for d in dict.fromkeys(DOCS) if "/history/" not in d and os.path.exists(d)]
@@ -72,6 +73,7 @@ REF_ALLOW = [   # (document regex, reference regex, reason)
     (r"ANDROID-HANDOFF", r"^frognet-android-a11\.tgz$|^MERGE-ANDROID-r16-a4\.md$", "a tarball / note of that dated build, named in its dated section (not in the tree since)"),
     (r"README\.md$", r"^/opt/communicator/build$", "fdf-services.sh's default COMMS_BIN, outside the package by design"),
     (r"OPERATING", r"site-key-myarea$", "the example area's key file (fdf-region-create writes $V/site-key-$AREA)"),
+    (r"OPERATING", r"^/opt/fdf/hub/admitted/\w+\.json$", "the file fdf-invite writes on the region host for the member it admits"),
 ]
 
 problems = []
@@ -92,13 +94,15 @@ def expand(p):
     return [x for alt in m.group(1).split(",") for x in expand(p[:m.start()] + alt + p[m.end():])]
 
 KNOWN_ROOTS = ["opt/frognet_semantic", "opt/fdf", "opt/fdf/src/fdf-source", "opt/fdf/src/fdf-source/rinab",
-               "opt/fdf/src/frognet-android", "docs/cleanup-2026-10", "opt/fdf/windows/bridge",
+               "opt/fdf/src/frognet-android", "docs/cleanup-2026-10",
                "opt/frognet_semantic/ribbit/examples/communicator"]
 def exists_from(doc, ref):
     ref = ref.replace("\\", "/")
     for r in expand(ref):
         if r.startswith("/"):
             cands = [r.lstrip("/")]
+            if r.startswith("/opt/fdf/"):                 # [ONE_COPY_V1] the installed /opt/fdf is built from this source
+                cands.append("opt/fdf/src/fdf-source/fdf/" + r[len("/opt/fdf/"):])
         else:
             d = os.path.dirname(doc); cands = []
             while True:
@@ -205,6 +209,9 @@ for blk in blocks(open("docs/OPERATING.md").read()):
                 continue
             ncmd += 1
             if os.environ.get("CHECK_DOCS_LIST"): print("    (b) cwd=%-24s %s" % (cwd, " ".join(words)))
+            # [BUNDLES_IN_THE_TREE_V1] an unpacked bundle's own install: the core's and the add-ins' are in opt/fdf/src/bundles
+            if re.match(r"^/tmp/fdf-core-", cwd) and prog == "./install": prog, cwd = "opt/fdf/src/bundles/core/install", "."
+            if re.match(r"^/tmp/fdf-addin-", cwd) and prog == "./install": prog, cwd = "opt/fdf/src/bundles/addins/install", "."
             if "/" in prog:
                 if prog.startswith("/"): cand = prog.lstrip("/")
                 elif cwd == "/": cand = prog
@@ -212,6 +219,8 @@ for blk in blocks(open("docs/OPERATING.md").read()):
                 else:
                     # the checkout is the root; a clone directory name (FrogNet-Living-Network) is the root too
                     cand = os.path.normpath(os.path.join(*(p for p in cwd.split("/") if p not in (".", "FrogNet-Living-Network")), prog)) if cwd not in (".", "FrogNet-Living-Network") else prog
+                if cand.startswith("opt/fdf/") and not os.path.exists(cand):      # [ONE_COPY_V1] built from this source
+                    cand = "opt/fdf/src/fdf-source/fdf/" + cand[len("opt/fdf/"):]
                 if not os.path.exists(cand): bad("(b)", "docs/OPERATING.md", "%r: %s is not in the tree (looked for %s)" % (line, prog, cand))
             elif prog in OS_CMDS or shutil.which(prog):
                 pass
@@ -234,11 +243,14 @@ def same(a, b, crlf=False):
     if crlf: x = x.replace(b"\r\n", b"\n")
     return x == y
 for f in ("README.md", "AI_READ_FIRST.md", "CLAIMS.md", "COPYRIGHT", "LICENSE"):
-    if not same(f, "usr/local/share/frognet/" + f): bad("(d)", f, "usr/local/share/frognet/%s is not the same file" % f)
-for f in ["README.md"] + ["hub/" + os.path.basename(x) for x in glob.glob("opt/fdf/hub/*.md")]:
-    if not same("opt/fdf/" + f, "opt/fdf/src/fdf-source/fdf/" + f): bad("(d)", "opt/fdf/" + f, "differs from opt/fdf/src/fdf-source/fdf/" + f)
-if not same("opt/fdf/windows/bridge/README.txt", "opt/fdf/src/frognet-android/windows/README.txt", crlf=True):
-    bad("(d)", "opt/fdf/windows/bridge/README.txt", "differs from opt/fdf/src/frognet-android/windows/README.txt (CRLF aside)")
+    if os.path.exists("usr/local/share/frognet/" + f): bad("(d)", "usr/local/share/frognet/" + f, "a second copy of the root's " + f + " [ONE_COPY_V1]")
+import subprocess
+_tracked = set(subprocess.check_output(["git", "ls-files", "opt/fdf"], text=True).split())
+for x in sorted(_tracked):
+    if not x.startswith("opt/fdf/src/fdf-source/fdf/"): continue
+    t = "opt/fdf/" + x[len("opt/fdf/src/fdf-source/fdf/"):]
+    if t in _tracked: bad("(d)", t, "a second copy of " + x + " (make_deliverables builds it) [ONE_COPY_V1]")
+if os.path.exists("opt/fdf/windows/bridge"): bad("(d)", "opt/fdf/windows/bridge", "the bridge is make_package.sh output, not committed [ONE_COPY_V1]")
 
 for p in problems: print(p)
 print("check-docs: %d documents; (b) %d commands in docs/OPERATING.md; (c) %d word matches, %d allowed; %d problem(s)"

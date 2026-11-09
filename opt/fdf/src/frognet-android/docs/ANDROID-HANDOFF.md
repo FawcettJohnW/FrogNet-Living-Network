@@ -78,7 +78,7 @@ on r19 found an r19 bug: two facts.json writers sharing one tmp name could wipe 
 
 ## a4 (2026-10-10 05:00): the RAM manager gives the leaf its /32; three tarballs
 
-`[LEAF_ADDR_FROM_THE_REGION_V1]` (John: "Nobody types shit. That's what the ram manager is for"): rina-host gives a leaf
+`[LEAF_ADDR_FROM_THE_REGION_V1]` (John: "Nobody types shit. That's what the ram manager is for"): fdf-ram gives a leaf
 off the mesh its 10.252.X.Y/32 with the announcement, bound to the session; the app has no address field; fdf-client
 prints the one it got. Region build `fdf-2026-10-10-r16-a4` carries it and `[KEEPALIVE_5S_V1]`, all three tarballs;
 `MERGE-ANDROID-r16-a4.md` says what goes onto r18. Tests: tunnel 10/10, placement 18/18, death 3.9 s, r16's graph test
@@ -153,7 +153,7 @@ frognet-android/
   tools/netns-two-ponds-test.sh      the phone in two ponds: notices, Bring forward, ten switches (14 checks)
   tools/netns-fdftun-test.sh         fdf-tun alone: three hubs all 10.7.7.0/24, aliases, concurrency, the --fd-socket path
   (the phone's bridge against real ponds is stage (7) of rinab/tools/netns-reach-test.sh: BRIDGE_KT=… FDF_TUN=…)
-  tools/apply_keepalive_5s.py        [KEEPALIVE_5S_V1] + [RECV_SAYS_WHY_V1] for rinab (same file as in r19-a11)
+  opt/fdf/src/fdf-source/rinab/tools/apply_keepalive_5s.py   [KEEPALIVE_5S_V1] + [RECV_SAYS_WHY_V1] (its one copy)
   app/src/main/java/net/frognet/communicator/  the Communicator (Java): CommunicatorActivity, camera/codec/audio, core/
   communicator-test/  its tests (Probe, Robolectric AppFlowTest opened as the member opens it, test_app_flow.py)
   docs/ANDROID-HANDOFF.md (this), ANDROID-PROGRESS.md, PLAN-PONDS.md, WORKLOG-PONDS.md, COMMUNICATOR-ANDROID-r1.md

@@ -1,13 +1,13 @@
 // fdf_transport.hpp -- [TRANSPORT_INTERFACE_V1] FD&F answering src/transport.hpp's definitions.
-//   locate       the area's RAM manager: rina_region::Client::locate() (RINA_RAM, or the area's name through LISP)
-//   connect      the FNWP session to it: rina_region::Client(where)
+//   locate       the area's RAM manager: fdf_region::Client::locate() (RINA_RAM, or the area's name through LISP)
+//   connect      the FNWP session to it: fdf_region::Client(where)
 //   announce     op announce: name, addresses, capability
 //   participants op participants: every announcement, alive = its machine's session is up
 //   capability   one participant's capability, from the same answer
 //   change       op watch_participants once, then a held wait on this process's own input space
 #pragma once
 #include "transport.hpp"
-#include "rina_region_client.hpp"
+#include "fdf_region_client.hpp"
 #include <unistd.h>
 
 namespace fdf {
@@ -30,16 +30,16 @@ public:
     explicit Socket(const std::string& where) : c_(where) {}
     std::string call(const std::string& request) override { return dump(c_.call(request)); }
     void post(const std::string& request) override { c_.post(request); }
-    rina_region::Client& client() { return c_; }
+    fdf_region::Client& client() { return c_; }
 private:
-    rina_region::Client c_;
+    fdf_region::Client c_;
 };
 
 class Transport : public transport::Transport {
 public:
     std::string locate(const std::string& area) override {
         if (!area.empty()) setenv("RINA_AREA", area.c_str(), 1);      // the name given; resolved by the transport's rules
-        return rina_region::Client::locate();
+        return fdf_region::Client::locate();
     }
     std::unique_ptr<transport::Socket> connect(const std::string& where) override { return std::make_unique<Socket>(where); }
     void announce(transport::Socket& s, const transport::Participant& self) override {

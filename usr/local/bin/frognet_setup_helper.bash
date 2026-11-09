@@ -36,7 +36,7 @@
 
 
 GATEWAYS_CONF="${FROGNET_GATEWAYS_CONF:-/etc/frognet/gateways.conf}"
-SETUP_LILLYPAD="${FROGNET_SETUP_LILLYPAD:-/usr/local/bin/setup_lillypad.bash}"
+SETUP_LILLYPAD="${FROGNET_SETUP_LILLYPAD:-/usr/local/bin/setup_lillypad_v4.bash}"   # [SETUP_HELPER_CALLS_V4_V1] the only setup_lillypad in the tree
 ETH0="${FROGNET_ETH0:-eth0}"
 
 fail() {

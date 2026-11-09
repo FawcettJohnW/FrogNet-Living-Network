@@ -1,0 +1,7 @@
+Path names kept so the recorded runners work unchanged. Actual contents in this workspace:
+zulu8.98.0.107-ca-jdk8.0.512-linux_x64 -> Ubuntu OpenJDK 8u504 (openjdk-8-jdk-headless 8u504-ga-1ubuntu1~24.04.3)
+mongodb-linux-x86_64-ubuntu2004-5.0.31/bin -> conda-forge mongodb 5.0.3 (mongod, mongo shell)
+Maven 3.9.9 from Maven Central; packages built with -DskipTests.
+nebula-dns.crt -> this workspace proxy CA (/usr/local/share/ca-certificates/ccr-agent-proxy.crt); not installed into the system store
+apache-maven-3.9.9 -> Maven Central apache-maven 3.9.9 binary
+mongo (shell) wrapper: drops the conda 5.0.3 shell's own {"t":{"$date"...}} log lines from stdout; every call is traced in recovery-state/mongo-shell-trace.log

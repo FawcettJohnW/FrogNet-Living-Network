@@ -12,7 +12,7 @@
 # Every match is printed. A match is ALLOWED only by an entry in ALLOW below (path glob + line regex + reason);
 # anything else is a VIOLATION. Exit 0 = no violation; exit 1 = at least one.
 #
-# [T5] STRICT pass over what an operator sees -- the web pages (var/www/html, opt/fdf/www) and the monitors
+# [T5] STRICT pass over what an operator sees -- the web pages (var/www/html, opt/fdf/src/fdf-source/fdf/www) and the monitors
 # (usr/local/bin/frognet_monitor*, Python, C++, C#, the shared vectors) -- with nothing excluded (READMEs and test files
 # included) and none of ALLOW's general rules: only STRICT_ALLOW (the oracles' own "no broker word here" assertions).
 
@@ -28,7 +28,6 @@ EXCL=(':(exclude)opt/frognet_semantic/docs' ':(exclude,glob)**/*.md' ':(exclude,
 ALLOW=$(cat <<'EOF'
 opt/frognet_semantic/simulation/frognet_sim.py	.	TIER 1 model (run_all "model suite"). Its World.broker_channels is the channel list merge_cycle consumes, and ~40 regression scenarios replay broker-era incidents (stale entries, phantom channels, poll-vs-kernel drift) by name. Re-modelling it on the region is not small; it is a model, not shipped runtime.
 usr/local/bin/frognet_prune_removed.sh	.	Names the paths and keys it removes (its T3 section is the installer's upgrade step).
-opt/frognet_semantic/ribbit/cpp/tests/reference/*	.	Frozen reference copy of the 2026-08 Python engine: the oracle ribbit/cpp/qualify.sh runs the C++ port against. Editing it changes the oracle.
 opt/frognet_semantic/ribbit/examples/lispers.net/artifacts/*	.	Recorded output of past run_all runs (evidence files), not code.
 *	NO_BROKER_V1|BROKER_TEARDOWN_V1|BROKER_AUTHORITY	A tag that records the removal; each such line says what went and that it is gone (T3a/T3b).
 *	[Bb]roker[Hh]ost	A machine's name (the host once called BrokerHost / brokerhost.seattle2) in history notes and test fixtures.
@@ -36,18 +35,18 @@ opt/frognet_semantic/internet_tunnels_v3/config.py	broker's BROKER_URL, GROUP_TO
 opt/frognet_semantic/oracles/oracle_routing_topology.py	"broker" not in payload|BROKER_URL=https://broker.invalid|only an old BROKER_URL	The oracle asserts there is no broker field and that an old BROKER_URL alone means LAN-only.
 opt/fdf/src/fdf-source/rinab/tools/netns-lan-only-test.sh	.	The LAN-only netns oracle: it plants old broker keys and asserts they are named once, ignored, and that nothing asks a broker anything.
 opt/fdf/src/fdf-source/rinab/tools/netns-region-loop-test.sh	broker keys in tunnel.conf	The region oracle's header: its nodes carry no old broker keys.
-opt/fdf/bin/fdf-hub	Replaces frognet_broker_v4 for a region	History: what the hub replaced (the hub's docstring).
-opt/fdf/src/fdf-source/fdf/bin/fdf-hub	Replaces frognet_broker_v4 for a region	History: the same docstring (cmp-identical source copy).
-opt/fdf/src/fdf-source/rinab/tools/fdf-hub	Replaces frognet_broker_v4 for a region	History: the same docstring (cmp-identical copy make_deliverables checks).
-opt/fdf/bin/fdf-facts	broker-mode tunnels|re-registered with the broker	History: the incident that defined [HUB_ROW_IS_THE_REGION_EDGE_V1].
-opt/fdf/src/fdf-source/fdf/bin/fdf-facts	broker-mode tunnels|re-registered with the broker	History: the same comment (cmp-identical source copy).
+opt/fdf/src/fdf-source/fdf/bin/fdf-hub	Replaces frognet_broker_v4 for a region	History: what the hub replaced (the hub's docstring).
+opt/fdf/src/fdf-source/fdf/bin/fdf-facts	broker-mode tunnels|re-registered with the broker	History: the incident that defined [HUB_ROW_IS_THE_REGION_EDGE_V1].
 opt/fdf/src/fdf-source/rinab/src/rina_region.cpp	10.252.254.0/24 is the broker's veths	C++ source of the built RAM manager: why 10.252.254.0/24 is never handed to a leaf (an address reservation).
 opt/fdf/src/fdf-source/rinab/experiments/exp3-topologies.json	no internet, no broker	Recorded experiment input: frognet_sim's topology label, carried verbatim.
 opt/frognet_semantic/simulation/baselines/topo_mixed_iface_no_router.json	no internet, no broker	frognet_sim's learned baseline; the label must equal the model topology's name.
+opt/frognet_semantic/ribbit/examples/mqtt/*	.	MQTT's own word: an MQTT broker is the protocol's server, and this example converts one (Eclipse Mosquitto, vendored in stock/ and front/) to the shared RAM. Not FrogNet's removed broker.
+opt/frognet_semantic/ribbit/examples/senzmatica/*	.	MQTT's own word: SenzMatica's remote configuration runs over an MQTT broker (Mosquitto) with the switch OFF, and this example converts it to the shared RAM with the switch ON. Not FrogNet's removed broker.
+opt/fdf/src/fdf-source/rinab/experiments/day-claims/runs/*	no internet, no broker	Recorded run output (the simulator's tier-4 run files): frognet_sim's topology label, carried verbatim.
 EOF
 )
 
-STRICT_SCOPE=(var/www/html opt/fdf/www usr/local/bin/frognet_monitor usr/local/bin/frognet_monitor_py
+STRICT_SCOPE=(var/www/html opt/fdf/src/fdf-source/fdf/www usr/local/bin/frognet_monitor usr/local/bin/frognet_monitor_py
               usr/local/bin/frognet_monitor_cpp usr/local/bin/frognet_monitor_cs usr/local/bin/frognet_monitor_shared)
 STRICT_ALLOW=$(cat <<'EOF'
 usr/local/bin/frognet_monitor_py/test_snapshot_view_oracle.py	no broker vocabulary|"broker" not in	The view oracle asserting the screen and the frame carry no such word.

@@ -1,0 +1,47 @@
+<!doctype html>
+<!-- Copyright (C) 2016-2026 Fawcett Innovations LLC. SPDX-License-Identifier: GPL-2.0-only
+     board.html -- [RT_PAGES_V1] the post's board: the open mission's radio log and every team's last word, read-only, for
+     any phone or screen on the post's Wi-Fi. The same cells the scribes write; nothing to claim, no key, no snapshot.
+     ?m=<mission id>&op=<op period> opens that one; otherwise the newest mission. -->
+<html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Board</title><link rel="stylesheet" href="rt.css">
+<style> body { font-size: 18px; } td.no { font-size: 16px; } .grid { display: grid; grid-template-columns: 2fr 1fr; gap: 16px; }
+        @media (max-width: 800px) { .grid { grid-template-columns: 1fr; } } </style></head><body>
+<h1>Board <small id="mis"></small></h1>
+<div id="say"></div>
+<div class="grid">
+  <div><h2>Radio log <small id="count"></small></h2>
+    <table><thead><tr><th>Msg #</th><th>✓</th><th>Time</th><th>Callsign</th><th>Status</th><th>Notes</th></tr></thead><tbody id="rows"></tbody></table></div>
+  <div><h2>Teams</h2><table><thead><tr><th>Callsign</th><th>Last</th><th>Heard</th></tr></thead><tbody id="teams"></tbody></table></div>
+</div>
+<script type="module">
+import * as RT from './rt.js'
+const D = RT.D, $ = (s) => document.querySelector(s), say = (t) => { $('#say').textContent = t }
+window.RT_NOTE = say
+const want = new URLSearchParams(location.search)
+let log = new Map(), marks = new Map(), stops = []
+function draw() {
+  const rows = [...log.values()].sort((a, b) => b.id - a.id)            // newest first on a board
+  $('#count').textContent = rows.length + ' entries'
+  $('#rows').innerHTML = rows.slice(0, 200).map(r => { const b = r.bag
+    return '<tr><td class="no">' + RT.esc(D.msgNoShort(b.msgNo)) + '</td><td>' + (D.MARK_GLYPH[marks.get(r.instance)?.mark] || '') + '</td><td>' + RT.esc(new Date(b.date).toLocaleTimeString()) +
+      '</td><td>' + RT.esc(b.callsign) + '</td><td><span class="st" style="background:' + D.statusColor(b.status) + '"></span>' + RT.esc(b.status) + '</td><td>' + RT.esc(b.notes) + '</td></tr>' }).join('')
+  const last = new Map(); for (const r of rows) { const c = r.bag.callsign.toUpperCase(); if (!last.has(c)) last.set(c, r.bag) }
+  $('#teams').innerHTML = [...last].sort((a, b) => a[0].localeCompare(b[0])).map(([c, b]) => { const band = D.overdueBand((Date.now() - new Date(b.date)) / 60000)
+    return '<tr><td>' + RT.esc(c) + '</td><td>' + RT.esc(b.status) + '</td><td' + (band >= 2 ? ' style="color:#b3160b;font-weight:700"' : '') + '>' + RT.esc(new Date(b.date).toLocaleTimeString()) + '</td></tr>' }).join('')
+}
+function open(id, bag) {
+  stops.forEach(f => f()); log = new Map(); marks = new Map(); draw()
+  const m = { id, ...bag }; $('#mis').textContent = m.name + ', op period ' + m.opPeriod
+  stops = [RT.watch('rt-log', RT.logVariable(m), (c) => { log = c; draw() }, (e) => say('the RAM did not answer (' + e.message + '); reading again')),
+           RT.watch('rt-handled', m.id, (c) => { marks = RT.markOf(c); draw() })]
+}
+setInterval(draw, 30000)                                        // the overdue bands advance on this page's own clock, no write
+let shown = ''
+RT.watch('rt-mission', 'settings', (cells) => {
+  const pick = want.get('m') ? cells.get(want.get('m')) : [...cells.values()].sort((a, b) => b.id - a.id)[0]
+  if (!pick) { say('no mission started yet'); return }
+  const bag = { ...pick.bag, opPeriod: want.get('op') || pick.bag.opPeriod }, key = pick.instance + '.' + bag.opPeriod
+  if (key !== shown) { shown = key; say(''); open(pick.instance, bag) }
+})
+</script></body></html>

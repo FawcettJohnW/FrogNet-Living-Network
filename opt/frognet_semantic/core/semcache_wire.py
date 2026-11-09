@@ -78,6 +78,7 @@ OP_RESP_DIFF  = 0x11
 OP_RESP_SAME  = 0x13
 OP_RESP_RAW   = 0x14
 OP_REQ_MISS   = 0x21
+OP_REQ_SAME_MISS = 0x22   # [SAME_MISS_FROM_CACHE_V1] the proxy does not hold the answer a RESP_SAME named
 OP_ERROR      = 0x30
 OP_SEQ_RESET  = 0x40
 # ---- ADDED ----
@@ -177,6 +178,13 @@ def wrap_resp_raw(same_id: bytes, status: int, headers: bytes, body: bytes) -> b
         raise ValueError(f"same_id must be {SAME_ID_LEN} bytes, got {len(same_id)}")
     payload = struct.pack("!HH", status, len(headers)) + headers + body
     return MAGIC + bytes([OP_RESP_RAW]) + same_id + struct.pack("!I", len(payload)) + payload
+
+
+def wrap_req_same_miss(same_id: bytes) -> bytes:
+    """[SAME_MISS_FROM_CACHE_V1] Ask for the answer a RESP_SAME named: [MAGIC][0x22][same_id:16]. Never a re-run."""
+    if len(same_id) != SAME_ID_LEN:
+        raise ValueError(f"same_id must be {SAME_ID_LEN} bytes, got {len(same_id)}")
+    return MAGIC + bytes([OP_REQ_SAME_MISS]) + same_id
 
 
 def wrap_req_miss(req_hash: bytes) -> bytes:
@@ -376,6 +384,11 @@ def try_parse(frame: bytes) -> Optional[WireMsg]:
         body = payload[4+hdrs_len:]
         return WireMsg(op=op, same_id=same_id, status=status, headers=headers, body=body)
 
+    if op == OP_REQ_SAME_MISS:
+        if len(frame) < off + SAME_ID_LEN:
+            raise ValueError("short REQ_SAME_MISS frame")
+        return WireMsg(op=op, same_id=frame[off:off+SAME_ID_LEN])
+
     if op == OP_REQ_MISS:
         if len(frame) < off + H:
             raise ValueError("short REQ_MISS frame")
@@ -454,6 +467,7 @@ def op_name(op: int) -> str:
         OP_RESP_DIFF: "RESP_DIFF",
         OP_RESP_RAW: "RESP_RAW",
         OP_REQ_MISS: "REQ_MISS",
+        OP_REQ_SAME_MISS: "REQ_SAME_MISS",
         OP_ERROR: "ERROR",
         OP_SEQ_RESET: "SEQ_RESET",
         OP_HELLO: "HELLO",

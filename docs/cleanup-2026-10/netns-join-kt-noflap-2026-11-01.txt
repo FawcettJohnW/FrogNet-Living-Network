@@ -1,0 +1,9 @@
+[NO_FLAP_V1] Windows/Android member (Kotlin), 2026-11-01: netns-join-kt-test.sh
+PASS  0 each RAM host runs each space's RAM manager: A Responders :37799 Admin :32845; B Responders :32521 Admin :53640
+PASS  1 a wrong password refused (exit 3): LOGIN FAILED: login at 198.18.0.1:51820 refused: wrong user or password
+PASS  2 q logged in at both through the bridge: joined: hubA edge 10.253.1.1 RAM 100.64.0.2:44524; hubB edge 10.253.1.1 RAM 100.64.0.4:37111
+PASS  2 each door on the generic credential's island: door at 198.18.0.1:51820: I am d-c874e0193c95, edge 10.253.1.1;door at 198.18.0.3:51820: I am d-c874e0193c95, edge 10.253.1.1;
+PASS  3 q's application in Responders and Admin on A, its truth in each (0.0 s, 0.0 s)
+PASS  4 Admin's RAM manager on A killed: q's Admin on B 33 ms after the kill, its truth there; Responders still on hubA
+PASS  4 fdf-org started Admin's RAM manager again on A: 10 s later q's Admin still on B (no flapping)
+RESULT PASS

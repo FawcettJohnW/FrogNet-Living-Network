@@ -1,0 +1,24 @@
+Step 7 [ORG_NODE_JOIN_V1], 2026-10-31: fdf-region-join takes an organization's fdfjoin1 line (fdf-login --node); the .run and frognet_install.sh pass it on.
+netns-system-space-test.sh LOGIN=1 (through fdf-region-join --files-only) 2/2 PASS; invitations PASS; netns-region-loop-test.sh PASS.
+
+PASS  hubA up on 51820, its RAM manager at 10.253.253.254:8840
+PASS  hubB up on 51820, its RAM manager at 10.253.253.254:8840
+PASS  LOGIN=1: one join line for level Nodes names hubA then hubB (fdfjoin1.eyJ2IjoxLCJvcmciOiJmcm9nbmV0LnR...)
+PASS  z: fdf-region-join --files-only with the organization's line (fdf-login --node): logged in at 198.18.0.1:51820: level Nodes, RINA_RAM=10.253.253.254:52091;logged in at 198.18.0.2:51820: level Nodes, RINA_RAM=10.253.253.254:49318;node: system space hubA, hubB for the tunnel daemon (/opt/fdf/var/system-space.json); site.env, hub.json, join.env written;== logged in: area frognet.te
+PASS  z: system-space.json from the login: [('hubA', '10.253.253.254:52091', '10.253.1.1'), ('hubB', '10.253.253.254:49318', '10.253.1.1')]
+PASS  z: fdf-login left no interface of its own (the daemon owns the tunnels)
+PASS  w: fdf-region-join --files-only with the organization's line (fdf-login --node): logged in at 198.18.0.1:51820: level Nodes, RINA_RAM=10.253.253.254:52091;logged in at 198.18.0.2:51820: level Nodes, RINA_RAM=10.253.253.254:49318;node: system space hubA, hubB for the tunnel daemon (/opt/fdf/var/system-space.json); site.env, hub.json, join.env written;== logged in: area frognet.te
+PASS  w: system-space.json from the login: [('hubA', '10.253.253.254:52091', '10.253.1.2'), ('hubB', '10.253.253.254:49318', '10.253.1.2')]
+PASS  w: fdf-login left no interface of its own (the daemon owns the tunnels)
+PASS  both on hubA, the first on the list; hubA's RAM manager lists both (2.4 s)
+PASS  z routes w's 10.4.4.0/24 over the LAN (via its lease 10.3.3.20)
+PASS  w has its own tunnel to hubA, through z: wg0 
+PASS  hubA's RAM manager gone: both on hubB, the next on the list, hubB lists both (2.1 s)
+PASS  hubA's RAM manager back: both on hubA again (5.6 s; the standing attempt is every 5 s)
+PASS  both WAN RAM managers gone: both on the LAN's highest, w's 10.4.4.1:8841, which lists both (2.2 s)
+PASS  on the LAN: no WireGuard on z or w ()
+PASS  on the LAN: z still routes w's /24
+PASS  on the LAN: w's .1 -> z's .1
+PASS  hubA back: both on hubA from the LAN (5.3 s)
+PASS  z's hub channel is back up
+RESULT PASS

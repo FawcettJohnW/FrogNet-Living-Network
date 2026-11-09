@@ -12,5 +12,5 @@ source "$(dirname "$(readlink -f "$0")")/../../cpp/ensure_build_deps.sh"; ribbit
 mkdir -p build
 F="-std=c++17 -O2 -pthread -Wall -Wextra -Werror -Wno-free-nonheap-object -I$RIBBIT/include -I."
 echo "== libtuples.so"; $CXX $F -shared -fPIC tuples_c.cpp tuples.cpp "$RIBBIT/src/ram_client.cpp" "$RIBBIT/src/frogram.cpp" -llz4 -lcrypto -o build/libtuples.so
-echo "== named-ram";    $CXX $F tests/named_ram.cpp "$RIBBIT/src/ram_host.cpp" "$RIBBIT/src/frogram.cpp" -llz4 -lcrypto -o build/named-ram
+echo "== named-ram";    $CXX $F -std=c++20 tests/named_ram.cpp "$RIBBIT/src/ram_host.cpp" "$RIBBIT/src/frogram.cpp" "$RIBBIT/src/lf_ebr.cpp" -llz4 -lcrypto -o build/named-ram
 echo "built: build/libtuples.so build/named-ram"

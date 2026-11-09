@@ -30,6 +30,7 @@
  *   members      /var/lib/frognet/region_hosts.json (the daemon's applied  makeHostJson.bash (the merge's /etc/hosts:
  *                plan; alive = the member's region session this event)     alive = named by the last merge, HOSTS_GATE)
  *   ponds        /opt/fdf/var/ponds/<area>.ram + forward, or the one pond  none
+ *                (each with `telem`: its devices' (pond, telem) tuples [TELEMETRY_IS_A_TUPLE_V1])
  *                join.env + facts.json `pond` name; a participant pond's members and
  *                any pond's config from that pond's RAM manager, live
  *   hub          facts.json `hub` rows (the region edge iface) + the       none
@@ -231,6 +232,19 @@ function fn_ponds($mode, $guid, &$errors) {
             }
             usort($p['members'], function ($a, $b) { return strcmp($a['name'], $b['name']); });
         }
+        // [TELEMETRY_IS_A_TUPLE_V1] what each device in this pond reports: (pond, telem, <its ns>), the member's own tuple
+        // (gone with its session); the newest non-empty cell per ns, oldest id first so a later removal ({} ) wins
+        $t = fn_ram_call($ram, 'GET', '?op=read&service=pond&variable=telem');
+        $tel = [];
+        $cells = is_array($t['cells'] ?? null) ? $t['cells'] : (is_array($t['rows'] ?? null) ? $t['rows'] : []);
+        usort($cells, function ($a, $b) { return ($a['id'] ?? 0) <=> ($b['id'] ?? 0); });
+        foreach ($cells as $cl) {
+            $ns = (string)($cl['instance'] ?? ''); $bag = $cl['bag'] ?? null;
+            if (is_array($bag) && $bag) $tel[$ns] = $bag; else unset($tel[$ns]);
+        }
+        $p['telem'] = [];
+        foreach ($tel as $ns => $bag) $p['telem'][] = ['ns' => $ns, 'name' => (string)($bag['name'] ?? $ns), 'me' => $ns === $me] + $bag;
+        usort($p['telem'], function ($a, $b) { return strcmp($a['name'], $b['name']); });
         $c = fn_ram_call($ram, 'GET', '?op=read&service=pond&variable=config&instance=net');
         if ($c === null) { $p['error'] = "its RAM manager at $ram did not answer"; $errors[] = "pond $area: " . $p['error']; }
         $cell = $c['cells'][0]['bag'] ?? ($c['rows'][0]['bag'] ?? null);

@@ -16,4 +16,4 @@ if ip -4 route get "$MR" | grep -q '^local '; then     # the mapping is on THIS 
 fi
 [ -n "$IP" ] || { echo "no route to the mapping system at $MR (give ROUTER: the mapping machine's IP)"; exit 1; }
 echo "area '$RINA_AREA': RAM manager at $IP:8840"
-exec env RINA_MAP_AREA="$RINA_AREA" RINA_AREA_PASSWORD="$RINA_AREA_PASSWORD" RINA_REGION_FILE=/opt/fdf/var/area.perm rina-host --listen "$IP:8840" --api $API
+exec env RINA_MAP_AREA="$RINA_AREA" RINA_AREA_PASSWORD="$RINA_AREA_PASSWORD" RINA_REGION_FILE=/opt/fdf/var/area.perm fdf-ram --listen "$IP:8840" --api $API

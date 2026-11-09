@@ -1,4 +1,21 @@
 #!/bin/bash
+################################################################
+#  Copyright (C) 2016-2026 Fawcett Innovations LLC             #
+#                                                              #
+#  SPDX-License-Identifier: GPL-2.0-only                       #
+#                                                              #
+#  This program is free software; you can redistribute it      #
+#  and/or modify it under the terms of the GNU General Public  #
+#  License as published by the Free Software Foundation;       #
+#  version 2 of the License, and no other version.             #
+#                                                              #
+#  This program is distributed in the hope that it will be     #
+#  useful, but WITHOUT ANY WARRANTY; without even the implied  #
+#  warranty of MERCHANTABILITY or FITNESS FOR A PARTICULAR     #
+#  PURPOSE.  See the GNU General Public License for details.   #
+#                                                              #
+#  See COPYRIGHT and LICENSE at the root of this tree.         #
+################################################################
 # build.sh -- libmosquitto.so.1 on the memory ([CLIENT_ON_THE_MEMORY_V1]): this directory's client, the platform's session
 # (ribbit/cpp), the memory itself (ram_host: a process may hold it, MQTT_MEMORY=here), and Mosquitto's own pure helpers unchanged (libcommon: topics, properties, strings, UTF-8; lib/helpers.c:
 # subscribe_simple and subscribe_callback, written on the public API). The stock version script: the same symbols.

@@ -1,0 +1,24 @@
+netns-space-test.sh (step 4, devices) and netns-org-test.sh (steps 1-3), each run 3 times, 2026-10-31, one box, wireguard-go
+org run 1: RESULT PASS 
+space run 1: RESULT PASS 
+org run 2: RESULT PASS 
+space run 2: RESULT PASS 
+org run 3: RESULT PASS 
+space run 3: RESULT PASS 
+
+[exited with code 0]
+
+== run 3 of netns-space-test.sh, checks:
+PASS  1 r logged in at both with one line: logged in at 198.18.0.1:51820: level Responders, RINA_RAM=10.253.253.254:59714;logged in at 198.18.0.3:51820: level Responders, RINA_RAM=10.253.253.254:21365;
+PASS  1 r's tunnels route the RAM address only: 10.253.253.254 dev wg-own0 scope link metric 100 ;10.253.253.254 dev wg-own1 scope link metric 101 ;
+PASS  1 q logged in at both with one line: logged in at 198.18.0.1:51820: level Responders, RINA_RAM=10.253.253.254:59714;logged in at 198.18.0.3:51820: level Responders, RINA_RAM=10.253.253.254:21365;
+PASS  1 q's tunnels route the RAM address only: 10.253.253.254 dev wg-own0 scope link metric 100 ;10.253.253.254 dev wg-own1 scope link metric 101 ;
+PASS  2 both applications on A, their truth at A (0.3 s)
+PASS  3 A's RAM manager died: both on B in 0.0 s, their truth written again at B
+PASS  4 A came back with everything else idle: both back on A in 2.9 s (the standing connection's event)
+PASS  5 A and B died: each on its own RAM in 0.0 s (127.0.0.1:8841, 127.0.0.1:8841)
+PASS  6 B came back: both on B in 5.2 s
+PASS  6 A came back: both on A in 4.7 s
+PASS  7 partition: q (cut from A) on B in 9.2 s, r still on A: two RAMs, each said in its log
+PASS  7 the partition healed: q back on A in 1.0 s
+RESULT PASS

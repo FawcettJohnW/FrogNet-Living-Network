@@ -1,0 +1,16 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="400" height="400" viewBox="0 0 400 400">
+  <!-- OpenEOC mark (from openeoc-logo.svg): the open ring, command (orange) and three linked nodes -->
+  <rect width="400" height="400" rx="72" fill="#ffffff"/>
+  <g transform="translate(200,200)">
+    <path d="M 118.8 48.3 A 128 128 0 1 0 48.3 118.8" fill="none" stroke="#1f5e3d" stroke-width="30" stroke-linecap="round"/>
+    <line x1="0" y1="-56" x2="-56" y2="0" stroke="#1f5e3d" stroke-width="14" stroke-linecap="round"/>
+    <line x1="0" y1="-56" x2="56" y2="0" stroke="#1f5e3d" stroke-width="14" stroke-linecap="round"/>
+    <line x1="-56" y1="0" x2="0" y2="56" stroke="#1f5e3d" stroke-width="14" stroke-linecap="round"/>
+    <line x1="56" y1="0" x2="0" y2="56" stroke="#1f5e3d" stroke-width="14" stroke-linecap="round"/>
+    <line x1="-56" y1="0" x2="56" y2="0" stroke="#1f5e3d" stroke-width="14" stroke-linecap="round"/>
+    <circle cx="0" cy="-56" r="26" fill="#e8792b"/>
+    <circle cx="-56" cy="0" r="22" fill="#1f5e3d"/>
+    <circle cx="56" cy="0" r="22" fill="#1f5e3d"/>
+    <circle cx="0" cy="56" r="22" fill="#1f5e3d"/>
+  </g>
+</svg>

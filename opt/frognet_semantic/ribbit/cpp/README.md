@@ -12,7 +12,7 @@ What every vendor's executable and client library is built from.
 | `include/ebr.hpp` | epoch-based reclamation for lock-free readers |
 | `tools/ribbit_ram.cpp` | `ribbit-ram`: the host with no region, answering FrogNet's default endpoint `/ram.php` -- the smallest vendor, and what the platform tests run against |
 | `tools/tuple_write.cpp` | `tuple-write`: cells written and read from a script, one JSON line at a time |
-| `tests/` | the platform's tests, and `tests/reference/` -- FrogNet's Python semantic engine, the oracle the C++ wire is compared with |
+| `tests/` | the platform's tests; the oracle the C++ wire is compared with is FrogNet's live Python engine, `opt/frognet_semantic` |
 
 ## Qualification
 
@@ -31,7 +31,7 @@ Until now these lived only in examples/redis, applied to its own copy of v0.63 a
 platform itself, so every vendor's library and RAM host gets them:
 - `[REPLY_EXTRACTION_PROVEN_V1]` (fnwp_engine.hpp): the client proves the template holds an answer before trusting its
   fields; an answer of another shape goes RESP_RAW instead of being rebuilt as the old shape.
-- `[SAME_MISS_FROM_CACHE_V1]` (semwire.hpp, fnwp_engine.hpp; Python half in tests/reference): a RESP_SAME naming an
+- `[SAME_MISS_FROM_CACHE_V1]` (semwire.hpp, fnwp_engine.hpp; the Python half is in the live engine: core/semcache_wire.py, daemon/engine/session.py, daemon/cache/semcache_db.py, proxy/transport_semantic.py): a RESP_SAME naming an
   answer the client no longer holds is fetched from the host's cache (REQ_SAME_MISS, 0x22); the request is never run a
   second time. The host keeps every REPEAT entry; answers over 64 KB are not kept, and SAME is said only for a held answer.
 - `[VENDOR_STREAM_V1]` (semwire.hpp, frogram.hpp/.cpp, ram_host.hpp/.cpp): a vendor's own records on the session's
@@ -81,3 +81,18 @@ for that, as frames on the session's permanent sockets, past the semantic engine
 | `[RAW_ROWS_V1]` `Memory::read_raw` | the same, each bag left as its text (`RawCell`) for a reader with its own format |
 | `[FOLLOW_STREAM_V1]` `Memory::follow` | a standing trigger: one request (op 0x7D), then the family's rows as they are written, in write order, until the session ends; delivered on the session's reader thread. The host's follower is a thread parked in the memory's wait |
 | `[IN_FLIGHT_BY_SEQ_V1]` | an in-flight request is found by its sequence number, not its slot |
+
+## Typed tuple and capability interface
+
+`ribbit_pp.hpp` adds `TupleName {indexA,indexB,indexC}`, `Tuple` and derived
+`Capability`. Set/get/held read share that name type and read results are JSON
+bags. See [API++](../docs/API-PLUS-PLUS.md#tuple-base-class-and-named-capability-operations-tuple_interface_pp_v1)
+and run `tools/check_capabilities.sh` for the focused positive/negative and mutation gate.
+The base API is unchanged.
+
+## FD&F's write contract, for a vendor that serves FD&F's clients (2026-11-02) [OWN_FLAG_DECIDES_V1]
+`RamHost::own_flag_decides()` (default false: `[GONE_WITH_ITS_WRITER_V1]`, everything a session writes goes with it).
+A vendor that says true answers writes as FD&F's RAM manager does (`fdf-ram`, and fdf-ram before it) (`[OWNED_CELL_GOES_WITH_THE_SESSION_V1]`): a write with
+`"own":true` goes with its session (refused without one: plain HTTP has none), any other stays until written again or
+removed, and `"permanent":true` is refused (this host keeps no file). First used by the Team app's team RAM on a lead's
+phone (`opt/fdf/src/openeoc-app/android/teamram`), which passes OpenEOC's own app test as every RAM.

@@ -55,7 +55,7 @@ public:
                    const std::string& bag_json);
     std::vector<frogram::Cell> read(const std::string& service, const std::string& variable,
                                     const std::string& instance = "", int64_t after = -1, double wait_s = 0);
-    void remove(uint64_t id);
+    void remove(const std::string& service, const std::string& variable, uint64_t id);
 
     // One of the vendor's own operations (the host's RamHost::operation): POST <api>?op=<op> with a JSON body. Returns
     // the host's answer; an answer with ok:false is Refused, carrying the host's error.

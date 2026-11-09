@@ -23,7 +23,7 @@ The simulator's discovery (frognet_sim.sync_interfaces) has two halves:
   wave 1  each node probes its direct L2 peers on every interface -- a local measurement;
   wave 2  each node asks each peer for the hosts the PEER knows (getHosts.php: gossip), and probes each through it.
 Here the second half's question -- who exists -- is answered by the DAF instead of by gossip. Every simulated node is
-a real member of a real DAF on a real RAM host (rinab's rina-host, op=daf), over its own FNW1 session (daf-agent):
+a real member of a real DAF on a real RAM host (rinab's fdf-ram, op=daf), over its own FNW1 session (daf-agent):
 
   enroll        the node joins the DAF  "frognet-<topology>#1"  as role "node"
   join "nodes"  a whatevercast name (rule all, session lifetime) with its facts: its .1 and served /24
@@ -40,7 +40,7 @@ committer run unchanged (live_engine.converge_real over FakeIPRoute). The oracle
 usage (from opt/frognet_semantic):
   PYTHONPATH=$PWD PYTHONUTF8=1 FROGNET_PROXY_ROOT=$PWD FROGNET_BIN_ROOT=$PWD/../../usr/local/bin \
       python3 simulation/daf_discovery_tier.py [--rinab DIR] [--port N] [--json OUT]
-Needs rinab built: tools/build.sh (makes build/rina-host and build/bin/daf-agent).
+Needs rinab built: tools/build.sh (makes build/fdf-ram and build/bin/daf-agent).
 """
 import argparse
 import glob
@@ -192,7 +192,7 @@ def install(dd):
 def start_host(rinab, port, tmp):
     env = dict(os.environ, RINA_REGION_FILE=os.path.join(tmp, "region.perm"))
     log = open(os.path.join(tmp, "host.log"), "w")
-    p = subprocess.Popen([os.path.join(rinab, "build/rina-host"), "--listen", f"127.0.0.1:{port}", "--api", API],
+    p = subprocess.Popen([os.path.join(rinab, "build/fdf-ram"), "--listen", f"127.0.0.1:{port}", "--api", API],
                          env=env, stdout=log, stderr=log)
     import socket
     for _ in range(100):
@@ -201,7 +201,7 @@ def start_host(rinab, port, tmp):
             return p
         except OSError:
             time.sleep(0.05)
-    raise RuntimeError("rina-host did not start")
+    raise RuntimeError("fdf-ram did not start")
 
 
 def run_topology(key, exe, where, legacy_cycles):
@@ -297,7 +297,7 @@ def main():
     tmp = tempfile.mkdtemp(prefix="daf_discovery_")
     host = start_host(rinab, a.port, tmp)
     where = f"127.0.0.1:{a.port}"
-    print("DAF DISCOVERY TIER - FrogNet discovery by the DAF model (op=daf on a real rina-host), "
+    print("DAF DISCOVERY TIER - FrogNet discovery by the DAF model (op=daf on a real fdf-ram), "
           "real planner + committer, hardware baselines as the oracle")
     results, scen = [], []
     try:

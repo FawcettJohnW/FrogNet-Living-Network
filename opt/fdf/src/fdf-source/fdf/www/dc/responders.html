@@ -1,0 +1,61 @@
+<!doctype html>
+<html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Responders</title><link rel="stylesheet" href="dc.css"></head>
+<body>
+<header><a href="index.html">◂</a><h1>Responders and resources</h1></header>
+<main class="cols">
+  <section class="card"><h2>Publish my unit</h2>
+    <form id="f">
+      <label>Unit name (call sign)</label><input name="unit" required placeholder="Medic 7, CERT Team B, Generator 2…">
+      <div class="row"><div><label>Kind</label><select name="kind"><option>ambulance</option><option>team</option><option>equipment</option><option>volunteer</option></select></div>
+        <div><label>Status</label><select name="available"><option value="1">Available</option><option value="0">Busy</option></select></div></div>
+      <label>Capabilities</label><div id="caps"></div>
+      <label>Crew / size</label><input name="crew">
+      <label>Place</label><input name="place">
+      <div class="row"><div><label>Lat</label><input name="lat" inputmode="decimal"></div><div><label>Lon</label><input name="lon" inputmode="decimal"></div></div>
+      <button type="button" class="quiet" id="loc">Use my location</button>
+      <label>Contact</label><input name="contact">
+      <label style="color:inherit"><input type="checkbox" name="consent" style="width:auto" checked> I agree to share this unit's location with the area</label>
+      <button>Publish</button><div class="say" id="say"></div>
+    </form></section>
+  <section class="card"><h2>Who is out there</h2>
+    <div class="filters"><div><label>Kind</label><select id="fk"><option value="">Any</option><option>ambulance</option><option>team</option><option>equipment</option><option>volunteer</option></select></div>
+      <div><label>Capability</label><select id="fc"><option value="">Any</option></select></div>
+      <div><label>Show</label><select id="fa"><option value="1">Available only</option><option value="">All</option></select></div></div>
+    <div class="list" id="list" style="margin-top:10px"></div></section>
+</main>
+<script src="dc.js"></script>
+<script>
+// [DC_APPS_V1] resp.unit.<unit id> is the unit's own record; it publishes again whenever its state or place changes.
+const CAPS = ['ALS', 'BLS', 'transport', 'rescue', 'fire', 'search', 'medical-team', 'water', 'generator', 'heavy-equipment', 'translation'];
+const f = document.getElementById('f'), say = (t, bad) => { const e = document.getElementById('say'); e.textContent = t; e.className = 'say' + (bad ? ' err' : ''); };
+document.getElementById('caps').innerHTML = CAPS.map(n => `<label style="display:inline-block;margin-right:10px;color:inherit"><input type="checkbox" name="cap" value="${n}" style="width:auto"> ${n}</label>`).join('');
+document.getElementById('fc').innerHTML += CAPS.map(n => `<option>${n}</option>`).join('');
+const uid = DC.myId('unit'); const saved = DC.remember('unit');
+if (saved) { for (const k of ['unit', 'kind', 'crew', 'contact']) if (saved[k] != null) f[k].value = saved[k]; f.available.value = saved.available ? '1' : '0';
+  f.place.value = saved.location?.text || ''; f.lat.value = saved.location?.lat ?? ''; f.lon.value = saved.location?.lon ?? '';
+  for (const c of f.querySelectorAll('[name=cap]')) c.checked = (saved.caps || []).includes(c.value); }
+document.getElementById('loc').onclick = () => DC.useMyLocation(f, say);
+let units = new Map();
+f.onsubmit = async (ev) => {
+  ev.preventDefault();
+  if (!f.consent.checked) { say('Not published: sharing was not agreed to.', true); return; }
+  const bag = { unit: f.unit.value.trim(), kind: f.kind.value, available: f.available.value === '1', caps: [...f.querySelectorAll('[name=cap]:checked')].map(c => c.value),
+                crew: f.crew.value.trim(), location: DC.locationFrom(f), contact: f.contact.value.trim(), at: DC.now() };
+  try { await DC.write('resp', 'unit', uid, bag); DC.remember('unit', bag); say('Published. Coordinators can see ' + bag.unit + ' now.'); }
+  catch (e) { say('Not published: ' + e.message, true); }
+};
+function draw() {
+  const fk = document.getElementById('fk').value, fc = document.getElementById('fc').value, fa = document.getElementById('fa').value, me = DC.locationFrom(f);
+  const rows = [...units.values()].filter(c => (!fk || c.bag.kind === fk) && (!fc || (c.bag.caps || []).includes(fc)) && (!fa || c.bag.available))
+    .map(c => ({ c, k: DC.km(me, c.bag.location) })).sort((a, b) => (a.k ?? 1e9) - (b.k ?? 1e9));
+  document.getElementById('list').innerHTML = rows.length ? rows.map(({ c, k }) => { const b = c.bag;
+    return `<div class="item"><div class="top"><span>${DC.esc(b.unit)} <span class="meta">${DC.esc(b.kind)}</span></span><span class="${b.available ? 's-available' : 's-busy'}">${b.available ? 'available' : 'busy'}</span></div>
+      <div>${(b.caps || []).map(n => `<span class="pill">${DC.esc(n)}</span>`).join('')}</div>
+      <div class="meta">${DC.esc(DC.where(b.location))} ${k != null ? '· ' + DC.dist(k) : ''} · ${DC.age(b.at)}${b.crew ? ' · ' + DC.esc(b.crew) : ''}${b.contact ? ' · ' + DC.esc(b.contact) : ''}</div></div>`; }).join('')
+    : '<div class="meta">Nothing to show.</div>';
+}
+for (const id of ['fk', 'fc', 'fa']) document.getElementById(id).onchange = draw;
+DC.watch('resp', 'unit', c => { units = c; draw(); }, e => say('RAM: ' + e.message, true));
+</script>
+</body></html>

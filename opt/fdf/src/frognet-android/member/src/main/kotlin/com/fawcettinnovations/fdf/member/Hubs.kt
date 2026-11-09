@@ -23,5 +23,14 @@ object Hubs {
                 f["peers"].a.map { it.str }.toSet())
         }.sortedBy { it.name }
 
-    fun read(s: Session, area: String = ""): List<Hub> = from(s.callJson("$API?op=rina", "{\"op\":\"participants\"}"), area)
+    fun read(s: Session, area: String = ""): List<Hub> = from(Json.parse("{\"participants\":" + membersText(s) + "}"), area)
+
+    /** [MEMBER_IS_A_TUPLE_V1] the members' own cells, (pond, member, *), as the region's participants were: each bag with
+     *  "alive": true (present is alive: a cell goes with its member's session) and its "id" (first claimant first). */
+    fun membersText(s: Session): String {
+        val j = Json.parse(s.call("GET", "$API?op=read&service=pond&variable=member", "", 15.0).body)
+        val rows = (if (j["rows"].type == Json.Type.ARR) j["rows"] else j["cells"]).a
+        return "[" + rows.filter { it["bag"].type == Json.Type.OBJ && !it["gone"].bool }.joinToString(",") { r ->
+            val b = r["bag"].toString(); b.substring(0, b.length - 1) + (if (b.length > 2) "," else "") + "\"alive\":true,\"id\":" + r["id"].toString() + "}" } + "]"
+    }
 }

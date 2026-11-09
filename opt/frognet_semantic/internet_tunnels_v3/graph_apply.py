@@ -331,6 +331,10 @@ class Applier:
         alive_now = {h: (sorted(g.served.get(h, set()))[0].split("/")[0].rsplit(".", 1)[0] + ".1" if g.served.get(h) else g.leaf_ip.get(h, ""))
                      for h in g.hosts}
         changed["alive_hosts"] = sorted(want_hosts.items())           # the live .1s and names, NO hold-down: for elections
+        # [SYSTEM_SPACE_V1] the LAN's machines: the .1 of every /24 this plan routes on a LAN device (not the hub's),
+        # alive now -- the system space's fallback list (region.save_lan), highest first
+        lan_nets = {str(dest) for dest, _via, dev in plan["routes"] if dev and dev != plan.get("hub_iface")}
+        changed["lan_dot1s"] = sorted({ip for ip in want_hosts if ip.endswith(".1") and ip.rsplit(".", 1)[0] + ".0/24" in lan_nets})
         changed["went"] = sorted((h, ip) for h, ip in self.alive.items() if h not in alive_now)
         changed["came"] = sorted((h, ip) for h, ip in alive_now.items() if h not in self.alive)
         self.alive = alive_now

@@ -1,0 +1,149 @@
+<!doctype html>
+<!-- Copyright (C) 2016-2026 Fawcett Innovations LLC. SPDX-License-Identifier: GPL-2.0-only
+     ui-admin/index.html -- [ADMIN_APP_V1] the OpenEOC admin app's screen: the app's teams and roles, its users, its
+     behaviour, and every member's answer. Talks to AdminCore by JSON lines: rtNative.send(line) out, rtDeliver(line) in. -->
+<html lang="en"><head><meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>OpenEOC Admin</title><link rel="icon" href="openeoc-mark-256.png">
+<style>
+:root { --bg:#0f1512; --pn:#161f1a; --pn2:#1d2822; --bd:#2b3a31; --fg:#e6efe9; --mu:#93a69a; --ac:#3fb36b; --wa:#f2b33d; --er:#ff6b6b; }
+* { box-sizing: border-box; }
+html, body { margin: 0; height: 100%; background: var(--bg); color: var(--fg); font: 15px/1.45 "Segoe UI", system-ui, -apple-system, Roboto, sans-serif; }
+[hidden] { display: none !important; }
+button { font: inherit; color: var(--fg); background: var(--pn2); border: 1px solid var(--bd); border-radius: 8px; padding: 7px 14px; cursor: pointer; }
+button:hover { border-color: var(--ac); }
+button.go { background: var(--ac); color: #04140a; border: 0; font-weight: 700; }
+button.go:disabled { background: #2b3a31; color: var(--mu); cursor: default; }
+button.x { padding: 3px 9px; color: var(--mu); }
+input, select { font: inherit; color: var(--fg); background: #0b100d; border: 1px solid var(--bd); border-radius: 7px; padding: 7px 9px; min-width: 0; }
+input:focus, select:focus { outline: 2px solid var(--ac); outline-offset: -1px; }
+#splash { position: fixed; inset: 0; display: grid; place-content: center; text-align: center; background: radial-gradient(circle at 50% 40%, #1b3a27, var(--bg) 70%); transition: opacity .6s; z-index: 9; }
+#splash .logo { width: min(640px, 88vw); background: #fff; border-radius: 18px; padding: 14px 22px; box-shadow: 0 10px 40px rgba(0,0,0,.45); } #splash .b { font-size: 30px; font-weight: 700; margin-top: 14px; }   /* [OPENEOC_BRAND_V1] */ #splash.gone { opacity: 0; pointer-events: none; }
+#connect { max-width: 440px; margin: 9vh auto; padding: 28px; background: var(--pn); border: 1px solid var(--bd); border-radius: 14px; display: grid; gap: 12px; }
+#connect h1 { margin: 0; font-size: 24px; } #connect .sub { color: var(--mu); margin-top: -8px; }
+#connect label { display: grid; gap: 4px; color: var(--mu); font-size: 13px; }
+#cstatus { color: var(--wa); min-height: 1.4em; font-size: 14px; }
+header { display: flex; align-items: center; gap: 14px; padding: 12px 20px; border-bottom: 1px solid var(--bd); background: var(--pn); position: sticky; top: 0; z-index: 2; flex-wrap: wrap; }
+header .t { font-weight: 800; font-size: 18px; } header .who { color: var(--mu); } header .sp { flex: 1; }
+#dot { width: 10px; height: 10px; border-radius: 50%; background: var(--wa); display: inline-block; } #dot.up { background: var(--ac); }
+main { display: grid; grid-template-columns: 1fr 1fr; gap: 18px; padding: 18px 20px 110px; max-width: 1280px; margin: 0 auto; }
+section { background: var(--pn); border: 1px solid var(--bd); border-radius: 12px; padding: 16px 18px; min-width: 0; }
+section.wide { grid-column: 1 / -1; }
+section h2 { margin: 0 0 4px; font-size: 17px; } section .why { color: var(--mu); font-size: 13px; margin: 0 0 12px; }
+table { width: 100%; border-collapse: collapse; } th { text-align: left; color: var(--mu); font-weight: 600; font-size: 12px; text-transform: uppercase; letter-spacing: .04em; padding: 6px 6px; border-bottom: 1px solid var(--bd); }
+td { padding: 7px 6px; border-bottom: 1px solid #1f2a24; vertical-align: middle; } td input[type=text], td input[type=password], td select { width: 100%; }
+.c { text-align: center; } .mu { color: var(--mu); } .ok { color: var(--ac); font-weight: 600; } .bad { color: var(--er); font-weight: 600; } .wait { color: var(--wa); }
+.add { display: flex; gap: 8px; margin-top: 10px; flex-wrap: wrap; } .add input[type=text] { flex: 1; }
+.pill { display: inline-block; font-size: 12px; padding: 1px 8px; border-radius: 999px; background: #20302a; color: var(--mu); margin-left: 6px; }
+.pill.team { background: #173a28; color: #8fe0ad; }
+.tabs { display: flex; gap: 6px; flex-wrap: wrap; border-bottom: 1px solid var(--bd); padding-bottom: 8px; }
+.tabs button { border-radius: 999px; padding: 6px 14px; } .tabs button.on { background: var(--ac); color: #0b2420; font-weight: 700; }
+.tabs .n { font-size: 12px; opacity: .75; margin-left: 4px; } .tabs .x { margin-left: 2px; padding: 6px 9px; }
+section h3 { margin: 12px 0 4px; font-size: 15px; }
+.opt { display: flex; gap: 10px; align-items: flex-start; padding: 10px 0; border-bottom: 1px solid #1f2a24; } .opt:last-child { border: 0; }
+.opt b { display: block; } .opt span { color: var(--mu); font-size: 13px; }
+#qr { position: fixed; inset: 0; background: rgba(0,0,0,.7); display: grid; place-content: center; z-index: 10; }
+#qr .card { background: var(--pn); border: 1px solid var(--bd); border-radius: 14px; padding: 18px; display: grid; gap: 10px; max-width: 92vw; }
+#qrImg svg { width: min(420px, 80vw); height: auto; display: block; border-radius: 10px; } #qrWho { font-weight: 700; font-size: 18px; }
+#qr label { display: grid; gap: 4px; font-size: 13px; }
+footer { position: fixed; left: 0; right: 0; bottom: 0; background: var(--pn); border-top: 1px solid var(--bd); padding: 12px 20px; display: flex; gap: 12px; align-items: center; z-index: 2; flex-wrap: wrap; }
+footer #changes { flex: 1; color: var(--mu); min-width: 200px; } footer #changes.dirty { color: var(--wa); }
+#status { color: var(--mu); font-size: 13px; padding: 0 20px; }
+/* [TEAMS_AUTHORIZED_V1] */ .add input[type=password] { flex: 1; } td .also { font-size: 12px; }
+@media (max-width: 860px) { main { grid-template-columns: 1fr; padding: 12px 12px 140px; } header { padding: 10px 12px; } .hide-s { display: none; } }
+  ul.tree, ul.tree ul { list-style: none; margin: 0; padding-left: 18px; border-left: 1px solid #ccd; } ul.tree { padding-left: 4px; border: 0 } ul.tree li { margin: 3px 0 }
+</style></head><body>
+<div id="splash"><img class="logo" src="openeoc-logo.svg" alt="OpenEOC: powered by the FrogNet Living Network"><div class="b">Admin</div></div>
+
+<form id="connect" hidden>
+  <h1>OpenEOC Admin</h1><div class="sub">Authorizes the app's Teams and EOC users for the whole network.</div>
+  <label>Node (any member with the app's door)<input name="door" required placeholder="10.170.170.1"></label>
+  <label>App<input name="app" required value="openeoc"></label>
+  <label>Admin user<input name="user" required autocomplete="username"></label>
+  <label>Admin password<input name="password" type="password" required autocomplete="current-password"></label>
+  <button class="go" type="submit">Connect</button>
+  <div id="cstatus"></div>
+</form>
+
+<div id="main" hidden>
+  <header><span class="t">OpenEOC Admin</span><span id="dot"></span><span class="who" id="who"></span><span class="sp"></span>
+    <button id="reload" type="button">Reload from the network</button></header>
+  <div id="status"></div>
+  <main>
+    <!-- [TEAMS_AUTHORIZED_V1] (John 2026-11-09) "we are authorizing Teams, and that's the trust boundary. EOC allocates
+         Team login and PW, lead connects to the EOC LAN and claims the Team on their Pi or phone." The admin does not
+         allocate categories: "Categories are added by virtue of their apps being connected to the EOC" -- a Hospital
+         joins the EOC the same way a Team does, in the Hospital category. -->
+    <section class="wide">
+      <h2>Teams</h2>
+      <p class="why">The EOC authorizes each Team here: its login and its password. The Team's lead, on the EOC's LAN,
+        claims it on a phone or a Pi with them (by the Team's QR code, or typed at Manual login), and that device hosts
+        it; its members join through the lead. A Team joins in its app's category: the Team app's are Teams, the
+        Hospital app's Hospitals, and so on. A Team no device holds can be claimed; one being served now cannot be
+        taken over. A password is kept only as a verifier, made on this computer; blank keeps the one it has.</p>
+      <table class="t"><thead><tr><th>Team</th><th>Category</th><th>Password</th><th class="c">QR</th><th></th></tr></thead><tbody id="teams"></tbody></table>
+      <div class="add"><input type="text" id="newTeam" placeholder="new Team's login, e.g. echo or medic1" autocomplete="off">
+        <input type="password" id="newTeamPw" placeholder="its password" autocomplete="new-password"><button type="button" class="go" id="addTeam">Add Team</button></div>
+      <div id="teamSays" class="mu"></div>
+    </section>
+    <section>
+      <h2>EOC users</h2>
+      <p class="why">Who logs in to the EOC app, by user name and password. Nobody else needs a user: a Team's members
+        join through its lead.</p>
+      <table class="t"><thead><tr><th>User</th><th>Password</th><th></th></tr></thead><tbody id="eocUsers"></tbody></table>
+      <div class="add"><input type="text" id="newEoc" placeholder="new user" autocomplete="off"><input type="password" id="newEocPw" placeholder="password" autocomplete="new-password">
+        <button type="button" id="addEoc">Add user</button></div>
+      <div id="eocSays" class="mu"></div>
+    </section>
+    <section>
+      <h2>Behaviour</h2>
+      <div class="opt"><input type="checkbox" id="login"><div><b>Login required</b><span>Every client logs in; no role is taken without a user.</span></div></div>
+      <div class="opt"><input type="radio" name="part" value="relocate" id="pRel"><div><b>Relocate when the primary is unreachable</b><span>A reachable member with the app serves its RAMs on its side of a split.</span></div></div>
+      <div class="opt"><input type="radio" name="part" value="fail" id="pFail"><div><b>Fail when the primary is unreachable</b><span>The app stops on a side that cannot see the primary.</span></div></div>
+    </section>
+    <section class="wide">
+      <h2>Groups now</h2>
+      <p class="why">[GROUPS_NOW_V1] Every group, where its lead placed it and where its RAM is served at this moment, as
+        the members say it, and [ADMIN_ON_NOW_V1] who is on in it now (the apps' presence in the mission). It changes as
+        they do: a lead moving its group, someone coming or going, a RAM moving.</p>
+      <table class="t"><thead><tr><th>Group</th><th>Category</th><th>Lives</th><th>Served at</th><th>Lead</th><th>On now</th></tr></thead><tbody id="groups"></tbody></table>
+      <div id="onNow" class="mu"></div>
+      <h3>Connected now</h3>
+      <div id="onTree"></div>   <!-- [ADMIN_TREE_V1] the mission, its categories, their groups, each device on now -->
+    </section>
+    <section>
+      <h2>Where each RAM is served</h2>
+      <p class="why">[APP_SELECTION_V1] The app's own choice of the member that serves a RAM, from what each member's probe
+        measured (its capability: <code>mem_total_kb</code>, <code>cores</code>, <code>cpu_bench_total</code>,
+        <code>disk_fsync_ms</code>, <code>mysql_running</code> ...). <b>Need</b>: keys a member must have to serve it.
+        <b>Rank</b>: keys compared in order, higher first; <code>-key</code> lower first. RAM <code>*</code> is every RAM
+        not named. Nothing here: the most memory, then the most cores. A group its lead placed on its own device is served
+        there whatever this says.</p>
+      <table class="t"><thead><tr><th>RAM</th><th>Need</th><th>Rank</th><th></th></tr></thead><tbody id="sel"></tbody></table>
+      <div class="add"><input type="text" id="newSel" placeholder="RAM, or * for every RAM"><button type="button" id="addSel">Add</button></div>
+    </section>
+    <section>
+      <h2>Saved assignments</h2>
+      <p class="why">The Teams and EOC users live on the network's nodes. If the node holding them goes, they are gone
+        until you put them back. Save them here after a change; Restore loads a save as an edit you review and apply,
+        to this node or (connected through it) a fallback node. Nothing saves or restores on its own.</p>
+      <div class="add"><button type="button" id="save">Save the current assignments</button><select id="saves"></select><button type="button" id="restore">Restore</button></div>
+      <p class="why" id="savesDir" style="margin-top:8px"></p>
+    </section>
+    <section>
+      <h2>Members</h2>
+      <p class="why">Every member with the app, its configuration, and its answer to the last change sent from here.</p>
+      <table><thead><tr><th>Member</th><th class="hide-s">Address</th><th>Configuration</th><th>Answer</th></tr></thead><tbody id="members"></tbody></table>
+      <p class="why" id="served" style="margin-top:12px"></p>
+    </section>
+  </main>
+  <footer><div id="changes">No changes.</div><button type="button" id="revert">Revert</button><button type="button" class="go" id="apply" disabled>Apply to the network</button></footer>
+</div>
+<div id="qr" hidden><div class="card"><div id="qrImg"></div><div id="qrWho"></div>
+  <div class="mu">A computer enrolls with this line (setup.cmd &lt;the line&gt;): <code id="qrLine" style="user-select:all;word-break:break-all"></code></div>
+  <label class="mu">Address the phone reaches this node's door at <input type="text" id="qrDoor"></label>
+  <div class="add"><button type="button" id="qrSave">Save image</button><button type="button" id="qrClose">Close</button></div></div></div>
+<script src="qrcode.js"></script>
+<script src="frogqr.js"></script>
+<script src="admin.js"></script>
+</body></html>

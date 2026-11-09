@@ -7,7 +7,7 @@
 //            held, so the session never ends cleanly ([OWNED_MAPPING_IS_NOT_RESTORED_V1]).
 //   phase 2: after the restart, the same three lookups must give the same answers, and D must be gone.
 // usage: map_removal_persists HOST:PORT 1|hold|2 AREA KEY
-#include "rina_region_client.hpp"
+#include "fdf_region_client.hpp"
 #include <cstdio>
 #include <string>
 #include <unistd.h>
@@ -17,7 +17,7 @@ static std::string auth_of(const std::string& key, const std::string& msg) {
     static const char hx[] = "0123456789abcdef"; std::string a; for (unsigned i = 0; i < n; ++i) { a += hx[md[i] >> 4]; a += hx[md[i] & 15]; }
     return a;
 }
-static frogram::Json reg(rina_region::Client& c, const std::string& site, const std::string& key, const std::string& name, const std::string& rloc, bool own) {
+static frogram::Json reg(fdf_region::Client& c, const std::string& site, const std::string& key, const std::string& name, const std::string& rloc, bool own) {
     struct timespec t; clock_gettime(CLOCK_REALTIME, &t); char ts[40]; snprintf(ts, sizeof ts, "%lld.%09ld", (long long)t.tv_sec, t.tv_nsec);
     const std::string ttl = "3600";
     return c.call("{\"op\":\"map_register\",\"name\":" + frogram::Json::quote(name) + ",\"rloc\":" + frogram::Json::quote(rloc) +
@@ -25,23 +25,23 @@ static frogram::Json reg(rina_region::Client& c, const std::string& site, const 
                   ",\"site\":" + frogram::Json::quote(site) + (own ? ",\"own\":true" : "") + "}");
 }
 static bool present(const std::string& where, const std::string& name) {   // the mapping is asked on its own port, 4342
-    try { rina_region::map_lookup(name, where.substr(0, where.rfind(':'))); return true; } catch (const std::exception&) { return false; }
+    try { fdf_region::map_lookup(name, where.substr(0, where.rfind(':'))); return true; } catch (const std::exception&) { return false; }
 }
 int main(int argc, char** argv) {
     if (argc != 5) { fprintf(stderr, "usage: map_removal_persists HOST:PORT 1|2 AREA KEY\n"); return 2; }
     const std::string where = argv[1], phase = argv[2], area = argv[3], key = argv[4];
     const std::string A = area + "-a", B = area + "-b", C = area + "-c", D = area + "-d";
     if (phase == "hold") {
-        rina_region::Client h(where);
+        fdf_region::Client h(where);
         frogram::Json x = reg(h, area, key, D, "192.0.2.4", true); if (!x["ok"].b) { fprintf(stderr, "register D refused\n"); return 2; }
         printf("held %s present=%s\n", D.c_str(), present(where, D) ? "yes" : "NO"); fflush(stdout);
         for (;;) pause();                                   // until the script kills the host (and then this)
     }
     if (phase == "1") {
-        rina_region::Client s(where);
+        fdf_region::Client s(where);
         frogram::Json r = s.call("{\"op\":\"map_site\",\"name\":" + frogram::Json::quote(area) + ",\"key\":" + frogram::Json::quote(key) + "}");
         if (!r["ok"].b) { fprintf(stderr, "map_site refused\n"); return 2; }
-        { rina_region::Client c(where);
+        { fdf_region::Client c(where);
           for (auto& [n, ip] : {std::pair<std::string, std::string>{A, "192.0.2.1"}, {B, "192.0.2.2"}}) {
               frogram::Json x = reg(c, area, key, n, ip, true); if (!x["ok"].b) { fprintf(stderr, "register %s refused: %s %s\n", n.c_str(), x["error"].s.c_str(), x["why"].s.c_str()); return 2; } }
           frogram::Json x = c.call("{\"op\":\"map_remove\",\"name\":" + frogram::Json::quote(A) + "}");

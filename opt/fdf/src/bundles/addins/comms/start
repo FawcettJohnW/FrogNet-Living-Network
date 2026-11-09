@@ -1,0 +1,15 @@
+#!/bin/bash
+# start -- [ADDIN_V1] the Communicator's servers as an add-in: its own memory (comms-ram, 8800) and media server
+# (comms-media, 8994, on that memory), its tuple (pond, where, <ns>/comms) {"comms":{"ram":"self:8800","media":"self:8994"}}
+# in the control RAM -- the phone's Communicator button and every member find them there, nothing typed -- and on a
+# network event it rediscovers: the servers stop and its unit starts it again, so a call is never set up against a
+# region it can no longer reach.
+set -eu
+. "$(cd "$(dirname "$0")" && pwd)/../lib/addin.sh"
+addin_control
+"$AD/bin/comms-ram" --listen 0.0.0.0:8800 & addin_child $!
+for i in $(seq 100); do (exec 3<>/dev/tcp/127.0.0.1/8800) 2>/dev/null && break; sleep 0.05; done
+"$AD/bin/comms-media" --listen 0.0.0.0:8994 --ram 127.0.0.1:8800 & addin_child $!
+for i in $(seq 100); do (exec 3<>/dev/tcp/127.0.0.1/8994) 2>/dev/null && break; sleep 0.05; done
+asay "memory on 8800, media on 8994 (pids$ADDIN_PIDS)"
+addin_hold comms ram=self:8800 media=self:8994

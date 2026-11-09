@@ -1,0 +1,313 @@
+#!/usr/bin/env python3
+################################################################
+#  Copyright (C) 2016-2026 Fawcett Innovations LLC             #
+#  SPDX-License-Identifier: GPL-2.0-only                       #
+################################################################
+"""fdf-login -- [ORG_LEVELS_V1] a device logs in at its level with the one join line its manager handed out
+(opt/fdf/docs/ORGANIZATIONS.md section 3). Linux; Windows and Android do the same in the member library.
+
+  fdf-login fdfjoin1.<...> [--nick NAME] [--node]     log in at every RAM manager the line names that it can reach,
+                                                     in order ([LOGIN_WHERE_IT_CAN_V1]: one it cannot reach, or that
+                                                     refuses, is said and left for the next run; it fails only when
+                                                     none admits it); the
+                                                     password (when the level has one) is read from stdin as
+                                                     "user password" on one line. --node: with the tunnel
+                                                     daemon's key, and the tunnels handed to it as the system
+                                                     space's list (system-space.json, [SYSTEM_SPACE_V1])
+  fdf-login --up                                     a later start: the device's own tunnel up from its state, no login
+
+In order, at each RAM manager ([LOGIN_RESTRICTED_FIRST_V1]):
+  1 a tunnel on the generic credential, for ONE exchange: this device's own public key to the door, its own edge back
+    (restricted: its level's login port and nothing else)
+  2 the generic tunnel down; the device's own tunnel up (its own key, its edge, a route to the RAM manager's address
+    only: the connection changes no other route)
+  3 login on the level's login port: the user and password, or nothing for a level without one
+  4 the answer: the level's session port. RINA_RAM for every application on this device is <RAM manager>:<session port>.
+State: $FDF_LOGIN_STATE (default /opt/fdf/var/login.json, root-only): the key, the edge and session per RAM manager.
+The generic credential is one WireGuard peer: two devices on it at the same instant collide, and the one that gets no
+answer asks again, here, by itself.
+"""
+import base64, json, os, socket, subprocess, sys, tempfile, threading, time
+sys.path.insert(0, os.environ.get("FDF_PY", "/opt/fdf/lib/python"))
+import fdf_watch  # noqa: E402  [EVENTS_NOT_TIMERS_V1]
+
+STATE = os.environ.get("FDF_LOGIN_STATE", "/opt/fdf/var/login.json")
+WG_IMPL = os.environ.get("FDF_WG_IMPL", "")                      # "wireguard-go" where the kernel has no WireGuard
+UNREACHABLE_S = 10.0   # [UNREACHABLE_IN_10S_V1] (John 2026-11-03: "Change the 76s to 10") a door that does not answer in this is given up
+BUILD_TAG = "fdf-login-2026-11-03-r5"              # [APP_SAYS_ITS_BUILD_V1] said when a login starts
+
+
+def log(*a):
+    print("[LOGIN] %s %s" % (time.strftime("%H:%M:%S"), " ".join(str(x) for x in a)), flush=True)
+
+
+def die(msg, rc=1):
+    sys.stderr.write("fdf-login: %s\n" % msg)
+    sys.exit(rc)
+
+
+def run(*cmd, **kw):
+    p = subprocess.run(list(cmd), capture_output=True, text=True, **kw)
+    if p.returncode != 0:
+        raise RuntimeError("%s: %s" % (" ".join(cmd[:4]), (p.stderr or p.stdout).strip()))
+    return p.stdout.strip()
+
+
+def decode(line):
+    if not line.startswith("fdfjoin1."):
+        die("not a join line (it starts fdfjoin1.; fdf-org line LEVEL on the RAM host prints one)")
+    b = line[9:]
+    try:
+        return json.loads(base64.urlsafe_b64decode(b + "=" * (-len(b) % 4)))
+    except ValueError as e:
+        die("the join line does not decode (%s): copy the whole line" % e)
+
+
+def iface_up(name, priv, edge, peer_pub, endpoint, addr, metric=100):
+    """A WireGuard interface: this key, this edge/32, one peer (allowed-ips 10.0.0.0/8, FrogNet's rule), and ONE route:
+    the RAM manager's address, at this tunnel's own metric ([RAM_ON_ITS_OWN_TUNNEL_V1]: two hubs may share an address --
+    every hub on a machine with no FrogNet LAN is 10.253.253.254 -- so each manager's tunnel has its own route to it and a
+    connection is bound to its tunnel; a hub on a node is 10.253.A.B [HUB_ADDRESS_FROM_ITS_HOST_V1]).
+    Nothing else on this machine is routed through it."""
+    subprocess.run(["ip", "link", "del", name], capture_output=True)
+    if WG_IMPL == "wireguard-go":
+        run("wireguard-go", name)
+        # [EVENTS_NOT_TIMERS_V1] its control socket appearing is the event (inotify), not `wg show` asked every 50 ms
+        fdf_watch.until("/var/run/wireguard/%s.sock" % name, os.path.exists, 5.0)
+    else:
+        run("ip", "link", "add", name, "type", "wireguard")
+    fd, kf = tempfile.mkstemp(prefix="fdf-login-", suffix=".key")   # 0600, and this process's own
+    with os.fdopen(fd, "w") as f:
+        f.write(priv + "\n")
+    try:
+        run("wg", "set", name, "private-key", kf, "peer", peer_pub, "endpoint", endpoint,
+            "allowed-ips", "10.0.0.0/8", "persistent-keepalive", "25")
+    finally:
+        os.remove(kf)
+    run("ip", "addr", "add", edge + "/32", "dev", name)
+    run("ip", "link", "set", name, "up")
+    run("ip", "route", "replace", addr + "/32", "dev", name, "metric", str(metric))
+
+
+def iface_down(name):
+    subprocess.run(["ip", "link", "del", name], capture_output=True)
+
+
+def exchange(addr, port, ask, device, timeout=8.0):
+    """One JSON line each way, through THIS tunnel ([RAM_ON_ITS_OWN_TUNNEL_V1]): two RAM hosts may share an address, and
+    the main table's lowest metric would send a login meant for the standby through the primary's tunnel."""
+    s = socket.socket()
+    s.setsockopt(socket.SOL_SOCKET, socket.SO_BINDTODEVICE, device.encode())
+    s.settimeout(timeout)
+    with s:
+        s.connect((addr, port))
+        s.sendall((json.dumps(ask) + "\n").encode())
+        s.settimeout(timeout)
+        return json.loads(s.makefile("r").readline() or "{}")
+
+
+def state():
+    try:
+        return json.load(open(STATE))
+    except (OSError, ValueError):
+        return {}
+
+
+def save(st):
+    os.makedirs(os.path.dirname(STATE), exist_ok=True)
+    old = os.umask(0o077)
+    try:
+        open(STATE + ".tmp", "w").write(json.dumps(st, indent=1, sort_keys=True) + "\n")
+    finally:
+        os.umask(old)
+    os.replace(STATE + ".tmp", STATE)
+
+
+class Refused(Exception):
+    """[LOGIN_WHERE_IT_CAN_V1] this RAM manager did not admit the device: said, and the next one on the line is tried"""
+
+
+def at_manager(line, m, i, st, cred, nick, kind):
+    own = "wg-own%d" % i
+    me = st.setdefault("managers", {}).setdefault(m["name"] or m["endpoint"], {})
+    door = "wg-door%d" % i                                         # [LOGIN_AT_ALL_AT_ONCE_V1] each target its own
+    # 1 the door, on the generic credential, for one exchange
+    # [UNREACHABLE_IN_10S_V1] the door's one exchange within UNREACHABLE_S, each try bounded by what is left (it was 6
+    # tries of 8 s and their waits, 76 s, while a lower target that admitted waited for it in line order)
+    ans, t, end = None, 0, time.monotonic() + UNREACHABLE_S
+    while ans is None and end - time.monotonic() > 0.2:
+        t += 1
+        iface_up(door, m.get("generic", line["generic"])["privkey"], m.get("generic", line["generic"])["edge"],
+                 m["pubkey"], m["endpoint"], m["addr"], 99)
+        t0 = time.monotonic()
+        try:
+            ans = exchange(m["addr"], m["door_port"], {"pubkey": st["pubkey"], "level": line["level"], "device": st["device"],
+                                                       "nick": nick, "kind": kind}, door, timeout=min(8.0, max(0.2, end - time.monotonic())))
+        except (OSError, ValueError) as e:
+            if time.monotonic() - t0 < 0.1:                        # refused or unreachable at once: nothing answers there
+                iface_down(door)
+                raise Refused("the door at %s: %s (at once: nothing answers there)" % (m["endpoint"], e))
+            log("door at %s, try %d: %s; asking again" % (m["endpoint"], t, e))   # another device on the generic credential
+            # at the same instant: asked again now (no sleep), in the time left
+        finally:
+            iface_down(door)                                       # 2 the generic tunnel is gone after the one exchange
+    if not ans or not ans.get("ok"):
+        raise Refused("the door at %s refused: %s" % (m["endpoint"], (ans or {}).get("why", "no answer in %.0f s after %d tries" % (UNREACHABLE_S, t))))
+    log("door at %s: I am %s, edge %s (%s)%s" % (m["endpoint"], ans["name"], ans["edge"], ans["state"],
+        ", holding level %s here (one level per host)" % ans["held"] if ans.get("held") else ""))   # [ONE_LEVEL_PER_HOST_V1]
+    if ans.get("state") != "admitted":                              # [ONE_LEVEL_PER_HOST_V1] restricted now: no session here
+        for k in ("ram", "session_port", "level", "spaces", "area", "site_key"):   # until this login (an upgrade the
+            me.pop(k, None)                                        # password then refuses leaves none, not the old one)
+    me.update(name=ans["name"], edge=ans["edge"], iface=own, peer=m["pubkey"], endpoint=m["endpoint"], addr=m["addr"],
+              order=i, metric=100 + i)
+    iface_up(own, st["privkey"], ans["edge"], m["pubkey"], m["endpoint"], m["addr"], 100 + i)
+    # 3 login on its own tunnel
+    # [HUB_SAYS_ITS_PEERS_V1] [EVENTS_NOT_TIMERS_V1] the door answered once the hub held this device's peer, so the login
+    # on its own tunnel is one exchange: no try-and-sleep against the hub's peer add (the transport carries its retries)
+    try:
+        out = exchange(m["addr"], int(ans.get("login_port") or m["login_port"]), cred, own, timeout=UNREACHABLE_S)   # the level it holds
+    except (OSError, ValueError) as e:
+        raise Refused("login at %s: no answer (%s)" % (m["endpoint"], e))
+    if not out or not out.get("ok"):
+        raise Refused("login at %s refused: %s" % (m["endpoint"], (out or {}).get("why", "no answer")))
+    me.update(level=out["level"], ram=out["ram"], session_port=out["session_port"], spaces=out.get("spaces", []),
+              area=out.get("area", ""))
+    if out.get("site_key"):
+        me["site_key"] = out["site_key"]
+    log("logged in at %s: level %s, RINA_RAM=%s" % (m["endpoint"], out["level"], out["ram"]))
+
+
+NODE_KEY = os.environ.get("FDF_NODE_KEY", "/var/lib/frognet-tunnel/node_private.key")
+VAR = os.path.dirname(STATE)
+
+
+def node_key():
+    """[DAEMON_OWNS_ITS_KEY_V1] a node logs in with the tunnel daemon's own key: every RAM host admits that key, and the
+    daemon's hub channel is the node's tunnel. Made here, as the daemon would make it, when there is none yet."""
+    if not os.path.exists(NODE_KEY):
+        os.makedirs(os.path.dirname(NODE_KEY), exist_ok=True)
+        old = os.umask(0o077)
+        try:
+            open(NODE_KEY + ".tmp", "w").write(run("wg", "genkey") + "\n")
+            os.replace(NODE_KEY + ".tmp", NODE_KEY)
+        finally:
+            os.umask(old)
+        log("made this node's key %s" % NODE_KEY)
+    priv = open(NODE_KEY).read().strip()
+    pub = run("wg", "pubkey", input=priv)
+    open(NODE_KEY.replace("private", "public") + ".tmp", "w").write(pub + "\n")
+    os.replace(NODE_KEY.replace("private", "public") + ".tmp", NODE_KEY.replace("private", "public"))
+    return priv, pub
+
+
+def write_atomic(path, text, mode=0o644):
+    old = os.umask(0o077 if mode == 0o600 else 0o022)
+    try:
+        open(path + ".tmp", "w").write(text)
+        os.chmod(path + ".tmp", mode)
+        os.replace(path + ".tmp", path)
+    finally:
+        os.umask(old)
+
+
+def node_files(line, st):
+    """[SYSTEM_SPACE_V1] a node hands its tunnels to the tunnel daemon: system-space.json (every RAM manager on the line,
+    in order: its hub, this node's edge there, its session), hub.json for the first (as fdf-region-join writes it),
+    site.env, and join.env (the region switch). The daemon walks the list (opt/fdf/docs/ORGANIZATIONS.md section 4);
+    this program's own interfaces come down."""
+    ms = sorted((me for me in st["managers"].values() if me.get("ram")), key=lambda m: m["order"])
+    ents = []
+    for me in ms:                                  # [LOGIN_WHERE_IT_CAN_V1] each by its own place on the line
+        m = line["managers"][me["order"]]
+        ents.append({"name": m.get("name") or me["endpoint"], "ram": me["ram"],
+                     "hub": {"name": m.get("name") or me["endpoint"], "pubkey": m["pubkey"], "endpoint": m["endpoint"], "addr": m["addr"]},
+                     "member": {"name": me["name"], "edge": me["edge"], "kind": "node"}})
+    first, area = ents[0], ms[0].get("area", "")
+    key = next((m["site_key"] for m in ms if m.get("site_key")), "")
+    os.makedirs(VAR, exist_ok=True)
+    write_atomic(os.path.join(VAR, "system-space.json"), json.dumps({"area": area, "managers": ents}, indent=1) + "\n")
+    write_atomic(os.path.join(VAR, "hub.json"), json.dumps({"area": area, "ram": first["ram"], "hub": first["hub"], "member": first["member"]},
+                                                           indent=1, sort_keys=True) + "\n")
+    write_atomic(os.path.join(VAR, "site.env"), "RINA_AREA=%s\nRINA_SITE_KEY=%s\n" % (area, key), 0o600)
+    write_atomic(os.path.join(VAR, "join.env"), "export RINA_RAM=%s\n" % first["ram"])
+    for me in ms:
+        iface_down(me["iface"])
+    log("node: system space %s for the tunnel daemon (%s); site.env, hub.json, join.env written"
+        % (", ".join(e["name"] for e in ents), os.path.join(VAR, "system-space.json")))
+
+
+def main():
+    a = sys.argv[1:]
+    if not a or a[0] in ("-h", "--help"):
+        print(__doc__.strip()); return 0
+    if os.geteuid() != 0:
+        die("run as root")
+    st = state()
+    if a[0] == "--up":
+        if not st.get("managers"):
+            die("no login state in %s: run fdf-login with the join line first" % STATE)
+        if st.get("kind") == "node":
+            log("a node: its tunnels are the tunnel daemon's (system-space.json); nothing to bring up here")
+            return 0
+        for me in st["managers"].values():
+            iface_up(me["iface"], st["privkey"], me["edge"], me["peer"], me["endpoint"], me["addr"], me.get("metric", 100))
+            log("up: %s edge %s, RINA_RAM=%s" % (me["iface"], me["edge"], me.get("ram")))
+        return 0
+    line = decode(a[0])
+    log("%s: level %s of %s, %d RAM manager(s) on the line" % (BUILD_TAG, line.get("level", "?"), line.get("org", "?"), len(line.get("managers", []))))
+    nick = a[a.index("--nick") + 1] if "--nick" in a else ""
+    kind = "node" if "--node" in a else "leaf"
+    st["kind"] = kind
+    st.setdefault("device", os.environ.get("FDF_DEVICE_ID") or (open("/etc/fnid").read().strip() if os.path.exists("/etc/fnid") else socket.gethostname()))
+    cred = {}
+    if line.get("password"):
+        parts = sys.stdin.readline().strip().split(" ", 1)
+        if len(parts) != 2:
+            die("level %s has a password: give \"user password\" on stdin" % line["level"])
+        cred = {"user": parts[0], "password": parts[1]}
+    if "privkey" not in st and kind == "node":
+        st["privkey"], st["pubkey"] = node_key()
+    if "privkey" not in st:
+        old = os.umask(0o077)
+        try:
+            st["privkey"] = run("wg", "genkey")
+        finally:
+            os.umask(old)
+        st["pubkey"] = run("wg", "pubkey", input=st["privkey"])
+    for m in line["managers"]:                                    # each target's entry, made before the threads
+        st.setdefault("managers", {}).setdefault(m["name"] or m["endpoint"], {})
+    # [LOGIN_WHERE_IT_CAN_V1] a target that cannot be reached, or refuses, is said and left for the next run.
+    # [LOGIN_AT_ALL_AT_ONCE_V1] (John 2026-11-03: "Why are you trying to reach targets sequentially?") every target at
+    # once, each on its own interfaces: a dead one costs its own timeout, not every one's after it.
+    missed, now = [], set()
+    def one(i, m):
+        key = m["name"] or m["endpoint"]
+        try:
+            at_manager(line, m, i, st, cred, nick, kind)
+            now.add(key)
+        except (Refused, OSError, subprocess.CalledProcessError) as e:
+            missed.append("%s: %s" % (m["endpoint"], e))
+            log("NOT logged in at %s (%s): %s -- left for the next run" % (key, m["endpoint"], e))
+            # (its own tunnel, when the door gave an edge, stays up as it was: restricted to the login port by the hub)
+    ts = [threading.Thread(target=one, args=(i, m), daemon=True) for i, m in enumerate(line["managers"])]
+    for t in ts: t.start()
+    for t in ts: t.join()
+    for m in line["managers"]:
+        key = m["name"] or m["endpoint"]
+        if not (st["managers"].get(key) or {}).get("ram"):
+            st["managers"].pop(key, None)                          # no half-made entry: --up brings up only logins
+    save(st)
+    # this run's logins decide (an entry an earlier run made, which a refusing door left as it was, stays in the state
+    # for --up, but it is not this login)
+    done = sorted((me for k, me in st.get("managers", {}).items() if me.get("ram") and k in now), key=lambda me: me["order"])
+    if not done:
+        die("logged in at none of the %d RAM manager(s) on the line: %s" % (len(line["managers"]), "; ".join(missed)))
+    log("logged in at %d of %d RAM manager(s)%s" % (len(done), len(line["managers"]), "; not at: " + "; ".join(missed) if missed else ""))
+    if kind == "node":
+        node_files(line, st)
+    print("RINA_RAM=%s" % done[0]["ram"])
+    return 0
+
+
+if __name__ == "__main__":
+    sys.exit(main())

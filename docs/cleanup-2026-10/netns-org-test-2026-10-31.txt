@@ -1,0 +1,46 @@
+PASS  hub: the region's interface (fdf-hub --iface-only)
+PASS  1 fdf-org init, three levels, a user: credential key made: /tmp/claude-0/netns-org/hub/org-key (root-only);generic credential made: key Pho1TVD5Bm3f7BYGxoDRDaoAZJ2IVOItlO8F043MwiI=, edge 10.253.253.1; door port 51235;level Responders: login port 24121, session port 45004, no password, reach ram;REACH: applied (level Responders): 1 level(s), 3 managed edge(s);level HQ: login port 42214, session port 21772, password, reach list 10.253.2
+PASS  1 the join lines: fdfjoin1.eyJ2IjoxLCJvcmciOiJEIiwibGV2ZWw...
+PASS  1 fdf-org serve: the door and three login ports: 10.253.253.254:51235 10.253.253.254:24121 10.253.253.254:42214 10.253.253.254:52009 
+PASS  2 r logged in at Responders: door at 198.18.0.1:51820: I am d-8f79735a2e2d, edge 10.253.1.1 (restricted);logged in at 198.18.0.1:51820: level Responders, RINA_RAM=10.253.253.254:45004;
+PASS  2 r's RINA_RAM is the hub at Responders' session port 45004
+PASS  2 r's tunnel routes the RAM manager's address and nothing else: 10.253.253.254 dev wg-own0 scope link ;
+PASS  3 r: its session port 45004 answers the RAM
+PASS  3 r cannot reach the RAM port (TimeoutError), HQ's session port (TimeoutError), the server (TimeoutError), HQ's login port (TimeoutError)
+PASS  4 q with a wrong password: refused (refused: wrong user or password)
+PASS  4 q's edge stays restricted: its login port open, its session port not
+PASS  5 q logged in at HQ: logged in at 198.18.0.1:51820: level HQ, RINA_RAM=10.253.253.254:21772
+PASS  5 q reaches HQ's session port and the server on its list, not Responders' session port
+PASS  6 s logged in at Ops: logged in at 198.18.0.1:51820: level Ops, RINA_RAM=10.253.253.254:44795
+PASS  6 s (open) reaches the server and r (open); r (RAM only) cannot reach s (TimeoutError)
+PASS  7 w and v at once: both logged in on their own tunnels (door at 198.18.0.1:51820: I am d-7ab8ee427684, edge 10.253.1.5 (restricted);door at 198.18.0.1:51820: I am d-fe8adbb7db5c, edge 10.253.1.6 (restricted);; retries: 0 0 )
+PASS  8 the generic credential: the door open; a session port TimeoutError, a login port TimeoutError, the RAM port TimeoutError
+PASS  9 revoke d-8f79735a2e2d: its peer is gone and its session port does not answer
+PASS  10 after the RAM host restarts: 3 levels back, q's session returns with no login, r stays revoked
+--- fdf-org
+    
+    During handling of the above exception, another exception occurred:
+    
+    Traceback (most recent call last):
+      File "/tmp/claude-0/netns-org/bin/fdf-org", line 439, in <module>
+        sys.exit(main())
+                 ~~~~^^
+      File "/tmp/claude-0/netns-org/bin/fdf-org", line 433, in main
+        elif c == "serve": serve()
+                           ~~~~~^^
+      File "/tmp/claude-0/netns-org/bin/fdf-org", line 304, in serve
+        changed = ram().read(SVC, after=last, wait_s=fdfram.HOLD_S)  # held: returns when a level or user is written
+      File "/home/claude/frognet-living-network/opt/fdf/src/fdf-source/rinab/../fdf/lib/python/fdfram.py", line 74, in read
+        return self._do("GET", q, timeout=10.0 + (wait_s or 0))["cells"]
+               ~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+      File "/home/claude/frognet-living-network/opt/fdf/src/fdf-source/rinab/../fdf/lib/python/fdfram.py", line 50, in _do
+        raise RamError("%s %s: %s" % (method, self.hostport, e))
+    fdfram.RamError: GET 10.253.253.254:8840: Remote end closed connection without response
+    [svc] 14:53:23 ended rc=0; restart in 2 s
+    [ORG] 14:53:25 REACH: applied (start): 3 level(s), 8 managed edge(s)
+    [ORG] 14:53:25 listening on 10.253.253.254:51235
+    [ORG] 14:53:25 listening on 10.253.253.254:42214
+    [ORG] 14:53:25 listening on 10.253.253.254:24121
+    [ORG] 14:53:25 listening on 10.253.253.254:52009
+    [ORG] 14:53:25 REACH: applied (cells changed): 3 level(s), 8 managed edge(s)
+RESULT PASS

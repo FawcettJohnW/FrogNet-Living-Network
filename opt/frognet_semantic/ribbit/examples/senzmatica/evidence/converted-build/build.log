@@ -1,0 +1,188 @@
+[INFO] Scanning for projects...
+[WARNING] 
+[WARNING] Some problems were encountered while building the effective model for com.magma.core:core-data:jar:1.0.0.0
+[WARNING] 'version' contains an expression but should be a constant. @ com.magma.core:magma-core:${magma.version}, /workspace/scratch/94985fc05d3f/senzmatica-converted/pom.xml, line 10, column 14
+[WARNING] 
+[WARNING] Some problems were encountered while building the effective model for com.magma.core:core-service:jar:1.0.0.0
+[WARNING] 'dependencies.dependency.systemPath' for com.magma.util:util-service:jar should not point at files within the project directory, ${basedir}/../lib/util-service-1.0.0.5.jar will be unresolvable by dependent projects @ com.magma.core:core-service:${magma.version}, /workspace/scratch/94985fc05d3f/senzmatica-converted/core-service/pom.xml, line 27, column 25
+[WARNING] 'dependencies.dependency.systemPath' for com.magma.ums:ums-lib:jar should not point at files within the project directory, ${basedir}/../lib/ums-lib-${ums.version}.jar will be unresolvable by dependent projects @ com.magma.core:core-service:${magma.version}, /workspace/scratch/94985fc05d3f/senzmatica-converted/core-service/pom.xml, line 35, column 25
+[WARNING] 'dependencies.dependency.systemPath' for com.magma.ums:ums-data:jar should not point at files within the project directory, ${basedir}/../lib/ums-data-${ums.version}.jar will be unresolvable by dependent projects @ com.magma.core:core-service:${magma.version}, /workspace/scratch/94985fc05d3f/senzmatica-converted/core-service/pom.xml, line 43, column 25
+[WARNING] 
+[WARNING] Some problems were encountered while building the effective model for com.magma.core:magma-core:pom:1.0.0.0
+[WARNING] 'version' contains an expression but should be a constant. @ com.magma.core:magma-core:${magma.version}, /workspace/scratch/94985fc05d3f/senzmatica-converted/pom.xml, line 10, column 14
+[WARNING] 
+[WARNING] It is highly recommended to fix these problems because they threaten the stability of your build.
+[WARNING] 
+[WARNING] For this reason, future Maven versions might no longer support building such malformed projects.
+[WARNING] 
+[INFO] ------------------------------------------------------------------------
+[INFO] Detecting the operating system and CPU architecture
+[INFO] ------------------------------------------------------------------------
+[INFO] os.detected.name: linux
+[INFO] os.detected.arch: x86_64
+[INFO] os.detected.version: 6.18
+[INFO] os.detected.version.major: 6
+[INFO] os.detected.version.minor: 18
+[INFO] os.detected.release: ubuntu
+[INFO] os.detected.release.version: 24.04
+[INFO] os.detected.release.like.ubuntu: true
+[INFO] os.detected.release.like.debian: true
+[INFO] os.detected.classifier: linux-x86_64
+[INFO] ------------------------------------------------------------------------
+[INFO] Reactor Build Order:
+[INFO] 
+[INFO] magma-core                                                         [pom]
+[INFO] core-data                                                          [jar]
+[INFO] core-lib                                                           [jar]
+[INFO] core-service                                                       [jar]
+[INFO] core-test                                                          [jar]
+[INFO] 
+[INFO] ---------------------< com.magma.core:magma-core >----------------------
+[INFO] Building magma-core 1.0.0.0                                        [1/5]
+[INFO]   from pom.xml
+[INFO] --------------------------------[ pom ]---------------------------------
+[INFO] 
+[INFO] ----------------------< com.magma.core:core-data >----------------------
+[INFO] Building core-data 1.0.0.0                                         [2/5]
+[INFO]   from core-data/pom.xml
+[INFO] --------------------------------[ jar ]---------------------------------
+[INFO] 
+[INFO] --- resources:2.6:resources (default-resources) @ core-data ---
+[INFO] Using 'UTF-8' encoding to copy filtered resources.
+[INFO] skip non existing resourceDirectory /workspace/scratch/94985fc05d3f/senzmatica-converted/core-data/src/main/resources
+[INFO] skip non existing resourceDirectory /workspace/scratch/94985fc05d3f/senzmatica-converted/core-data/src/main/resources
+[INFO] 
+[INFO] --- compiler:3.0:compile (default-compile) @ core-data ---
+[INFO] Changes detected - recompiling the module!
+[INFO] Compiling 82 source files to /workspace/scratch/94985fc05d3f/senzmatica-converted/core-data/target/classes
+[WARNING] /workspace/scratch/94985fc05d3f/senzmatica-converted/core-data/src/main/java/com/magma/core/data/support/UserInfo.java: /workspace/scratch/94985fc05d3f/senzmatica-converted/core-data/src/main/java/com/magma/core/data/support/UserInfo.java uses unchecked or unsafe operations.
+[WARNING] /workspace/scratch/94985fc05d3f/senzmatica-converted/core-data/src/main/java/com/magma/core/data/support/UserInfo.java: Recompile with -Xlint:unchecked for details.
+[INFO] 
+[INFO] --- resources:2.6:testResources (default-testResources) @ core-data ---
+[INFO] Using 'UTF-8' encoding to copy filtered resources.
+[INFO] skip non existing resourceDirectory /workspace/scratch/94985fc05d3f/senzmatica-converted/core-data/src/test/resources
+[INFO] 
+[INFO] --- compiler:3.0:testCompile (default-testCompile) @ core-data ---
+[INFO] No sources to compile
+[INFO] 
+[INFO] --- surefire:2.18.1:test (default-test) @ core-data ---
+[INFO] No tests to run.
+[INFO] 
+[INFO] --- jar:2.6:jar (default-jar) @ core-data ---
+[INFO] Building jar: /workspace/scratch/94985fc05d3f/senzmatica-converted/core-data/target/core-data-1.0.0.0.jar
+[INFO] 
+[INFO] --- spring-boot:1.5.10.RELEASE:repackage (default) @ core-data ---
+[INFO] 
+[INFO] ----------------------< com.magma.core:core-lib >-----------------------
+[INFO] Building core-lib 1.0.0.0                                          [3/5]
+[INFO]   from core-lib/pom.xml
+[INFO] --------------------------------[ jar ]---------------------------------
+[INFO] 
+[INFO] --- protobuf:0.6.1:compile (default) @ core-lib ---
+[INFO] Compiling 1 proto file(s) to /workspace/scratch/94985fc05d3f/senzmatica-converted/core-lib/target/generated-sources/protobuf/java
+[INFO] 
+[INFO] --- protobuf:0.6.1:compile-custom (default) @ core-lib ---
+[INFO] Compiling 1 proto file(s) to /workspace/scratch/94985fc05d3f/senzmatica-converted/core-lib/target/generated-sources/protobuf/grpc-java
+[INFO] 
+[INFO] --- resources:2.6:resources (default-resources) @ core-lib ---
+[INFO] Using 'UTF-8' encoding to copy filtered resources.
+[INFO] skip non existing resourceDirectory /workspace/scratch/94985fc05d3f/senzmatica-converted/core-lib/src/main/resources
+[INFO] skip non existing resourceDirectory /workspace/scratch/94985fc05d3f/senzmatica-converted/core-lib/src/main/resources
+[INFO] Copying 1 resource
+[INFO] Copying 1 resource
+[INFO] 
+[INFO] --- compiler:3.0:compile (default-compile) @ core-lib ---
+[INFO] Changes detected - recompiling the module!
+[INFO] Compiling 84 source files to /workspace/scratch/94985fc05d3f/senzmatica-converted/core-lib/target/classes
+[WARNING] /workspace/scratch/94985fc05d3f/senzmatica-converted/core-lib/target/generated-sources/protobuf/java/com/magma/core/grpc/Predictions.java: /workspace/scratch/94985fc05d3f/senzmatica-converted/core-lib/target/generated-sources/protobuf/java/com/magma/core/grpc/Predictions.java uses or overrides a deprecated API.
+[WARNING] /workspace/scratch/94985fc05d3f/senzmatica-converted/core-lib/target/generated-sources/protobuf/java/com/magma/core/grpc/Predictions.java: Recompile with -Xlint:deprecation for details.
+[WARNING] /workspace/scratch/94985fc05d3f/senzmatica-converted/core-lib/src/main/java/com/magma/core/service/DataProcessorService.java: Some input files use unchecked or unsafe operations.
+[WARNING] /workspace/scratch/94985fc05d3f/senzmatica-converted/core-lib/src/main/java/com/magma/core/service/DataProcessorService.java: Recompile with -Xlint:unchecked for details.
+[INFO] 
+[INFO] --- resources:2.6:testResources (default-testResources) @ core-lib ---
+[INFO] Using 'UTF-8' encoding to copy filtered resources.
+[INFO] skip non existing resourceDirectory /workspace/scratch/94985fc05d3f/senzmatica-converted/core-lib/src/test/resources
+[INFO] 
+[INFO] --- compiler:3.0:testCompile (default-testCompile) @ core-lib ---
+[INFO] No sources to compile
+[INFO] 
+[INFO] --- surefire:2.18.1:test (default-test) @ core-lib ---
+[INFO] No tests to run.
+[INFO] 
+[INFO] --- jar:2.6:jar (default-jar) @ core-lib ---
+[INFO] Building jar: /workspace/scratch/94985fc05d3f/senzmatica-converted/core-lib/target/core-lib-1.0.0.0.jar
+[INFO] 
+[INFO] --- spring-boot:1.5.10.RELEASE:repackage (default) @ core-lib ---
+[INFO] 
+[INFO] --------------------< com.magma.core:core-service >---------------------
+[INFO] Building core-service 1.0.0.0                                      [4/5]
+[INFO]   from core-service/pom.xml
+[INFO] --------------------------------[ jar ]---------------------------------
+[INFO] 
+[INFO] --- resources:2.6:resources (default-resources) @ core-service ---
+[INFO] Using 'UTF-8' encoding to copy filtered resources.
+[INFO] Copying 1 resource
+[INFO] Copying 82 resources
+[INFO] 
+[INFO] --- compiler:3.0:compile (default-compile) @ core-service ---
+[INFO] Changes detected - recompiling the module!
+[INFO] Compiling 5 source files to /workspace/scratch/94985fc05d3f/senzmatica-converted/core-service/target/classes
+[INFO] 
+[INFO] --- resources:2.6:testResources (default-testResources) @ core-service ---
+[INFO] Using 'UTF-8' encoding to copy filtered resources.
+[INFO] skip non existing resourceDirectory /workspace/scratch/94985fc05d3f/senzmatica-converted/core-service/src/test/resources
+[INFO] 
+[INFO] --- compiler:3.0:testCompile (default-testCompile) @ core-service ---
+[INFO] No sources to compile
+[INFO] 
+[INFO] --- surefire:2.18.1:test (default-test) @ core-service ---
+[INFO] No tests to run.
+[INFO] 
+[INFO] --- jar:2.6:jar (default-jar) @ core-service ---
+[INFO] Building jar: /workspace/scratch/94985fc05d3f/senzmatica-converted/core-service/target/core-service-1.0.0.0.jar
+[INFO] 
+[INFO] --- spring-boot:1.5.10.RELEASE:repackage (default) @ core-service ---
+[INFO] 
+[INFO] ----------------------< com.magma.core:core-test >----------------------
+[INFO] Building core-test 1.0.0.0                                         [5/5]
+[INFO]   from core-test/pom.xml
+[INFO] --------------------------------[ jar ]---------------------------------
+[INFO] 
+[INFO] --- resources:2.6:resources (default-resources) @ core-test ---
+[INFO] Using 'UTF-8' encoding to copy filtered resources.
+[INFO] Copying 2 resources
+[INFO] 
+[INFO] --- compiler:3.0:compile (default-compile) @ core-test ---
+[INFO] Changes detected - recompiling the module!
+[INFO] Compiling 6 source files to /workspace/scratch/94985fc05d3f/senzmatica-converted/core-test/target/classes
+[WARNING] /workspace/scratch/94985fc05d3f/senzmatica-converted/core-test/src/main/java/com/magma/test/codec/DataDecoder.java: /workspace/scratch/94985fc05d3f/senzmatica-converted/core-test/src/main/java/com/magma/test/codec/DataDecoder.java uses unchecked or unsafe operations.
+[WARNING] /workspace/scratch/94985fc05d3f/senzmatica-converted/core-test/src/main/java/com/magma/test/codec/DataDecoder.java: Recompile with -Xlint:unchecked for details.
+[INFO] 
+[INFO] --- resources:2.6:testResources (default-testResources) @ core-test ---
+[INFO] Using 'UTF-8' encoding to copy filtered resources.
+[INFO] skip non existing resourceDirectory /workspace/scratch/94985fc05d3f/senzmatica-converted/core-test/src/test/resources
+[INFO] 
+[INFO] --- compiler:3.0:testCompile (default-testCompile) @ core-test ---
+[INFO] No sources to compile
+[INFO] 
+[INFO] --- surefire:2.18.1:test (default-test) @ core-test ---
+[INFO] No tests to run.
+[INFO] 
+[INFO] --- jar:2.6:jar (default-jar) @ core-test ---
+[INFO] Building jar: /workspace/scratch/94985fc05d3f/senzmatica-converted/core-test/target/core-test-1.0.0.0.jar
+[INFO] 
+[INFO] --- spring-boot:1.5.10.RELEASE:repackage (default) @ core-test ---
+[INFO] ------------------------------------------------------------------------
+[INFO] Reactor Summary for magma-core 1.0.0.0:
+[INFO] 
+[INFO] magma-core ......................................... SUCCESS [  0.002 s]
+[INFO] core-data .......................................... SUCCESS [  1.861 s]
+[INFO] core-lib ........................................... SUCCESS [  1.422 s]
+[INFO] core-service ....................................... SUCCESS [  0.904 s]
+[INFO] core-test .......................................... SUCCESS [  0.185 s]
+[INFO] ------------------------------------------------------------------------
+[INFO] BUILD SUCCESS
+[INFO] ------------------------------------------------------------------------
+[INFO] Total time:  4.701 s
+[INFO] Finished at: 2026-10-29T10:29:45+07:00
+[INFO] ------------------------------------------------------------------------

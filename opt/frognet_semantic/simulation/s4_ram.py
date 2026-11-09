@@ -10,7 +10,7 @@
 s4_ram.py - [S4_RAM_ARM_V1] the shared-RAM arm on the TIER 4 bed (s4_bed.py), the same physical graph IS-IS runs on.
 
 What runs, all of it the real thing except the one line marked:
-  hub      rina-host (the region's RAM manager) on 198.51.100.1:8840, the region's site key (map_site), fdf-hub (the
+  hub      fdf-ram (the region's RAM manager) on 198.51.100.1:8840, the region's site key (map_site), fdf-hub (the
            WireGuard concentrator: one wireguard-go interface wg-D, a peer per live member, allowed-ips from the
            verified mappings) and the hub's own fdf-client
   every    fdf-facts --watch (the node's rows from its own kernel), fdf-client (announce, re-announce on change, maps
@@ -47,7 +47,7 @@ def wg_if(n):
 
 class Ram:
     def __init__(self, bed, work, bins=None, fdf=None):
-        """bins: rina-host, fdf-client, fdf-events, wireguard-go. fdf: the FD&F tree (bin/fdf-hub, bin/fdf-facts,
+        """bins: fdf-ram, fdf-client, fdf-events, wireguard-go. fdf: the FD&F tree (bin/fdf-hub, bin/fdf-facts,
         lib/python)."""
         self.bed, self.work = bed, work
         arch = os.uname().machine
@@ -58,7 +58,7 @@ class Ram:
         self.procs = []
         self.stopping = False
         self.restarts = {}
-        for b in ("rina-host", "fdf-client", "fdf-events", "wireguard-go"):
+        for b in ("fdf-ram", "fdf-client", "fdf-events", "wireguard-go"):
             if not os.access(os.path.join(self.bins, b), os.X_OK):
                 raise RuntimeError(f"{self.bins}/{b} is missing: the RAM arm needs it")
         for f in ("bin/fdf-hub", "bin/fdf-facts", "lib/python/fdf_graph.py"):
@@ -81,7 +81,7 @@ class Ram:
 
     # [S4_RESTART_AS_SYSTEMD_V1] each process restarts as its unit does on a FrogNet node (fdf-join: fdf-client
     # Restart=always RestartSec=2, fdf-facts 5; fdf-hub.service 2; the tunnel daemon's unit, for the agent, 5)
-    RESTART = {"fdf-client": 2, "fdf-facts": 5, "fdf-hub": 2, "agent": 5, "rina-host": 2}
+    RESTART = {"fdf-client": 2, "fdf-facts": 5, "fdf-hub": 2, "agent": 5, "fdf-ram": 2}
 
     def spawn(self, n, name, argv, **more):
         import threading
@@ -156,16 +156,16 @@ class Ram:
         t0 = time.time()
         self.underlay()
         h = os.path.join(self.work, "hub")
-        self.spawn("hub", "rina-host", [f"{self.bins}/rina-host", "--listen", f"{RAM_IP}:{RAM_PORT}", "--api", API],
+        self.spawn("hub", "fdf-ram", [f"{self.bins}/fdf-ram", "--listen", f"{RAM_IP}:{RAM_PORT}", "--api", API],
                    RINA_REGION_FILE=f"{h}/region.perm", RINA_NET_CONFIG=f"{h}/net.json")   # none: this machine's own is not the bed's
         for _ in range(250):
             if sh("bash", "-c", f"exec 3<>/dev/tcp/{RAM_IP}/{RAM_PORT}", ns="hub", check=False).returncode == 0:
                 break
             time.sleep(0.02)
         else:
-            raise RuntimeError(f"rina-host did not listen in 5 s: see {h}/rina-host.log")
+            raise RuntimeError(f"fdf-ram did not listen in 5 s: see {h}/fdf-ram.log")
         if not self.call({"op": "map_site", "name": AREA, "key": self.key}).get("ok"):
-            raise RuntimeError("map_site refused: see the hub's rina-host.log")
+            raise RuntimeError("map_site refused: see the hub's fdf-ram.log")
         self.spawn("hub", "fdf-hub", ["python3", f"{self.fdf}/bin/fdf-hub", "--area", AREA, "--iface", "wg-D",
                                       "--endpoint", f"{RAM_IP}:{WG_PORT}", "--name", HUB_NAME, "--key", f"{h}/wg.key",
                                       "--listen", str(WG_PORT), "--facts", f"{h}/facts.json"])

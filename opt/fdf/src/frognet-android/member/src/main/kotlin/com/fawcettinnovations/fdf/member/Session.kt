@@ -23,6 +23,9 @@ import java.security.SecureRandom
 import java.util.concurrent.ConcurrentHashMap
 import java.util.concurrent.CountDownLatch
 import java.util.concurrent.TimeUnit
+import java.util.concurrent.ConcurrentLinkedQueue
+import java.util.concurrent.atomic.AtomicReference
+import java.util.concurrent.locks.LockSupport
 
 class Unreachable(msg: String) : Exception(msg)
 class Refused(msg: String, val error: String = "", val why: String = "") : Exception(msg)
@@ -40,13 +43,16 @@ class Session(private val host: String, private val port: Int, private val tuner
 
     private var req: Socket? = null; private var ret: Socket? = null; private var dat: Socket? = null
     private val reqOut: OutputStream
-    private val sendLock = Any()
-    private var nextSeq = 0L                                       // the server's count of frames on the request socket
+    // [NO_LOCK_IN_THE_SESSION_V1] a request's sequence number is its place among the frames on the request socket: one
+    // sender thread takes each request from a lock-free queue, numbers it, registers it and sends it, in that order.
+    // A caller only enqueues and wakes it (park/unpark keeps a wake that comes first). No lock is held anywhere.
+    private val outq = ConcurrentLinkedQueue<Pair<Pending, ByteArray>>()
+    private var nextSeq = 0L                                       // the sender's own: the server's count of frames
+    private lateinit var sender: Thread
     private val pending = ConcurrentHashMap<Long, Pending>()
-    private val markers = ConcurrentHashMap<Long, Pair<Wire.Reply, Int>>()   // seq -> (marker, bytes announced)
-    private val landed = ConcurrentHashMap<Long, ByteArray>()                // seq -> body that landed first
-    private val pairLock = Any()
-    @Volatile var dead: String? = null; private set
+    private val halves = ConcurrentHashMap<Long, Any>()          // seq -> the marker or the body that came first
+    private val deadWhy = AtomicReference<String?>(null)
+    val dead: String? get() = deadWhy.get()
     private val deadLatch = CountDownLatch(1)
     var dataReplies = 0L; private set
 
@@ -58,6 +64,7 @@ class Session(private val host: String, private val port: Int, private val tuner
         val dt = dial(); dat = dt; sendFrame(dt.getOutputStream(), Wire.hello("DATA:$token"))
         if (!Wire.isHello(recvFrame(DataInputStream(dt.getInputStream())))) {
             closeAll(); throw Refused("the far end did not accept the data socket (HELLO DATA:) -- it does not speak the full FNWP contract") }
+        sender = Thread({ sendLoop() }, "fnwp-send").apply { isDaemon = true }; sender.start()
         Thread({ readReturn() }, "fnwp-return").apply { isDaemon = true }.start()
         Thread({ readData() }, "fnwp-data").apply { isDaemon = true }.start()
         log("session up to $host:$port token=$token (request, return, data sockets; keepalive 2+3x1 s)")
@@ -76,15 +83,21 @@ class Session(private val host: String, private val port: Int, private val tuner
         val p = Pending()
         dead?.let { throw Unreachable(it) }
         val frame = Wire.reqRaw(host, method, path, body)
-        synchronized(sendLock) {
-            val seq = nextSeq++
-            pending[seq] = p                                       // before the bytes leave: the reply can beat us back
-            try { sendFrame(reqOut, frame) } catch (e: IOException) { pending.remove(seq); die("send failed: ${e.message}"); throw Unreachable(dead ?: "send failed") }
-        }
+        outq.add(p to frame); LockSupport.unpark(sender)
         val ms = if (timeoutS > 1e8) Long.MAX_VALUE else (timeoutS * 1000).toLong()
         if (!p.done.await(ms, TimeUnit.MILLISECONDS)) throw Unreachable("no reply within the timeout")
         p.err?.let { throw Unreachable(it) }
         return p.answer!!
+    }
+
+    private fun sendLoop() {
+        while (dead == null) {
+            val (p, frame) = outq.poll() ?: run { LockSupport.park(this); null } ?: continue
+            val seq = nextSeq++
+            pending[seq] = p                                       // before the bytes leave: the reply can beat us back
+            try { sendFrame(reqOut, frame) } catch (e: IOException) { pending.remove(seq); p.err = "send failed: ${e.message}"; p.done.countDown(); die("send failed: ${e.message}") }
+        }
+        while (true) { val (p, _) = outq.poll() ?: break; p.err = dead; p.done.countDown() }   // queued after the end
     }
 
     /** frogram Session::call: the answer parsed; ok:false or a status >= 400 is Refused with the region's error and why. */
@@ -109,10 +122,11 @@ class Session(private val host: String, private val port: Int, private val tuner
     // before or after the marker. Whichever arrives second completes the call.
     private fun pair(seq: Long, marker: Pair<Wire.Reply, Int>?, body: ByteArray?) {
         val m: Pair<Wire.Reply, Int>; val b: ByteArray
-        synchronized(pairLock) {
-            if (marker != null) { b = landed.remove(seq) ?: run { markers[seq] = marker; return }; m = marker }
-            else { m = markers.remove(seq) ?: run { landed[seq] = body!!; return }; b = body!! }
-        }
+        val mine: Any = marker ?: body!!; var other: Any? = null
+        halves.compute(seq) { _, cur -> if (cur == null) mine else { other = cur; null } }   // one atomic step per seq
+        val o = other ?: return                                    // first: the second half completes the call
+        @Suppress("UNCHECKED_CAST")
+        if (marker != null) { m = marker; b = o as ByteArray } else { m = o as Pair<Wire.Reply, Int>; b = body!! }
         val want = m.second
         if (b.size != want) throw ProtocolError("the landed payload is ${b.size} B, the marker said $want")
         dataReplies++
@@ -154,7 +168,8 @@ class Session(private val host: String, private val port: Int, private val tuner
     }
 
     private fun die(why: String) {
-        synchronized(this) { if (dead != null) return; dead = why }
+        if (!deadWhy.compareAndSet(null, why)) return
+        if (::sender.isInitialized) LockSupport.unpark(sender)
         log("session ended: $why")
         closeAll()
         for ((_, p) in pending) { p.err = why; p.done.countDown() }

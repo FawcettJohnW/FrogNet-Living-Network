@@ -11,4 +11,4 @@ MR=$(rina-lisp mr-address "$RINA_AREA" | head -1)
 echo "area '$RINA_AREA': mapping system at $MR (computed from the name), on lo"
 ip -4 -o addr show dev lo | grep -q " $MR/" || ip addr add "$MR/32" dev lo
 ( for i in $(seq 100); do (exec 3<>/dev/tcp/$MR/4342) 2>/dev/null && break; sleep 0.05; done; rina-lisp map-site "$RINA_AREA" "$RINA_AREA_PASSWORD" "$MR" ) &
-exec env RINA_HOST_ROLE=mapping RINA_REGION_FILE=/opt/fdf/var/map.perm rina-host --listen "$MR:4342" --api $API
+exec env RINA_HOST_ROLE=mapping RINA_REGION_FILE=/opt/fdf/var/map.perm fdf-ram --listen "$MR:4342" --api $API

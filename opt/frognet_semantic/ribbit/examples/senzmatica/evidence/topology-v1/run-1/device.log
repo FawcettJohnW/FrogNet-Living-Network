@@ -1,0 +1,15 @@
+---- start at 11.362 s
+READY
+APPLIED path=RAM value=60 applications=1
+APPLIED path=RAM value=90 applications=2
+ribbit space: the read held on senz-baseline/desired-config|test-device-001 ended: recv: Connection timed out (no answer from the far end within the 5 s keepalive / user timeout)
+---- start at 38.748 s
+APPLIED path=RAM value=120 applications=1
+READY
+---- start at 40.08 s
+APPLIED path=RAM value=180 applications=1
+READY
+ribbit space: the read held on senz-baseline/desired-config|test-device-001 ended: the far end closed the connection
+---- start at 90.019 s
+READY
+APPLIED path=RAM value=270 applications=1

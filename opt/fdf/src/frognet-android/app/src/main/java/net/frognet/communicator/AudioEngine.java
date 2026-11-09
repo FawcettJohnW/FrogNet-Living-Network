@@ -101,10 +101,28 @@ final class AudioEngine {
     }
 
     // ---- speaker / earpiece --------------------------------------------------------------------------------------
-    void setSpeaker(boolean on) { speaker = on; if (!stop) applySpeaker(); }
+    void setSpeaker(boolean on) { speaker = on; outId = 0; if (!stop) applySpeaker(); }
+    // [COMMS_OPENED_FOR_A_CALL_V1] the microphone and the output the user chose (AudioDeviceInfo ids; 0: the default)
+    private volatile int micId = 0, outId = 0;
+    void prefer(int mic, int out) { micId = mic; outId = out; }
+    private AudioDeviceInfo byId(int flag, int id) {
+        if (id == 0) return null;
+        for (AudioDeviceInfo d : am.getDevices(flag)) if (d.getId() == id) return d;
+        return null;
+    }
     boolean speaker() { return speaker; }
 
     private void applySpeaker() {
+        if (Build.VERSION.SDK_INT >= 31 && outId != 0) {
+            for (AudioDeviceInfo d : am.getAvailableCommunicationDevices())
+                if (d.getId() == outId) {
+                    boolean ok = am.setCommunicationDevice(d);
+                    speaker = d.getType() == AudioDeviceInfo.TYPE_BUILTIN_SPEAKER;
+                    Diag.log("[audio] output (chosen): " + typeName(d.getType()) + (ok ? "" : " (REFUSED by the system)"));
+                    return;
+                }
+            Diag.log("[audio] the chosen output (" + outId + ") is not a communication device now: the default instead");
+        }
         if (Build.VERSION.SDK_INT >= 31) {
             int want = speaker ? AudioDeviceInfo.TYPE_BUILTIN_SPEAKER : AudioDeviceInfo.TYPE_BUILTIN_EARPIECE;
             List<AudioDeviceInfo> devs = am.getAvailableCommunicationDevices();
@@ -143,6 +161,8 @@ final class AudioEngine {
             rec = new AudioRecord(MediaRecorder.AudioSource.VOICE_COMMUNICATION, RATE, AudioFormat.CHANNEL_IN_MONO,
                     AudioFormat.ENCODING_PCM_16BIT, Math.max(min, BLOCK * 2 * 8));
             if (rec.getState() != AudioRecord.STATE_INITIALIZED) throw new IllegalStateException("AudioRecord did not initialise");
+            AudioDeviceInfo mic = byId(AudioManager.GET_DEVICES_INPUTS, micId);
+            if (mic != null) Diag.log("[audio] mic (chosen): " + mic.getProductName() + (rec.setPreferredDevice(mic) ? "" : " (REFUSED by the system)"));
         } catch (RuntimeException e) {
             micState = "microphone unavailable: " + e.getMessage();
             Diag.log("[audio] " + micState + " -- the call goes on without sending audio");

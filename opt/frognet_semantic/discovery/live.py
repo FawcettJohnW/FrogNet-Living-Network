@@ -842,6 +842,16 @@ def main():
                                          self_ip=self_identity)
         out["etc_hosts"] = commit_service_lines(out.get("etc_hosts", []), _role_lines,
                                                 _ready_roles, _ctl, logger=logger)
+        # [APP_HOST_ELECTION_V1][CONFIG_WRITTEN_AGAIN_BY_THE_MERGE_V1] the same as the region's election (discovery/elect.py)
+        from core import app_hosts as _AH
+        try:
+            _was = [l.rstrip("\n") for l in open("/etc/hosts")]
+        except OSError:
+            _was = []
+        _now = _AH.ip_of(out["etc_hosts"], "databasehost_control.frognet")
+        if _now and _now != _AH.ip_of(_was, "databasehost_control.frognet"):
+            _AH.write_configs_again(_now, logger=logger)
+        out["etc_hosts"] = _AH.commit(out["etc_hosts"], logger=logger)
         logger(f"SERVICE_BARRIERS ready={sorted(_ready_roles)} "
                f"of {sorted(_roles)}")
         logger(f"SERVICE_HOSTS lines now: "

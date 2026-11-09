@@ -1,0 +1,260 @@
+diff --git a/core-lib/src/main/java/com/fawcett/ribbit/Ribbit.java b/core-lib/src/main/java/com/fawcett/ribbit/Ribbit.java
+new file mode 100644
+index 0000000..bddcc04
+--- /dev/null
++++ b/core-lib/src/main/java/com/fawcett/ribbit/Ribbit.java
+@@ -0,0 +1,39 @@
++package com.fawcett.ribbit;
++import java.nio.charset.StandardCharsets;
++import java.util.Objects;
++import java.util.function.Consumer;
++
++/** Java 8 binding to native API++. Watch registration/lifecycle are caller-serialized.
++ * Watched sessions live until JVM exit; the base API has no cancellation handle. */
++public final class Ribbit implements AutoCloseable {
++    static { System.loadLibrary("ribbit_senz"); }
++    private long handle;
++    public Ribbit(String address,String vendor) { handle=nConnect(bytes(address),bytes(vendor)); }
++    private static byte[] bytes(String value) {
++        Objects.requireNonNull(value);
++        for(int i=0;i<value.length();++i) {
++            char ch=value.charAt(i);
++            if(Character.isHighSurrogate(ch)) {
++                if(++i==value.length() || !Character.isLowSurrogate(value.charAt(i)))throw new IllegalArgumentException("Unpaired UTF-16 surrogate");
++            } else if(Character.isLowSurrogate(ch))throw new IllegalArgumentException("Unpaired UTF-16 surrogate");
++        }
++        return value.getBytes(StandardCharsets.UTF_8);
++    }
++    private long session() { if(handle==0)throw new IllegalStateException("Ribbit is disconnected");return handle; }
++    public boolean IsConnected() {return handle!=0;}
++    public void DisconnectRibbit() {if(handle!=0){nDisconnect(handle);handle=0;}}
++    @Override public void close(){DisconnectRibbit();}
++    public void Set(String a,String b,String c,String bag){nCall(session(),0,bytes(a),bytes(b),bytes(c),bytes(bag));}
++    public String Get(String a,String b,String c){return new String(nCall(session(),1,bytes(a),bytes(b),bytes(c),null),StandardCharsets.UTF_8);}
++    public void SetCapability(String a,String b,String c,String bag){nCall(session(),2,bytes(a),bytes(b),bytes(c),bytes(bag));}
++    public boolean CheckCapability(String a,String b,String c){return Boolean.parseBoolean(new String(nCall(session(),3,bytes(a),bytes(b),bytes(c),null),StandardCharsets.UTF_8));}
++    public void Watch(String a,String b,String c,Consumer<String> on){watch(a,b,c,on,false);}
++    public void WatchCapabilities(String a,String b,String c,Consumer<String> on){watch(a,b,c,on,true);}
++    private void watch(String a,String b,String c,Consumer<String> on,boolean capabilities){Objects.requireNonNull(on);Consumer<byte[]> decoded=value->on.accept(new String(value,StandardCharsets.UTF_8));nWatch(session(),bytes(a),bytes(b),bytes(c),decoded,capabilities);}
++    public void CheckCallbacks(){if(nFailures(session())!=0)throw new IllegalStateException("A watch callback failed; see JVM error log");}
++    private static native long nConnect(byte[] address,byte[] vendor);
++    private static native void nDisconnect(long handle);
++    private static native byte[] nCall(long handle,int operation,byte[] a,byte[] b,byte[] c,byte[] bag);
++    private static native void nWatch(long handle,byte[] a,byte[] b,byte[] c,Consumer<byte[]> callback,boolean capabilities);
++    private static native int nFailures(long handle);
++}
+diff --git a/core-lib/src/main/java/com/magma/core/api/RibbitConfigurationApi.java b/core-lib/src/main/java/com/magma/core/api/RibbitConfigurationApi.java
+new file mode 100644
+index 0000000..7abf09c
+--- /dev/null
++++ b/core-lib/src/main/java/com/magma/core/api/RibbitConfigurationApi.java
+@@ -0,0 +1,17 @@
++package com.magma.core.api;
++import com.magma.core.service.RibbitConfigurationService;
++import org.springframework.beans.factory.annotation.Autowired;
++import org.springframework.web.bind.annotation.*;
++import java.util.Collections;
++import java.util.Map;
++@RestController
++public class RibbitConfigurationApi {
++    @Autowired private RibbitConfigurationService configuration;
++    @RequestMapping(value="/core/device/remoteConfiguration/path",method=RequestMethod.GET)
++    public Map<String,Boolean> get(){return Collections.singletonMap("ram",configuration.isEnabled());}
++    @RequestMapping(value="/core/device/remoteConfiguration/path",method=RequestMethod.PUT)
++    public Map<String,Boolean> set(@RequestBody Map<String,Boolean> value){
++        if(value.size()!=1||!value.containsKey("ram")||value.get("ram")==null)throw new IllegalArgumentException("Expected {ram:boolean}");
++        configuration.setEnabled(value.get("ram"));return get();
++    }
++}
+diff --git a/core-lib/src/main/java/com/magma/core/gateway/MQTTMessageHandler.java b/core-lib/src/main/java/com/magma/core/gateway/MQTTMessageHandler.java
+index bd53751..c4556f9 100644
+--- a/core-lib/src/main/java/com/magma/core/gateway/MQTTMessageHandler.java
++++ b/core-lib/src/main/java/com/magma/core/gateway/MQTTMessageHandler.java
+@@ -1,6 +1,7 @@
+ package com.magma.core.gateway;
+ 
+ import com.magma.core.service.CoreService;
++import com.magma.core.service.RibbitConfigurationService;
+ import com.magma.core.service.DataProcessorService;
+ import com.magma.core.service.ProductService;
+ import com.magma.util.MagmaTime;
+@@ -20,6 +21,9 @@ public class MQTTMessageHandler implements MessageHandler {
+     @Autowired
+     CoreService coreService;
+ 
++    @Autowired
++    RibbitConfigurationService ribbitConfiguration;
++
+     @Autowired
+     ProductService productService;
+ 
+@@ -46,7 +50,9 @@ public class MQTTMessageHandler implements MessageHandler {
+     }
+ 
+     private String identifyMessageType(String topic, String messageContent) {
+-        if (topic.contains("V1")) {
++        if (topic.startsWith(RibbitConfigurationService.COMPLETION_PREFIX)) {
++            return "RIBBIT_CONFIGURATION";
++        } else if (topic.contains("V1")) {
+             return "V1";
+         } else if (topic.contains("V2")) {
+             return "V2";
+@@ -61,6 +67,9 @@ public class MQTTMessageHandler implements MessageHandler {
+ 
+     private void processMessage(String messageType, String topic, String messageContent) {
+         switch (messageType) {
++            case "RIBBIT_CONFIGURATION":
++                ribbitConfiguration.handleCompletion(topic, messageContent);
++                break;
+             case "V1":
+                 handleV1Message(topic, messageContent);
+                 break;
+diff --git a/core-lib/src/main/java/com/magma/core/service/CoreService.java b/core-lib/src/main/java/com/magma/core/service/CoreService.java
+index f5ffa3b..1f22c21 100644
+--- a/core-lib/src/main/java/com/magma/core/service/CoreService.java
++++ b/core-lib/src/main/java/com/magma/core/service/CoreService.java
+@@ -48,6 +48,9 @@ public class CoreService {
+     @Value("${mqtt.broker.address}")
+     private String mqttBrokerAddress;
+ 
++    @Autowired
++    RibbitConfigurationService ribbitConfiguration;
++
+     @Autowired
+     VerneMqService verneMqService;
+ 
+@@ -127,6 +130,8 @@ public class CoreService {
+      * Sends message to the relevant device and save in message repository temporarily.
+      */
+     public String updateDeviceParameterConfiguration(String deviceId, DeviceParameterConfiguration deviceParameterConfiguration,String userId) {
++        final boolean useRibbit = ribbitConfiguration.isEnabled();
++        LOGGER.info("REMOTE_CONFIG_PATH device={} path={}", deviceId, useRibbit ? "RAM" : "MQTT");
+         LOGGER.debug("Update Device's Remote Configurations for Device Id: {}", deviceId);
+ 
+         // Retrieve the requested device from the repository
+@@ -164,6 +169,7 @@ public class CoreService {
+                 return "Success";
+             }
+             Collections.sort(modifiedIds);
++            if (useRibbit) return ribbitConfiguration.submit(requestedDevice, newRemoteConfigurations, modifiedIds, userId);
+ 
+             // Generate the complete message for the modified parameters
+             String completeMessage = generateMessageForModifiedIds(newRemoteConfigurations, modifiedIds,dataFormat);
+diff --git a/core-lib/src/main/java/com/magma/core/service/RibbitConfigurationService.java b/core-lib/src/main/java/com/magma/core/service/RibbitConfigurationService.java
+new file mode 100644
+index 0000000..ec7fb7f
+--- /dev/null
++++ b/core-lib/src/main/java/com/magma/core/service/RibbitConfigurationService.java
+@@ -0,0 +1,112 @@
++package com.magma.core.service;
++import com.fawcett.ribbit.Ribbit;
++import com.fasterxml.jackson.databind.JsonNode;
++import com.fasterxml.jackson.databind.ObjectMapper;
++import com.fasterxml.jackson.databind.node.ObjectNode;
++import com.magma.core.configuration.MQTTConfiguration;
++import com.magma.core.data.entity.Device;
++import com.magma.core.data.repository.DeviceRepository;
++import com.magma.core.data.support.*;
++import com.magma.core.util.UpdateStatus;
++import org.joda.time.DateTime;
++import org.slf4j.Logger;
++import org.slf4j.LoggerFactory;
++import org.springframework.beans.factory.annotation.Autowired;
++import org.springframework.beans.factory.annotation.Value;
++import org.springframework.data.mongodb.core.MongoTemplate;
++import org.springframework.data.mongodb.core.query.Criteria;
++import org.springframework.data.mongodb.core.query.Query;
++import org.springframework.data.mongodb.core.query.Update;
++import org.springframework.stereotype.Service;
++import javax.annotation.PostConstruct;
++import java.util.*;
++import java.util.concurrent.atomic.AtomicLong;
++
++@Service
++public class RibbitConfigurationService {
++    public static final String COMPLETION_PREFIX="D2S/SA/RIBBIT_CONFIG/";
++    private static final Logger LOG=LoggerFactory.getLogger(RibbitConfigurationService.class);
++    private final ObjectMapper json=new ObjectMapper();
++    private final String incarnation=UUID.randomUUID().toString();
++    private final AtomicLong sequence=new AtomicLong();
++    private volatile boolean enabled;
++    private Ribbit ram;
++    @Value("${ribbit.address:}")private String address;
++    @Value("${ribbit.space:senz-baseline}")private String space;
++    @Autowired private MQTTConfiguration.MqttGateway mqtt;
++    @Autowired private DeviceRepository devices;
++    @Autowired private MongoTemplate mongo;
++    @PostConstruct public void start(){
++        LOG.info("REMOTE_CONFIG_SWITCH ram=false");
++        if(address.isEmpty())return;
++        try{ram=new Ribbit(address,"senz-binding");ram.Watch(space,"","",this::applied);}
++        catch(RuntimeException error){LOG.error("RAM connection failed; no MQTT command fallback",error);ram=null;}
++    }
++    public boolean isEnabled(){return enabled;}
++    public void setEnabled(boolean value){enabled=value;LOG.info("REMOTE_CONFIG_SWITCH ram={} time={}",value,DateTime.now());}
++    public String submit(Device device,List<RemoteConfigField> fields,List<String> modified,String user){
++        if(ram==null)throw new IllegalStateException("RAM is unavailable; no MQTT fallback");
++        ram.CheckCallbacks();
++        for(String id:modified){
++            RemoteConfigField field=fields.stream().filter(f->id.equals(f.getParameterId())).findFirst().get();
++            String generation=incarnation+":"+sequence.incrementAndGet();
++            ObjectNode wanted=json.createObjectNode();wanted.put("generation",generation);wanted.put("value",field.getDefaultValue());wanted.put("actionBy",user);wanted.put("format",field.getFormat());
++            LOG.info("REMOTE_CONFIG_PATH device={} parameter={} generation={} path=RAM",device.getId(),id,generation);
++            ram.Set(space,"desired-config|"+device.getId(),id,wanted.toString());
++        }
++        return "Success"; // accepted/sent; physical application is a separate truth
++    }
++    private JsonNode desired(String device,String parameter)throws Exception{
++        JsonNode rows=json.readTree(ram.Get(space,"desired-config|"+device,parameter)).path("rows");return rows.size()==1?rows.get(0).path("bag"):null;
++    }
++    private boolean matches(JsonNode wanted,JsonNode actual){
++        return wanted != null && wanted.path("generation").isTextual() &&
++            wanted.path("generation").asText().equals(actual.path("generation").asText());
++    }
++    private void applied(String snapshot){
++        try{
++            for(JsonNode row:json.readTree(snapshot).path("rows")){
++                String family=row.path("name").path("indexB").asText();
++                if(!family.startsWith("applied-config|")||row.path("gone").asBoolean())continue;
++                String device=family.substring("applied-config|".length()),parameter=row.path("name").path("indexC").asText();
++                JsonNode actual=row.path("bag"),wanted=desired(device,parameter);
++                if(!matches(wanted,actual)){LOG.info("RAM_RESULT_IGNORED device={} parameter={} reason=generation",device,parameter);continue;}
++                String status=actual.path("status").asText();if(!status.equals("applied")&&!status.equals("failed"))continue;
++                if(!actual.path("value").isTextual())continue;
++                if(status.equals("applied")&&!wanted.path("value").equals(actual.path("value"))){LOG.error("RAM result value mismatch device={} parameter={}",device,parameter);continue;}
++                ObjectNode completion=json.createObjectNode();completion.put("device",device);completion.put("parameter",parameter);completion.put("generation",wanted.path("generation").asText());completion.put("value",actual.path("value").asText());completion.put("status",status);completion.put("actionBy",wanted.path("actionBy").asText());
++                LOG.info("RAM_APPLIED device={} parameter={} generation={} status={}",device,parameter,wanted.path("generation").asText(),status);
++                mqtt.send(COMPLETION_PREFIX+device+"/"+parameter,false,completion.toString());
++            }
++        }catch(Exception error){LOG.error("RAM completion observation/publication failed; physical action is not retried",error);throw new IllegalStateException("RAM completion failed",error);}
++    }
++    public void handleCompletion(String topic,String payload){
++        try{
++            JsonNode result=json.readTree(payload);String device=result.path("device").asText(),parameter=result.path("parameter").asText();
++            if(!topic.equals(COMPLETION_PREFIX+device+"/"+parameter))throw new IllegalArgumentException("completion topic mismatch");
++            JsonNode wanted=desired(device,parameter);
++            if(!matches(wanted,result)){LOG.info("RAM_COMPLETION_IGNORED device={} parameter={} reason=generation",device,parameter);return;}
++            String status=result.path("status").asText();if(!status.equals("applied")&&!status.equals("failed"))throw new IllegalArgumentException("completion status");
++            if(!result.path("value").isTextual())throw new IllegalArgumentException("completion value");
++            if(status.equals("applied")&&!wanted.path("value").equals(result.path("value")))return;
++            Device current=devices.findOne(device);if(current==null)throw new IllegalArgumentException("unknown device");
++            List<RemoteConfigField> fields=current.getDeviceParameterConfiguration().getRemoteConfigurations();int index=-1;
++            for(int i=0;i<fields.size();++i)if(parameter.equals(fields.get(i).getParameterId()))index=i;
++            if(index<0)throw new IllegalArgumentException("unknown parameter");RemoteConfigField field=fields.get(index);
++            String marker="ribbit:"+result.path("generation").asText()+":"+parameter,value=result.path("value").asText();
++            DeviceParameterConfigurationHistory history=new DeviceParameterConfigurationHistory();history.setMessageId(marker);history.setActionBy(wanted.path("actionBy").asText());history.setUpdatedDate(DateTime.now());history.setUpdateStatus(status.equals("applied")?UpdateStatus.UPDATED:UpdateStatus.FAILED);
++            Map<String,String> network=new HashMap<>(),topics=new HashMap<>(),messages=new HashMap<>();
++            if("Network & Communication".equals(field.getParameterCategory()))network.put(parameter,value);
++            if("Topic Format & Interval".equals(field.getParameterCategory()))topics.put(parameter,value);
++            if("Message Format".equals(field.getParameterCategory()))messages.put(parameter,value);
++            history.setNetworkAndCommunication(network);history.setTopicFormat(topics);history.setMessageFormat(messages);
++            DeviceParameterUpdateStatus updated=new DeviceParameterUpdateStatus();updated.setParameterId(parameter);updated.setParameter(field.getParameter());updated.setParameterCategory(field.getParameterCategory());updated.setDefaultValue(value);updated.setIsinValid(status.equals("failed"));
++            Map<String,DeviceParameterUpdateStatus> changes=new HashMap<>();changes.put(parameter,updated);history.setUpdateParamList(changes);
++            Query query=new Query(Criteria.where("_id").is(device).and("deviceParameterConfiguration.updateHistory.messageId").ne(marker));
++            Update update=new Update().push("deviceParameterConfiguration.updateHistory",history);
++            if(status.equals("applied"))update.set("deviceParameterConfiguration.remoteConfigurations."+index+".defaultValue",value);
++            mongo.updateFirst(query,update,Device.class);
++            LOG.info("RAM_COMPATIBILITY_CONSUMED device={} parameter={} generation={} status={}",device,parameter,result.path("generation").asText(),status);
++        }catch(Exception error){LOG.error("RAM MQTT completion rejected/failed",error);throw new IllegalStateException("RAM MQTT completion failed",error);}
++    }
++}

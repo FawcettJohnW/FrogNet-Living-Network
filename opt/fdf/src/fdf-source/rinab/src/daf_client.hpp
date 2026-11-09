@@ -3,13 +3,13 @@
 // the region's own held read (fn "wait"), through the check point: answered by the write that makes its answer exist,
 // or ended with the session. A program waits on a session of its own; shutdown() ends it.
 // [DAF_FROG_V1] The region is handed to the program as a library: Client() finds the area's region the way every FD&F
-// participant does (rina_region::Client::locate(): RINA_RAM, or the area's one name), so no program names a host. A
+// participant does (fdf_region::Client::locate(): RINA_RAM, or the area's one name), so no program names a host. A
 // locator is passed only when it was itself read from the memory (a DIF Allocator answer names the region that offers
 // an application) or by a harness that plays several machines. No timeouts, no retries: a wait is answered by the write
 // that makes its answer exist, or ends with its session.
 #pragma once
 #include "frogram.hpp"
-#include "rina_region_client.hpp"
+#include "fdf_region_client.hpp"
 #include <cstdio>
 #include <memory>
 #include <stdexcept>
@@ -20,7 +20,7 @@ using frogram::Json;
 inline std::string q(const std::string& s) { return Json::quote(s); }
 class Client {
 public:
-    Client() : Client(rina_region::Client::locate()) {}       // this area's region
+    Client() : Client(fdf_region::Client::locate()) {}       // this area's region
     explicit Client(const std::string& where) {
         const size_t c = where.rfind(':'); if (c == std::string::npos) throw std::runtime_error("daf: '" + where + "' has no port");
         s_.reset(new frogram::Session(where.substr(0, c), atoi(where.c_str() + c + 1), api()));

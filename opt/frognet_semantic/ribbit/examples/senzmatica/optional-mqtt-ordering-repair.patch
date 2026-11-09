@@ -1,0 +1,35 @@
+diff --git a/core-lib/src/main/java/com/magma/core/service/CoreService.java b/core-lib/src/main/java/com/magma/core/service/CoreService.java
+index 1f22c21..62c46fc 100644
+--- a/core-lib/src/main/java/com/magma/core/service/CoreService.java
++++ b/core-lib/src/main/java/com/magma/core/service/CoreService.java
+@@ -206,7 +206,6 @@ public class CoreService {
+                             String chunk = messageChunks.get(i);
+ 
+                             // Send the chunk to the MQTT gateway
+-                            mqttGateway.send(topic, retained, chunk);
+ 
+                             // Extract network and communication, topic format, and message format from the chunk
+                             Map<String, String> networkAndCommunication = new HashMap<>();
+@@ -279,13 +278,13 @@ public class CoreService {
+                             currentConfig.setUpdateHistory(currentHistory);
+                             requestedDevice.setDeviceParameterConfiguration(currentConfig);
+                             deviceRepository.save(requestedDevice);
++                            mqttGateway.send(topic, retained, chunk);
+                         }
+                     }
+                     else if("JSON".equalsIgnoreCase(dataFormat)){
+                         String topic = remoteConfigTopic.replace("#", String.valueOf(maxTopicNumber +  1));
+ 
+                         // Send the message to the MQTT gateway
+-                        mqttGateway.send(topic, retained, completeMessage);
+ 
+                         // Extract network and communication, topic format, and message format from the message
+                         Map<String, String> networkAndCommunication = new HashMap<>();
+@@ -357,6 +356,7 @@ public class CoreService {
+                         currentConfig.setUpdateHistory(currentHistory);
+                         requestedDevice.setDeviceParameterConfiguration(currentConfig);
+                         deviceRepository.save(requestedDevice);
++                        mqttGateway.send(topic, retained, completeMessage);
+                     }
+                 } catch (Exception e) {
+                     // Handle MQTT exception
