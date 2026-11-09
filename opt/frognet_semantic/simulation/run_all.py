@@ -521,7 +521,7 @@ def main():
     print("\nTIER T - physical transport + socket sets (this feature)")
     results.append(_run_proc("faithful transport sim (transport_sim_tier, 24 checks)",
                              ["simulation/transport_sim_tier.py"]))
-    # [DOOR_THROUGH_THE_SEMANTIC_PATH_V1] 2026-11-02: an app's calls to a door (RangerTrak's /dc/ram.php) through the real
+    # [DOOR_THROUGH_THE_SEMANTIC_PATH_V1] 2026-11-02: an app's calls to a door (OpenEOC's /dc/ram.php) through the real
     # proxy and daemon, each node on its own template store, in the orders the nodes saw. Every answer must equal the
     # door's and the door must be given what the app sent. It also runs the tree before eebacd6/68bb965 and must see
     # it fail. Needs MariaDB with /opt/frognet_semantic/DB_CONFIG.json's database and that name + "7"; without them it FAILS.

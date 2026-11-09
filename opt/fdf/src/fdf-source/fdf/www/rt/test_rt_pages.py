@@ -142,10 +142,10 @@ for i, name in enumerate(("A", "B"), start=1):
                                                                     for k, (ip, h) in enumerate(LEASES[name].items())],
                "capability": {"mem_total_kb": 8_000_000 if name == "A" else 4_000_000, "cores": 4}}, open(R + "/facts.json", "w"))
     if name == "A":       # the app's first install, at A; B installs it from its one configuration tuple
-        subprocess.run([os.path.join(FDF, "bin", "fdf-app"), "config", "rangertrak", "general,hospitals",
+        subprocess.run([os.path.join(FDF, "bin", "fdf-app"), "config", "openeoc", "general,hospitals",
                         "--role", "hospitals", "--role", "eoc:default", "--user", "kim:kim-pw=hospitals", "--user", "lee:lee-pw=hospitals"], env=member_env(name), check=True, stdout=subprocess.DEVNULL)
     else:
-        subprocess.run([os.path.join(FDF, "bin", "fdf-app"), "install", "rangertrak"], env=dict(member_env(name), FDF_APP_RESTART="true"), check=True, stdout=subprocess.DEVNULL, stdin=subprocess.DEVNULL)
+        subprocess.run([os.path.join(FDF, "bin", "fdf-app"), "install", "openeoc"], env=dict(member_env(name), FDF_APP_RESTART="true"), check=True, stdout=subprocess.DEVNULL, stdin=subprocess.DEVNULL)
     session(name)
     procs.append(subprocess.Popen([os.path.join(FDF, "bin", "fdf-app"), "serve"], env=member_env(name),
                                   stdout=open(R + "/app.log", "w"), stderr=subprocess.STDOUT))
@@ -155,7 +155,7 @@ for i, name in enumerate(("A", "B"), start=1):
     shutil.copy(os.path.join(DC, "ram.php"), R + "/www/dc/")
     svc = ["rt-mission", "rt-log", "rt-handled", "rt-roster", "rt-pos", "rt-who", "rt-msg", "rt-dm", "rt-team", "rt-notes"]
     json.dump({"apps": [{"id": "radiolog", "title": "Radio log", "version": "1", "page": "../rt/log.html", "services": svc,
-                         "app": "rangertrak", "rams": {x: ("team" if x == "rt-team" else "general") for x in svc}}]}, open(R + "/www/dc/apps.json", "w"))
+                         "app": "openeoc", "rams": {x: ("team" if x == "rt-team" else "general") for x in svc}}]}, open(R + "/www/dc/apps.json", "w"))
     open(R + "/fdf.env", "w").write("export FDF_BIN=%s/bin FDF_VAR=%s RINA_RAM=%s FDF_HOSTS=%s FDF_LAN_RAM_PORT=%d\n" % (T, R, via[name].addr, R + "/etc/hosts", LPORT))
     p = free(); posts[name] = "127.0.0.1:%d" % p
     # PHP_CLI_SERVER_WORKERS: the built-in server is one process otherwise, and a held read would hold every page
@@ -165,13 +165,13 @@ def map_of(post):
     """where the post's door finds each AppRam: its AppHost in the post's /etc/hosts, its port in the configuration"""
     try:
         h = {l.split()[1]: l.split()[0] for l in open(T + "/%s/etc/hosts" % post) if len(l.split()) >= 2}
-        c = json.load(open(T + "/%s/apps/rangertrak.json" % post))
+        c = json.load(open(T + "/%s/apps/openeoc.json" % post))
     except (OSError, ValueError): return {}
-    return {"rangertrak." + r: "%s:%d" % (h[app_hosts.host_name("rangertrak", r)], c["ports"][r]) for r in c.get("rams") or [] if app_hosts.host_name("rangertrak", r) in h}
+    return {"openeoc." + r: "%s:%d" % (h[app_hosts.host_name("openeoc", r)], c["ports"][r]) for r in c.get("rams") or [] if app_hosts.host_name("openeoc", r) in h}
 def wait_map(post, want, s=20):
     t0 = time.time()
     while time.time() - t0 < s:
-        if map_of(post).get("rangertrak.general", "").startswith(want): return time.time() - t0
+        if map_of(post).get("openeoc.general", "").startswith(want): return time.time() - t0
         time.sleep(0.02)
     return None
 for name in ("A", "B"):           # the client connects first: nothing works until the app's RAM is served
@@ -201,7 +201,7 @@ try:
         # [APP_ACCESS_V1] login is a read at the device's own edge: the door checks the password against the access tuples
         import urllib.request, urllib.error
         def door_login(post, body):
-            rq = urllib.request.Request("http://%s/dc/ram.php?op=login&app=rangertrak" % posts[post], data=json.dumps(body).encode(), method="POST")
+            rq = urllib.request.Request("http://%s/dc/ram.php?op=login&app=openeoc" % posts[post], data=json.dumps(body).encode(), method="POST")
             try:
                 with urllib.request.urlopen(rq, timeout=10) as r: return json.loads(r.read())
             except urllib.error.HTTPError as e: return json.loads(e.read())
@@ -279,7 +279,7 @@ try:
             if mark_on(b, 0) == "!": ok3 = True; break
             time.sleep(0.02)
         e0 = a.get_attribute("#rows tr:nth-child(1)", "data-i")
-        cells = [c for c in fdfram.Ram(map_of("A")["rangertrak.general"]).read("rt-handled", "26-0142") if (c.get("bag") or {}).get("entry") == e0]
+        cells = [c for c in fdfram.Ram(map_of("A")["openeoc.general"]).read("rt-handled", "26-0142") if (c.get("bag") or {}).get("entry") == e0]
         check(ok3 and len(cells) == 2 and len({c["bag"]["by"] for c in cells}) == 2,
               "7 A marked it too: ! on B in %d ms; the RAM holds one mark cell per handler: %s"
               % ((time.time() - t0) * 1000, sorted((c["bag"]["by"], c["bag"]["mark"]) for c in cells)))
@@ -349,10 +349,10 @@ try:
         ok_r = wait_rows(b, n_before, 20); n_own = sum(1 for x in rows(b) if x[7] == "scribe-b")
         recs, t1 = [], time.time()
         while time.time() - t1 < 15:
-            recs = [c["bag"] for c in fdfram.Ram(map_of("B")["rangertrak.general"]).read("fdf-app", "device")]
+            recs = [c["bag"] for c in fdfram.Ram(map_of("B")["openeoc.general"]).read("fdf-app", "device")]
             if any(r.get("station") == "laptop-b" and r.get("role") == "hospitals" for r in recs): break
             time.sleep(0.1)
-        on_region = [c["bag"]["station"] for c in fdfram.Ram(map_of("A")["rangertrak.general"]).read("fdf-app", "device")]
+        on_region = [c["bag"]["station"] for c in fdfram.Ram(map_of("A")["openeoc.general"]).read("fdf-app", "device")]
         check(any(r.get("station") == "laptop-b" and r.get("role") == "hospitals" for r in recs) and "phone" in on_region,
               "11 [APP_ACCESS_V1] the devices' own access records: B's written again in its side's general AppRam (%s); A's has %s"
               % ([(r["station"], r["role"]) for r in recs], sorted(set(on_region))))
@@ -423,13 +423,13 @@ try:
         a_dm = tab(ma, "dm")
         send(mb, "@", "hospitals: two beds at St. Mark")
         t3 = until(lambda: "hospitals: two beds at St. Mark" in tab(mf, "team"))
-        hosp = fdfram.Ram(map_of("A")["rangertrak.hospitals"]).read("rt-team", "26-0142")
-        gen = fdfram.Ram(map_of("A")["rangertrak.general"]).read("rt-team", "26-0142")
+        hosp = fdfram.Ram(map_of("A")["openeoc.hospitals"]).read("rt-team", "26-0142")
+        gen = fdfram.Ram(map_of("A")["openeoc.general"]).read("rt-team", "26-0142")
         check(t1 is not None and t2 is not None and "B: water at the trailhead?" not in a_dm and t3 is not None
               and [c["bag"]["text"] for c in hosp] == ["hospitals: two beds at St. Mark"] and gen == [],
               "14 messages: announcement on B and the phone in %s s; the phone's DM on B in %s s, not in A's direct list (%s); "
               "B's team message on the phone in %s s, in the hospitals RAM at %s (%d cell), none in the general RAM"
-              % (t1 and round(t1, 2), t2 and round(t2, 2), a_dm, t3 and round(t3, 2), map_of("A")["rangertrak.hospitals"], len(hosp)))
+              % (t1 and round(t1, 2), t2 and round(t2, 2), a_dm, t3 and round(t3, 2), map_of("A")["openeoc.hospitals"], len(hosp)))
         # 15
         b.check("#entry input[name=g213]"); b.fill("#entry input[name=to213]", "IC, EOC"); b.fill("#entry input[name=subject213]", "Water")
         b.fill("#entry input[name=message213]", "Need 20 L at the trailhead"); log(b, "W7ABC", "need-rest-food", "", "water low")

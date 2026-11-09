@@ -170,7 +170,7 @@ const stationOf = (d) => d.host || String(d.name || '').trim().toLowerCase().rep
 export const shownName = (d) => d.host || d.name || ''          // what users see for a device
 export function setDevice(name) { const d = { ...device(), name }; d.station = stationOf(d); kept('device', d); return d }
 // [TEAM_RAM_V1] the app's RAMs served now: { general: host:port, <team>: host:port, ... }
-export async function rams() { return (await call(RAM + '?op=rams&app=rangertrak')).rams || {} }
+export async function rams() { return (await call(RAM + '?op=rams&app=openeoc')).rams || {} }
 // this device in the mission's directory: who it is, its station, its team (its own cell; DMs are addressed by station)
 export async function present(m) { const d = device(); return write('rt-who', m.id, d.id, { name: d.name || shownName(d), host: d.host || '', station: d.station, team: d.team || '' }) }
 // what this device sent, from its own store: [variable, instance, bag] of every family s it owns whose variable starts so
@@ -184,7 +184,7 @@ export function sent(s, prefix) {
 // A device that has not logged in takes its default role, or none when the app allows it; when the app requires its
 // user's login, connect() says so (e.needsLogin) and the page asks for it. The role is the device's own truth: kept here,
 // and written as its access record, again after every RAM change
-export const APP = 'rangertrak'
+export const APP = 'openeoc'
 export async function connect(defaultRole) {
   const j = await call(RAM + '?op=whoami')
   let d = { ...device(), host: j.host || '' }; d.station = stationOf(d); kept('device', d)

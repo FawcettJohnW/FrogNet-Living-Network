@@ -40,7 +40,7 @@
             </intent-filter>
         </activity>
         <!-- [COMMS_FROM_THE_POND_V1] the Communicator, opened by MainActivity with the forward pond's comms servers -->
-        <!-- [COMMS_OPENED_FOR_A_CALL_V1] and by another FrogNet app (RangerTrak's Call) with net.frognet.communicator.CALL.
+        <!-- [COMMS_OPENED_FOR_A_CALL_V1] and by another FrogNet app (OpenEOC's Call) with net.frognet.communicator.CALL.
              Exported: whoever opens it gets this screen, in front of the user, and the user's own camera and microphone
              permissions; it joins only the servers it is given -->
         <activity android:name="net.frognet.communicator.CommunicatorActivity" android:exported="true"

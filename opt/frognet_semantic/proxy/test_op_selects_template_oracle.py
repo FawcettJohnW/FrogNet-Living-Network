@@ -12,11 +12,11 @@ def check(ok, what):
     if not ok: FAILS.append(what)
 
 k = lambda q, m="GET", b=b"": canonical_semantic_key(m, "/dc/ram.php?" + q, b)
-ops = ["op=rams&app=rangertrak", "op=admin&app=rangertrak", "op=roles&app=rangertrak", "op=whoami"]
+ops = ["op=rams&app=openeoc", "op=admin&app=openeoc", "op=roles&app=openeoc", "op=whoami"]
 keys = [k(q) for q in ops]
 check(len(set(keys)) == len(keys), "1 every op of /dc/ram.php is its own template: %s" % keys)
-check(k("op=rams&app=rangertrak") == k("op=rams&app=kart"), "2 the same op for another app is the same template: %s" % k("op=rams&app=kart"))
-check(k("op=login&app=rangertrak", "POST", b'{"user":"a","password":"b"}') != k("op=admin&app=rangertrak", "POST", b'{"user":"a","password":"b"}'),
+check(k("op=rams&app=openeoc") == k("op=rams&app=kart"), "2 the same op for another app is the same template: %s" % k("op=rams&app=kart"))
+check(k("op=login&app=openeoc", "POST", b'{"user":"a","password":"b"}') != k("op=admin&app=openeoc", "POST", b'{"user":"a","password":"b"}'),
       "3 POSTs: op=login and op=admin with the same body fields are different templates")
 a = canonical_semantic_key("GET", "/api.php?entity=sensors&action=list&SensorType=GPS", b"")
 check(a == "/api.php?entity=sensors&action=list&__dyn=SensorType", "4 api.php keys (no op) as before: " + a)

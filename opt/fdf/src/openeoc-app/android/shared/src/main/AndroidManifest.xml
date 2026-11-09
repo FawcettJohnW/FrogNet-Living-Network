@@ -1,0 +1,43 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- [RT_ANDROID_SHARED_V1] the shared code; each app's own manifest declares MainActivity. [APP_IS_SELF_CONTAINED_V1] what
+     the FrogNet member and its Communicator need, merged into every app, as frognet-android and the kart app declare
+     them: each app is its own member; nothing else is installed -->
+<manifest xmlns:android="http://schemas.android.com/apk/res/android">
+    <uses-permission android:name="android.permission.INTERNET" />
+    <uses-permission android:name="android.permission.ACCESS_NETWORK_STATE" />
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE_SPECIAL_USE" />
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE_LOCATION" />
+    <uses-permission android:name="android.permission.CAMERA" />
+    <uses-permission android:name="android.permission.RECORD_AUDIO" />
+    <uses-permission android:name="android.permission.MODIFY_AUDIO_SETTINGS" />
+    <uses-permission android:name="android.permission.WAKE_LOCK" />
+    <uses-permission android:name="android.permission.ACCESS_WIFI_STATE" />
+    <uses-permission android:name="android.permission.CHANGE_WIFI_STATE" />
+    <uses-feature android:name="android.hardware.camera" android:required="false" />
+    <uses-feature android:name="android.hardware.camera.front" android:required="false" />
+    <uses-feature android:name="android.hardware.microphone" android:required="false" />
+    <application android:extractNativeLibs="true">
+        <!-- the member: the one TUN, and the session (frognet-android's, as the FrogNet app declares them) -->
+        <service android:name="com.fawcettinnovations.fdf.android.BridgeVpn" android:exported="false"
+            android:permission="android.permission.BIND_VPN_SERVICE">
+            <intent-filter><action android:name="android.net.VpnService" /></intent-filter>
+        </service>
+        <service android:name="com.fawcettinnovations.fdf.android.MemberService" android:exported="false"
+            android:foregroundServiceType="specialUse|location">
+            <property android:name="android.app.PROPERTY_SPECIAL_USE_FGS_SUBTYPE"
+                android:value="Holds this device's membership session in a FrogNet region (FD&amp;F) and its WireGuard tunnel" />
+        </service>
+        <!-- [TEAM_HOST_V1] the team's RAM on the team lead's phone (libteamram.so), held while the team is hosted -->
+        <service android:name="net.frognet.openeoc.android.TeamHostService" android:exported="false"
+            android:foregroundServiceType="specialUse">
+            <property android:name="android.app.PROPERTY_SPECIAL_USE_FGS_SUBTYPE"
+                android:value="Holds the team's shared memory (RAM) on the team lead's phone for the phones on its hotspot" />
+        </service>
+        <!-- [RT_CALL_V1] the Communicator, in this app: Call opens it with the servers and the call -->
+        <activity android:name="net.frognet.communicator.CommunicatorActivity" android:exported="false"
+            android:label="Call" android:launchMode="singleTask" android:resizeableActivity="true"
+            android:theme="@android:style/Theme.Material.NoActionBar" android:windowSoftInputMode="adjustResize"
+            android:configChanges="orientation|screenSize|screenLayout|keyboardHidden|smallestScreenSize" />
+    </application>
+</manifest>

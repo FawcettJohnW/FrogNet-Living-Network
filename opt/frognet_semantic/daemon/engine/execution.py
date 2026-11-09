@@ -399,7 +399,7 @@ class ExecutionEngine:
         try:
             trace(f"[DAEMON EXTRACT] opcode={opcode} status={status} resp_text_len={len(resp_text or chr(0))} resp_text={repr((resp_text or chr(0))[:120])}")
             dyn = resp_tpl.extract_dynamic(resp_text or "")
-            # [REPLY_EXTRACTION_PROVEN_V1] (found 2026-11-02: the RangerTrak admin app, through a node's proxy, got
+            # [REPLY_EXTRACTION_PROVEN_V1] (found 2026-11-02: the OpenEOC admin app, through a node's proxy, got
             # /dc/ram.php?op=admin's answer as op=roles' shape with every value null -- {"login":true,"ok":null,"roles":
             # {...null},"seq":null,"served":{...null}} -- because both share one response template and extraction keeps
             # only the template's paths, reading absent ones as null.) As the C++ engine does: the template must give

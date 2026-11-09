@@ -12,12 +12,12 @@ Each simulated instance is its own writer of its own truth, as a real device is 
 on a session of its own (fnw1), with own=True, so its cells go with it ([OWNED_CELL_GOES_WITH_THE_SESSION_V1]):
   (rt-who, <mission>, <id>)   latest  {name, kind, team, color, host:"", station:""}   presence
   (rt-pos, <mission>, <id>)   latest  {name, kind, team, color, lat, lng, at, status, ...}   where it is now
-in RangerTrak's general RAM, wherever its AppHost is now (/etc/hosts, and its port: fdf_appram, [APP_SERVICES_V1]). Moving instances write their
+in OpenEOC's general RAM, wherever its AppHost is now (/etc/hosts, and its port: fdf_appram, [APP_SERVICES_V1]). Moving instances write their
 position every TICK seconds; when the RAM is another one (relocated), every instance opens its session there and
 writes its truth again, at once. A victim delivered to a hospital leaves: its session ends and it is gone from every
 map. rt-sim stopped: every instance is gone. Ambulances say what they do to everyone, (rt-msg, <mission>, <id>.<ms>);
 team members now and then say something to their team, (rt-team, <mission>, <id>.<ms>) in the team's own RAM when it
-is served (rangertrak.<team>). (rt-mission, settings, <mission>) is written by this program too: the exercise is its own.
+is served (openeoc.<team>). (rt-mission, settings, <mission>) is written by this program too: the exercise is its own.
 
 Kinds and what moves:
   team       members of four colour-coded teams, walking between nearby places of their zone
@@ -36,7 +36,7 @@ Environment: FDF_VAR (/opt/fdf/var), FDF_PY (the fnw1 module's directory).
 """
 import argparse, re, json, math, os, random, sys, time
 
-BUILD_TAG = "rt-sim-2026-11-04-r9"
+BUILD_TAG = "rt-sim-2026-11-08-r10"
 LIB = os.environ.get("FDF_PY") or os.path.join(os.environ.get("FDF_HOME", "/opt/fdf"), "lib", "python")   # (it ships in the add-in)
 sys.path.insert(0, LIB)
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))   # the add-in ships fnw1.py beside this program
@@ -45,7 +45,7 @@ import fnw1  # noqa: E402
 VAR = os.environ.get("FDF_VAR", "/opt/fdf/var")
 import fdf_appram  # noqa: E402  [APP_SERVICES_V1]
 WHERE = fdf_appram.HOSTS
-KEY = "rangertrak.general"
+KEY = "openeoc.general"
 BOX = (47.30, 47.80, -122.55, -122.05)          # lat min/max, lng min/max: Seattle metro and Vashon
 
 # places on land, by zone (approximate centres of neighbourhoods); a unit stays in its zone
@@ -305,12 +305,12 @@ def help_bag(v, status):
 
 
 def where():
-    """{"rangertrak.<ram>": host:port} for the AppRams that have an AppHost now"""
+    """{"openeoc.<ram>": host:port} for the AppRams that have an AppHost now"""
     out = {}
-    for r in fdf_appram.rams_of("rangertrak"):
-        w = fdf_appram.where("rangertrak", r)
+    for r in fdf_appram.rams_of("openeoc"):
+        w = fdf_appram.where("openeoc", r)
         if w:
-            out["rangertrak." + r] = w
+            out["openeoc." + r] = w
     return out
 
 
@@ -410,7 +410,7 @@ def main():
                 if k in wr.s:
                     wr.s[k].write("rt-msg", a.mission, "%s.%d" % (k, stamp), {"from": k, "name": w.u[k]["name"], "text": text, "at": stamp // 1000})
             for k, team, text in w.chatter:
-                tr = m.get("rangertrak." + team.lower(), "")
+                tr = m.get("openeoc." + team.lower(), "")
                 if tr and k in w.u:
                     h, p = tr.rsplit(":", 1); ts = fnw1.Session(h, p)
                     ts.write("rt-team", a.mission, "%s.%d" % (k, stamp), {"from": k, "name": w.u[k]["name"], "team": team, "text": text, "at": stamp // 1000}, wait=True)

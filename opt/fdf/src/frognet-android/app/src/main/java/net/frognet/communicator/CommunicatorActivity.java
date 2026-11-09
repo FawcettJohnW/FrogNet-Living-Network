@@ -60,7 +60,7 @@ public class CommunicatorActivity extends Activity {
     // its forward pond's members say they run -- (pond, where, <ns>) {"comms":{"ram","media"}} -- and the device's name.
     // Opened any other way (or with no Communicator in the pond) it says so and joins nothing.
     public static final String X_RAM = "ram", X_MEDIA = "media", X_NAME = "name", X_POND = "pond", X_FROM = "from";
-    // [COMMS_OPENED_FOR_A_CALL_V1] another app (RangerTrak's Call) opens this screen with ACTION_CALL: the same servers
+    // [COMMS_OPENED_FOR_A_CALL_V1] another app (OpenEOC's Call) opens this screen with ACTION_CALL: the same servers
     // and name, and the call it is for -- X_CALL, place a call to that person once they are in the room; X_ANSWER,
     // answer that person's ring -- with the devices the user chose: X_FRONT (front or back camera), X_VIDEO (false: no
     // camera), X_MIC and X_OUT (an AudioDeviceInfo id: the microphone, and the speaker / earpiece / headset).

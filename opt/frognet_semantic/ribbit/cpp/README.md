@@ -95,4 +95,4 @@ The base API is unchanged.
 A vendor that says true answers writes as FD&F's RAM manager does (`fdf-ram`, and fdf-ram before it) (`[OWNED_CELL_GOES_WITH_THE_SESSION_V1]`): a write with
 `"own":true` goes with its session (refused without one: plain HTTP has none), any other stays until written again or
 removed, and `"permanent":true` is refused (this host keeps no file). First used by the Team app's team RAM on a lead's
-phone (`opt/fdf/src/rangertrak-app/android/teamram`), which passes RangerTrak's own app test as every RAM.
+phone (`opt/fdf/src/openeoc-app/android/teamram`), which passes OpenEOC's own app test as every RAM.

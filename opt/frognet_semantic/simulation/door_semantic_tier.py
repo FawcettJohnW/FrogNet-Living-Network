@@ -16,7 +16,7 @@ door_semantic_tier.py [CODE_ROOT] -- [DOOR_THROUGH_THE_SEMANTIC_PATH_V1] an app'
 REAL proxy and the REAL daemon, each node with its OWN template store, and every answer compared with what the door
 said and every request with what the app sent.
 
-Found on hardware 2026-11-02 (RangerTrak on a phone on Seattle5's Wi-Fi, the door on Seattle7): every call to
+Found on hardware 2026-11-02 (OpenEOC on a phone on Seattle5's Wi-Fi, the door on Seattle7): every call to
 /dc/ram.php goes Seattle5's proxy -> Seattle7's daemon -> the door, and came back wrong --
   op=admin answered in op=roles' shape, every value null;
   a refused login (HTTP 403 {"ok":false,"why":...}) answered HTTP 200 {"ok":[],"role":null,"station":null,"user":null};
@@ -32,7 +32,7 @@ The topology, as the nodes run it (one template store per node, DB_CONFIG.json -
   the ORIGIN node's proxy (Seattle7)       a RAW bootstrap is replayed to port 80, so the origin's proxy serves it and
                                            learns (proxy_main LOCAL path: train on a miss, status < 400) -- as it also
                                            learns from the origin node's OWN calls to its door (curl, the admin app);
-  the door                                 RangerTrak's door: its real operations and answer shapes (dc-door r4: roles,
+  the door                                 OpenEOC's door: its real operations and answer shapes (dc-door r4: roles,
                                            rams, admin, login, enroll), checking the user and password IT RECEIVED,
                                            answering with its own statuses (403 for a refusal).
 Both ends learn independently and keep their first sample; a frame carries the opcode and values by position. So the
@@ -61,7 +61,7 @@ DB_CONFIG = "/opt/frognet_semantic/DB_CONFIG.json"   # core/store.py's own path;
 
 USERS = {"AlphaAdmin": ("ALPHA", "alpha", True), "BravoAdmin": ("bravo-2026", "bravo", True), "EOCAdmin": ("eoc pw", "eoc", False)}
 DOOR = "dc-door-sim"
-CONFIG0 = {"app": "rangertrak", "rams": ["general", "alpha", "bravo"], "partition": "relocate", "login": False,
+CONFIG0 = {"app": "openeoc", "rams": ["general", "alpha", "bravo"], "partition": "relocate", "login": False,
            "roles": {"eoc": {"default": False}, "alpha": {"default": True}, "bravo": {"default": True}},
            "users": {u: {"role": r, "verifier": {"kdf": "pbkdf2-sha256", "n": 1, "salt": "00", "hash": "x"}, "lead": l} for u, (_, r, l) in USERS.items()},
            "admin": {"user": "RTAdmin", "salt": "aa", "n": 200000, "check": "bb"}, "seq": 1793593812176, "member": "Seattle7", "addr": "10.170.170.1"}
@@ -71,7 +71,7 @@ RECEIVED = []          # what the door was given by the phone's path: (op, user,
 
 
 def door(method, path, body):
-    """RangerTrak's door, as ram.php r4 answers: (status, body text)."""
+    """OpenEOC's door, as ram.php r4 answers: (status, body text)."""
     q = {k: v[-1] for k, v in parse_qs(urlsplit(path).query).items()}
     op = q.get("op", "")
     fail = lambda code, why: (code, json.dumps({"ok": False, "why": why, "output": "", "door": DOOR}))
@@ -97,9 +97,9 @@ def door(method, path, body):
     return fail(400, "op is read, write, watch, announce, rams, roles, admin, whoami, login, device, enroll or identity")
 
 
-E = lambda u, pw: ("POST", "op=enroll&app=rangertrak", {"user": u, "password": pw})
-L = lambda u, pw: ("POST", "op=login&app=rangertrak", {"user": u, "password": pw})
-G = lambda op: ("GET", "op=%s&app=rangertrak" % op, None)
+E = lambda u, pw: ("POST", "op=enroll&app=openeoc", {"user": u, "password": pw})
+L = lambda u, pw: ("POST", "op=login&app=openeoc", {"user": u, "password": pw})
+G = lambda op: ("GET", "op=%s&app=openeoc" % op, None)
 LOCAL = lambda c: ("LOCAL",) + c            # a call made ON the origin node (Seattle7's curl, the admin app there)
 def add_role(name):                         # the admin app changes the configuration
     def f(): CONFIG["roles"][name] = {"default": True}; CONFIG["rams"].append(name)

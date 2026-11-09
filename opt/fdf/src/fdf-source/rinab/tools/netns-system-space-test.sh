@@ -151,14 +151,14 @@ both_on() { local want=$1 t0=$(ms) ok=1; for i in $(seq ${3:-240}); do
     [ "$(on z)" = "$want" ] && [ "$(on w)" = "$want" ] && [ "$(eval "$2")" = "w z" ] && { ok=0; break; }; sleep 0.25; done
   echo "$ok $(( ($(ms) - t0) / 100 ))"; }
 # [APP_SERVICES_V1] the app as the design has it: its one configuration tuple in databasehost-control, each machine's
-# capability tuples in the SystemRam, rangertrakHost.frognet written by the daemon's own election on every node
+# capability tuples in the SystemRam, openeocHost.frognet written by the daemon's own election on every node
 hostsof() { sed -n "s/^\([0-9.]*\) $2\$/\1/p" $T/$1/fs/etc/hosts | head -1; }
 cells() { NS $1 curl -s -m 3 "http://$2$API?op=read&service=fdf-app&variable=$3" | python3 -c 'import sys,json; print(" ".join(sorted(c["instance"] for c in json.load(sys.stdin).get("cells",[]) if c.get("bag") and not c.get("gone"))))' 2>/dev/null; }
 appok() {   # every node names one AppHost, the same; the one tuple in databasehost-control; z's and w's capability in the SystemRam; nothing on hubA
-  local zc=$(hostsof z databasehost_control.frognet) zs=$(hostsof z databasehost.frognet) za=$(hostsof z rangertrakHost.frognet) wa=$(hostsof w rangertrakHost.frognet)
-  [ -n "$za" ] && [ "$za" = "$wa" ] && [ "$(cells z $zc:8841 config)" = rangertrak ] && [ "$(cells z $zs:8841 can)" = "rangertrak.general.g-w rangertrak.general.g-z" ] \
+  local zc=$(hostsof z databasehost_control.frognet) zs=$(hostsof z databasehost.frognet) za=$(hostsof z openeocHost.frognet) wa=$(hostsof w openeocHost.frognet)
+  [ -n "$za" ] && [ "$za" = "$wa" ] && [ "$(cells z $zc:8841 config)" = openeoc ] && [ "$(cells z $zs:8841 can)" = "openeoc.general.g-w openeoc.general.g-z" ] \
     && [ -z "$(NS z curl -s -m 3 "http://$RAM$API?op=read&service=fdf-app" 2>/dev/null | grep -o '"instance"')" ]; }
-appsay() { echo "AppHost z:$(hostsof z rangertrakHost.frognet) w:$(hostsof w rangertrakHost.frognet); control $(hostsof z databasehost_control.frognet): $(cells z $(hostsof z databasehost_control.frognet):8841 config); SystemRam $(hostsof z databasehost.frognet): $(cells z $(hostsof z databasehost.frognet):8841 can)"; }
+appsay() { echo "AppHost z:$(hostsof z openeocHost.frognet) w:$(hostsof w openeocHost.frognet); control $(hostsof z databasehost_control.frognet): $(cells z $(hostsof z databasehost_control.frognet):8841 config); SystemRam $(hostsof z databasehost.frognet): $(cells z $(hostsof z databasehost.frognet):8841 can)"; }
 app_on() { local t0=$(ms); for i in $(seq 160); do appok && { echo "0 $(( ($(ms) - t0) / 100 ))"; return; }; sleep 0.25; done; echo "1 $(( ($(ms) - t0) / 100 ))"; }
 secs() { echo "$(( $1 / 10 )).$(( $1 % 10 ))"; }
 dump() { for n in z w; do echo "--- $n: system space lines"; grep -E "system space|SPACE_|LAN RAM|follows|lost" $T/$n/daemon.log | tail -12 | cut -c1-260 | sed 's/^/    /'
@@ -168,9 +168,9 @@ ok=1; for i in $(seq 120); do ip netns exec z ip -4 route | grep -q '^10.4.4.0/2
 check $ok "z routes w's 10.4.4.0/24 over the LAN (via its lease 10.3.3.20)"
 # the app: its first install on z (databasehost-control named), installed on w from its one tuple, served on both
 for i in $(seq 120); do grep -q databasehost_control.frognet $T/z/fs/etc/hosts && grep -q databasehost_control.frognet $T/w/fs/etc/hosts && break; sleep 0.25; done
-NSF z env FDF_APPS=/opt/fdf/var/apps python3 $PK/bin/fdf-app config rangertrak general --role eoc:default > $T/z/app-config.log 2>&1
+NSF z env FDF_APPS=/opt/fdf/var/apps python3 $PK/bin/fdf-app config openeoc general --role eoc:default > $T/z/app-config.log 2>&1
 check $? "the app's first install on z: $(tail -1 $T/z/app-config.log | cut -c1-200)"
-NSF w env FDF_APPS=/opt/fdf/var/apps FDF_APP_RESTART=true python3 $PK/bin/fdf-app install rangertrak < /dev/null > $T/w/app-install.log 2>&1
+NSF w env FDF_APPS=/opt/fdf/var/apps FDF_APP_RESTART=true python3 $PK/bin/fdf-app install openeoc < /dev/null > $T/w/app-install.log 2>&1
 check $? "the app installed on w from its one configuration tuple: $(tail -2 $T/w/app-install.log | head -1 | cut -c1-200)"
 for n in z w; do svc $T/$n/app.log NSF $n env FDF_NAME=$n FDF_APPS=/opt/fdf/var/apps python3 $PK/bin/fdf-app serve; done
 a=($(app_on)); check ${a[0]} "the app: $(appsay); nothing of it on the conduit hubA ($(secs ${a[1]}) s)"
@@ -191,7 +191,7 @@ check $( (NSF z wg show interfaces; NSF w wg show interfaces) 2>/dev/null | tr '
 check $(ip netns exec z ip -4 route | grep -q '^10.4.4.0/24 via 10.3.3.20' && echo 0 || echo 1) "on the LAN: z still routes w's /24"
 check $(ip netns exec w ping -c 1 -W 2 -I 10.4.4.1 10.3.3.1 > /dev/null 2>&1 && echo 0 || echo 1) "on the LAN: w's .1 -> z's .1"
 a=($(app_on)); check ${a[0]} "on the LAN: $(appsay) ($(secs ${a[1]}) s)"
-AH=$(hostsof z rangertrakHost.frognet); PT=$(python3 -c "import json; print(json.load(open('$T/z/fs/opt-fdf-var/apps/rangertrak.json'))['ports']['general'])")
+AH=$(hostsof z openeocHost.frognet); PT=$(python3 -c "import json; print(json.load(open('$T/z/fs/opt-fdf-var/apps/openeoc.json'))['ports']['general'])")
 check $(NS z curl -s -m 3 -X POST -d '{"op":"version"}' "http://$AH:$PT$API?op=rina" | grep -q '"ok":true' && echo 0 || echo 1) "on the LAN: the general AppRam answers at its AppHost $AH, its port $PT"
 # ---- the primary returns: both on hubA
 hostup A

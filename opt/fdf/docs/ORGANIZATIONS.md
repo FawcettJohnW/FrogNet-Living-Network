@@ -374,7 +374,7 @@ own handshake retry (5 s); a link or DHCP event also retries at once. When it re
 
 A phone with no tunnel and no LAN is a partition of one. A device is never a role candidate (`[ELECT_NODES_ONLY_V1]`).
 Whether its app runs on a local RAM until it is back is for the app's selection code to say. The radio log does run on
-one, as tested. RangerTrak's says a team's RAM is on its lead's phone (`[TEAM_HOST_V1]`, 2026-11-02): the lead's phone
+one, as tested. OpenEOC's says a team's RAM is on its lead's phone (`[TEAM_HOST_V1]`, 2026-11-02): the lead's phone
 runs the Ribbit platform's RAM host (`libteamram.so`) for the phones on its hotspot, and says where it is in the app's
 general RAM. That is the app's RAM on a device, not a role: the device is still never a candidate for the network's.
 
@@ -496,7 +496,7 @@ An app's add-in declares its islands. **Proposed:** in its `apps.json` entry:
 - Each island is its own role, elected on its own.
 - Two islands can land on one host, or the app's code can keep them apart. For example, `Hospital.evaluate` can drop
   the candidate that `Eoc` names; it may read the other islands' incumbents, which are passed in.
-- Placement by site needs a site fact. RangerTrak's EOC island belongs at the EOC and the Hospital island at the
+- Placement by site needs a site fact. OpenEOC's EOC island belongs at the EOC and the Hospital island at the
   hospital. **Proposed:** `facts.site`, from the node's join (its level or a site name typed at install). **Open (Q5).**
 
 ### 9.3 Connecting to an island

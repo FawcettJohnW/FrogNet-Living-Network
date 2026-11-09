@@ -3,7 +3,7 @@
 #  Copyright (C) 2016-2026 Fawcett Innovations LLC             #
 #  SPDX-License-Identifier: GPL-2.0-only                       #
 ################################################################
-"""rt-post309 -- [POST_309_V1] the post's ICS-309 files: RangerTrak's Post participant (PLAN.md, "The participants").
+"""rt-post309 -- [POST_309_V1] the post's ICS-309 files: OpenEOC's Post participant (PLAN.md, "The participants").
 
 On the node at a post: held reads on the radio log, (rt-log, <mission>.<op>, <dev>.<seq>), in the app's general RAM
 (its AppHost in /etc/hosts and its port, fdf_appram: [APP_SERVICES_V1]), and every entry appended to FDF_VAR/rt/309/<mission>.<op>.csv in
@@ -20,7 +20,7 @@ Environment: FDF_VAR (/opt/fdf/var), FDF_PY (the fdfram module's directory).
 """
 import calendar, csv, json, os, sys, time
 
-BUILD_TAG = "rt-post309-2026-11-04-r4"
+BUILD_TAG = "rt-post309-2026-11-08-r5"
 LIB = os.environ.get("FDF_PY") or os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "lib", "python")
 sys.path.insert(0, LIB)
 import fdfram  # noqa: E402
@@ -38,7 +38,7 @@ def log(m):
 
 
 def where():
-    return fdf_appram.where("rangertrak", "general")
+    return fdf_appram.where("openeoc", "general")
 
 
 def msg_no(n):
