@@ -56,15 +56,35 @@ RT.layer('team', (RT) => {
     const x = S.mem || { members: [], addrs: [] }
     const at = S.memAt && x.addrs.some(a => a.addr === S.memAt) ? S.memAt : ((x.addrs[0] || {}).addr || '')
     S.memAt = at
+    // [MEMBER_PASSWORDS_OPTIONAL_V1] (John 2026-11-09: "default to one password for the team, with the option of individual
+    // passwords if the lead says so") the team's password and QR first; a member with a password of their own is added under
+    // Individual passwords, and has a QR of their own (the line names them: "fdfenroll1 URL APP <name> <key>")
+    const own = x.own || []
+    const ownRows = own.map(n => `<div class="mem-row"><b>${esc(n)}</b><button type="button" data-memqr="${esc(n)}">QR</button></div>`).join('')
     const rows = x.members.map(n => `<div class="mem-row"><b>${esc(n)}</b><button type="button" data-memdel="${esc(n)}" title="remove ${esc(n)}">✕</button></div>`).join('') || '<div class="meta">no one has joined yet</div>'
     const sel = x.addrs.length ? `<div class="mem-at">Members reach this phone at <select id="memAt">${x.addrs.map(a => `<option value="${esc(a.addr)}"${a.addr === at ? ' selected' : ''}>${esc(a.label)}: ${esc(a.addr)}</option>`).join('')}</select></div>`
       : '<div class="mem-at">⚠ this phone has no address a member can reach: turn on its hotspot (the team\'s Wi-Fi)</div>'
     sheet('members', 'Team ' + cap(x.team || ''), `${x.sponsoring ? '' : '<div class="meta">⚠ not sponsoring yet</div>'}
       <div class="mem-add"><input id="teamPw" type="password" placeholder="${x.teamPassword ? 'team password: set (type to change)' : 'the team password'}" autocomplete="new-password"><button type="button" id="teamPwSet">${x.teamPassword ? 'Change' : 'Set'}</button></div>
-      ${sel}<div class="mem-qr" id="memQr"></div><h3>Joined</h3>${rows}<h3>On now</h3><div id="memNow"></div>`)
+      ${sel}<div class="mem-qr" id="memQr"></div>
+      <details id="memOwn"${S.memOwnOpen ? ' open' : ''}><summary>Individual passwords</summary>
+        <div class="meta">Only if you want them: a member you add here joins with a QR code and a password of their own, not the team's.</div>
+        <div class="mem-add"><input id="memName" placeholder="member's call sign" autocomplete="off" autocapitalize="characters">
+          <input id="memPw" type="password" placeholder="their password" autocomplete="new-password"><button type="button" id="memAdd">Add</button></div>
+        ${ownRows}<div class="mem-qr" id="memOwnQr"></div></details>
+      <h3>Joined</h3>${rows}<h3>On now</h3><div id="memNow"></div>`)
     memNow()
     if ($('#memAt')) $('#memAt').onchange = (e) => { S.memAt = e.target.value; teamQr() }
     $('#teamPwSet').onclick = () => { const p = $('#teamPw').value; if (!p) return; status('setting the team password…'); window.rtNative.setTeamPassword(p) }
+    $('#memOwn').ontoggle = () => { S.memOwnOpen = $('#memOwn').open }
+    $('#memAdd').onclick = () => {
+      const n = $('#memName').value.trim().toUpperCase(), p = $('#memPw').value
+      if (!/^[A-Z0-9._-]{1,30}$/.test(n)) { status("a member's call sign: letters, digits, . _ - (at most 30)"); return }
+      if (!p) { status(n + ': give their password'); return }
+      if ((x.members || []).includes(n)) { status(n + ' is a member already'); return }
+      S.memOwnOpen = true; S.memOwnQr = n; status('adding ' + n + '…'); window.rtNative.addMember(n, p)
+    }
+    if (S.memOwnQr && own.includes(S.memOwnQr)) ownQr(S.memOwnQr)
     teamQr()
   }
   // [ADMIN_TREE_V1] the team's admin likewise: everyone on now in this team, of whatever kind it says (a member, a unit,
@@ -86,8 +106,17 @@ RT.layer('team', (RT) => {
     $('#memQr').innerHTML = FrogQR.svg(FrogQR.enrollLine(url, x.app, '*', x.key), { px: 340 }) +   // [SEALED_ENROLL_V1] the sponsor key's fingerprint
       `<div class="who">Team ${esc(cap(x.team || ''))} · ${esc(S.memAt)}</div><div class="meta">A member joins this phone's hotspot (its QR is on the Hotspot screen), scans this, and gives a call sign and the team password.</div>`
   }
+  // [MEMBER_PASSWORDS_OPTIONAL_V1] a member's own QR: their name in it, and the sponsor key's fingerprint as the team's has
+  function ownQr(n) {
+    const x = S.mem || {}, el = $('#memOwnQr'); if (!el) return
+    if (!S.memAt || !x.key) { el.innerHTML = '<div class="meta">no address or no sponsor key yet: the QR is here when there are</div>'; return }
+    const url = 'http://' + S.memAt + ':' + x.port + '/enroll'
+    el.innerHTML = FrogQR.svg(FrogQR.enrollLine(url, x.app, n, x.key), { px: 300 }) +
+      `<div class="who">${esc(n)} · Team ${esc(cap(x.team || ''))}</div><div class="meta">${esc(n)} joins this phone's hotspot, scans this, and gives the password you set for them.</div>`
+  }
   document.addEventListener('click', (e) => {
     const t = e.target
+    if (t.dataset && t.dataset.memqr) { S.memOwnQr = t.dataset.memqr; ownQr(t.dataset.memqr) }
     if (t.dataset && t.dataset.memdel) window.rtNative.removeMember(t.dataset.memdel)
   })
   RT.on('members', membersPanel)

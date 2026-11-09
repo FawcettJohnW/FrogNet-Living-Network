@@ -1,4 +1,4 @@
-# OpenEOC app (desktop and phone) -- openeoc-app-2026-11-09-r58 / openeoc-admin-2026-11-09-r17
+# OpenEOC app (desktop and phone) -- openeoc-app-2026-11-09-r59 / openeoc-admin-2026-11-09-r17
 
 The demo John set on 2026-11-01 (`opt/frognet_semantic/ribbit/examples/openeoc/PLAN.md`, its first decision): the EOC
 on a Windows app, a first responder on a phone, presence with GPS, chat, a pre-populated moving world, in an app and not
@@ -46,6 +46,16 @@ role's `act`/`req`, or `RT.button`). **A new view**: `RT.role(...)` in a layer's
 `--lock=` and `--layers=`. **The admin app**: a layer's own panel is `ui-admin/layers/<name>.js` calling
 `RTA.panel(title, fn)` (none yet). Gates: `test/test_app.py` (32 checks; the Team and Public apps run with their own
 layers only), `test/test_team_host.py`, `android/typecheck.sh`.
+
+## r59: one team password by default, a member's own password if the lead says so ([MEMBER_PASSWORDS_OPTIONAL_V1])
+
+John, 2026-11-09: members should "default to one password for the team, with the option of individual passwords if
+the lead says so". The lead's Team members screen: the team's password and the team's QR first (every member scans it
+and gives a call sign and that password); under it, closed, **Individual passwords**: a call sign and a password the
+lead gives one member, and that member's own QR (`fdfenroll1 URL APP <call sign> <key>`). The lead's sponsor already
+took both (`Enroll.Sponsor`: a member's own verifier, else the team's for a call sign that has none); r55 to r58
+showed only the team's. The phone tells the page which members have their own password (`own`). A member scanning
+their own QR sees "Join as <call sign>" and is asked for that password only. Test: `test_enroll_page.py` 4b, 4c.
 
 ## r58 / admin r17: the app's tuples are the nodes' (`openeoc-*`), and the two renames are one tree
 

@@ -757,10 +757,13 @@ public final class MainActivity extends Activity implements LocationListener {
         else { String w = wifiAddr(); if (!w.isEmpty()) addrs.add(Json.o("label", "this Wi-Fi", "addr", w)); }
         String e = Member.edge(this); if (!e.isEmpty()) addrs.add(Json.o("label", "FrogNet (the Internet)", "addr", e));
         java.util.List<Object> names = new java.util.ArrayList<Object>(Enrolled.members(this).keySet());
+        // [MEMBER_PASSWORDS_OPTIONAL_V1] the members the lead gave a password of their own (the rest joined by the team's)
+        java.util.List<Object> own = new java.util.ArrayList<Object>();
+        for (java.util.Map.Entry<String, Object> m : Enrolled.members(this).entrySet()) if (Json.obj(m.getValue()).get("verifier") instanceof java.util.Map) own.add(m.getKey());
         String key;                                       // [SEALED_ENROLL_V1] the sponsor key's fingerprint: the team QR's fifth part
         try { key = net.frognet.ram.Enroll.Seal.fingerprint(net.frognet.ram.Enroll.Seal.publicOf(Enrolled.sponsorKey(this))); }
         catch (Exception x) { deliver(Json.o("ev", "error", "text", "the team's sponsor key: " + x)); return; }
-        deliver(Json.o("ev", "members", "key", key, "app", me.app, "team", me.role, "members", names, "addrs", addrs, "port", TeamHostService.SPONSOR_PORT,
+        deliver(Json.o("ev", "members", "key", key, "app", me.app, "team", me.role, "members", names, "own", own, "addrs", addrs, "port", TeamHostService.SPONSOR_PORT,
                 "sponsoring", TeamHostService.sponsorState().isEmpty() || start, "teamPassword", Enrolled.teamVerifier(this) != null));   // [TEAM_JOIN_V1]
     }
     /** this phone's address on the Wi-Fi it is a client of ("" : none) */

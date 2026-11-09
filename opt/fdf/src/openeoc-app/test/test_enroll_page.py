@@ -9,6 +9,8 @@
 #     6b with Your name typed before (nameGiven) and a call sign, the team password only: the call sign is that name
 #   2 a scanned code (enrollScan) asks for that user's password; Join hands the line and the password to the native side
 #   3 enrolled (lead of echo, the door): the page connects as that user, Team view, team Echo, the door, the password
+#   4b [MEMBER_PASSWORDS_OPTIONAL_V1] one team password by default; a member with their own password, and their own QR, if
+#      the lead adds one under Individual passwords
 #   4 the lead's Team members button; the members sheet (members): adding a member hands its name and password to the
 #     native side; a member's QR, read by zxing (the phone scanner's library), is that member's enrollment line at the
 #     address chosen, and choosing another address changes it
@@ -81,7 +83,24 @@ with tempfile.TemporaryDirectory() as tmp, sync_playwright() as pw:
     nowEcho = pg.inner_text("#memNow"); joined = joined and "Drone 9" in nowEcho and "drone" in nowEcho and "Other" not in nowEcho
     check(btn and ["members"] in pg.evaluate("__sent") and noQr and setPw and got.get(q1) == w1 and got.get(q2) == w2 and joined,
           "4 the lead's team: no QR before the password %s; the password handed over %s; the team's QR reads %r, then %r; KJ7ABC listed, on now Drone 9 (drone), not Alpha's %s" % (noQr, setPw, got.get(q1), got.get(q2), joined))
+    # 4b [MEMBER_PASSWORDS_OPTIONAL_V1] the team's one password is the default; Individual passwords, closed, is the option
+    closed = not pg.evaluate("document.querySelector('#memOwn').open") and not pg.is_visible("#memName")
+    pg.click("#memOwn > summary"); pg.fill("#memName", "w7own"); pg.click("#memAdd"); nopw = not [x for x in pg.evaluate("__sent") if x[0] == "add"]
+    pg.fill("#memPw", "own-2026"); pg.click("#memAdd"); added = ["add", "W7OWN", "own-2026"] in pg.evaluate("__sent")
+    pg.evaluate("a => rtDeliver(JSON.stringify({ev: 'members', app: 'openeoc', team: 'echo', members: ['KJ7ABC', 'W7OWN'], own: ['W7OWN'], addrs: a, port: 21801, key: 'dW9LoJ0JmymSPLael9M7kg', sponsoring: true, teamPassword: true}))", addrs)
+    pg.wait_for_selector("#memOwnQr svg", timeout=3000)
+    q3 = os.path.join(tmp, "q3.png"); pg.locator("#memOwnQr svg").screenshot(path=q3); got3 = zxing_read.read([q3]).get(q3)
+    w3 = "fdfenroll1 http://10.253.1.1:21801/enroll openeoc W7OWN dW9LoJ0JmymSPLael9M7kg"
+    check(closed and nopw and added and got3 == w3 and pg.locator("#memQr svg").count() == 1,
+          "4b Individual passwords closed by default %s; W7OWN with no password not added %s; added with its own %s; its QR reads %r; the team's QR still shown"
+          % (closed, nopw, added, got3))
     pg.click("#sheet .sh-close")
+    # 4c the member's phone, scanning W7OWN's QR (a name and the lead's key): "Join as W7OWN", their own password
+    pg.evaluate("S.cfg.enrolled = {}; roleFields(); $('#main').hidden = true; $('#connect').hidden = false")
+    pg.evaluate("l => rtDeliver(JSON.stringify({ev: 'enrollScan', line: l, url: 'http://10.253.1.1:21801/enroll', app: 'openeoc', user: 'W7OWN', team: false, key: 'dW9LoJ0JmymSPLael9M7kg'}))", w3)
+    who, say = pg.inner_text("#enrollWho"), pg.inner_text("#cstatus")
+    check(who.startswith("Join as W7OWN") and "own password" in say and not pg.is_visible("#enrollCall"), "4c a member's own QR scanned: %r, %r" % (who, say))
+    pg.evaluate("$('#enrollBox').hidden = true; $('#main').hidden = false; $('#connect').hidden = true")
     # 6 [TEAM_JOIN_V1] the team's QR scanned: a call sign and the team password; Join enrolls the call sign
     # a joining phone: its first screen ([JOINED_IS_DONE_V1] a phone that has joined is never offered the scan: not joined here)
     pg.evaluate("__sent.length = 0; S.cfg.enrolled = {}; roleFields(); $('#main').hidden = true; $('#connect').hidden = false")
