@@ -734,7 +734,17 @@ public final class MainActivity extends Activity implements LocationListener {
         Map<String, Object> a;
         // [EOC_LEADS_V1] the EOC's QR for a user it added: the team's name the lead typed (the door creates the team)
         try { a = net.frognet.ram.Enroll.enroll(l, pw, Json.str(m.get("team")), Json.str(m.get("kind"))); }
-        catch (Exception e) { deliver(Json.o("ev", "enrollFailed", "text", e.getMessage() == null ? e.toString() : e.getMessage())); return; }
+        catch (Exception e) {
+            String why = e.getMessage() == null ? e.toString() : e.getMessage();
+            // [CLAIM_ON_THE_NODES_WIFI_V1] (found 2026-11-09: a lead's claim timed out from a home router's 10.101.113.x) a
+            // phone that has not joined FrogNet reaches the EOC's door only on a node's Wi-Fi: said, with where this phone is
+            if (e instanceof java.io.IOException && nodeLan().isEmpty() && !Member.has(this)) {
+                String w = wifiAddr(), lan = lanShape(), gw = gwOf(lan);
+                why += ". This phone is on " + (w.isEmpty() ? "no Wi-Fi" : w) + (gw.isEmpty() ? "" : " (gateway " + gw + (Boolean.FALSE.equals(gwIsNode.get(gw)) ? ", not a FrogNet node" : "") + ")")
+                     + " and has not joined FrogNet yet: join the EOC node's Wi-Fi, then scan the code again (" + l.url.replaceAll("^https?://", "").replaceAll("/.*", "") + " is reached from there)";
+            }
+            note("[ENROLL_V1] not enrolled: " + why); deliver(Json.o("ev", "enrollFailed", "text", why)); return;
+        }
         String inv = Json.str(a.get("invite")).trim();    // [APP_IS_SELF_CONTAINED_V1] this app joins with it, at Connect
         if (!inv.startsWith("fdfinv1.")) { deliver(Json.o("ev", "enrollFailed", "text", "the invitation it gave is not one: " + (inv.length() > 40 ? inv.substring(0, 40) : inv))); return; }
         try { if (Member.keep(this, inv, "", "")) memberRestart = true; }

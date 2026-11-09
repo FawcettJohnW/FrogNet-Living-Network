@@ -47,6 +47,14 @@ role's `act`/`req`, or `RT.button`). **A new view**: `RT.role(...)` in a layer's
 `RTA.panel(title, fn)` (none yet). Gates: `test/test_app.py` (32 checks; the Team and Public apps run with their own
 layers only), `test/test_team_host.py`, `android/typecheck.sh`.
 
+## r63: a claim made off the node's Wi-Fi says so ([CLAIM_ON_THE_NODES_WIFI_V1])
+
+Found on John's phone on 2026-11-09: it scanned the lead QR for JohnPhone, and Create the Team (BigDogs) timed out twice ("failed to connect to /10.170.170.1 (port 80) from /10.101.113.61 ... after 8000ms").
+
+The phone was on the home router's Wi-Fi, 10.101.113.x. Its gateway, 10.101.113.1, is not a FrogNet node, and the phone has not joined FrogNet yet. The EOC's door, 10.170.170.1, is reached only from a node's Wi-Fi until the phone has its invitation, and the claim is how it gets that invitation.
+
+Now a claim that cannot reach the door says all of that: where the phone is, that its gateway is not a node, and that it has not joined FrogNet. It says to join the EOC node's Wi-Fi and scan again.
+
 ## r62 / admin r18: the EOC app logs in from an EOC user's QR ([EOC_USER_QR_V1])
 
 The admin tool's EOC users each have a QR, as its Teams do. The QR is the door and the user, never the password (John 2026-11-09: "the Admin tool has to project the QR code for the EOC app").
