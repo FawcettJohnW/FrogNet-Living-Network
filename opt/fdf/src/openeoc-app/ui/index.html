@@ -13,25 +13,34 @@
 
 <form id="connect" hidden>
   <h1>OpenEOC</h1>
-  <label>Node <input name="door" placeholder="the node this device is on, e.g. 10.170.170.1" required></label>
-  <label>Your name <input name="name" required></label>
-  <fieldset class="roles" id="roleSet"><legend>View</legend>
-    <!-- [RT_LAYERS_V1] one radio per view this app has: its layers add them -->
-  </fieldset>
-  <div class="for-unit" data-field="unit" hidden><label><span class="unit-l">Unit</span> <input name="unit" list="units"></label>
-    <datalist id="units"></datalist></div>   <!-- [RT_LAYERS_V1] the view's own names and hint (its role's units, unitHint) -->
-  <div class="for-eoc" data-field="login" hidden><label>User <input name="user" autocomplete="username"></label>
-    <label>Password <input name="password" type="password" autocomplete="current-password"></label></div>
-  <div class="for-invite" hidden><label>FrogNet invitation <input name="invite" placeholder="fdfinv1.… (pasted once; kept on this phone)" autocomplete="off"></label>
-    <div class="meta inv-say"></div></div>
-  <button type="submit">Connect</button>
-  <button type="button" id="scanTeam" hidden>Scan to join (a team, or the EOC to start one)</button>
-  <button type="button" id="joinEoc" hidden title="[CHILDREN_JOIN_V1] start a team: name it, give the EOC's teams password (the EOC's admin sets it); this phone leads it">Join EOC</button>
-  <div id="enrollBox" hidden><div class="meta" id="enrollWho"></div>
-    <label id="enrollCallL" hidden>Your call sign <input id="enrollCall" autocomplete="off" autocapitalize="characters"></label>
-    <label>Password <input id="enrollPw" type="password" autocomplete="current-password"></label>
-    <button type="button" id="enrollGo">Join</button></div>
+  <!-- [CONNECT_QR_FIRST_V1] (John 2026-11-09) the QR code first: the team's (from its lead: the team password, nothing
+       else) or the EOC's (to lead a team); the fill-in stuff below it, under Manual login. A phone that has joined is
+       done: it opens on the map, and none of this is shown. -->
+  <div id="qrSec" hidden>
+    <button type="button" id="scanTeam">Scan a QR code</button>
+    <div class="meta">Your team lead's QR code to join the team, or the EOC's to lead a team.</div>
+    <div id="enrollBox" hidden><div class="meta" id="enrollWho"></div>
+      <label id="enrollCallL" hidden><span class="ecl">Your call sign</span> <input id="enrollCall" autocomplete="off" autocapitalize="characters"></label>
+      <label>Password <input id="enrollPw" type="password" autocomplete="current-password"></label>
+      <button type="button" id="enrollGo">Join</button></div>
+  </div>
+  <details id="manual" open><summary>Manual login</summary><div class="mbody">
+    <label>Node <input name="door" placeholder="the node this device is on, e.g. 10.170.170.1" required></label>
+    <label>Your name <input name="name" required></label>
+    <fieldset class="roles" id="roleSet"><legend>View</legend>
+      <!-- [RT_LAYERS_V1] one radio per view this app has: its layers add them -->
+    </fieldset>
+    <div class="for-unit" data-field="unit" hidden><label><span class="unit-l">Unit</span> <input name="unit" list="units"></label>
+      <datalist id="units"></datalist></div>   <!-- [RT_LAYERS_V1] the view's own names and hint (its role's units, unitHint) -->
+    <div class="for-eoc" data-field="login" hidden><label>User <input name="user" autocomplete="username"></label>
+      <label>Password <input name="password" type="password" autocomplete="current-password"></label></div>
+    <div class="for-invite" hidden><label>FrogNet invitation <input name="invite" placeholder="fdfinv1.… (pasted once; kept on this phone)" autocomplete="off"></label>
+      <div class="meta inv-say"></div></div>
+    <button type="submit">Connect</button>
+    <button type="button" id="joinEoc" class="linkish" hidden title="[CHILDREN_JOIN_V1] with no EOC QR code at hand: the Node above, your team's name, the EOC's teams password; this phone leads the team">Start a team without the EOC's QR code</button>
+  </div></details>
   <div id="cstatus"></div>
+  <button type="button" id="cexit" class="linkish" hidden>Exit</button>   <!-- [APP_EXIT_V1] -->
 </form>
 
 <div id="main" hidden>
@@ -45,6 +54,7 @@
     <button id="layersBtn" type="button">Layers</button>
     <button id="chatBtn" type="button">Chat</button>
     <button id="diagBtn" type="button" title="what this device holds, where it reads and writes, and why anything is not on the map">Diag</button>
+    <button id="exitBtn" type="button" hidden title="[APP_EXIT_V1] stop everything this app runs and close it">Exit</button>
     <button id="menuBtn" type="button" hidden aria-label="more" title="more">☰</button></header>
   <div id="menu" hidden></div>
   <div id="map"></div>

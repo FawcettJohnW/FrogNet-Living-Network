@@ -174,6 +174,9 @@ function start() {
     document.querySelector('#connect h1').insertAdjacentHTML('afterend', `<div class="meta locked">This app opens as ${esc(lock.label)} only.${S.cfg.platform === 'android' ? ' The app that asks which one is <b>OpenEOC</b> (Android Studio: the <b>app</b> module).' : ' The app that asks which one is OpenEOC (OpenEOC.cmd).'}</div>`)
   }
   else pickerReady()
+  // [APP_EXIT_V1] Exit, where the native side can (the phone): in the header (☰ on a narrow screen) and on the connect screen
+  const canExit = !!(window.rtNative && window.rtNative.exit)
+  $('#exitBtn').hidden = !canExit; $('#cexit').hidden = !canExit
   if (S.cfg.build) $('#cstatus').textContent = S.cfg.build      // [APP_SAYS_ITS_BUILD_V1] which build this is, on the first screen
   // [APP_IS_SELF_CONTAINED_V1] the phone is the FrogNet member itself: its invitation, pasted once, then kept (and only said)
   if (S.cfg.platform === 'android') {
@@ -188,9 +191,40 @@ function start() {
   if (first) f.querySelector(`[name=role][value=${first}]`).checked = true
   RT.fire('init', S.cfg)
   roleFields(); askRoles()
+  if (!$('#qrSec').hidden) $('#manual').open = false      // [CONNECT_QR_FIRST_V1] the QR code is the way in; Manual login a tap away
+  // [JOINED_IS_DONE_V1] (John 2026-11-09: "once joined and authenticated the first time, they are done") a phone that has
+  // joined opens on the map: no picker, no connect screen. It connects as what joining made it (its user, its team or
+  // view, the node it joined through); the connect screen shows only if that connect fails, and says why.
+  const joined = joinedView()
   S.ready = true; for (const m of early.splice(0)) window.rtDeliver(m)
-  setTimeout(() => { $('#splash').classList.add('gone'); if (lock || Object.keys(RT.roles).length < 2) f.hidden = false; else pickApp() }, 1800)
+  setTimeout(() => {
+    if (joined) {          // the splash stays, saying who is connecting, until the map (or the connect screen, saying why)
+      S.autoConnect = true
+      const t = S.cfg.enrolled.user + ': connecting as ' + (RT.roles[joined] || {}).label + (S.cfg.enrolled.lead ? ', lead of ' + cap(S.cfg.enrolled.role) : ' in ' + cap(S.cfg.enrolled.role))
+      $('#splash').insertAdjacentHTML('beforeend', `<div class="joining">${esc(t)}</div>`); $('#cstatus').textContent = t
+      f.requestSubmit(); return
+    }
+    $('#splash').classList.add('gone')
+    if (lock || Object.keys(RT.roles).length < 2) f.hidden = false; else pickApp()
+  }, 1800)
 }
+// [JOINED_IS_DONE_V1] what joining made this phone: the view it connects as, with its fields filled ('' : not joined, or
+// joined as a view this app does not have)
+function joinedView() {
+  const e = S.cfg.enrolled || {}; if (!e.user) return ''
+  const f = $('#connect'), rl = String(e.role || '').toLowerCase()
+  // an app built for one view (the Ambulance app ...) connects as that view; else the view by the role's name, else a team
+  const view = S.cfg.lock && RT.roles[S.cfg.lock] ? S.cfg.lock : RT.roles[rl] && rl !== 'team' ? rl : RT.roles.team ? 'team' : ''
+  if (!view) return ''
+  if (e.door) f.door.value = e.door
+  if (!S.cfg.nameGiven || !f.name.value) f.name.value = e.user
+  f.user.value = e.user
+  const rb = f.querySelector(`[name=role][value=${view}]`); if (rb) rb.checked = true
+  RT.fire('enrolled', e, view); roleFields()
+  return view
+}
+// [CONNECT_QR_FIRST_V1] a field Manual login holds, wanting a value at Connect: Manual login opens to show it
+$('#connect').addEventListener('invalid', () => { $('#manual').open = true }, true)
 // [RT_APP_PICKER_V1] an app with more than one view (the OpenEOC app, not the EOC, Team or Public app) asks first which
 // app this is: a pop-up with one button per view; the connect screen is then that app's (its title, its fields), and
 // "Other app" on it asks again. The view used last is marked, never taken without asking.
@@ -216,8 +250,10 @@ function roleFields() {
   const c = $('#connect').querySelector('[name=role]:checked'), r = RT.roles[c ? c.value : ''] || {}
   // [TEAM_HOST_V1] a team member's phone joins its lead's hotspot by scanning the hotspot's QR code
   // [ENROLL_V1] any view: the frog QR the admin (or the team's lead) shows, then the password
-  $('#scanTeam').hidden = !(S.cfg.platform === 'android' && window.rtNative && window.rtNative.scanTeam)
-  $('#joinEoc').hidden = !(S.cfg.platform === 'android' && window.rtNative && window.rtNative.enroll)
+  // [CONNECT_QR_FIRST_V1] the QR code first, on a phone that can scan and has not joined yet; joined, it is done
+  const joined = !!(S.cfg.enrolled && S.cfg.enrolled.user)
+  $('#qrSec').hidden = joined || !(S.cfg.platform === 'android' && window.rtNative && window.rtNative.scanTeam)
+  $('#joinEoc').hidden = joined || !(S.cfg.platform === 'android' && window.rtNative && window.rtNative.enroll)
   document.querySelectorAll('[data-field]').forEach(e => { e.hidden = e.dataset.field !== r.field })
   document.querySelector('.unit-l').textContent = r.unitLabel || 'Unit'
   // [RT_LAYERS_V1] the unit names this view offers and its hint: its own (a Telecom crew is not offered hospitals)
@@ -236,6 +272,7 @@ $('#connect').onsubmit = (e) => {
          user: f.user.value.trim(), password: f.password.value, unit: f.unit.value.trim(), invite: f.invite.value.trim(),
          teamRam: role === 'team' ? (S.teamRam || '') : '' })
 }
+$('#exitBtn').onclick = $('#cexit').onclick = () => window.rtNative.exit()
 $('#scanTeam').onclick = () => { $('#cstatus').textContent = 'scan the frog QR code your admin or team lead shows you'; window.rtNative.scanTeam() }
 // [CHILDREN_JOIN_V1] (John 2026-11-06: "Creating a team is a matter of installing the team app, firing up the admin
 // console for it, and hitting the Join EOC button, with the team name. It needs the eoc teams password") the EOC's own
@@ -252,12 +289,16 @@ function enrollScan(m) {
   // [TEAM_JOIN_V1] a team's QR: the call sign is yours, the password the team's. [CHILDREN_JOIN_V1] the EOC's QR (its
   // door): the name is your new team's (anything), the password the EOC's teams password -- you lead that team
   const eoc = m.team && /\/dc\/ram\.php/.test(m.url); S.enrollEoc = eoc
-  $('#enrollCallL').hidden = !m.team; $('#enrollCall').value = ''
-  $('#enrollCallL').firstChild.textContent = eoc ? "Your team's name " : 'Your call sign '
+  // [CONNECT_QR_FIRST_V1] (John 2026-11-09: the team's QR "should not contain the password ... but that's all it should
+  // ask for") a member's call sign is the name typed at Your name; asked here only when none was typed, or it is not one
+  const nm = String($('#connect').name.value || '').trim().toUpperCase()
+  const callFromName = m.team && !eoc && S.cfg.nameGiven && /^[A-Z0-9/._-]{1,30}$/.test(nm)
+  $('#enrollCallL').hidden = !m.team || callFromName; $('#enrollCall').value = callFromName ? nm : ''
+  $('#enrollCallL').querySelector('.ecl').textContent = eoc ? "Your team's name" : 'Your call sign'
   $('#enrollCall').setAttribute('autocapitalize', eoc ? 'words' : 'characters')
   $('#enrollWho').textContent = (eoc ? 'Join the EOC · ' : m.team ? 'Team · ' : m.user + ' · ') + m.app + ' · ' + m.url.replace(/^https?:\/\//, '').replace(/\/.*/, '')
-  $('#enrollBox').hidden = false; $('#enrollPw').value = ''; (m.team ? $('#enrollCall') : $('#enrollPw')).focus()
-  $('#cstatus').textContent = eoc ? "your team's name and the EOC's teams password" : m.team ? 'your call sign and the team password' : 'type ' + m.user + "'s password"
+  $('#enrollBox').hidden = false; $('#enrollPw').value = ''; (m.team && !callFromName ? $('#enrollCall') : $('#enrollPw')).focus()
+  $('#cstatus').textContent = eoc ? "your team's name and the EOC's teams password" : callFromName ? 'the team password (you join as ' + nm + ')' : m.team ? 'your call sign and the team password' : 'type ' + m.user + "'s password"
 }
 $('#enrollGo').onclick = () => {
   if (!S.enrollLine) return
@@ -293,10 +334,15 @@ const early = []
 window.rtDeliver = function (line) {
   const m = typeof line === 'string' ? JSON.parse(line) : line
   if (!S.ready) { early.push(m); return }
-  if (m.ev === 'status') status(m.text)
+  if (m.ev === 'status') { status(m.text)
+    // [JOINED_IS_DONE_V1] while a joined phone connects behind the splash, the splash says what it is doing
+    if (S.autoConnect && document.querySelector('#splash .joining')) document.querySelector('#splash .say') ? document.querySelector('#splash .say').textContent = m.text
+      : $('#splash').insertAdjacentHTML('beforeend', `<div class="say">${esc(m.text)}</div>`) }
   else if (m.ev === 'error') { if (/GPS sensors/.test(m.text)) { S.hostsSaid = true; addressFix() }
     // a sheet still waiting on an answer (Sensors: asking / finding the node) says the error, not "asking…" for ever
     if (/sensors/i.test(m.text) && S.sheet === 'sens' && !$('#sheet').hidden && /asking…|finding the node/.test($('#sheet .sh-body').textContent)) $('#sheet .sh-body').innerHTML = '<div class="bad">⚠ ' + esc(m.text) + '</div>'
+    // [JOINED_IS_DONE_V1] a joined phone's own connect failed: the connect screen, saying why (not a blank screen)
+    if (S.autoConnect && $('#main').hidden) { S.autoConnect = false; $('#splash').classList.add('gone'); $('#manual').open = true; $('#connect').hidden = false }
     status('⚠ ' + m.text); if (!$('#connect').hidden) $('#cstatus').textContent = m.text }
   else if (m.ev === 'diag') diagSheet(m)
   else if (m.ev === 'connected') connected(m)
@@ -371,7 +417,7 @@ function refreshSheet(what) { if (!$('#sheet').hidden) RT.fire('refresh', what) 
 function connected(m) {
   S.doorNode = m.node || ''                            // [DOOR_SAYS_ITS_NODE_V1] the node the door is (dc-door r16 on)
   if ($('#pick')) $('#pick').hidden = true     // [RT_APP_PICKER_V1] connected (an enrolled phone, a lead's card): the question is answered
-  S.role = m.role; S.team = m.team || ''; S.connectedAt = Date.now()
+  S.role = m.role; S.team = m.team || ''; S.connectedAt = Date.now(); S.autoConnect = false; $('#splash').classList.add('gone')
   const r = RT.me()
   $('#connect').hidden = true; $('#main').hidden = false
   $('#who').textContent = S.cfg.name + ' · ' + (r.who ? r.who() : r.label || S.role)
@@ -409,6 +455,8 @@ function connected(m) {
   }
   tabs(); toList()
   if (r.connected) r.connected(m)
+  // [LEAD_HOTSPOT_V1] a team's lead: its hotspot is the team's Wi-Fi; on every connect the phone makes sure it is on
+  if (S.cfg.enrolled && S.cfg.enrolled.lead && window.rtNative && window.rtNative.ensureHotspot) window.rtNative.ensureHotspot()
   RT.fire('connected', m)
   addressFix()
   redraw()
@@ -469,6 +517,7 @@ function place(id, b, lkp) {
   } else {
     mk.setLatLng([b.lat, b.lng]); if (mk._k !== key) { mk.setIcon(icon(b, id, lkp)); mk._k = key }
   }
+  mk._b = b                                             // [LEGEND_IS_THE_MAP_V1] what this marker is, for the legend
   mk.bindPopup(popupHtml(id, b, lkp))
 }
 function redraw() {
@@ -486,6 +535,7 @@ function redraw() {
   }
   RT.fire('redraw', want, place)                          // [RT_LAYERS_V1] the layers' own items (field marks, requests)
   for (const id in S.markers) if (!want[id]) { map.removeLayer(S.markers[id]); delete S.markers[id] }
+  legend()
   mapSays()
   // hosts: who is connected through which node
   for (const id in S.links) { map.removeLayer(S.links[id]); delete S.links[id] }
@@ -537,13 +587,20 @@ function layersPanel() {
     p.appendChild(l)
   }
 }
-$('#layersBtn').onclick = () => { $('#layers').hidden = !$('#layers').hidden }
+$('#layersBtn').onclick = () => { if ($('#layers').hidden) only('#layers'); $('#layers').hidden = !$('#layers').hidden }
 // [MAP_KINDS_DISCOVERED_V1] the legend is what is on this network: its teams, then each other kind present (not a fixed list)
+// [LEGEND_IS_THE_MAP_V1] (John 2026-11-09: "The Teams legend at the lower left corner is not always properly updated") the
+// legend is what the map draws now, made again on every redraw: the teams with a marker on it (a last known position
+// too), then each other kind with one. Measured on r55, it was every team this page had ever heard of: a team gone, one
+// switched off in Layers, and on a member's map the other teams it does not draw, all stayed in it.
 function legend() {
-  const r = RT.me()
-  const present = [...new Set(Object.values(S.pos).filter(b => b && b.kind && b.kind !== 'team' && b.kind !== 'host' && visibleInView(b)).map(b => b.kind))].sort()
-  $('#legend').innerHTML = r.legend !== undefined ? r.legend : knownTeams().map(t => `<span><i style="background:${teamColor(t)}"></i>${esc(cap(t))}</span>`).join('') +
-    present.map(k => { const d = KINDS[k] || {}; return `<span><i style="background:${d.color || '#888'}${d.shape === 'sq' ? ';border-radius:2px' : ''}"></i>${esc(d.label || k)}</span>` }).join('')
+  if (!map) return
+  const r = RT.me(), teams = new Set(), kinds = new Set()
+  for (const id in S.markers) { const b = S.markers[id]._b; if (!b || !b.kind) continue
+    if (b.kind === 'team') teams.add(String(b.team || '').toLowerCase()); else if (b.kind !== 'host') kinds.add(b.kind) }
+  const html = r.legend !== undefined ? r.legend : [...teams].filter(Boolean).sort().map(t => `<span><i style="background:${teamColor(t)}"></i>${esc(cap(t))}</span>`).join('') +
+    [...kinds].sort().map(k => { const d = KINDS[k] || {}; return `<span><i style="background:${d.color || '#888'}${d.shape === 'sq' ? ';border-radius:2px' : ''}"></i>${esc(d.label || k)}</span>` }).join('')
+  if ($('#legend').innerHTML !== html) $('#legend').innerHTML = html
 }
 
 // ------------------------------------------------------------ chat
@@ -599,12 +656,12 @@ function notify(m) {
   const n = document.createElement('div'); n.className = 'notice'
   const where = m.to === 'all' ? 'to everyone' : m.to.startsWith('team:') ? 'to ' + m.to.slice(5) : 'to you'
   n.innerHTML = `<b>${esc(m.name)}</b> <span>${esc(where)}</span><div>${esc(m.text)}</div>`
-  n.onclick = () => { S.tab = m.to.startsWith('dev:') ? 'dev' : m.to; $('#chat').hidden = false; tabs(); readAll(); n.remove() }
+  n.onclick = () => { S.tab = m.to.startsWith('dev:') ? 'dev' : m.to; only('#chat'); $('#chat').hidden = false; tabs(); readAll(); n.remove() }
   $('#notices').appendChild(n); setTimeout(() => n.remove(), 12000)
   if (window.rtNative && window.rtNative.notice) try { window.rtNative.notice(m.name, m.text) } catch (e) { }
 }
 function readAll() { unread = 0; $('#chatBtn').textContent = 'Chat'; $('#chatBtn').classList.remove('hot') }
-$('#chatBtn').onclick = () => { $('#chat').hidden = !$('#chat').hidden; if (!$('#chat').hidden) readAll() }
+$('#chatBtn').onclick = () => { if ($('#chat').hidden) only('#chat'); $('#chat').hidden = !$('#chat').hidden; if (!$('#chat').hidden) readAll() }
 // [RT_CALL_V1] the chat's Call: anyone can call anyone the To list has (a person)
 $('#to').addEventListener('change', () => { $('#callTo').hidden = !$('#to').value.startsWith('dev:') })
 $('#callTo').onclick = () => { const o = $('#to').selectedOptions[0]; if (o && o.value.startsWith('dev:')) send({ op: 'call', to: o.value.slice(4), peerName: o.textContent.replace(/ \(.*\)$/, '') }) }
@@ -620,7 +677,7 @@ window.openPop = function (id) {
   sel.innerHTML = `<option value="dev:${esc(id)}">to ${esc(b.name)}</option>` + (b.team ? `<option value="team:${esc(b.team)}">to all of ${esc(b.team)}</option>` : '')
   p.querySelector('.pvideo').textContent = ''
   p.querySelector('.pcall').onclick = () => send({ op: 'call', to: id, peerName: b.name })   // [RT_CALL_V1] the Communicator
-  p.hidden = false; popLog(); map.closePopup()
+  only('#pop'); p.hidden = false; popLog(); map.closePopup()
 }
 function popLog() {
   if (!popId || $('#pop').hidden) return
@@ -636,8 +693,18 @@ setInterval(redraw, 30000)    // the last known positions age on the page's own 
 // ------------------------------------------------------------ sheets, the device's own position, its status
 let myFix = null
 window.rtFix = (lat, lng) => { myFix = { lat, lon: lng } }          // the phone's GPS (the native side calls it)
+// [ONE_DIALOG_V1] (John 2026-11-09: "If one dialog (Layers, Sensors, etc.) is on screen and another is chosen, the second
+// replaces the first") Layers, the chat, a sheet (Sensors, Diag, Mission, the radio log, a layer's screen) and the person
+// pop-up: opening one closes whichever other is open
+function only(keep) {
+  for (const sel of ['#layers', '#chat', '#sheet', '#pop']) if (sel !== keep && !$(sel).hidden) {
+    $(sel).hidden = true
+    if (sel === '#sheet') { S.sheet = ''; S.misEditing = false }
+    if (sel === '#pop') popId = ''
+  }
+}
 function sheet(name, title, html) {
-  S.sheet = name; $('#sheet .sh-title').textContent = title; $('#sheet .sh-body').innerHTML = html; $('#sheet').hidden = false
+  only('#sheet'); S.sheet = name; $('#sheet .sh-title').textContent = title; $('#sheet .sh-body').innerHTML = html; $('#sheet').hidden = false
 }
 $('#sheet .sh-close').onclick = () => { $('#sheet').hidden = true; S.sheet = '' }
 window.showOnMap = (lat, lng) => { RT.fire('showOnMap'); map.setView([lat, lng], 15) }

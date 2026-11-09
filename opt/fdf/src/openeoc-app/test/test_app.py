@@ -131,10 +131,10 @@ with sync_playwright() as pw:
     eoc = open_dev("eoc1")
     eoc.wait_for_function("[...document.querySelectorAll('[name=team] option')].map(o=>o.value).join()==='Alpha,Bravo,Charlie,Delta,Echo'", timeout=8000)
     check(True, "24 the connect screen's teams are the admin's, asked of the node: " + eoc.evaluate("[...document.querySelectorAll('[name=team] option')].map(o=>o.value).join(', ')"))
-    eoc.fill("[name=user]", "EOCAdmin"); eoc.fill("[name=password]", "wrong"); eoc.click("#connect button")
+    eoc.fill("[name=user]", "EOCAdmin"); eoc.fill("[name=password]", "wrong"); eoc.click("#connect button[type=submit]")
     eoc.wait_for_function("document.querySelector('#cstatus').textContent.includes('not this app')", timeout=8000)
     check(True, "7 a wrong EOC password is refused: " + eoc.inner_text("#cstatus"))
-    eoc.fill("[name=password]", "EOCAdmin"); eoc.click("#connect button")
+    eoc.fill("[name=password]", "EOCAdmin"); eoc.click("#connect button[type=submit]")
     eoc.wait_for_selector("#main:not([hidden])", timeout=8000)
     try: eoc.wait_for_function("Object.keys(S.markers).length >= 60", timeout=15000)
     except Exception: print("DEBUG", eoc.evaluate("JSON.stringify({m:Object.keys(S.markers).length,pos:Object.keys(S.pos).length,role:S.role,st:$('#status').textContent,on:S.on})")); raise
@@ -148,7 +148,7 @@ with sync_playwright() as pw:
     if SHOTS: eoc.screenshot(path=os.path.join(SHOTS, "eoc.png"))
 
     tm = open_dev("alpha9", 412, 860)
-    tm.click("#connect button"); tm.wait_for_selector("#main:not([hidden])", timeout=8000)
+    tm.click("#connect button[type=submit]"); tm.wait_for_selector("#main:not([hidden])", timeout=8000)
     tm.wait_for_function("Object.keys(S.markers).length >= 4", timeout=15000)
     tk = tm.evaluate("[...new Set(Object.keys(S.markers).filter(id=>!id.startsWith('gps:')).map(id=>(S.pos[id]||S.who[id]||{}).kind))]")
     tt = tm.evaluate("[...new Set(Object.keys(S.markers).filter(id=>!id.startsWith('gps:') && (S.pos[id]||{}).kind!=='host').map(id=>(S.pos[id]||{}).team))]")
@@ -181,7 +181,7 @@ with sync_playwright() as pw:
         eoc.screenshot(path=os.path.join(SHOTS, "eoc-chat.png")); eoc.click("#pop .pclose")
 
     pb = open_dev("pub1", 412, 860)
-    pb.wait_for_selector("#connect:not([hidden])"); pb.click("#connect button"); pb.wait_for_selector("#main:not([hidden])", timeout=8000)
+    pb.wait_for_selector("#connect:not([hidden])"); pb.click("#connect button[type=submit]"); pb.wait_for_selector("#main:not([hidden])", timeout=8000)
     home_ok = pb.is_visible("#home") and pb.evaluate("document.querySelectorAll('#home [data-go]').length") == 8
     pb.click("[data-go=map]"); pb.wait_for_function("Object.keys(S.markers).length > 10", timeout=15000)
     pk = pb.evaluate("[...new Set(Object.keys(S.markers).filter(id=>!id.startsWith('gps:') && (S.pos[id]||{}).kind!=='host').map(id=>id.startsWith('help:')?'help':id.startsWith('field:')?(S.field[id.slice(6)]||{}).what:(S.pos[id]||{}).kind))]")
@@ -240,7 +240,7 @@ with sync_playwright() as pw:
         tm.screenshot(path=os.path.join(SHOTS, "team-actions.png"))
     # [RT_FACILITY_V1] the hospital's desk; [RT_TRANSPORT_V1] the ambulance
     hs = open_dev("hosp1", 1100, 800)
-    hs.wait_for_selector("#connect:not([hidden])"); hs.fill("[name=unit]", "Swedish Ballard"); hs.click("#connect button")
+    hs.wait_for_selector("#connect:not([hidden])"); hs.fill("[name=unit]", "Swedish Ballard"); hs.click("#connect button[type=submit]")
     hs.wait_for_selector("#main:not([hidden])", timeout=8000)
     hs.wait_for_function("Object.keys(S.fac).length >= 12 && !$('#sheet').hidden && S.sheet==='fac'", timeout=15000)
     hs.fill(".fac [name=b_ed]", "3"); hs.fill(".fac [name=b_icu]", "1"); hs.select_option(".fac [name=diversion]", "Trauma diversion")
@@ -250,7 +250,7 @@ with sync_playwright() as pw:
           "21 the hospital's desk: %d hospitals' statuses (the simulated ones); Swedish Ballard's published, on the EOC: %s" % (
               hs.evaluate("Object.keys(S.fac).length"), eoc.evaluate("JSON.stringify(S.fac['swedish-ballard'].beds)")))
     md = open_dev("med12", 412, 860)
-    md.wait_for_selector("#connect:not([hidden])"); md.fill("[name=unit]", "Medic 12"); md.click("#connect button")
+    md.wait_for_selector("#connect:not([hidden])"); md.fill("[name=unit]", "Medic 12"); md.click("#connect button[type=submit]")
     md.wait_for_selector("#main:not([hidden])", timeout=8000); md.wait_for_function("Object.keys(S.fac).length >= 12", timeout=10000)
     md.click("#actBtn"); md.select_option(".tf [name=to]", "Swedish Ballard"); md.select_option(".tf [name=triage]", "Red")
     md.fill(".tf [name=eta]", "9"); md.fill(".tf [name=complaint]", "fall from ladder, unresponsive"); md.click(".tf .go")
@@ -283,7 +283,7 @@ with sync_playwright() as pw:
     # [RT_TEAM_APP_V1] [RT_PUBLIC_APP_V1] the Team app and the Public app on a phone's screen: one view each, no choice
     ta = open_dev("teamapp", 412, 860)
     t_ok = ta.is_hidden("#roleSet") and ta.inner_text("#connect h1") == "OpenEOC Team" and "openeoc-app-" in ta.inner_text("#cstatus")
-    ta.select_option("[name=team]", "Bravo"); ta.click("#connect button"); ta.wait_for_selector("#main:not([hidden])", timeout=8000)
+    ta.select_option("[name=team]", "Bravo"); ta.click("#connect button[type=submit]"); ta.wait_for_selector("#main:not([hidden])", timeout=8000)
     ta.wait_for_function("S.role==='team' && S.team==='Bravo' && Object.keys(S.markers).length >= 4", timeout=15000)
     tt2 = ta.evaluate("[...new Set(Object.keys(S.markers).filter(id=>!id.startsWith('gps:') && (S.pos[id]||{}).kind!=='host').map(id=>(S.pos[id]||{}).team))]")
     ta.click("#misBtn"); back1 = ta.evaluate("rtBack()"); closed = ta.is_hidden("#sheet"); back2 = ta.evaluate("rtBack()")
@@ -293,7 +293,7 @@ with sync_playwright() as pw:
     if SHOTS: ta.screenshot(path=os.path.join(SHOTS, "team-app-phone.png"))
     pa = open_dev("pubapp", 412, 860)
     p_ok = pa.is_hidden("#roleSet") and pa.inner_text("#connect h1") == "OpenEOC Public" and pa.is_hidden(".for-team") and pa.is_hidden(".for-eoc")
-    pa.click("#connect button"); pa.wait_for_selector("#home:not([hidden])", timeout=8000)
+    pa.click("#connect button[type=submit]"); pa.wait_for_selector("#home:not([hidden])", timeout=8000)
     pa.click("[data-go=map]"); pb_back = pa.evaluate("rtBack()"); home_again = pa.is_visible("#home")
     pa.evaluate("setTimeout(()=>{ nosuchfunction() }, 0)"); time.sleep(0.3)
     err = pa.evaluate("S.errs.join(' | ')")                   # (the status line: whatever came last; the page error is in the said list)

@@ -166,6 +166,18 @@ public final class MainActivity extends Activity implements LocationListener {
             catch (Exception e) { deliver(Json.o("ev", "error", "text", "the team's password was not set: " + e.getMessage())); }
         }
         @JavascriptInterface public void removeMember(String name) { Enrolled.removeMember(MainActivity.this, name); runOnUiThread(new Runnable() { public void run() { members(false); } }); }
+        /** [APP_EXIT_V1] (John 2026-11-09: "There needs to be an Exit somewhere") Exit: everything this app runs stops -- its
+         *  FrogNet membership (the tunnel), the team's RAM and sponsor (TeamHostService), the core's sessions -- and it closes */
+        /** [LEAD_HOTSPOT_V1] (John 2026-11-09: a lead's launch "also needs to make sure the hotspot is started") the team's
+         *  Wi-Fi is the lead's hotspot: off, Android's Hotspot & tethering screen opens (an app cannot turn it on) and the
+         *  page is told; on, it says where */
+        @JavascriptInterface public void ensureHotspot() { runOnUiThread(new Runnable() { public void run() {
+            String hs = hotspotAddr();
+            if (!hs.isEmpty()) { note("[LEAD_HOTSPOT_V1] the team's Wi-Fi (this phone's hotspot) is on at " + hs); return; }
+            note("[LEAD_HOTSPOT_V1] the team's Wi-Fi is this phone's hotspot, and it is off: turn it on (Hotspot & tethering), then come back to OpenEOC");
+            openTethering();
+        } }); }
+        @JavascriptInterface public void exit() { runOnUiThread(new Runnable() { public void run() { exitApp(); } }); }
         /** [CHAT_NOTICE_V1] a message the user cannot see: a phone notification while the app is not in front */
         @JavascriptInterface public void notice(String from, String text) {
             if (inFront) return;
@@ -494,6 +506,7 @@ public final class MainActivity extends Activity implements LocationListener {
             dev = sb.toString(); prefs.edit().putString("dev", dev).apply();
         }
         String name = prefs.getString("name", "");
+        final boolean nameGiven = !name.isEmpty();     // [CONNECT_QR_FIRST_V1] typed by the user (kept at its connect), not the phone's own name
         if (name.isEmpty()) {
             String n = Settings.Global.getString(getContentResolver(), "device_name");
             name = n != null ? n : Build.MODEL;
@@ -507,7 +520,7 @@ public final class MainActivity extends Activity implements LocationListener {
         String lock = meta("net.frognet.openeoc.ROLE");
         return Json.o("dev", dev, "name", name, "door", door, "role", lock.isEmpty() ? prefs.getString("role", "team") : lock,
                 "team", prefs.getString("team", "Alpha"), "platform", "android", "lock", lock, "build", AppCore.BUILD, "layers", layerList(),
-                "invited", invitedAs(), "lan", nodeLan(), "enrolled", enrolledCfg());
+                "invited", invitedAs(), "lan", nodeLan(), "enrolled", enrolledCfg(), "nameGiven", nameGiven);
     }
 
     /** this app's manifest meta-data NAME ("" : none) */
@@ -836,6 +849,14 @@ public final class MainActivity extends Activity implements LocationListener {
         web.evaluateJavascript("window.rtBack ? rtBack() : false", new android.webkit.ValueCallback<String>() {
             public void onReceiveValue(String v) { if (!"true".equals(v)) moveTaskToBack(true); }
         });
+    }
+
+    /** [APP_EXIT_V1] stop what this app started, then close its task (onDestroy closes the core) */
+    private void exitApp() {
+        android.util.Log.i("OpenEOC", "[APP_EXIT_V1] Exit: the membership, the team host and the core stop; the app closes");
+        Member.stop(this); memberStarted = false;
+        try { stopService(new android.content.Intent(this, TeamHostService.class)); } catch (RuntimeException ignored) { }
+        finishAndRemoveTask();
     }
 
     @Override protected void onDestroy() {

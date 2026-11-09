@@ -2,16 +2,18 @@
 # Copyright (C) 2016-2026 Fawcett Innovations LLC. SPDX-License-Identifier: GPL-2.0-only
 # test_enroll_page.py -- [ENROLL_V1] the phone's page (ui/), in Chromium, with the Android side stood in for by a
 # recording rtNative (the native side's events are delivered as MainActivity delivers them):
-#   1 Scan to join is on the first screen of an Android phone
+#   1 [CONNECT_QR_FIRST_V1] (John 2026-11-09) Scan a QR code is first on an Android phone's connect screen; the fill-in
+#     fields are below it, under Manual login (closed), with Start a team (Join EOC was its name) in it
 #   6 [TEAM_JOIN_V1] the team's QR scanned asks a call sign and the team password; Join enrolls the call sign, the
-#     line keeping the lead's key's fingerprint [SEALED_ENROLL_V1] (the team's QR has five parts)
+#     line keeping the lead's key's fingerprint [SEALED_ENROLL_V1] (the team's QR has five parts). [CONNECT_QR_FIRST_V1]
+#     6b with Your name typed before (nameGiven) and a call sign, the team password only: the call sign is that name
 #   2 a scanned code (enrollScan) asks for that user's password; Join hands the line and the password to the native side
 #   3 enrolled (lead of echo, the door): the page connects as that user, Team view, team Echo, the door, the password
 #   4 the lead's Team members button; the members sheet (members): adding a member hands its name and password to the
 #     native side; a member's QR, read by zxing (the phone scanner's library), is that member's enrollment line at the
 #     address chosen, and choosing another address changes it
 #   5 a refused enrollment is said, and Join can be pressed again
-#   7 [CHILDREN_JOIN_V1] Join EOC on the first screen: the team's name and the EOC's teams password; Join enrolls the
+#   7 [CHILDREN_JOIN_V1] Start a team, under Manual login: the team's name and the EOC's teams password; Join enrolls the
 #     name at the EOC's door (the Node field's), and enrolled (lead of Red Cross) connects as Team Red Cross
 import json, os, sys, tempfile
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
@@ -38,7 +40,12 @@ with tempfile.TemporaryDirectory() as tmp, sync_playwright() as pw:
     pg.evaluate("rtInit({dev: 'p1', name: 'Pixel', door: '', role: 'team', team: 'Alpha', platform: 'android', lock: '', build: 'test', invited: '', lan: '', enrolled: {}})")
     pg.wait_for_selector("#pick:not([hidden])", timeout=5000); pg.click("[data-pick=team]")   # [RT_APP_PICKER_V1]
     pg.wait_for_selector("#connect:not([hidden])", timeout=5000)
-    check(pg.is_visible("#scanTeam") and pg.inner_text("#scanTeam").startswith("Scan to join") and pg.is_visible("#joinEoc"), "1 Scan to join and Join EOC are on the first screen")
+    first = pg.evaluate("!!(document.querySelector('#qrSec').compareDocumentPosition(document.querySelector('#manual')) & Node.DOCUMENT_POSITION_FOLLOWING)")
+    closed = not pg.evaluate("$('#manual').open"); hid = not pg.is_visible("#joinEoc") and not pg.is_visible("[name=door]")
+    pg.click("#manual > summary"); opened = pg.is_visible("[name=door]") and pg.is_visible("#joinEoc") and pg.inner_text("#joinEoc").startswith("Start a team")
+    pg.click("#manual > summary")
+    check(pg.is_visible("#scanTeam") and pg.inner_text("#scanTeam") == "Scan a QR code" and first and closed and hid and opened,
+          "1 Scan a QR code first (%s), Manual login below it, closed (%s: its fields hidden %s), opened: the fields and Start a team %s" % (first, closed, hid, opened))
     pg.click("#scanTeam")
     line = "fdfenroll1 http://10.170.170.1/dc/ram.php openeoc kim"
     pg.evaluate("l => rtDeliver(JSON.stringify({ev: 'enrollScan', line: l, url: 'http://10.170.170.1/dc/ram.php', app: 'openeoc', user: 'kim'}))", line)
@@ -76,13 +83,22 @@ with tempfile.TemporaryDirectory() as tmp, sync_playwright() as pw:
           "4 the lead's team: no QR before the password %s; the password handed over %s; the team's QR reads %r, then %r; KJ7ABC listed, on now Drone 9 (drone), not Alpha's %s" % (noQr, setPw, got.get(q1), got.get(q2), joined))
     pg.click("#sheet .sh-close")
     # 6 [TEAM_JOIN_V1] the team's QR scanned: a call sign and the team password; Join enrolls the call sign
-    pg.evaluate("__sent.length = 0; $('#main').hidden = true; $('#connect').hidden = false")   # a joining phone: its first screen
+    # a joining phone: its first screen ([JOINED_IS_DONE_V1] a phone that has joined is never offered the scan: not joined here)
+    pg.evaluate("__sent.length = 0; S.cfg.enrolled = {}; roleFields(); $('#main').hidden = true; $('#connect').hidden = false")
     pg.evaluate("l => rtDeliver(JSON.stringify({ev: 'enrollScan', line: l, url: 'http://192.168.43.1:21801/enroll', app: 'openeoc', user: '*', team: true, key: 'dW9LoJ0JmymSPLael9M7kg'}))", w1)
     asks = pg.is_visible("#enrollCall") and pg.is_visible("#enrollPw")
     pg.fill("#enrollCall", "w7new"); pg.fill("#enrollPw", "echo-2026"); pg.click("#enrollGo")
     sent6 = [x for x in pg.evaluate("__sent") if x[0] == "enroll"]
     check(asks and sent6 == [["enroll", {"line": "fdfenroll1 http://192.168.43.1:21801/enroll openeoc W7NEW dW9LoJ0JmymSPLael9M7kg", "password": "echo-2026"}]],
           "6 the team's QR: asks a call sign and the password (%s); Join enrolls %s" % (asks, sent6))
+    # 6b [CONNECT_QR_FIRST_V1] Your name typed before (nameGiven): the team's QR asks the team password only
+    pg.evaluate("__sent.length = 0; S.cfg.nameGiven = true; $('#connect').name.value = 'kj7abc'; $('#enrollBox').hidden = true; $('#enrollGo').disabled = false")
+    pg.evaluate("l => rtDeliver(JSON.stringify({ev: 'enrollScan', line: l, url: 'http://192.168.43.1:21801/enroll', app: 'openeoc', user: '*', team: true, key: 'dW9LoJ0JmymSPLael9M7kg'}))", w1)
+    only = not pg.is_visible("#enrollCall") and pg.is_visible("#enrollPw") and "KJ7ABC" in pg.inner_text("#cstatus")
+    pg.fill("#enrollPw", "echo-2026"); pg.click("#enrollGo")
+    sent6b = [x for x in pg.evaluate("__sent") if x[0] == "enroll"]
+    check(only and sent6b == [["enroll", {"line": "fdfenroll1 http://192.168.43.1:21801/enroll openeoc KJ7ABC dW9LoJ0JmymSPLael9M7kg", "password": "echo-2026"}]],
+          "6b Your name given: the team password only (%s, %r); Join enrolls %s" % (only, pg.inner_text("#cstatus"), sent6b))
     # 5 a refused enrollment (a fresh page)
     pg.goto("file://" + os.path.join(APP, "ui", "index.html"))
     pg.evaluate("rtInit({dev: 'p2', name: 'P', door: '', role: 'team', team: 'Alpha', platform: 'android', lock: '', build: 'test', invited: '', lan: '', enrolled: {}})")
@@ -95,6 +111,7 @@ with tempfile.TemporaryDirectory() as tmp, sync_playwright() as pw:
           "5 a refused enrollment is said (%s), and Join can be pressed again" % pg.inner_text("#cstatus"))
     # 7 [CHILDREN_JOIN_V1] Join EOC: a new team, named here, by the EOC's teams password
     pg.evaluate("__sent.length = 0; $('#enrollBox').hidden = true")
+    pg.click("#manual > summary")                                          # [CONNECT_QR_FIRST_V1] Start a team is under Manual login
     pg.fill("[name=door]", "")
     pg.click("#joinEoc"); noNode = "the Node first" in pg.inner_text("#cstatus")
     pg.fill("[name=door]", "10.170.170.1"); pg.click("#joinEoc")
@@ -106,6 +123,6 @@ with tempfile.TemporaryDirectory() as tmp, sync_playwright() as pw:
     c7 = conn7[-1] if conn7 else {}
     check(noNode and asks7 and sent7 == [["enroll", {"line": "fdfenroll1 http://10.170.170.1/dc/ram.php openeoc Red%20Cross", "password": "teams-2026"}]]
           and c7.get("role") == "team" and c7.get("user") == "Red Cross" and c7.get("password") == "teams-2026",
-          "7 Join EOC: Node asked first %s; the team's name and the teams password %s; Join enrolls %s; connects %s" % (noNode, asks7, sent7, {k: c7.get(k) for k in ("door", "role", "team", "user")}))
+          "7 Start a team: Node asked first %s; the team's name and the teams password %s; Join enrolls %s; connects %s" % (noNode, asks7, sent7, {k: c7.get(k) for k in ("door", "role", "team", "user")}))
     b.close()
 print("%d failed" % len(fails) if fails else "ALL PASS"); sys.exit(1 if fails else 0)

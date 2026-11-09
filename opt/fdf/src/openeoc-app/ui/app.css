@@ -6,6 +6,7 @@ html, body { margin: 0; height: 100%; background: var(--bg); color: var(--fg); f
 #splash { position: fixed; inset: 0; display: flex; flex-direction: column; align-items: center; justify-content: center; background: radial-gradient(circle at 50% 40%, #1d3a28, #0b130e); z-index: 9999; transition: opacity .6s; }
 #splash .logo { width: min(640px, 88vw); background: #fff; border-radius: 18px; padding: 14px 22px; box-shadow: 0 10px 40px rgba(0,0,0,.45); }   /* [OPENEOC_BRAND_V1] the logo as given, on its white */
 #splash.gone { opacity: 0; pointer-events: none; }
+#splash .joining { margin-top: 22px; color: #e8f5ec; font-size: 17px; font-weight: 600; } #splash .say { margin-top: 8px; color: #9fb8a7; font-size: 13px; max-width: 88vw; text-align: center; }   /* [JOINED_IS_DONE_V1] */
 #connect { max-width: 420px; margin: 8vh auto; padding: 24px; background: var(--pn); border: 1px solid var(--bd); border-radius: 12px; display: flex; flex-direction: column; gap: 12px; }
 #connect h1 { margin: 0 0 4px; font-size: 26px; }
 #connect label { display: flex; flex-direction: column; gap: 4px; color: var(--mu); font-size: 13px; }
@@ -116,7 +117,12 @@ table.rl { width: 100%; border-collapse: collapse; font-size: 14px; } table.rl t
 table.rl td { padding: 5px 6px; border-bottom: 1px solid #1f2a24; vertical-align: top; } table.rl tr.urg td { background: rgba(213,0,0,.18); }
 
 /* [ENROLL_V1] scan to join; the lead's Team members sheet */
-#enrollBox { display: grid; gap: 8px; } #enrollWho { color: var(--fg); font-weight: 600; }
+#enrollBox { display: grid; gap: 8px; }
+/* [CONNECT_QR_FIRST_V1] */
+#qrSec { display: grid; gap: 8px; } #qrSec[hidden] { display: none; }
+#manual { border-top: 1px solid var(--bd); padding-top: 8px; } #manual > summary { cursor: pointer; font-weight: 700; color: var(--fg); padding: 4px 0; }
+#manual .mbody { display: flex; flex-direction: column; gap: 12px; margin-top: 8px; }
+#qrSec[hidden] + #manual { border-top: 0; padding-top: 0; } #qrSec[hidden] + #manual > summary { display: none; } #enrollWho { color: var(--fg); font-weight: 600; }
 .mem-row { display: flex; gap: 8px; align-items: center; padding: 6px 0; border-bottom: 1px solid var(--bd); } .mem-row b { flex: 1; }
 .mem-add { display: grid; grid-template-columns: 1fr 1fr auto; gap: 6px; margin: 10px 0; } .mem-add input, .mem-at select { min-width: 0; }
 .mem-qr svg { width: min(340px, 86vw); height: auto; display: block; margin: 10px auto; border-radius: 10px; }
@@ -140,7 +146,7 @@ table.rl td { padding: 5px 6px; border-bottom: 1px solid #1f2a24; vertical-align
 #pick .pick-list button { font-size: 17px; padding: 12px 14px; text-align: left; border-radius: 9px; border: 1px solid var(--bd); background: #0b130e; color: var(--fg); display: flex; justify-content: space-between; align-items: center; cursor: pointer; }
 #pick .pick-list button:hover { border-color: #3fb36b; }
 #pick .pick-last { font-size: 12px; color: var(--mu); }
-#otherApp.linkish { align-self: flex-start; background: none; border: 0; color: #8fe0ad; padding: 0; font-size: 14px; cursor: pointer; text-decoration: underline; }
+#connect .linkish { align-self: flex-start; background: none; border: 0; color: #8fe0ad; padding: 0; font-size: 14px; cursor: pointer; text-decoration: underline; }
 
 /* [RT_DIAG_V1] */
 .diag { display: grid; gap: 6px; font-size: 13px; overflow-wrap: anywhere; } .diag h3 { margin: 8px 0 2px; font-size: 14px; }

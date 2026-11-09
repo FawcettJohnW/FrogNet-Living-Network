@@ -47,6 +47,38 @@ role's `act`/`req`, or `RT.button`). **A new view**: `RT.role(...)` in a layer's
 `RTA.panel(title, fn)` (none yet). Gates: `test/test_app.py` (32 checks; the Team and Public apps run with their own
 layers only), `test/test_team_host.py`, `android/typecheck.sh`.
 
+## r56: Exit, one dialog at a time, the legend is the map, the QR code first, a joined phone is done
+
+John's changes of 2026-11-09, before the Android app goes to others. Tests: `test/test_connect_page.py` (new),
+`test/test_enroll_page.py` (steps 1, 6b and 7 to the new screen), `test/test_app.py` (Connect clicked by its type: Scan
+is the connect screen's first button now).
+
+- **Exit** (`[APP_EXIT_V1]`): on the connect screen and in the header (under ☰ on a phone). The phone stops everything the
+  app runs (its FrogNet membership and tunnel, TeamHostService: the team's RAM and sponsor, the core) and closes. Only
+  where the native side has `rtNative.exit` (Android); the desktop's window closes as before.
+- **One dialog at a time** (`[ONE_DIALOG_V1]`): Layers, the chat, a sheet (Sensors, Diag, Mission, the radio log, a
+  layer's screen) and the person pop-up: opening one closes the other.
+- **The legend is the map** (`[LEGEND_IS_THE_MAP_V1]`): made again on every redraw from the markers drawn. Measured on
+  r55, it listed every team the page had ever heard of: a team gone, one switched off in Layers, and on a member's map
+  the teams it does not draw all stayed in it.
+- **The QR code first** (`[CONNECT_QR_FIRST_V1]`): on a phone, *Scan a QR code* is at the top; everything else is under
+  *Manual login* (closed; it opens itself when Connect needs one of its fields). The team's QR asks the team password
+  only: the call sign is *Your name*, when the user typed one (`nameGiven`) and it is a call sign; else it asks one
+  as well. *Join EOC* is *Start a team without the EOC's QR code*, under Manual login. The desktop has no scan: no
+  Manual login heading, the fields as before.
+- **A joined phone is done** (`[JOINED_IS_DONE_V1]`): a phone that has joined (`cfg.enrolled`) opens on the map: no
+  picker, no connect screen, the splash saying who is connecting and what the connect is doing. It connects as what
+  joining made it (its user, its team or its app's view, the node it joined through), with no password: a Team or unit
+  view's connect asks none. If that connect fails, the connect screen shows, saying why, without the scan.
+- **The lead's hotspot** (`[LEAD_HOTSPOT_V1]`): a lead's every connect makes sure the team's Wi-Fi is on
+  (`rtNative.ensureHotspot`): off, Android's Hotspot & tethering screen opens (an app cannot turn it on).
+
+Not in r56: the Team authorization John set out the same day (the admin allocates each Team a login and password; a
+lead's device on the EOC's LAN claims its Team, when no device holds it, in its app's category: Team, Ambulance,
+Hospital ...; the Categories section leaves the admin app) is the door's (`dc/ram.php`) and the admin's, and waits
+on who changes the door. The phone still keeps its user's password (Enrolled.java) for the lead's door calls until
+the door takes the device's FrogNet identity instead.
+
 ## r55 / admin r15: RangerTrak is OpenEOC ([OPENEOC_BRAND_V1])
 
 John, 2026-11-08: "Rebrand the entire RangerTrak product to OpenEOC", internals included. The logo is
