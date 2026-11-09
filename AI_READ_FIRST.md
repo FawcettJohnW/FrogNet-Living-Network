@@ -566,13 +566,14 @@ members' apps hold a read on the group's capability tuple, select its host, and 
 Where things live (the doc "FrogNet SystemRam, FrogNetHost Admin and App Services — Design", 2026-11-04, sections 5, 7
 and 9): **databasehost-control** (`databasehost_control.frognet`, the highest .1) holds configuration tuples only --
 one per service, owned by the Admin for its scope, read by every installed machine, never copied by them; when it
-moves, **the merge** writes them into the new one. **The SystemRam** (`databasehost.frognet`'s RAM host, parked held
-reads) holds the capability tuples, each held by its service's session (a dead service is not a candidate), and each
-machine's answers (`fdf-app applied`, `frognethost state`); every election reads capability there. App data is in the
+moves, **the merge** writes them into the new one. **The SystemRam** (`databasehost.frognet`: that host's api.php on
+port 80, see "Roles are hosts on api.php" below) holds the capability tuples, each written by its service and removed
+with its writer (a dead machine is not a candidate), and each machine's answers (`fdf-app applied`, `frognethost state`); every election reads capability there. App data is in the
 AppRams. Every app carries its own PHP door alongside `api.php`. Every instance holds a read on its capability family:
 an install, a capability change or a configuration change is an event, and the selection runs again.
-Built (r47: fdf-app r13, door r13, `core/app_hosts.py`, `ram hold`): the first install writes the one signed tuple;
-`fdf-app serve` adopts it, holds its capability in the SystemRam and serves what `/etc/hosts` names it for; every
+Built (r47: fdf-app r13, door r13, `core/app_hosts.py`; roles on api.php 2026-11-07): the first install writes the one
+signed tuple; `fdf-app serve` adopts it, announces its capability in the SystemRam and serves what `/etc/hosts` names
+it for; every
 node's election (`discovery/elect.py`, `discovery/live.py`, the daemon's held reads on the `fdf-app` families) writes
 `<app>Host.frognet` and `<team>Host.<app>`; the merge writes the configuration tuples into a new databasehost-control. Not built: a
 Team on a phone (its members' apps selecting it from its capability tuple), the parent's children registry, and the
@@ -584,6 +585,41 @@ AppRam is relocatable to the greater or lesser network (John, 2026-11-04): after
 installed AppHost on that side (the code still offers a "fail" setting, which the design drops).
 At a merge the same selection, run over the merged tuples, gives one answer. Owners reassert; nothing is moved or
 reconciled. The procedure is in `opt/fdf/docs/APP-SETUP-AND-OPERATION.md`.
+
+## 10a. Roles are hosts on api.php (`[ROLES_ON_API_V1]`, John 2026-11-07)
+
+1. **A role is exactly one host.** `databasehost.frognet` (the SystemRam) and `databasehost_control.frognet` (the
+   ControlRam) are IP addresses the merge's elections write in `/etc/hosts`; the role is that host's default
+   `api.php`. There is no separate RAM manager for them, no RAM port (`ram_port`, 8841, `--ram-port`,
+   `FDF_LAN_RAM_PORT`, `ensure_lan_ram`, `lan-rams.json` are gone) and no LAN fallback list.
+2. **Port 80 only**, except services (an AppRam, the region's RAM manager on 8840: each keeps its own port). A role
+   may add an optional `<Role>_api.php` beside `api.php`.
+3. **Tuples on api.php:** SensorType = service, SensorName = `<variable>.<instance>`, SensorAddress = the writer (the
+   node's own .1, `frognet_tuples.my_ip()`), jsonData = the bag. Python reaches it through `fdfram.RoleRam`
+   (`role_ram`, `system_ram`, `control_ram`); the door through `role_*` in `dc/ram.php`.
+4. **Held reads are in api.php** (`[HELD_READ_IN_API_V1]`). A held read is a request to the role's IP:80
+   (`entity=held&action=hold`, which answers with the current rows). The host completes each write first (the writer
+   has its reply), then runs down the holds that match and fires each through the holder's own port 80
+   (`held_fire.php` -> the holder's datagram socket in `/run/frognet/held`). Holds are one-shot: the holder reads and
+   holds again. A fire carries key, version and value. No polling anywhere: the 50 ms wait loop and `wait_s` in
+   api.php are gone. One thread per process waits on every fire and on `/etc/hosts` (`core/frognet_held.py`).
+5. **Holds end on a split or a merge.** The merge rewriting `/etc/hosts` is the event: every wait returns to its
+   caller, which reads the role at the address now named and holds again. No fallback, nothing chased.
+6. **The FrogNetHost holds one read**: its own "new thing here" tuple, `(frognethost, config, <guid>)`, at the
+   ControlRam. It writes its state and answers plainly.
+7. **Removal is the permanent socket closing** (`[WRITER_GONE_V1]`). On the LAN, the proxy/daemon's last session to
+   a peer ending is that machine gone: the daemon tells its local api.php `remove_writer {subnet: the peer's /24}`,
+   which deletes what that writer wrote (and its holds) and fires the holds on them. You remove what you know belonged
+   to it. On the WAN the WAN role (fdf-hub) closes the member's WireGuard tunnel when its session goes
+   (`[HUB_HAS_NO_MEMORY_V1]`), so an island drops out the same way.
+8. **Capability is announced** (`[CAPABILITY_ANNOUNCED_V1]`): `fdf-app` writes its `can` tuples plainly, holds a read
+   on the `can` family to write them again if they go, and withdraws them at stop. `ram hold` is removed.
+9. **A split is LAN-only** (`[SPLIT_IS_LAN_ONLY_V1]`): when nothing on the system space's list answers, the daemon
+   withdraws the region's routes, names and tunnels and runs `runMerge`; the LAN's own elections and roles take over.
+   Standing sessions to every list entry keep running; one answering is the event that rejoins the region.
+
+Passwords are never stored or logged, only their verifiers. A machine with no FrogNet 10/8 address cannot hold (it
+has nowhere to be fired at); it says so.
 
 ---
 

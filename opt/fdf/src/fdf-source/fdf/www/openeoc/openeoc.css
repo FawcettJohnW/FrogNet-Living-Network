@@ -1,5 +1,5 @@
 /* Copyright (C) 2016-2026 Fawcett Innovations LLC. SPDX-License-Identifier: GPL-2.0-only
-   rt.css -- [RT_PAGES_V1] the radio log app's pages */
+   openeoc.css -- [RT_PAGES_V1] the radio log app's pages */
   body { font: 15px/1.4 system-ui, sans-serif; margin: 0; padding: 12px 16px; background: #f6f7f9; color: #1d2330; }
   h1 { font-size: 20px; margin: 0 0 8px; } h2 { font-size: 16px; margin: 16px 0 6px; }
   fieldset { border: 1px solid #d5d9e0; border-radius: 6px; margin: 0 0 10px; padding: 8px 10px; background: #fff; }

@@ -3,7 +3,7 @@
 #  Copyright (C) 2016-2026 Fawcett Innovations LLC             #
 #  SPDX-License-Identifier: GPL-2.0-only                       #
 ################################################################
-# test_no_mission.py FDF_RAM -- [RT_STANDING_MISSION_V1] a network where no EOC has started a mission (and no rt-sim
+# test_no_mission.py FDF_RAM -- [RT_STANDING_MISSION_V1] a network where no EOC has started a mission (and no openeoc-sim
 # writes one), as John's was on 2026-11-05: two real cores (CoreDriver), a team member and a second one, on a real RAM
 # (fdf-ram) behind a door:
 #   1 the first core writes the standing mission and says so; both follow it
@@ -24,7 +24,7 @@ def check(ok, what):
     if not ok: FAILS.append(what)
 def free():
     s = socket.socket(); s.bind(("127.0.0.1", 0)); p = s.getsockname()[1]; s.close(); return p
-T = tempfile.mkdtemp(prefix="rt-nomis-"); procs = []; where = {}
+T = tempfile.mkdtemp(prefix="openeoc-nomis-"); procs = []; where = {}
 for r in ("general", "alpha"):
     p = free(); where[r] = "127.0.0.1:%d" % p
     procs.append(subprocess.Popen([HOST, "--listen", where[r], "--api", "/FawcettInnovations.RINA.ram_interface.php"],

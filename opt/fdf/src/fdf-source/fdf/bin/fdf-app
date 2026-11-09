@@ -20,7 +20,7 @@
 App Services -- Design", 2026-11-04, sections 5, 7 and 9; opt/fdf/docs/APP-SETUP-AND-OPERATION.md).
 
 Where things are [APP_SERVICES_V1]:
-  databasehost-control (databasehost_control.frognet's RAM host) -- the configuration tuples, and nothing else of an app:
+  databasehost-control (databasehost_control.frognet's api.php, port 80) -- the configuration tuples, and nothing else of an app:
       (fdf-app, config, <app>)          the app's ONE configuration, owned by its Admin: {config: the text (rams, ports,
                                         roles, categories, users as verifiers, login, partition, select), seq, mac (HMAC
                                         under the admin key), user, admin: {user, salt, n, check}, at}. Written by the
@@ -28,9 +28,10 @@ Where things are [APP_SERVICES_V1]:
                                         installed machines read it and never write a copy of their own. When
                                         databasehost-control moves, the merge writes it again ([CONFIG_WRITTEN_AGAIN_BY_THE_MERGE_V1]).
       (fdf-app, config, <app>.<team>)   a Team's own, owned by its lead (through the door): {at: here|databasehost, guid, seq, user}
-  the SystemRam (databasehost.frognet's RAM host):
-      (fdf-app, can, <app>.<ram>.<guid>) each installed machine's capability for each AppRam it offers, held by this
-                                        program's own session (`ram hold`): gone the moment this service is gone
+  the SystemRam (databasehost.frognet's api.php, port 80 [ROLES_ON_API_V1]):
+      (fdf-app, can, <app>.<ram>.<guid>) each installed machine's capability for each AppRam it offers, written by
+                                        this machine; removed by the SystemRam when the machine leaves the network
+                                        ([WRITER_GONE_V1]), withdrawn by this program when it stops or stops offering it
       (fdf-app, applied, <app>.<guid>)  this machine's answer to the configuration's seq: adopted, or why not
   /etc/hosts -- every AppRam is a service; its AppHost is elected (core/app_hosts.py, [APP_HOST_ELECTION_V1]) and
       every node writes it: <app>Host.frognet for the general AppRam, <team>Host.<app> for a Team's.
@@ -44,6 +45,12 @@ Where things are [APP_SERVICES_V1]:
         the app's first installation by its Admin: this machine's copy (FDF_APPS/<app>.json, the admin key kept there
         only) and the app's one configuration tuple, signed, written into databasehost-control (a port picked for every
         RAM). --serve: the RAMs this machine offers (default all); --select/--need: the app's selection (fdf_select.py).
+  fdf-app rename OLD NEW --admin USER:PASSWORD
+        [APP_RENAMED_V1] (RangerTrak -> OpenEOC, John 2026-11-08) the app installed here as OLD is the app NEW: this
+        machine's copy carried over (its RAMs, ports, roles, categories, users' and the teams-join verifiers, what it
+        serves; the admin key derived again for NEW, from the admin's password); the first machine renamed writes NEW's
+        one configuration tuple, every other one adopts it. OLD's copy is moved to FDF_VAR/retired-OLD.json; at the
+        restart OLD's capability is withdrawn. A team that joined OLD (fdf-app, child, OLD.<team>) joins NEW again.
   fdf-app install APP [config's arguments] [--admin USER:PASSWORD]
         [APP_INSTALL_V1] the one command on a machine's console: the app's one configuration tuple, read from
         databasehost-control, shown and adopted as it is (changes are the admin app's); none there: the first install
@@ -55,12 +62,11 @@ Where things are [APP_SERVICES_V1]:
         hold a read on the configuration tuples and adopt a newer one (its mac checked against the admin key), answering
         in (fdf-app, applied); serve each AppRam whose AppHost /etc/hosts names this machine, on its port.
 
-Environment: FDF_HOSTS (/etc/hosts), FDF_LAN_RAM_PORT (8841), RINA_CONTROL_RAM / RINA_SYSTEM_RAM (host:port, for a
-test), FDF_FACTS, FDF_APPS (/opt/fdf/apps), FDF_VAR (/opt/fdf/var), FDF_BIN (/opt/fdf/bin).
+Environment: FDF_HOSTS (/etc/hosts), RINA_CONTROL_RAM / RINA_SYSTEM_RAM (an api.php's address, for a test), FDF_FACTS, FDF_APPS (/opt/fdf/apps), FDF_VAR (/opt/fdf/var), FDF_BIN (/opt/fdf/bin).
 """
 import hashlib, hmac, json, os, queue, random, signal, socket, subprocess, sys, threading, time
 
-BUILD_TAG = "fdf-app-2026-11-06-r17"
+BUILD_TAG = "fdf-app-2026-11-08-r52"   # [ROLES_ON_API_V1][CAPABILITY_ANNOUNCED_V1][APP_RENAMED_V1]
 LIB = os.environ.get("FDF_PY") or os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "lib", "python")
 sys.path.insert(0, LIB)
 import fdfram  # noqa: E402
@@ -81,11 +87,11 @@ def log(m):
 
 
 def ctl_ram():
-    return fdfram.Ram(fdfram.control_ram())
+    return fdfram.control_ram()          # [ROLES_ON_API_V1] the ControlRam: its api.php, port 80
 
 
 def sys_ram():
-    return fdfram.Ram(fdfram.system_ram())
+    return fdfram.system_ram()           # [ROLES_ON_API_V1] the SystemRam: its api.php, port 80
 
 
 def _quiet(f):
@@ -353,7 +359,6 @@ class Server:
         self.addr = os.environ.get("FDF_APP_LISTEN") or dot1(self.f)
         self.procs = {}                      # (app, ram) -> (Popen, port)
         self.socks = {}                      # (app, ram) -> its listening socket, kept while served here
-        self.holds = {}                      # (app, ram) -> (`ram hold` Popen, the SystemRam it holds on)
         self.events = queue.Queue()
         self.answered = {}                   # app -> the configuration seq this machine has answered
         w = None
@@ -409,46 +414,55 @@ class Server:
                 changed = True
         return changed
 
-    # ---- this machine's capability, held
+    # ---- this machine's capability, announced
     def hold_capability(self):
-        """[CAPABILITY_HELD_BY_ITS_SESSION_V1] (fdf-app, can, <app>.<ram>.<guid>) in the SystemRam for every AppRam this
-        machine offers, written own:true by `ram hold` on its own session and held: gone the moment this service is gone.
-        Another SystemRam named: held there (the ones on the old one ended)."""
-        at = _quiet(fdfram.system_ram)
+        """[CAPABILITY_ANNOUNCED_V1 - John 2026-11-07] (fdf-app, can, <app>.<ram>.<guid>) in the SystemRam for every AppRam
+        this machine offers: this machine's own tuples, plain writes to the SystemRam's api.php. They are this machine's
+        for as long as it is on the network: when it leaves, the SystemRam removes what it wrote ([WRITER_GONE_V1]: its
+        permanent socket closed, or the WAN role closed its island's tunnel). Written again when they are not there (a
+        removal while this machine stayed, a new SystemRam) or not what they should be; one this machine no longer
+        offers is withdrawn by its owner, this machine."""
+        rm = _quiet(fdfram.system_ram)
+        if not rm:
+            return
         cap = {k: v for k, v in (self.f.get("capability") or {}).items() if isinstance(v, (int, float, str, bool))}
         want = {}
         for a, c in installed().items():
             for r in c.get("rams") or []:
                 if c.get("serve") and r not in c["serve"]:
                     continue
-                want[(a, r)] = dict(cap, guid=self.me, addr=self.addr, member=self.f.get("name") or "", serve=[r])
-        for k, (h, on) in list(self.holds.items()):
-            if k not in want or on != at:
-                if h.poll() is None:
-                    h.terminate()
-                del self.holds[k]
-        if not at:
-            return
-        for k, bag in want.items():
-            h = self.holds.get(k, (None, None))[0]
-            if h is not None and h.poll() is None:
-                continue
-            a, r = k
-            h = subprocess.Popen([os.path.join(BIN, "ram"), "hold", SVC, "can", "%s.%s.%s" % (a, r, self.me), json.dumps(bag)],
-                                 env=dict(os.environ, RINA_RAM=at), stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
-            ready = h.stdout.readline().strip() == "ready"
-            self.holds[k] = (h, at)
-            def ended(h=h, k=k, ready=ready):
-                for _ in h.stdout:
-                    pass
-                err = h.stderr.read(); h.wait()
-                if ready:
-                    self.events.put("again: %s's capability for %s ended (rc %s%s)" % (k[0], k[1], h.returncode, ": " + err.strip()[:120] if err.strip() else ""))
-                else:
-                    log("%s's capability for %s not written in the SystemRam %s (rc %s): %s" % (k[0], k[1], at, h.returncode, err.strip()[:200]))
-            threading.Thread(target=ended, daemon=True).start()
-            if ready:
-                log("%s's capability for %s held in the SystemRam %s" % (a, r, at))
+                want["%s.%s.%s" % (a, r, self.me)] = dict(cap, guid=self.me, addr=self.addr, member=self.f.get("name") or "", serve=[r])
+        try:
+            have = {c["instance"]: c for c in rm.read(SVC, "can") if c["instance"].endswith("." + self.me)}
+            for inst, bag in want.items():
+                if (have.get(inst) or {}).get("bag") != bag:
+                    rm.write(SVC, "can", inst, bag)
+                    log("%s's capability for %s announced in the SystemRam %s" % (inst.split(".")[0], inst.split(".")[1], rm.host))
+            for inst, c in have.items():
+                if inst not in want:
+                    rm.remove(c)
+                    log("capability %s withdrawn from the SystemRam %s (no longer offered here)" % (inst, rm.host))
+        except fdfram.RamError as e:
+            log("the capability tuples not announced in the SystemRam (%s); announced again on the next event" % e)
+
+    def watch_capability(self):
+        """[CAPABILITY_ANNOUNCED_V1] a held read on this machine's own capability tuples in the SystemRam: a change (one
+        removed while this machine is still here, a new SystemRam) is the event to announce them again"""
+        rm, first = None, True
+        while True:
+            now = _quiet(fdfram.system_ram)
+            if not now:
+                fdf_watch.Inotify(os.path.dirname(HOSTS) or ".").read(); continue
+            if rm is None or now.host != rm.host:
+                rm, first = now, True
+            try:
+                rm.read(SVC, "can", after=-1 if first else 0, wait_s=0 if first else fdfram.HOLD_S)
+                if not first:
+                    self.events.put("capability")
+                first = False
+            except fdfram.RamError as e:
+                log("the read on the SystemRam %s ended (%s); held again when /etc/hosts is next written" % (rm.host, e))
+                fdf_watch.Inotify(os.path.dirname(HOSTS) or ".").read(); rm = None
 
     # ---- the AppRams this machine is the AppHost of
     def start(self, app, r, port):
@@ -514,24 +528,23 @@ class Server:
 
     # ---- the events
     def watch_config(self):
-        """[EVENTS_NOT_TIMERS_V1] a held read on the configuration tuples in databasehost-control"""
-        last, at = -1, None
+        """[EVENTS_NOT_TIMERS_V1][ROLES_ON_API_V1] a held read on the configuration tuples at databasehost-control's
+        api.php; a read that fails is held again when /etc/hosts is next written"""
+        rm, first = None, True
         while True:
-            hp = _quiet(fdfram.control_ram)
-            if hp != at:
-                last, at = -1, hp
-            t = time.time()
+            now = _quiet(fdfram.control_ram)
+            if not now:
+                fdf_watch.Inotify(os.path.dirname(HOSTS) or ".").read(); continue
+            if rm is None or now.host != rm.host:
+                rm, first = now, True
             try:
-                cs = fdfram.Ram(hp).read(SVC, "config", after=last, wait_s=25)
-                if cs:
-                    last = max(int(c.get("id", -1)) for c in cs)
+                rm.read(SVC, "config", after=-1 if first else 0, wait_s=0 if first else fdfram.HOLD_S)
+                if not first:
                     self.events.put("configuration")
+                first = False
             except fdfram.RamError as e:
-                if "ESTALE" in str(e):
-                    last = -1; self.events.put("again: another databasehost-control memory"); continue
-                log("the read on databasehost-control %s ended (%s); read again when it is up or another one is named" % (hp, e))
-                fdf_watch.up_or_moved(hp, t, lambda: _quiet(fdfram.control_ram) or hp, dirs=[os.path.dirname(HOSTS) or "."])
-                last = -1
+                log("the read on databasehost-control %s ended (%s); held again when /etc/hosts is next written" % (rm.host, e))
+                fdf_watch.Inotify(os.path.dirname(HOSTS) or ".").read(); rm = None
                 self.events.put("again: databasehost-control")
 
     def watch_hosts(self):
@@ -551,9 +564,10 @@ class Server:
 
     def run(self):
         log("build %s; machine %s at %s; apps here: %s; databasehost-control %s, the SystemRam %s"
-            % (BUILD_TAG, self.me, self.addr, ", ".join(installed()) or "none", _quiet(fdfram.control_ram), _quiet(fdfram.system_ram)))
+            % (BUILD_TAG, self.me, self.addr, ", ".join(installed()) or "none", _quiet(lambda: fdfram.control_ram().host), _quiet(lambda: fdfram.system_ram().host)))
         threading.Thread(target=self.watch_hosts, daemon=True).start()
         threading.Thread(target=self.watch_config, daemon=True).start()
+        threading.Thread(target=self.watch_capability, daemon=True).start()
         self.decide("again: start")
         while True:
             why = self.events.get()
@@ -564,9 +578,14 @@ class Server:
     def shutdown(self, *_):
         for k in list(self.procs):
             self.stop(*k)
-        for h, _ in self.holds.values():
-            if h.poll() is None:
-                h.terminate()
+        rm = _quiet(fdfram.system_ram)               # the owner withdraws its own capability: this service is stopping
+        if rm:
+            try:
+                for c in rm.read(SVC, "can"):
+                    if c["instance"].endswith("." + self.me):
+                        rm.remove(c)
+            except fdfram.RamError as e:
+                log("the capability tuples not withdrawn at stop (%s)" % e)
         sys.exit(0)
 
 
@@ -674,7 +693,7 @@ def _questions(app, c):
 
 def restart_service():
     r = subprocess.run((os.environ.get("FDF_APP_RESTART") or "systemctl restart fdf-app").split())
-    print("fdf-app: fdf-app.service %s" % ("restarted: it holds this machine's capability in the SystemRam and serves what the election gives it"
+    print("fdf-app: fdf-app.service %s" % ("restarted: it announces this machine's capability in the SystemRam and serves what the election gives it"
                                          if r.returncode == 0 else "did NOT restart (systemctl %d): journalctl -u fdf-app" % r.returncode))
     return 0 if r.returncode == 0 else 1
 
@@ -709,6 +728,40 @@ def first_install(app, c, rm, old=None):
     return 0
 
 
+def rename(old, new, given, prog="fdf-app"):
+    """[APP_RENAMED_V1] this machine's copy of OLD carried over as NEW's (see the usage); then NEW is installed from it"""
+    ok = lambda x: bool(x) and all(ch.isalnum() or ch in "_-" for ch in x)
+    if not (ok(old) and ok(new)) or old == new:
+        print("fdf-app: rename OLD NEW: two different app names, letters, digits, _ and -"); return 2
+    who, _, pw = given.partition(":")
+    if not who or not pw:
+        print("fdf-app: --admin USER:PASSWORD"); return 2
+    mine = installed().get(old)
+    if not mine:
+        print("fdf-app: %s is not installed on this machine (%s): nothing renamed" % (old, os.path.join(APPS, old + ".json"))); return 2
+    if installed().get(new):
+        print("fdf-app: %s is installed on this machine already: nothing renamed" % new); return 2
+    ma = mine.get("admin") or {}
+    if not ma.get("key"):
+        print("fdf-app: %s has no admin key on this machine: nothing renamed (fdf-app install %s --admin USER:PASSWORD first)" % (old, old)); return 2
+    if ma.get("user") != who:
+        print("fdf-app: --admin names %s; %s's admin is %s" % (who, old, ma.get("user"))); return 2
+    if not hmac.compare_digest(admin_key(old, who, pw).hex(), ma["key"]):   # the password is the admin's: it opens OLD's key
+        print("fdf-app: that is not %s's admin password: nothing renamed" % old); return 2
+    k = admin_key(new, who, pw)
+    copy = {kk: mine[kk] for kk in ("rams", "ports", "partition", "login", "roles", "categories", "users", "join", "select", "serve") if kk in mine}
+    copy.update(app=new, admin={"user": who, "salt": admin_salt(new, who).hex(), "n": ADMIN_N, "key": k.hex(), "check": admin_check(k)})
+    save_installed(new, copy)                         # a copy with no signed tuple: install writes NEW's tuple from it, or adopts NEW's
+    src, dst = os.path.join(APPS, old + ".json"), os.path.join(VAR, "retired-%s.json" % old)
+    os.makedirs(VAR, exist_ok=True); os.replace(src, dst)  # out of FDF_APPS before the restart: the service never serves both
+    rc = install([prog, "install", new, "--admin", given])
+    if installed().get(new, {}).get("signed"):
+        print("fdf-app: %s is %s on this machine; %s's copy is %s" % (old, new, old, dst)); return rc
+    os.remove(os.path.join(APPS, new + ".json")); os.replace(dst, src)
+    print("fdf-app: %s was not installed as %s: %s is kept as it was (restart fdf-app to serve it again if it restarted)" % (old, new, old))
+    return rc or 1
+
+
 def install(argv):
     app = argv[2]
     if not (app and all(ch.isalnum() or ch in "_-" for ch in app)):
@@ -726,8 +779,8 @@ def install(argv):
         rm = ctl_ram()
         bag = newest_config(rm, app)
     except fdfram.RamError as e:
-        print("fdf-app: databasehost-control is not reachable from here (%s): nothing installed. The first FrogNetHost "
-              "makes it; install the app on a node of a network that has one" % e); return 1
+        print("fdf-app: databasehost-control's api.php is not reachable from here (%s): nothing installed. "
+              "Install the app on a node of a network whose /etc/hosts names databasehost_control.frognet" % e); return 1
     tty = sys.stdin.isatty()
     if mine0 and not mine0.get("signed"):
         # [APP_SERVICES_V1] a copy from before r47 (no one configuration tuple yet): the first machine upgraded writes the
@@ -735,9 +788,9 @@ def install(argv):
         # with the admin key it keeps
         if bag is None:
             print("fdf-app: %s: this machine's configuration from before r47 becomes the app's one configuration tuple" % app)
-            c = {k: mine0[k] for k in ("rams", "partition", "login", "roles", "categories", "users", "admin", "select", "serve", "places") if k in mine0}
+            c = {k: mine0[k] for k in ("rams", "partition", "login", "roles", "categories", "users", "join", "admin", "select", "serve", "places") if k in mine0}
             c["app"] = app
-            return first_install(app, c, rm) or restart_service()
+            return first_install(app, c, rm, mine0) or restart_service()   # its ports kept
         pub = bag.get("admin") or {}
         if given_admin and pub.get("user"):          # [ADMIN_REKEY_V1] the admin's key replaces the one kept here
             a = _admin_for(app, pub, given_admin)
@@ -853,13 +906,15 @@ def main(argv):
         try:
             rm = ctl_ram()
         except fdfram.RamError as e:
-            print("fdf-app: databasehost-control is not reachable from here (%s): nothing installed. The first FrogNetHost "
-                  "makes it; install the app on a node of a network that has one" % e); return 1
+            print("fdf-app: databasehost-control's api.php is not reachable from here (%s): nothing installed. "
+                  "Install the app on a node of a network whose /etc/hosts names databasehost_control.frognet" % e); return 1
         c = {"app": argv[2], "rams": rams, "partition": part, "login": "--login" in argv, "roles": roles, "categories": cats,
              "users": users, "admin": admin, "select": sel, **({"serve": serve} if serve else {}), **({"join": join} if join else {})}   # no --serve: every RAM, those the admin adds too
         return first_install(argv[2], c, rm, old)
     if len(argv) >= 3 and argv[1] == "install":
         return install(argv)
+    if len(argv) == 6 and argv[1] == "rename" and argv[4] == "--admin":
+        return rename(argv[2], argv[3], argv[5], argv[0])
     if len(argv) == 4 and argv[1] == "where":
         print(where(argv[2], argv[3])); return 0
     if len(argv) == 2 and argv[1] == "serve":

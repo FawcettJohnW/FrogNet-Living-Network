@@ -1,13 +1,13 @@
 # Integration, 2026-10-31: branch `integrate-20261031`
 
-Every branch on origin with work main lacked, merged onto main `bf954af`, so the RangerTrak conversion and the
+Every branch on origin with work main lacked, merged onto main `bf954af`, so the OpenEOC conversion and the
 join library start from one tree that carries everything.
 
 ## What was merged
 
 | branch | commits main lacked | what it carries | conflicts |
 |---|---|---|---|
-| `eoc-and-rangertrak-plans-20261031` | 1 (`79607e2`) | `docs/eoc/EOC-APP-AND-JOIN.md`, `ribbit/examples/rangertrak/PLAN.md` | none |
+| `eoc-and-rangertrak-plans-20261031` | 1 (`79607e2`) | `docs/eoc/EOC-APP-AND-JOIN.md`, `ribbit/examples/openeoc/PLAN.md` | none |
 | `croakus-claims-match-code-20261031` | 2 (`cbddd13`, `e868d3d`), pushed after PR #11 merged | OPERATING.md to r31 (invitations, RAM manager in the tunnel); F6's 28 checks | none |
 | `persist-20261031` | 8 | IS-IS loop persistence on real FRR (Day 2026-10-30), its model, report, and the two `run_all` tier 4 gates | none |
 | `senzmatica-ram-20261031` | 1 (`842ef8c`), off main at PR #9 | `examples/senzmatica` (the converted remote-configuration workflow, JNI binding with HeldRead, device, RAM host, probe, `senz` and `senz-hwtest` r8, docs and evidence), API++ tuple and capability changes, `_recovery/` (the reconstructed checkpoint's metadata) | none |
@@ -50,7 +50,7 @@ and `fdf-carry`.
   `license_check` walks `FROGNET_WORLD_PATHS`, so it stamped third-party code under `opt/fdf` (xterm.js, Go's x-sys, the
   OpenSSL headers in `rinab/src/win`). Those 426 writes were reverted, and the applier now walks the world paths only
   (`[APPLIER_WALKS_THE_WORLD_V1]`); `--check` after: 0 needing one.
-- `docs/eoc/EOC-APP-AND-JOIN.md` and the RangerTrak `PLAN.md` Step 0 were written against main and said the member
+- `docs/eoc/EOC-APP-AND-JOIN.md` and the OpenEOC `PLAN.md` Step 0 were written against main and said the member
   had never seen an invitation. On this tree it has (r36). Both now say what remains (door, registrar, `fdf-group`) and
   carry John's ordered list of Internet RAM managers.
 

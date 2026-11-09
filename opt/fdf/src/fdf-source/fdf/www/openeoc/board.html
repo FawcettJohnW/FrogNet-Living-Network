@@ -4,7 +4,7 @@
      any phone or screen on the post's Wi-Fi. The same cells the scribes write; nothing to claim, no key, no snapshot.
      ?m=<mission id>&op=<op period> opens that one; otherwise the newest mission. -->
 <html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
-<title>Board</title><link rel="stylesheet" href="rt.css">
+<title>Board</title><link rel="stylesheet" href="openeoc.css">
 <style> body { font-size: 18px; } td.no { font-size: 16px; } .grid { display: grid; grid-template-columns: 2fr 1fr; gap: 16px; }
         @media (max-width: 800px) { .grid { grid-template-columns: 1fr; } } </style></head><body>
 <h1>Board <small id="mis"></small></h1>
@@ -15,7 +15,7 @@
   <div><h2>Teams</h2><table><thead><tr><th>Callsign</th><th>Last</th><th>Heard</th></tr></thead><tbody id="teams"></tbody></table></div>
 </div>
 <script type="module">
-import * as RT from './rt.js'
+import * as RT from './openeoc.js'
 const D = RT.D, $ = (s) => document.querySelector(s), say = (t) => { $('#say').textContent = t }
 window.RT_NOTE = say
 const want = new URLSearchParams(location.search)
@@ -33,12 +33,12 @@ function draw() {
 function open(id, bag) {
   stops.forEach(f => f()); log = new Map(); marks = new Map(); draw()
   const m = { id, ...bag }; $('#mis').textContent = m.name + ', op period ' + m.opPeriod
-  stops = [RT.watch('rt-log', RT.logVariable(m), (c) => { log = c; draw() }, (e) => say('the RAM did not answer (' + e.message + '); reading again')),
-           RT.watch('rt-handled', m.id, (c) => { marks = RT.markOf(c); draw() })]
+  stops = [RT.watch('openeoc-log', RT.logVariable(m), (c) => { log = c; draw() }, (e) => say('the RAM did not answer (' + e.message + '); reading again')),
+           RT.watch('openeoc-handled', m.id, (c) => { marks = RT.markOf(c); draw() })]
 }
 setInterval(draw, 30000)                                        // the overdue bands advance on this page's own clock, no write
 let shown = ''
-RT.watch('rt-mission', 'settings', (cells) => {
+RT.watch('openeoc-mission', 'settings', (cells) => {
   const pick = want.get('m') ? cells.get(want.get('m')) : [...cells.values()].sort((a, b) => b.id - a.id)[0]
   if (!pick) { say('no mission started yet'); return }
   const bag = { ...pick.bag, opPeriod: want.get('op') || pick.bag.opPeriod }, key = pick.instance + '.' + bag.opPeriod

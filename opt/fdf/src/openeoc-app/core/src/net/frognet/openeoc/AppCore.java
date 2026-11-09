@@ -40,8 +40,8 @@ import java.util.Map;
  *   {"ev":"world","who":{id:bag},"pos":{id:bag}}            everyone present now, and where
  *   {"ev":"msg","from":..,"name":..,"to":..,"text":..,"at":..}  a message, once each
  *   {"ev":"error","text":"..."}
- * Cells: (rt-who, <mission>, <dev>) and (rt-pos, <mission>, <dev>), latest, own; (rt-msg, <mission>, <dev>.<ms>) to
- * everyone; (rt-team, <mission>, <dev>.<ms>) in the team's own RAM; (rt-dm, <mission>.<to>, <from>.<ms>) in the
+ * Cells: (openeoc-who, <mission>, <dev>) and (openeoc-pos, <mission>, <dev>), latest, own; (openeoc-msg, <mission>, <dev>.<ms>) to
+ * everyone; (openeoc-team, <mission>, <dev>.<ms>) in the team's own RAM; (openeoc-dm, <mission>.<to>, <from>.<ms>) in the
  * addressee's own variable, which only the addressee reads.
  */
 public final class AppCore {
@@ -49,7 +49,7 @@ public final class AppCore {
 
     public static final String APP = "openeoc";
     public static final String API = "/FawcettInnovations.RINA.ram_interface.php";
-    public static final String BUILD = "openeoc-app-2026-11-09-r57";
+    public static final String BUILD = "openeoc-app-2026-11-09-r58";
 
     private final Ui ui;
     private String door = "", dev = "", name = "", role = "", team = "", user = "", mission = "";
@@ -67,7 +67,7 @@ public final class AppCore {
     private volatile boolean resolving = false;
     // [TEAM_HOST_V1] (John 2026-11-02: EOC > Team > Team Member; the team lead's phone hosts the team's RAM, the members
     // reach it on the lead's hotspot, the EOC wherever the lead's phone is on the network). The door still says where
-    // every RAM fdf-app serves (doorRams); a team whose lead hosts says where its RAM is in (rt-team-host, host, <team>)
+    // every RAM fdf-app serves (doorRams); a team whose lead hosts says where its RAM is in (openeoc-team-host, host, <team>)
     // on the general RAM, the lead's own cell (own: gone with the lead's session), and that is where its RAM is.
     private Map<String, String> doorRams = new HashMap<String, String>();
     private String teamRam = "";                        // given at connect: a member on the host's hotspot
@@ -191,7 +191,7 @@ public final class AppCore {
     }
 
     /** [RT_MISSION_V1] set the mission: an update of the current one (its settings, written again whole), or a new one
-     *  (id: from its name and the time; "at": now, so it is the mission now on every device). (rt-mission, settings, <id>) */
+     *  (id: from its name and the time; "at": now, so it is the mission now on every device). (openeoc-mission, settings, <id>) */
     private void missionSet(Map<String, Object> m) throws Exception {
         if (mis == null) throw new Exception("not connected");
         if (pub()) throw new Exception("the public view sees the mission; it does not set it");
@@ -326,9 +326,9 @@ public final class AppCore {
         String[] g = hp(rams.get("general"));
         Follower.Log lg = new Follower.Log() { public void say(String l) { onSessionLine(l); } };
         standingAsked = false;
-        mis = new Follower("mission", g[0], Integer.parseInt(g[1]), API, "rt-mission", "settings", lg, null, new Runnable() { public void run() { onMission(); } });
+        mis = new Follower("mission", g[0], Integer.parseInt(g[1]), API, "openeoc-mission", "settings", lg, null, new Runnable() { public void run() { onMission(); } });
         if (pub()) return;   // the public reads the world only (no chat)
-        hostF = new Follower("team hosts", g[0], Integer.parseInt(g[1]), API, "rt-team-host", lg, null, new Runnable() { public void run() { onHosts(); } });
+        hostF = new Follower("team hosts", g[0], Integer.parseInt(g[1]), API, "openeoc-team-host", lg, null, new Runnable() { public void run() { onHosts(); } });
         startTeams();
     }
 
@@ -344,7 +344,7 @@ public final class AppCore {
             if (view().allTeams || t.equalsIgnoreCase(team)) {
                 String[] a = hp(e.getValue());
                 final String tn = t;
-                teams.put(t, new Follower("team " + t, a[0], Integer.parseInt(a[1]), API, "rt-team", lg, null,
+                teams.put(t, new Follower("team " + t, a[0], Integer.parseInt(a[1]), API, "openeoc-team", lg, null,
                         new Runnable() { public void run() { onTeam(tn); } }));
             }
         }
@@ -472,22 +472,22 @@ public final class AppCore {
         for (Follower x : new Follower[]{general, positions, msgs, dm, callF, logF}) if (x != null) x.stop();
         for (Follower x : layerF) x.stop();
         layerF.clear();
-        general = new Follower("presence", g[0], Integer.parseInt(g[1]), API, "rt-who", lg, null, new Runnable() { public void run() { world(general, null); } });
-        // rt-who and rt-pos and rt-msg: one follower each would be three sessions; the library follows one service, so
+        general = new Follower("presence", g[0], Integer.parseInt(g[1]), API, "openeoc-who", lg, null, new Runnable() { public void run() { world(general, null); } });
+        // openeoc-who and openeoc-pos and openeoc-msg: one follower each would be three sessions; the library follows one service, so
         // the world is two followers on the general RAM (presence + position) and the messages a third
-        positions = new Follower("positions", g[0], Integer.parseInt(g[1]), API, "rt-pos", lg, null,
+        positions = new Follower("positions", g[0], Integer.parseInt(g[1]), API, "openeoc-pos", lg, null,
                 new Runnable() { public void run() { world(general, null); } });
-        // [RT_CALL_V1] a call to this device: (rt-call, <mission>.<dev>, <from>.<ms>), in the callee's own variable
+        // [RT_CALL_V1] a call to this device: (openeoc-call, <mission>.<dev>, <from>.<ms>), in the callee's own variable
         if (!pub())
-            callF = new Follower("calls", g[0], Integer.parseInt(g[1]), API, "rt-call", mission + "." + dev, lg, null, new Runnable() { public void run() { onCalls(); } });
-        // [RT_RADIO_LOG_IN_THE_APP_V1] the radio log's entries (RangerTrak's own app, /rt/log.html: scribes and field phones),
-        // (rt-log, <mission>.<opPeriod>, <dev>.<seq>), in the same general RAM: the EOC and the teams see them as they are
+            callF = new Follower("calls", g[0], Integer.parseInt(g[1]), API, "openeoc-call", mission + "." + dev, lg, null, new Runnable() { public void run() { onCalls(); } });
+        // [RT_RADIO_LOG_IN_THE_APP_V1] the radio log's entries (RangerTrak's own app, /openeoc/log.html: scribes and field phones),
+        // (openeoc-log, <mission>.<opPeriod>, <dev>.<seq>), in the same general RAM: the EOC and the teams see them as they are
         // typed. Read only here: an entry's message number is its post's (ICS-309), made by the radio log.
         if (!pub())
-            logF = new Follower("radio log", g[0], Integer.parseInt(g[1]), API, "rt-log", lg, null, new Runnable() { public void run() { onLog(); } });
+            logF = new Follower("radio log", g[0], Integer.parseInt(g[1]), API, "openeoc-log", lg, null, new Runnable() { public void run() { onLog(); } });
         if (!pub()) {
-            msgs = new Follower("messages", g[0], Integer.parseInt(g[1]), API, "rt-msg", mission, lg, null, new Runnable() { public void run() { onMsgs(); } });
-            dm = new Follower("direct", g[0], Integer.parseInt(g[1]), API, "rt-dm", mission + "." + dev, lg, null, new Runnable() { public void run() { onDm(); } });
+            msgs = new Follower("messages", g[0], Integer.parseInt(g[1]), API, "openeoc-msg", mission, lg, null, new Runnable() { public void run() { onMsgs(); } });
+            dm = new Follower("direct", g[0], Integer.parseInt(g[1]), API, "openeoc-dm", mission + "." + dev, lg, null, new Runnable() { public void run() { onDm(); } });
         }
         for (Layer l : layers) l.start(here);           // [RT_LAYERS_V1] the layers' families, in this mission
         out("ev", "mission", "id", mission, "name", Json.str(f.get(mission).get("name")), "bag", f.get(mission), "all", new HashMap<String, Object>(f));
@@ -597,7 +597,7 @@ public final class AppCore {
         } else if (to.startsWith("dev:")) {
             // in the addressee's own variable: only the addressee reads it; the sender keeps its own copy (the page shows it)
             if (dm == null || !dm.write(mission + "." + to.substring(4), inst, b, false)) throw new Exception("not connected");
-            // dm follows OUR variable; the write goes to theirs on the same RAM (the follower's service is rt-dm)
+            // dm follows OUR variable; the write goes to theirs on the same RAM (the follower's service is openeoc-dm)
             emitOnce("s:" + inst, b, to);
         }
         lastSay.put("written", true);

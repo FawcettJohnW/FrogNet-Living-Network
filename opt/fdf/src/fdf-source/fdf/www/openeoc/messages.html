@@ -6,7 +6,7 @@
      (the addressee's hostname) and kept in the addressee's variable; who may read which is the app's access. -->
 <html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Messages</title>
-<link rel="stylesheet" href="rt.css"></head><body>
+<link rel="stylesheet" href="openeoc.css"></head><body>
 <nav><a href="log.html">Radio Log</a> · <a href="rangers.html">Rangers</a> · <a href="map.html">Map</a> · <a href="print309.html">ICS-309</a> · <a href="board.html">Board</a> · <b>Messages</b> · <a href="summary.html">Summary</a> · <a href="aar.html">After-action</a></nav>
 <h1>Messages <small id="mis"></small></h1>
 <div id="say"></div>
@@ -16,7 +16,7 @@
 <h2>Direct</h2><table><tbody id="dm"></tbody></table>
 <h2>Team <small id="tm"></small></h2><table><tbody id="team"></tbody></table>
 <script type="module">
-import * as RT from './rt.js'
+import * as RT from './openeoc.js'
 const $ = (s) => document.querySelector(s), say = (t) => { $('#say').textContent = t }
 window.RT_NOTE = say
 const m = RT.currentMission()
@@ -30,7 +30,7 @@ function draw() {
       .map(r => '<option value="' + RT.esc(r.bag.station) + '">' + RT.esc(r.bag.name) + (r.bag.host && r.bag.host !== r.bag.name ? ' (' + RT.esc(r.bag.host) + ')' : '') + (r.bag.team ? ', ' + RT.esc(r.bag.team) : '') + '</option>').join('')
   if ([...sel.options].some(o => o.value === cur)) sel.value = cur
   $('#ann').innerHTML = [...ann.values()].map(r => r.bag).sort(byTime).map(b => line(b)).join('')
-  const out = RT.sent('rt-dm', m.id + '.').map(([v, , b]) => ({ ...b, to: v.slice(m.id.length + 1) }))
+  const out = RT.sent('openeoc-dm', m.id + '.').map(([v, , b]) => ({ ...b, to: v.slice(m.id.length + 1) }))
   $('#dm').innerHTML = [...[...dmIn.values()].map(r => r.bag), ...out].sort(byTime)
     .map(b => line(b, b.to && b.dev === d.id ? '→ ' + RT.esc(b.to) : '→ me')).join('')
   $('#team').innerHTML = [...team.values()].map(r => r.bag).sort(byTime).map(b => line(b)).join('')
@@ -41,18 +41,18 @@ $('#me').textContent = 'as ' + (d.name || RT.shownName(d)) + (d.host && d.name &
 if (!m) say('choose or start a mission on the Radio Log first')
 else {
   $('#mis').textContent = m.name
-  RT.watch('rt-who', m.id, (c) => { who = c; draw() })
-  RT.watch('rt-msg', m.id, (c) => { ann = c; draw() }, (e) => say('the RAM did not answer (' + e.message + '); reading again'))
-  RT.watch('rt-dm', m.id + '.' + d.station, (c) => { dmIn = c; draw() })
+  RT.watch('openeoc-who', m.id, (c) => { who = c; draw() })
+  RT.watch('openeoc-msg', m.id, (c) => { ann = c; draw() }, (e) => say('the RAM did not answer (' + e.message + '); reading again'))
+  RT.watch('openeoc-dm', m.id + '.' + d.station, (c) => { dmIn = c; draw() })
   if (d.team) { $('#tm').textContent = d.team + ' (its own RAM)'
-                RT.watch(RT.inTeam('rt-team', d.team), m.id, (c) => { team = c; draw() }, (e) => say('team ' + d.team + ': ' + e.message)) }
+                RT.watch(RT.inTeam('openeoc-team', d.team), m.id, (c) => { team = c; draw() }, (e) => say('team ' + d.team + ': ' + e.message)) }
   $('#send').onsubmit = async (ev) => {
     ev.preventDefault(); const f = ev.target, to = f.to.value, text = f.text.value.trim(); if (!text) return
     const bag = { from: d.name || d.id, station: d.station, text, atMs: Date.now() }, i = d.id + '.' + bag.atMs
     try {
-      if (to === '*') await RT.write('rt-msg', m.id, i, bag)
-      else if (to === '@') await RT.write(RT.inTeam('rt-team', d.team), m.id, i, { ...bag, team: d.team })
-      else { await RT.write('rt-dm', m.id + '.' + to, i, { ...bag, to }); draw() }
+      if (to === '*') await RT.write('openeoc-msg', m.id, i, bag)
+      else if (to === '@') await RT.write(RT.inTeam('openeoc-team', d.team), m.id, i, { ...bag, team: d.team })
+      else { await RT.write('openeoc-dm', m.id + '.' + to, i, { ...bag, to }); draw() }
       f.text.value = ''; say('')
     } catch (e) { say('not sent: ' + e.message) }
   }

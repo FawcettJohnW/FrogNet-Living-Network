@@ -1,12 +1,12 @@
 <!doctype html>
 <!-- Copyright (C) 2016-2026 Fawcett Innovations LLC. SPDX-License-Identifier: GPL-2.0-only
      map.html -- [RT_PAGES_V1][DEVICE_POSITION_V1] where everybody is: a query over every device's own position cell
-     (rt-pos). The overdue rings advance on this page's own timer, with no write.
+     (openeoc-pos). The overdue rings advance on this page's own timer, with no write.
      when drawn (never stored); its colour the entry's status, its ring how long since it was heard (overdueBand).
      Leaflet is the node's own copy (/vendor/leaflet); the basemap tiles only when the Internet answers -- coordinates
      always, tiles when connected. -->
 <html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
-<title>Map</title><link rel="stylesheet" href="rt.css"><link rel="stylesheet" href="../vendor/leaflet/leaflet.css">
+<title>Map</title><link rel="stylesheet" href="openeoc.css"><link rel="stylesheet" href="../vendor/leaflet/leaflet.css">
 <style> #map { height: 70vh; border: 1px solid #d5d9e0; border-radius: 6px; background: #e9edf2; } </style></head><body>
 <nav><a href="log.html">Radio Log</a> · <a href="rangers.html">Rangers</a> · <b>Map</b> · <a href="print309.html">ICS-309</a> · <a href="board.html">Board</a> · <a href="messages.html">Messages</a> · <a href="summary.html">Summary</a> · <a href="aar.html">After-action</a></nav>
 <h1>Map <small id="mis"></small></h1>
@@ -15,7 +15,7 @@
 <table><thead><tr><th>Device</th><th>Where</th><th>±</th><th>Heard</th><th>Since</th></tr></thead><tbody id="rows"></tbody></table>
 <script src="../vendor/leaflet/leaflet.js"></script>
 <script type="module">
-import * as RT from './rt.js'
+import * as RT from './openeoc.js'
 const D = RT.D, $ = (s) => document.querySelector(s), say = (t) => { $('#say').textContent = t }
 window.RT_NOTE = (t) => { const e = document.querySelector('#say'); if (e) e.textContent = t }
 const m = RT.currentMission()
@@ -45,5 +45,5 @@ function draw(pos) {
 setInterval(() => draw(cur), 30000)                             // the rings and "since" age on this page's clock
 if (!m) say('choose or start a mission on the Radio Log first')
 else { $('#mis').textContent = m.name + ', op period ' + m.opPeriod; RT.sharePosition(m)
-       RT.watch('rt-pos', m.id, draw, (e) => say('the RAM did not answer (' + e.message + '); reading again')) }
+       RT.watch('openeoc-pos', m.id, draw, (e) => say('the RAM did not answer (' + e.message + '); reading again')) }
 </script></body></html>

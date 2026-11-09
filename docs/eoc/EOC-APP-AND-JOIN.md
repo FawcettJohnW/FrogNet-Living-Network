@@ -6,7 +6,7 @@
 
 One icon on the phone or the PC: **EOC**. It opens to the work, and the person never reads the words FrogNet, region, pond, Ribbit or invitation. Joining is scanning its level's code and, for some levels, typing a user and password; everything else happens underneath.
 
-The screens are the DisasterComm apps (`DC_APPS_V1`, `opt/fdf/src/fdf-source/fdf/www/dc`) plus what RangerTrak does today:
+The screens are the DisasterComm apps (`DC_APPS_V1`, `opt/fdf/src/fdf-source/fdf/www/dc`) plus what OpenEOC does today:
 
 | Screen | Who writes | What |
 | --- | --- | --- |
@@ -26,7 +26,7 @@ At the post there is a node. The scribe's laptop is on its Wi-Fi, an ordinary DH
 
 In the field, with no node nearby, the phone or PC is a member of the region through the hub: that is the EOC app. Same cells, same owners, so the two shapes cannot disagree.
 
-RangerTrak's problem, each device keeping its own log and logs merged by hand as files, is gone in both shapes: the cells are the log.
+OpenEOC's problem, each device keeping its own log and logs merged by hand as files, is gone in both shapes: the cells are the log.
 
 ## How the bridge and the app join an r31 region
 
@@ -51,7 +51,7 @@ Windows first, then Android, then the HTTP pages the post serves. Each step is o
 
 What each step is tested against is the incumbent suites, extended where the behaviour is new; nothing is accepted on the strength of an AI saying it works.
 
-## What RangerTrak contributes
+## What OpenEOC contributes
 
 John Cornelison's [RangerTrak](https://github.com/EOCOnline/rangertrak) (AGPLv3, beta) is the single-device version of the field case: a scribe types what teams say over voice radio, offline, no server. Three parts of it carry over as library code with no framework in them:
 

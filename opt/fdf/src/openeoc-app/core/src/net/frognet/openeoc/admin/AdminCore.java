@@ -51,7 +51,7 @@ import java.util.Map;
  */
 public final class AdminCore {
     public interface Ui { void deliver(String json); }
-    public static final String BUILD = "openeoc-admin-2026-11-09-r16";
+    public static final String BUILD = "openeoc-admin-2026-11-09-r17";
 
     private final Ui ui;
     private volatile String door = "", app = "", user = "";
@@ -161,8 +161,8 @@ public final class AdminCore {
 
     // ------------------------------------------------------------ [ADMIN_ON_NOW_V1] who is on now
     // The admin's groups said where each one lives and is served, not who is in it: a team brought up on Windows did not
-    // show (John 2026-11-05). The admin follows the app's general RAM as the apps do -- the mission (rt-mission, settings:
-    // the newest by its at), then its presence (rt-who, <mission>: one tuple per device on now, its session's: gone when
+    // show (John 2026-11-05). The admin follows the app's general RAM as the apps do -- the mission (openeoc-mission, settings:
+    // the newest by its at), then its presence (openeoc-who, <mission>: one tuple per device on now, its session's: gone when
     // the device is) -- and says it: ev onNow {mission, who: {dev: {name, kind, team, unit, via, status, app}}}.
     private volatile net.frognet.ram.Follower nowMis, nowWho;
     private volatile String nowMission = "";
@@ -175,7 +175,7 @@ public final class AdminCore {
                 if (g.isEmpty()) { out("ev", "error", "text", "who is on now: the door says no general RAM for " + app); return; }
                 final String h = g.substring(0, g.lastIndexOf(':')); final int pt = Integer.parseInt(g.substring(g.lastIndexOf(':') + 1));
                 final net.frognet.ram.Follower.Log lg = new net.frognet.ram.Follower.Log() { public void say(String l) { if (l.contains("FAIL")) out("ev", "error", "text", "who is on now: " + l); } };
-                nowMis = new net.frognet.ram.Follower("admin-mission", h, pt, API, "rt-mission", "settings", lg, null, new Runnable() { public void run() {
+                nowMis = new net.frognet.ram.Follower("admin-mission", h, pt, API, "openeoc-mission", "settings", lg, null, new Runnable() { public void run() {
                     net.frognet.ram.Follower f = nowMis; if (f == null) return;
                     String best = ""; Map<String, Map<String, Object>> ms = f.family("settings");
                     for (String k : ms.keySet())
@@ -184,7 +184,7 @@ public final class AdminCore {
                     if (best.equals(nowMission) && nowWho != null) return;
                     nowMission = best; final String mis = best;
                     if (nowWho != null) nowWho.stop();
-                    nowWho = new net.frognet.ram.Follower("admin-who", h, pt, API, "rt-who", mis, lg, null, new Runnable() { public void run() {
+                    nowWho = new net.frognet.ram.Follower("admin-who", h, pt, API, "openeoc-who", mis, lg, null, new Runnable() { public void run() {
                         net.frognet.ram.Follower w = nowWho; if (w == null || !mis.equals(nowMission)) return;
                         out("ev", "onNow", "mission", mis, "at", g, "who", new java.util.HashMap<String, Object>(w.family(mis)));
                     } });

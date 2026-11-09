@@ -879,7 +879,7 @@ $('#misBtn').onclick = () => missionPanel()
 
 
 // ------------------------------------------------------------ [RT_RADIO_LOG_IN_THE_APP_V1] OpenEOC's radio log, here
-// What the scribes and field phones log over the radio (the radio log app, /rt/log.html), for this mission and its
+// What the scribes and field phones log over the radio (the radio log app, /openeoc/log.html), for this mission and its
 // operational period, newest first, as it is typed. Read only: the entries and their ICS-309 numbers are the posts'.
 const RL_STATUS = { urgent: 'Urgent', 'need-rest-food': 'Needs rest/food', ok: 'OK', info: 'Info' }
 function radioLog() {
@@ -889,7 +889,7 @@ function radioLog() {
   sheet('rlog', 'Radio log — op period ' + esc(m.op || '1'), (rows.length ? `<table class="rl"><thead><tr><th>Time</th><th>No.</th><th>Call sign</th><th>Status</th><th>Location</th><th>Notes</th><th>Post</th></tr></thead><tbody>` +
     rows.map(r => `<tr${r.status === 'urgent' ? ' class="urg"' : ''}><td>${r.date ? new Date(r.date).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) : ''}</td><td>${esc(no(r.msgNo))}</td><td><b>${esc(r.callsign)}</b></td>
       <td>${esc(RL_STATUS[r.status] || r.status || '')}</td><td>${esc(loc(r.location))}</td><td>${esc(r.notes || '')}</td><td>${esc(r.by || '')}</td></tr>`).join('') + '</tbody></table>'
-    : '<div class="meta">No radio log entries in this operational period yet. Scribes log them in the Radio log app (/rt/ on the node).</div>'))
+    : '<div class="meta">No radio log entries in this operational period yet. Scribes log them in the Radio log app (/openeoc/ on the node).</div>'))
 }
 $('#logBtn').onclick = radioLog
 

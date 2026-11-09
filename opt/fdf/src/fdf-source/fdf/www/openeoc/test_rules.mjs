@@ -1,5 +1,5 @@
 // Copyright (C) 2016-2026 Fawcett Innovations LLC. SPDX-License-Identifier: GPL-2.0-only
-// test_rules.mjs -- [RT_SUMMARY_V1][RT_213_V1] RangerTrak's own cases (b6745f49: domain/mission-summary.spec.ts and
+// test_rules.mjs -- [RT_SUMMARY_V1][RT_213_V1] OpenEOC's own cases (b6745f49: domain/mission-summary.spec.ts and
 // shared/export/ics213-pdf.spec.ts's field mapping) against rules.js, translated only where this app's cells differ:
 // an entry is a log row {id, bag}, statuses are the app's own (urgent is flagged), a ranger is its roster bag.
 // Left out: the cases on fields the cells do not carry (rangerUid, tactical calls, source, loggedAt/late, revisions,
@@ -48,7 +48,7 @@ eq(run({ entries: [entry(at(15, 8)), entry(at(15, 12, 30))] }).buckets.items.map
   eq([s.aar.groups.map(g => [g.area, g.notes.map(n => n.text)]), s.aar.incidentCount], [[['Communications', ['a', 'c']], [D.NO_AREA_LABEL, ['b', 'd']], ['Logistics', ['e']]], 5],
      'groups incident notes by area across case and blanks, oldest first, first spelling wins') }
 { const s = run({ notes: [note(at(15, 9), { about: 'app' }), note(at(15, 10), { about: 'app' }), note(at(15, 11))] })
-  eq([s.aar.appCount, s.aar.groups.flatMap(g => g.notes).length], [2, 1], 'counts RangerTrak notes without listing them') }
+  eq([s.aar.appCount, s.aar.groups.flatMap(g => g.notes).length], [2, 1], 'counts OpenEOC notes without listing them') }
 { const s = run({ notes: [note(at(15, 9), { kind: 'activity' }), note(at(15, 10))] })
   eq([s.aar.incidentCount, s.aar.appCount, s.aar.groups.flatMap(g => g.notes).length], [1, 0, 1], 'never counts or groups an ICS-214 activity line') }
 { const notes = [note(at(14, 9)), note(at(15, 9)), note(at(16, 9))]

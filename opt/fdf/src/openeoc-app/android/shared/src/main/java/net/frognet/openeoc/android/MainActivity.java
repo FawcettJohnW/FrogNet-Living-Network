@@ -776,7 +776,7 @@ public final class MainActivity extends Activity implements LocationListener {
     /** the lead's card in its team RAM at gw (the hotspot's gateway: the lead's phone), as the page's teamCard; null: none */
     private Map<String, Object> teamCard(String gw) {
         try {
-            java.net.HttpURLConnection c = (java.net.HttpURLConnection) new java.net.URL("http://" + gw + ":" + TeamHostService.PORT + AppCore.API + "?op=read&service=rt-team&variable=card").openConnection();
+            java.net.HttpURLConnection c = (java.net.HttpURLConnection) new java.net.URL("http://" + gw + ":" + TeamHostService.PORT + AppCore.API + "?op=read&service=openeoc-team&variable=card").openConnection();
             c.setConnectTimeout(3000); c.setReadTimeout(3000);
             java.io.InputStream in = c.getInputStream(); java.io.ByteArrayOutputStream b = new java.io.ByteArrayOutputStream();
             byte[] k = new byte[4096]; for (int n; (n = in.read(k)) > 0; ) b.write(k, 0, n);
