@@ -16,6 +16,8 @@
 #     native side; a member's QR, read by zxing (the phone scanner's library), is that member's enrollment line at the
 #     address chosen, and choosing another address changes it
 #   5 a refused enrollment is said, and Join can be pressed again
+#   8 [EOC_USER_QR_V1] the EOC app scans the admin's QR for an EOC user: the user filled in, its password, Log in; it
+#     enrolls as that user and connects as the EOC
 #   7 [EOC_LEADS_V1] Create a team, under Manual login (no QR at hand): the user typed, the team's name, the password;
 #     Create the Team enrolls them at the EOC's door (the Node field's), and enrolled (lead of Red Cross) connects as Team Red Cross
 import json, os, sys, tempfile
@@ -147,5 +149,21 @@ with tempfile.TemporaryDirectory() as tmp, sync_playwright() as pw:
     check(noNode and asks7 and sent7 == [["enroll", {"line": "fdfenroll1 http://10.170.170.1/dc/ram.php openeoc lee", "password": "lee-2026", "team": "Red Cross", "kind": "team"}]]
           and c7.get("role") == "team" and c7.get("team") == "Red Cross" and c7.get("user") == "lee" and c7.get("password") == "lee-2026",
           "7 Create a team: Node asked first %s; the user, the team's name and the password %s; Create the Team enrolls %s; connects %s" % (noNode, asks7, sent7, {k: c7.get(k) for k in ("door", "role", "team", "user")}))
+    # 8 [EOC_USER_QR_V1] the EOC app (it opens as the EOC: a login view) scans the admin's QR for an EOC user: the user
+    #   filled in, its password, Log in -- no team's name; enrolled as that user, it connects as the EOC
+    e = b.new_page(viewport={"width": 420, "height": 860}); e.add_init_script(STUB)
+    e.goto("file://" + os.path.join(APP, "ui", "index.html"))
+    e.evaluate("rtInit({dev: 'p2', name: 'Pixel', door: '', role: 'eoc', team: '', platform: 'android', lock: 'eoc', build: 'test', invited: '', lan: '', enrolled: {}})")
+    e.wait_for_selector("#connect:not([hidden])", timeout=5000)
+    l8 = "fdfenroll1 http://10.170.170.1/dc/ram.php openeoc dana"
+    e.evaluate("l => rtDeliver(JSON.stringify({ev: 'enrollScan', line: l, url: 'http://10.170.170.1/dc/ram.php', app: 'openeoc', user: 'dana'}))", l8)
+    st8 = e.evaluate("({u: $('#enrollUser').value, ro: $('#enrollUser').readOnly, team: !$('#enrollCallL').hidden, go: $('#enrollGo').textContent, who: $('#enrollWho').textContent})")
+    e.fill("#enrollPw", "dana-2026"); e.click("#enrollGo")
+    s8 = [x for x in e.evaluate("__sent") if x[0] == "enroll"]
+    e.evaluate("rtDeliver(JSON.stringify({ev: 'enrolled', user: 'dana', role: 'eoc', lead: false, door: '10.170.170.1', invited: 'openeoc-dana in frognet'}))")
+    c8 = ([x[1] for x in e.evaluate("__sent") if x[0] == "send" and x[1].get("op") == "connect"] or [{}])[-1]
+    check(st8["u"] == "dana" and st8["ro"] and not st8["team"] and st8["go"] == "Log in" and st8["who"].startswith("EOC")
+          and s8 == [["enroll", {"line": l8, "password": "dana-2026"}]] and c8.get("role") == "eoc" and c8.get("user") == "dana" and c8.get("password") == "dana-2026",
+          "8 the EOC app scans an EOC user's QR: %s; Log in enrolls %s; connects %s" % (st8, s8, {k: c8.get(k) for k in ("door", "role", "user")}))
     b.close()
 print("%d failed" % len(fails) if fails else "ALL PASS"); sys.exit(1 if fails else 0)

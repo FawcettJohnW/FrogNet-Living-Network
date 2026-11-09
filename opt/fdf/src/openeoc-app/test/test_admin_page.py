@@ -91,6 +91,12 @@ with sync_playwright() as pw:
     want = "fdfenroll1 http://10.170.170.1/dc/ram.php openeoc kim"
     if SHOTS: open(os.path.join(SHOTS, name), "wb").write(base64.b64decode(b64))
     check(name == "OpenEOC-openeoc-kim.png" and got == want and not errs, "5 saved %s (%d bytes): reads %r; page errors %s" % (name, len(b64) * 3 // 4, got, errs))
+    # 5b [EOC_USER_QR_V1] an EOC user's QR: for the EOC app, its line the user's
+    pg.click("#qrClose"); pg.click("[data-qr=EOCAdmin]"); pg.wait_for_selector("#qr:not([hidden]) #qrImg svg")
+    wq, lq = pg.inner_text("#qrWho"), pg.inner_text("#qrLine")
+    check("EOC user" in wq and "the EOC app scans this" in wq and lq == "fdfenroll1 http://10.170.170.1/dc/ram.php openeoc EOCAdmin",
+          "5b an EOC user's QR: %r · %r" % (wq, lq))
+    pg.click("#qrClose")
     # 6 [ADMIN_ON_NOW_V1] who is on now, in its group's row; one in no group said so
     deliver({"ev": "onNow", "mission": "standing", "who": {"pa": {"name": "Pat", "kind": "team", "team": "Alpha", "via": "10.170.170.1"},
                                                           "px": {"name": "Win PC", "kind": "team", "team": "Zulu"}}})

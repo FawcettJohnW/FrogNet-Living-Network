@@ -159,7 +159,8 @@ function draw() {
   const eu = Object.entries(e.users).filter(([, x]) => eocRoles(e).includes(x.role)).map(([u]) => u).sort()
   $('#eocUsers').innerHTML = eu.map(u => `<tr><td><b>${esc(u)}</b>${isNew(u) ? '<span class="pill">new</span>' : ''}</td>
       <td><input type="password" data-pw="${esc(u)}" value="${esc(A.pw[u] || '')}" placeholder="${isNew(u) ? 'required' : 'keep'}" autocomplete="new-password"></td>
-      <td class="c"><button type="button" class="x" data-del-user="${esc(u)}" title="remove ${esc(u)}">✕</button></td></tr>`).join('') || '<tr><td colspan="3" class="mu">no EOC users yet</td></tr>'
+      <td class="c"><button type="button" data-qr="${esc(u)}" ${isNew(u) ? 'disabled title="apply first"' : ''}>QR</button></td>
+      <td class="c"><button type="button" class="x" data-del-user="${esc(u)}" title="remove ${esc(u)}">✕</button></td></tr>`).join('') || '<tr><td colspan="4" class="mu">no EOC users yet</td></tr>'
   $('#login').checked = e.login; $('#pRel').checked = e.partition === 'relocate'; $('#pFail').checked = e.partition === 'fail'
   $('#sel').innerHTML = Object.entries(e.sel).map(([r, s]) => `<tr><td><b>${esc(r)}</b></td>
     <td><input type="text" data-sel="${esc(r)}" data-k="need" value="${esc(s.need)}" placeholder="e.g. mysql_running"></td>
@@ -289,7 +290,9 @@ function showQr(u) {
     const line = FrogQR.enrollLine(url, A.app, u)   // [ENROLL_V1] the same line for a phone's camera and a computer's setup
     $('#qrImg').innerHTML = FrogQR.svg(line, { px: 420 }); $('#qrLine').textContent = line
     const x = (A.cur.users || {})[u] || {}      // [TEAMS_AUTHORIZED_V1] a Team's: its lead's device scans it and gives the Team's password
-    $('#qrWho').textContent = (x.lead ? 'Team ' + x.role + ' · its lead scans this and gives the Team\'s password' : u + ' · ' + x.role) + ' · ' + url
+    // [EOC_USER_QR_V1] an EOC user's: the EOC app (or EOCAdmin) scans it, the user filled in, and gives the user's password
+    $('#qrWho').textContent = (x.lead ? 'Team ' + x.role + ' · its lead scans this and gives the Team\'s password'
+      : eocRoles(A.edit).includes(x.role) ? u + ' · EOC user · the EOC app scans this and gives ' + u + "'s password" : u + ' · ' + x.role) + ' · ' + url
   }
   $('#qrDoor').oninput = draw; draw(); $('#qr').hidden = false
 }

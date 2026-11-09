@@ -47,6 +47,16 @@ role's `act`/`req`, or `RT.button`). **A new view**: `RT.role(...)` in a layer's
 `RTA.panel(title, fn)` (none yet). Gates: `test/test_app.py` (32 checks; the Team and Public apps run with their own
 layers only), `test/test_team_host.py`, `android/typecheck.sh`.
 
+## r62 / admin r18: the EOC app logs in from an EOC user's QR ([EOC_USER_QR_V1])
+
+The admin tool's EOC users each have a QR, as its Teams do. The QR is the door and the user, never the password (John 2026-11-09: "the Admin tool has to project the QR code for the EOC app").
+
+An app that opens as a logged-in view, the EOC or EOCAdmin, scans it and shows the user filled in and its password, with **Log in**. There is no team's name. It enrolls as that user (`op=enroll`, a configuration user) and connects as the EOC.
+
+Every other app reads the same kind of QR as a lead's: the user filled in, the team's name blank, Create the Team.
+
+`test_enroll_page.py` step 8 and `test_admin_page.py` step 5b check it.
+
 ## r61: the EOC's Leads ([EOC_LEADS_V1], door dc-door-2026-11-09-leads1)
 
 John's words (2026-11-09):

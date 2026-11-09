@@ -289,7 +289,19 @@ function enrollScan(m) {
   // [EOC_LEADS_V1] (John 2026-11-09: "When I scan the QR code it should take me to a filled in screen with my username filled
   // in, but the team name blank. I fill in the team name, add my password, and hit the button to create the Team") the
   // EOC's QR for a user it added (its door, a user, no key): the user filled in, the team's name blank, the password
-  const lead = /\/dc\/ram\.php/.test(m.url) && !m.key && (m.manual || (m.user && m.user !== '*'))
+  // [EOC_USER_QR_V1] an app that opens as a logged-in view (the EOC, EOCAdmin) takes the admin's QR for its user: the user
+  // filled in, its password, Log in (enrolled as that user) -- no team's name
+  const view = S.cfg.lock || (document.querySelector('[name=role]:checked') || {}).value || ''
+  const loginView = !!(RT.roles[view] && RT.roles[view].field === 'login')
+  const lead = /\/dc\/ram\.php/.test(m.url) && !m.key && !loginView && (m.manual || (m.user && m.user !== '*'))
+  if (loginView && /\/dc\/ram\.php/.test(m.url) && m.user && m.user !== '*') {
+    S.enrollLead = null; $('#enrollCallL').hidden = true
+    $('#enrollUserL').hidden = false; $('#enrollUser').value = m.user; $('#enrollUser').readOnly = true; $('#enrollGo').textContent = 'Log in'
+    $('#enrollWho').textContent = RT.roles[view].label + ' · ' + m.app + ' · ' + m.url.replace(/^https?:\/\//, '').replace(/\/.*/, '')
+    $('#enrollBox').hidden = false; $('#enrollPw').value = ''; $('#enrollPw').focus()
+    $('#cstatus').textContent = m.user + "'s password"
+    return
+  }
   S.enrollLead = lead ? m : null
   $('#enrollUserL').hidden = !lead; $('#enrollGo').textContent = lead ? 'Create the Team' : 'Join'
   if (lead) {

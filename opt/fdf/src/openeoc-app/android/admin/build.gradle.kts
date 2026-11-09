@@ -13,8 +13,8 @@ android {
         applicationId = "net.frognet.openeoc.admin"
         minSdk = 29
         targetSdk = 34
-        versionCode = 10
-        versionName = "openeoc-admin-2026-11-09-r17"
+        versionCode = 11
+        versionName = "openeoc-admin-2026-11-09-r18"
     }
     compileOptions { sourceCompatibility = JavaVersion.VERSION_17; targetCompatibility = JavaVersion.VERSION_17 }
     sourceSets["main"].assets.srcDir(genAssets)
