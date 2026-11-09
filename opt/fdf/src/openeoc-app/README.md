@@ -125,7 +125,10 @@ John, 2026-11-08: "Rebrand the entire RangerTrak product to OpenEOC", internals 
   icon (`ui/openeoc-mark-256.png`), and as `openeoc.ico` in each Windows zip, for a shortcut.
 - **What it costs on machines already running RangerTrak:** a new applicationId is a new app, so phones install the
   OpenEOC apps and remove the RangerTrak ones; nodes install the app again under its new id
-  (`fdf-app config openeoc ...` then `fdf-app install openeoc`), since nothing reads the `rangertrak` tuples any more;
+  (`fdf-app config openeoc ...` then `fdf-app install openeoc`, or, from each machine's own copy,
+  `fdf-app rename rangertrak openeoc --admin USER:PASSWORD` [APP_RENAMED_V1], the admin's machine first: the RAMs and
+  ports, roles, users and the teams-join verifier carried over, the admin key derived again for openeoc), since nothing
+  reads the `rangertrak` tuples any more;
   Android Studio opens the new `OpenEOC-Android-Studio` project once. Builds through r54 were delivered under the
   RangerTrak names (`RangerTrak-*.zip`, `RangerTrak-Android-Studio-*.zip`); the sections below keep their history but
   say OpenEOC.
