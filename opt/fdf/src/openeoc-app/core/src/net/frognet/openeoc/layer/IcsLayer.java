@@ -23,7 +23,9 @@ import java.util.Set;
  */
 public final class IcsLayer extends Layer {
     public static final Set<String> BOARDS = new HashSet<String>(Arrays.asList(
-            "incident", "events", "rr", "sitrep", "shelters", "roads", "damage", "ics214", "press", "signin"));
+            "incident", "events", "rr", "sitrep", "shelters", "roads", "damage", "ics214", "press", "signin",
+            // [FEMA_EOC_V1] the FEMA EOC function's boards (ui/layers/fema.js) and EOCAdmin's paperwork (ui/layers/paper.js)
+            "objectives", "assign", "staff", "lifelines", "forms", "aar", "ip"));
     private volatile Follower f;
     public String name() { return "ics"; }
 

@@ -178,6 +178,12 @@ public final class MainActivity extends Activity implements LocationListener {
             openTethering();
         } }); }
         @JavascriptInterface public void exit() { runOnUiThread(new Runnable() { public void run() { exitApp(); } }); }
+        /** [FEMA_EOC_V1] the page's Print (EOCAdmin's forms, the IAP, the after-action report): Android's print service, on
+         *  the page as it prints (its print rules show the sheet only) */
+        @JavascriptInterface public void print(final String title) { runOnUiThread(new Runnable() { public void run() {
+            android.print.PrintManager pm = (android.print.PrintManager) getSystemService(android.content.Context.PRINT_SERVICE);
+            pm.print(title, web.createPrintDocumentAdapter(title), new android.print.PrintAttributes.Builder().build());
+        } }); }
         /** [CHAT_NOTICE_V1] a message the user cannot see: a phone notification while the app is not in front */
         @JavascriptInterface public void notice(String from, String text) {
             if (inFront) return;

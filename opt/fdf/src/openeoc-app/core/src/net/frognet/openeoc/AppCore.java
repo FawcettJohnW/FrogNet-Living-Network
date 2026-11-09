@@ -49,7 +49,7 @@ public final class AppCore {
 
     public static final String APP = "openeoc";
     public static final String API = "/FawcettInnovations.RINA.ram_interface.php";
-    public static final String BUILD = "openeoc-app-2026-11-09-r59";
+    public static final String BUILD = "openeoc-app-2026-11-09-r60";
 
     private final Ui ui;
     private String door = "", dev = "", name = "", role = "", team = "", user = "", mission = "";
@@ -261,7 +261,7 @@ public final class AppCore {
             String r = Json.str(o.get("role")); user = Json.str(m.get("user"));
             // [RT_CATEGORY_IS_THE_VIEW_V1] the user's role is this view's when it is the view's name, or when the admin put it
             // in the view's category (eochq in the category EOC is an EOC): the door's op=roles says each role's category
-            if (!r.equalsIgnoreCase(want)) {
+            if (!r.equalsIgnoreCase(want) && !(want.equals("eocadmin") && r.equalsIgnoreCase("eoc"))) {
                 String cat = "", why = "";
                 try {
                     Map<String, Object> rs = Json.obj(doorCall("op=roles&app=" + APP, null).get("roles"));
@@ -271,9 +271,10 @@ public final class AppCore {
                     else cat = Json.str(Json.obj(x).get("category"));
                 } catch (Exception e) { why = "the door's roles not read: " + e.getMessage(); }
                 String c = cat.toLowerCase().trim(), one = c.endsWith("s") ? c.substring(0, c.length() - 1) : c;
-                if (!(c.equals(want) || one.equals(want)))
+                // [FEMA_EOC_V1] EOCAdmin is an EOC user's: a role in the EOC category opens it
+                if (!(c.equals(want) || one.equals(want) || (want.equals("eocadmin") && one.equals("eoc"))))
                     throw new Exception("user " + user + " has role '" + r + "' (category " + (cat.isEmpty() ? "unknown: " + why : cat) + "), not the "
-                            + (want.equals("eoc") ? "EOC" : want) + "'s: in the admin app, put " + r + " in the " + (want.equals("eoc") ? "EOC" : cap(want)) + " category (" + BUILD + ")");
+                            + (want.equals("eoc") ? "EOC" : want.equals("eocadmin") ? "EOCAdmin" : want) + "'s: in the admin app, put " + r + " in the " + (want.equals("eoc") || want.equals("eocadmin") ? "EOC" : cap(want)) + " category (" + BUILD + ")");
             }
             role = want;                                    // the admin's role name in any case ([RT_EOC_APP_V1])
             team = "";

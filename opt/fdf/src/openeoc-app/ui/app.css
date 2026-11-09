@@ -162,3 +162,22 @@ header #chatBtn { flex: none; }
 #menu { position: fixed; top: 46px; right: 6px; z-index: 6000; background: var(--pn); border: 1px solid var(--bd); border-radius: 10px; padding: 6px; display: grid; gap: 4px; min-width: 170px; box-shadow: 0 6px 24px rgba(0,0,0,.5); }
 #menu button { text-align: left; font-size: 16px; padding: 10px 12px; background: #24382c; color: var(--fg); border: 1px solid var(--bd); border-radius: 7px; }
 #menu button[hidden] { display: none; }
+/* [FEMA_EOC_V1] the EOC function (layers/fema.js) and EOCAdmin's paperwork (layers/paper.js) */
+.lld { display: inline-block; width: 10px; height: 10px; border-radius: 50%; vertical-align: -1px; margin-right: 4px; }
+.llrow { display: flex; flex-wrap: wrap; gap: 4px 10px; margin: 6px 0 10px; font-size: 13px; } .llp { white-space: nowrap; }
+.card.ll { margin: 6px 0; } .card.ll button { display: block; margin-top: 6px; }
+body.paperwide #sheet { width: min(900px, 100%); }
+#sheet .paper { background: #f6f4ee; color: #1b1b1b; border-radius: 6px; padding: 12px 14px; margin: 8px 0; }
+#sheet .paper h2 { margin: 0 0 4px; font-size: 18px; } #sheet .paper .meta { color: #555; }
+#sheet .paperform { display: grid; grid-template-columns: repeat(auto-fill, minmax(200px, 1fr)); gap: 8px 12px; margin-top: 8px; }
+#sheet .paperform label { display: flex; flex-direction: column; gap: 3px; font-size: 12px; color: #555; } #sheet .paperform label.wide { grid-column: 1 / -1; }
+#sheet .paperform input, #sheet .paperform select, #sheet .paperform textarea { font: inherit; font-size: 14px; color: #1b1b1b; background: #fff; border: 1px solid #c9c4b6; border-radius: 5px; padding: 5px 7px; }
+#sheet .paperform [disabled] { background: #efece4; color: #1b1b1b; }
+#sheet .paper table.ics th, #sheet .paper table.ics td { color: #1b1b1b; border-color: #c9c4b6; }
+@media print {
+  body.printing > *:not(#main), body.printing #main > *:not(#sheet), body.printing #sheet .sh-head, body.printing #sheet .noprint { display: none !important; }
+  body.printing #main { position: static !important; display: block !important; }
+  body.printing #sheet { position: static !important; width: auto !important; border: 0; background: #fff; display: block; }
+  body.printing #sheet .sh-body { overflow: visible !important; }
+  body.printing #sheet .paper { background: #fff; padding: 0; page-break-inside: auto; }
+}

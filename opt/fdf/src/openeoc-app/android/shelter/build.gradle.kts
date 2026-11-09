@@ -4,7 +4,7 @@
 plugins { id("com.android.application") }
 // [RT_LAYERS_V1] this app is the base (shared) and these layers: their pages (ui/layers/<name>.js, copied into this
 // app's own assets: no other app carries them) and their cores (the same names); the manifest says them (LAYERS)
-val rtLayers = listOf("help", "field", "units", "ics")
+val rtLayers = listOf("help", "field", "units", "ics", "fema")
 val genLayers = layout.buildDirectory.dir("generated/openeoc-layers")   // openeoc-layers-copy
 val copyLayers = tasks.register<Copy>("copyLayers") { from(file("../../ui/layers")) { include(rtLayers.map { "$it.js" }) }; into(genLayers.map { it.dir("ui/layers") }) }   // openeoc-layers-copy
 android {
@@ -14,8 +14,8 @@ android {
         applicationId = "net.frognet.openeoc.shelter"
         minSdk = 29
         targetSdk = 34
-        versionCode = 34
-        versionName = "openeoc-app-2026-11-09-r59"
+        versionCode = 35
+        versionName = "openeoc-app-2026-11-09-r60"
         manifestPlaceholders["rtLayers"] = rtLayers.joinToString(",")
     }
     compileOptions { sourceCompatibility = JavaVersion.VERSION_17; targetCompatibility = JavaVersion.VERSION_17 }

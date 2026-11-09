@@ -47,30 +47,48 @@ role's `act`/`req`, or `RT.button`). **A new view**: `RT.role(...)` in a layer's
 `RTA.panel(title, fn)` (none yet). Gates: `test/test_app.py` (32 checks; the Team and Public apps run with their own
 layers only), `test/test_team_host.py`, `android/typecheck.sh`.
 
-## The UI preview: EOC, Field and EOCAdmin ([UI_PREVIEW_V1], 2026-11-09)
+## r60: the FEMA EOC function and EOCAdmin ([FEMA_EOC_V1])
 
-`ui-preview/` is a clickable preview of the new apps, for UI review (see its README.md). It has no network: three browser pages share one set of tuples in the browser.
+The EOC function as FEMA and NIMS describe it, and EOCAdmin, are built into the apps on the RAM (John 2026-11-09: "It needs to be an app, like it would in the real world"). They are not a separate preview: the r60 commit removed the browser-only `ui-preview/`.
 
-- **EOC** is the FEMA EOC function.
-- **Field** is the app each organization runs: Team, Hospital, Ambulance, Shelter and others. The app is its category.
-- **EOCAdmin** is the offline paperwork: ICS forms, IAP, 214 logs, AAR/IP.
+**`ui/layers/fema.js`** (the EOC app, the Team app and every unit app) adds the EOC function on the boards engine (`ics.js`):
+- **Community lifelines.** Each of the eight shows the EOC's call (the `lifelines` board) beside what the network reports into it:
+  - hospital desks: diversion, power, oxygen, staffing;
+  - the Shelters board;
+  - the Road closures board;
+  - each unit's presence status.
+- **Organizations.** Everyone on the network, grouped by the app they joined with: Teams, Hospitals, Ambulances, Shelters, Power, Water, Communications. The categories come from the apps; the EOC allocates none.
+- **Staffing.** The positions of the incident's NIMS structure: ICS-like, Incident Support Model, Departmental or ESF. The Incident board now records the structure, the operational period number and the incident type.
+- **Objectives (ICS-202).**
+- **Assignments (ICS-204).** The EOC assigns an organization from Organizations. That Team or unit gets a notice and sees the assignment under **Assignments**, where it acknowledges it and reports progress.
 
-How OpenEOC's parts relate (John 2026-11-09):
+The EOC's header button **EOC** opens all of this on one screen.
 
-- **Roles.** Every physical node holds the FrogNetHost role. Almost every node is installed with OpenEOC, so it can hold EOCCommand. The election (`core/app_hosts.py`) picks the node that serves the general RAM, and a lone node elects itself.
-- **EOCCommandAdmin.** That is admin r17, which authorizes Teams and EOC users.
-- **EOCAdmin.** The new paperwork app, which the preview shows.
+**EOCAdmin** (`ui/layers/paper.js`, core `PaperLayer`, view `eocadmin`) is the EOC's paperwork. It runs as its own app: the Android module `eocadmin` and `OpenEOC-EOCAdmin-windows-x64-<build>.zip`.
+- **Who can open it.** An EOC user logs in: role `eoc`, or any role the admin put in the EOC category.
+- **The forms.** ICS 201, 202, 203, 204, 205, 206, 207, 208, 209, 211, 213, 213RR, 214, 215 and 221, and the Situation Report. Each one is filled in from the boards and the organizations on the network.
+- **Where forms are kept.** As a draft or made final (read only) on the `forms` board, so every EOCAdmin and the EOC see them.
+- **The Incident Action Plan** for the period: ICS 202, 203, 204, 205, 206 and 208, each the final kept, else the newest draft, else filled from the records.
+- **The after-action report and improvement plan** (HSEEP).
+- **Printing.** The native print: Android's print service, or the desktop's printer dialog (`rtNative.print`). The page's print rules show only the sheet.
 
-The preview's `shared/store.js` is the only part that would change to bind it to the RAM. `test/test_ui_preview.py` runs the whole flow in Chromium:
+**Two field names fixed** (found by `test_fema.py`). The core puts the filer's name in `name` and their role in `position`, so a board field of either name was overwritten:
+- the Incident board's name is now `incName`;
+- the Sign in / out board's position is now `post`.
 
-1. A Team claims its login. A second claim of the same login is refused.
-2. A member joins with the team password.
-3. A Hospital joins and reports, and its lifeline changes at the EOC.
-4. The EOC assigns Team Alpha, and the Team completes the assignment.
-5. The EOC approves a request.
-6. EOCAdmin's 209 fills in from these records, and its IAP renders.
+**Tests.** `test/test_fema.py FDF_RAM [SHOTS]` runs the real core and page through DevHost with each app's own layers: the EOC, Team Alpha, a hospital, an ambulance and three EOCAdmins. Its 14 checks:
+1. organizations by app;
+2. the hospital's diversion turning Health and Medical to Stabilizing;
+3. the EOC's call on Energy, seen on Alpha's app;
+4. the incident, staffing and an objective;
+5. an assignment to Alpha, acknowledged;
+6. the 209 filled from all of it, kept final, and read only on another EOCAdmin;
+7. the 204 and the IAP;
+8. Print;
+9. a team's login refused by EOCAdmin;
+10. no page errors.
 
-The test also checks every screen at phone width.
+`test_app.py` (36 checks), the page tests, `test_no_mission`, `test_team_host` and the Android type-check pass.
 
 ## r59: one team password by default, a member's own password if the lead says so ([MEMBER_PASSWORDS_OPTIONAL_V1])
 

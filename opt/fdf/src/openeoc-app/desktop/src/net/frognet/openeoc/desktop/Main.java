@@ -48,6 +48,18 @@ public final class Main extends Application {
         }
         /** [RT_CALL_V1] the page's Call: what this computer's Communicator can use, then the Communicator itself */
         public void comms(String json) { Main.this.comms(json); }
+        /** [FEMA_EOC_V1] the page's Print (EOCAdmin's forms, the IAP, the after-action report): this computer's printer
+         *  dialog, then the page as it prints (its print rules show the sheet only) */
+        public void print(String title) {
+            Platform.runLater(() -> {
+                javafx.print.PrinterJob job = javafx.print.PrinterJob.createPrinterJob();
+                if (job == null) { pageSay("⚠ no printer on this computer"); return; }
+                job.getJobSettings().setJobName(title);
+                if (!job.showPrintDialog(stage)) { job.cancelJob(); return; }
+                web.print(job);
+                if (!job.endJob()) pageSay("⚠ the printer did not take " + title + ": " + job.getJobStatus());
+            });
+        }
         /** [RT_MAP_SAYS_V1] the page's own account of its map, in this window's log */
         public void log(String line) { System.out.println(line); }
         public void startComms(String json) { new Thread(() -> Main.this.startComms(json), "comms").start(); }
@@ -157,6 +169,9 @@ public final class Main extends Application {
         if (note.isEmpty() && cams.isEmpty()) note = "no camera found: the call is voice only unless one is chosen";
         return Json.o("cameras", cams, "mics", mics, "speakers", spk, "note", note);
     }
+
+    /** a line on the page's status line (on the FX thread) */
+    private void pageSay(String t) { try { web.executeScript("status(" + Json.quote(t) + ")"); } catch (Exception e) { System.err.println("page: " + e); } }
 
     @Override public void start(Stage stage) throws Exception {
         this.stage = stage;

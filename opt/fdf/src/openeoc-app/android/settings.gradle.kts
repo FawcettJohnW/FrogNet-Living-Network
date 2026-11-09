@@ -11,3 +11,4 @@ include(":public")     // [RT_PUBLIC_APP_V1] OpenEOC Public
 // [RT_SUITE_APPS_V1] the suite's unit apps, one per unit; [ADMIN_PHONE_APP_V1] the admin app on the phone
 include(":eoc", ":ambulance", ":hospital", ":water", ":power", ":shelter", ":telecom")   // [RT_EOC_APP_V1] eoc: the EOC app
 include(":admin")      // [ADMIN_PHONE_APP_V1] OpenEOC Admin on the phone
+include(":eocadmin")   // [FEMA_EOC_V1] OpenEOC EOCAdmin: the EOC's paperwork

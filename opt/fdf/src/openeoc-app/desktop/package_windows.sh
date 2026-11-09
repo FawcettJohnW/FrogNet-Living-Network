@@ -1,5 +1,6 @@
 #!/bin/bash
-# package_windows.sh OUTDIR [admin|eoc] -- [RT_EOC_APP_V1] eoc: OpenEOC-EOC-windows-x64-<build>.zip, the EOC app (the
+# package_windows.sh OUTDIR [admin|eoc|eocadmin] -- [FEMA_EOC_V1] eocadmin: OpenEOC-EOCAdmin-windows-x64-<build>.zip, the EOC's
+# paperwork (the same app, opening as EOCAdmin only: --lock=eocadmin); [RT_EOC_APP_V1] eoc: OpenEOC-EOC-windows-x64-<build>.zip, the EOC app (the
 # same app, opening as the EOC only: OpenEOC-EOC.cmd passes --lock=eoc); [RT_APP_DESKTOP_V1] OpenEOC-windows-x64-<build>.zip: the app, its page, JavaFX for
 # Windows and a Java runtime, in one folder; OpenEOC.cmd starts it. Nothing is installed: unzip and run.
 # The runtime: OpenJDK 21 for Windows x64 from pypi's jdk4py wheel (as the FD&F Windows bridge gets its runtime: no JDK
@@ -13,7 +14,8 @@ D=$(cd "$(dirname "$0")/.." && pwd); OUT=${1:?usage: package_windows.sh OUTDIR};
 ADMIN=${2:-}
 BUILD=$(sed -n 's/.*BUILD = "\(openeoc-app-[^"]*\)".*/\1/p' $D/core/src/net/frognet/openeoc/AppCore.java)
 NAME=OpenEOC
-LOCK=""; LAYERS=""; [ "$ADMIN" = eoc ] && { NAME=OpenEOC-EOC; LOCK=eoc; LAYERS=help,field,eoc,medical,ics; }   # [RT_LAYERS_V1] the EOC app's layers
+LOCK=""; LAYERS=""; [ "$ADMIN" = eoc ] && { NAME=OpenEOC-EOC; LOCK=eoc; LAYERS=help,field,eoc,medical,ics,fema; }   # [RT_LAYERS_V1] the EOC app's layers
+[ "$ADMIN" = eocadmin ] && { NAME=OpenEOC-EOCAdmin; LOCK=eocadmin; LAYERS=help,medical,ics,fema,paper; }   # [FEMA_EOC_V1] EOCAdmin's
 if [ "$ADMIN" = admin ]; then BUILD=$(sed -n 's/.*BUILD = "\(openeoc-admin-[^"]*\)".*/\1/p' $D/core/src/net/frognet/openeoc/admin/AdminCore.java); NAME=OpenEOC-Admin; fi
 T=$(mktemp -d); R=$T/$NAME; mkdir -p $R/lib $T/fx
 "$D/build.sh" >/dev/null
@@ -53,6 +55,19 @@ Connect: this computer on a FrogNet node's Wi-Fi; Node = the node's address (fil
 the EOC's user and password (a user the admin gave the role eoc). It opens as the EOC only: every team, unit, request
 and report the EOC's network can see. Settings this computer keeps: %USERPROFILE%\.openeoc
 The map's background comes from OpenStreetMap over the Internet; without it the map is plain and everything is on it.
+TXT
+(cd $T && zip -qr "$OUT/$NAME-windows-x64-$BUILD.zip" $NAME); ls -la "$OUT/$NAME-windows-x64-$BUILD.zip"; rm -rf $T; exit 0
+fi
+if [ "$LOCK" = eocadmin ]; then
+printf '@echo off\r\nrem OpenEOC EOCAdmin, powered by the FrogNet Living Network (%s)\r\nstart "" "%%~dp0runtime\\bin\\javaw.exe" -cp "%%~dp0lib\\*" net.frognet.openeoc.desktop.Launcher --ui="%%~dp0ui" --lock=eocadmin --layers=%s %%*\r\n' "$BUILD" "$LAYERS" > $R/OpenEOC-EOCAdmin.cmd
+cat > $R/README.txt <<TXT
+OpenEOC EOCAdmin for Windows ($BUILD), powered by the FrogNet Living Network
+Unzip anywhere (e.g. C:\OpenEOC-EOCAdmin) and double-click OpenEOC-EOCAdmin.cmd. Nothing is installed.
+The EOC's paperwork: the ICS forms (201-221) and the situation report, each one filled in from the EOC's boards and the
+organizations on the network; drafts and finals kept on the network for every EOCAdmin; the Incident Action Plan; the
+after-action report and improvement plan; printed on this computer's printer.
+Connect: this computer on a FrogNet node's Wi-Fi; Node = the node's address; an EOC user and password (a user the admin
+gave the role eoc). Settings this computer keeps: %USERPROFILE%\.openeoc
 TXT
 (cd $T && zip -qr "$OUT/$NAME-windows-x64-$BUILD.zip" $NAME); ls -la "$OUT/$NAME-windows-x64-$BUILD.zip"; rm -rf $T; exit 0
 fi
