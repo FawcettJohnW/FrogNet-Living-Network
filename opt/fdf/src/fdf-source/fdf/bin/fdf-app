@@ -66,7 +66,7 @@ Environment: FDF_HOSTS (/etc/hosts), RINA_CONTROL_RAM / RINA_SYSTEM_RAM (an api.
 """
 import hashlib, hmac, json, os, queue, random, signal, socket, subprocess, sys, threading, time
 
-BUILD_TAG = "fdf-app-2026-11-08-r52"   # [ROLES_ON_API_V1][CAPABILITY_ANNOUNCED_V1][APP_RENAMED_V1]
+BUILD_TAG = "fdf-app-2026-11-09-r53"   # [ROLES_ON_API_V1][CAPABILITY_ANNOUNCED_V1][APP_RENAMED_V1]
 LIB = os.environ.get("FDF_PY") or os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "lib", "python")
 sys.path.insert(0, LIB)
 import fdfram  # noqa: E402
