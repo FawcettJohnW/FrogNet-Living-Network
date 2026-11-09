@@ -99,12 +99,17 @@ try:
         pg.wait_for_selector("#sheet .leadqr svg", timeout=15000)
         ls = door("op=leads&app=openeoc")
         line = pg.evaluate("FrogQR.enrollLine(" + json.dumps("http://127.0.1.1:8088/dc/ram.php") + ",'openeoc','lee')")
+        ok_said = pg.inner_text("#sheet .leadsay")
+        check("lead lee created" in ok_said, "2b the Leads screen says the lead was created: %r" % ok_said)
         check((ls.get("leads") or {}).get("lee", {}).get("roles") == ["team", "hospital"] and "lee-2026" not in json.dumps(ls),
               "2 Create the lead: lee, roles team and hospital, at the door (op=leads: %s); its QR on the EOC's screen; no password at the door's answer" % json.dumps(ls.get("leads")))
         pg.fill(".leadform [name=lead]", "sam"); pg.fill(".leadform [name=password]", "sam-2026"); pg.fill(".leadform [name=roles]", "*"); pg.click(".leadform .go")
         pg.wait_for_function("S.leads && S.leads.sam", timeout=15000)
         pg.fill(".leadform [name=lead]", "zed"); pg.fill(".leadform [name=password]", "zed-2026"); pg.fill(".leadform [name=roles]", "team, plumber"); pg.click(".leadform .go")
         check("not a role: plumber" in pg.inner_text("#status"), "3 a role that is not one is refused on the screen: " + pg.inner_text("#status"))
+        pg.fill(".leadform [name=lead]", "nopw"); pg.fill(".leadform [name=password]", ""); pg.click(".leadform .go")
+        said = pg.inner_text("#sheet .leadsay")
+        check("password of at least 4" in said, "3b a lead with no password: said on the Leads screen itself: %r" % said)
         nk = door("op=lead&app=openeoc", {"user": "kim", "password": "kim-2026", "lead": "eve", "roles": ["*"], "verifier": {"salt": "00" * 16, "n": 200000, "hash": "0" * 64}})
         check("not a Command Center user" in str(nk.get("why")), "4 a team's user (kim) cannot add a lead at the door: " + str(nk.get("why")))
 

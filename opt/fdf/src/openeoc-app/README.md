@@ -47,6 +47,18 @@ role's `act`/`req`, or `RT.button`). **A new view**: `RT.role(...)` in a layer's
 `RTA.panel(title, fn)` (none yet). Gates: `test/test_app.py` (32 checks; the Team and Public apps run with their own
 layers only), `test/test_team_host.py`, `android/typecheck.sh`.
 
+## r68: the Leads screen says its answer ([LEAD_SAYS_ITS_ANSWER_V1])
+
+Found by John on 2026-11-09: "I hit Create The Lead in the Command Center tool and nothing happened."
+
+Two places could say nothing:
+- **The form's own `required` fields.** A desktop web view blocks the submit without a word. They are gone; the page checks the name, the password (4 characters or more) and the roles itself.
+- **The core's answer.** It reached only the status line.
+
+Now every answer is said under the button on the Leads screen: "creating lead X…", then "lead X created", or why not. A door without Leads answers "op is read, write, …"; the screen says so, and that dc-door-2026-11-09-cc1 goes on the node.
+
+`test_leads.py` steps 2b and 3b check it.
+
 ## r67 / admin r20: the EOC is the Command Center ([COMMAND_CENTER_V1], door dc-door-2026-11-09-cc1)
 
 John 2026-11-09: "the thing we are calling the EOC is really the Command Center. Rename it across the board so it shows up correctly."

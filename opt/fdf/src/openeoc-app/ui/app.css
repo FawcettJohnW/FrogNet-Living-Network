@@ -184,3 +184,4 @@ body.paperwide #sheet { width: min(900px, 100%); }
 .leadform { display: flex; flex-direction: column; gap: 6px; } .leadform label { display: flex; flex-direction: column; gap: 3px; font-size: 13px; color: var(--mu); }
 .leadform input { font-size: 16px; padding: 7px; border-radius: 6px; border: 1px solid var(--bd); background: #0b130e; color: var(--fg); }
 .leadqr .qrbox { background: #fff; display: inline-block; padding: 8px; border-radius: 6px; margin: 8px 0; }   /* [EOC_LEADS_V1] */
+.leadsay { font-size: 14px; min-height: 1.3em; color: var(--ac); } .leadsay.bad { color: #ff8a80; }   /* [LEAD_SAYS_ITS_ANSWER_V1] */

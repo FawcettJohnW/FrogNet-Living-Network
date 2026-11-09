@@ -49,7 +49,7 @@ public final class AppCore {
 
     public static final String APP = "openeoc";
     public static final String API = "/FawcettInnovations.RINA.ram_interface.php";
-    public static final String BUILD = "openeoc-app-2026-11-09-r67";
+    public static final String BUILD = "openeoc-app-2026-11-09-r68";
 
     private final Ui ui;
     private String door = "", dev = "", name = "", role = "", team = "", user = "", mission = "";
@@ -135,8 +135,16 @@ public final class AppCore {
             else if (op.equals("teamPlace")) teamPlace(m);
             else if (op.equals("door")) redoor(Json.str(m.get("door")).trim());
             else if (op.equals("leads")) leads();                       // [EOC_LEADS_V1]
-            else if (op.equals("leadAdd")) leadAdd(m);
-            else if (op.equals("leadRemove")) leadRemove(Json.str(m.get("lead")));
+            else if (op.equals("leadAdd") || op.equals("leadRemove")) {
+                // [LEAD_SAYS_ITS_ANSWER_V1] (found 2026-11-09: "I hit Create the Lead ... and nothing happened") the answer, or
+                // why not, on the Leads screen itself, not only the status line
+                try { if (op.equals("leadAdd")) leadAdd(m); else leadRemove(Json.str(m.get("lead"))); }
+                catch (Exception e) {
+                    String why = e.getMessage() == null ? e.toString() : e.getMessage();
+                    if (why.contains("op is read")) why = "this node's door has no Leads yet (it answered: " + why + "): put dc-door-2026-11-09-cc1 on the node";
+                    out("ev", "leadSaid", "ok", false, "text", why); throw new Exception(why);
+                }
+            }
             else {                                          // [RT_LAYERS_V1] a layer's op
                 boolean done = false;
                 for (Layer l : layers) if (l.handle(op, m, here)) { done = true; break; }
@@ -196,6 +204,7 @@ public final class AppCore {
         doorCall("op=lead&app=" + APP, Json.write(Json.o("user", user, "password", eocPassword, "lead", lead, "roles", roles,
                 "verifier", net.frognet.ram.Enroll.verifier(pw))));
         say("lead " + lead + " added (" + roles + "): " + lead + " scans the Command Center's QR, names the team, and creates it");
+        out("ev", "leadSaid", "ok", true, "text", "lead " + lead + " created (" + roles + "): its QR is below");
         leads();
     }
     private void leadRemove(String lead) throws Exception {

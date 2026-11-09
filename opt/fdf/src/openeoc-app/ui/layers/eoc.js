@@ -51,11 +51,11 @@ RT.layer('eoc', (RT) => {
     if (was) for (const k of ['lead', 'password', 'roles']) keep[k] = was[k].value
     sheet('leads', 'Leads', `<form class="leadform">
         <div class="meta">A lead creates and runs a team. Give the lead a name, a password, and the roles they can run their team as.</div>
-        <label>Name <input name="lead" autocomplete="off" autocapitalize="none" required></label>
-        <label>Password <input name="password" type="password" autocomplete="new-password" required></label>
+        <label>Name <input name="lead" autocomplete="off" autocapitalize="none"></label>
+        <label>Password <input name="password" type="password" autocomplete="new-password"></label>
         <label>Roles <input name="roles" value="*" autocomplete="off" autocapitalize="none"></label>
         <div class="meta">* for all roles, or a list: ${VIEWS.join(', ')}</div>
-        <button class="go">Create the lead</button></form>
+        <button class="go">Create the lead</button><div class="leadsay${S.leadSay && !S.leadSay.ok ? ' bad' : ''}">${esc((S.leadSay || {}).text || '')}</div></form>
       <h3>Leads</h3>${ls === null ? '<div class="meta">asking the node…</div>' : `<table class="ics"><tr><th>Lead</th><th>Roles</th><th>Team</th><th></th></tr>
       ${Object.entries(ls).sort().map(([n, l]) => `<tr><td><b>${esc(n)}</b></td><td>${esc((l.roles || ['*']).join(', '))}</td><td>${l.team ? esc(l.team) + (l.kind ? ' <span class="meta">(' + esc(l.kind) + ')</span>' : '') : '<span class="meta">not created yet</span>'}</td>
         <td><button type="button" onclick="RT.open('leads','${esc(n)}')">QR</button> <button type="button" onclick="send({op:'leadRemove',lead:'${esc(n)}'})">Remove</button></td></tr>`).join('') || '<tr><td colspan="4" class="meta">none yet</td></tr>'}</table>`}
@@ -64,14 +64,20 @@ RT.layer('eoc', (RT) => {
     if (was) { const f = document.querySelector('#sheet .leadform'); for (const k in keep) f[k].value = keep[k] }
     document.querySelector('#sheet .leadform').onsubmit = (e) => {
       e.preventDefault(); const x = e.target
+      // [LEAD_SAYS_ITS_ANSWER_V1] every refusal said on this screen (a form's own "required" says nothing in a desktop web view)
+      const say = (t, ok) => { S.leadSay = { ok: !!ok, text: t }; const d = document.querySelector('#sheet .leadsay'); if (d) { d.textContent = t; d.classList.toggle('bad', !ok) } status(t) }
       const roles = x.roles.value.split(/[\s,]+/).map(r => r.trim().toLowerCase()).filter(Boolean)
-      if (!roles.length) { status('the roles: * for all, or a list'); return }
+      if (!/^[A-Za-z0-9][A-Za-z0-9._-]{0,39}$/.test(x.lead.value.trim())) return say("the lead's name: letters, digits, . _ - (at most 40)")
+      if (x.password.value.length < 4) return say('a password of at least 4 characters')
+      if (!roles.length) return say('the roles: * for all, or a list')
       const bad = roles.filter(r => r !== '*' && !VIEWS.includes(r))
-      if (bad.length) { status('not a role: ' + bad.join(', ') + ' (the roles: * or ' + VIEWS.join(', ') + ')'); return }
+      if (bad.length) return say('not a role: ' + bad.join(', ') + ' (the roles: * or ' + VIEWS.join(', ') + ')')
+      say('creating lead ' + x.lead.value.trim() + '…', true)
       send({ op: 'leadAdd', lead: x.lead.value.trim(), password: x.password.value, roles })
       S.leadQr = x.lead.value.trim(); x.lead.value = ''; x.password.value = ''; x.roles.value = '*'
     }
   })
+  RT.on('leadSaid', (m) => { S.leadSay = { ok: !!m.ok, text: m.text }; const d = document.querySelector('#sheet .leadsay'); if (d) { d.textContent = m.text; d.classList.toggle('bad', !m.ok) } if (!m.ok) S.leadQr = '' })
   // a lead just added: its QR, when the node's list has it
   RT.on('leads', () => { if (S.leadQr && S.leads && S.leads[S.leadQr] && S.sheet === 'leads') { const n = S.leadQr; S.leadQr = ''; RT.open('leads', n) } })
   RT.button('leadsBtn', 'Leads', () => { RT.open('leads'); send({ op: 'leads' }) }, 'the leads: who can create and run a team, and as which roles', '#layersBtn')
