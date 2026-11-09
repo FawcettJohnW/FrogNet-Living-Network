@@ -5,9 +5,13 @@
 ################################################################
 # test_admin.py [SHOTS_DIR] -- [ADMIN_APP_V1] the OpenEOC admin app (its real core, AdminCore, and its real page,
 # through DevHost) against a real network RAM (fdf-ram), three real members (fdf-client, fdf-app serve) and the real
-# door (/dc/ram.php under PHP, its `ram` CLI the real one). The members were installed with
+# door (/dc/ram.php under PHP, its `ram` CLI the real one). [ROLES_ON_API_V1] databasehost-control and the SystemRam are
+# one role host's api.php on port 80 (127.0.0.2, this tree's api.php on its own MariaDB database), which the members'
+# hosts file names; this machine's own .1 (10.99.99.1 on its veth fnt0) serves held_fire.php, where its holds fire.
+# [APP_SERVICES_V1] the app has one configuration tuple: a (the Admin's first install) wrote it with
 #   fdf-app config openeoc general,alpha,bravo --role eoc@EOC --role alpha:default --role bravo:default
 #       --user EOCAdmin:EOCAdmin=eoc --admin boss:adm-2026
+# b installed it with the admin's password; c keeps a copy from before r47 with no admin key (an older install line).
 # [TEAMS_AUTHORIZED_V1] (John 2026-11-09: "we are authorizing Teams, and that's the trust boundary. EOC allocates Team
 # login and PW, lead connects to the EOC LAN and claims the Team") the admin's screen is Teams and EOC users:
 #   1 a wrong admin password is refused, on this device (no request carries it)
@@ -44,6 +48,7 @@ SHOTS = sys.argv[1] if len(sys.argv) > 1 else ""
 HERE = os.path.dirname(os.path.abspath(__file__)); APP = os.path.dirname(HERE); SRC = os.path.dirname(APP)
 F = os.path.join(SRC, "fdf-source", "fdf"); B = os.path.join(SRC, "fdf-source", "rinab", "build", "static")
 sys.path.insert(0, os.path.join(F, "lib", "python"))
+CORE = os.path.normpath(os.path.join(SRC, "..", "..", "frognet_semantic", "core")); os.environ["FROGNET_CORE"] = CORE
 import fdfram  # noqa: E402
 sys.path.insert(0, HERE)
 import zxing_read  # noqa: E402
@@ -70,27 +75,66 @@ NET = "127.0.0.1:%d" % free()
 procs.append(subprocess.Popen([T + "/bin/fdf-ram", "--listen", NET, "--api", fdfram.API],
                               env=dict(os.environ, RINA_REGION_FILE=T + "/net.perm", RINA_NET_CONFIG=T + "/none"),
                               stdout=subprocess.DEVNULL, stderr=open(T + "/net.log", "w")))
-time.sleep(0.5); rm = fdfram.Ram(NET)
+time.sleep(0.5)
+# [ROLES_ON_API_V1] the role host (both roles) and this node's held_fire.php
+WWW = os.path.normpath(os.path.join(SRC, "..", "..", "..", "var", "www", "html")); PW = "adtest" + str(os.getpid())
+def serve_www(ip, files, db=None):
+    d = os.path.join(T, "www-" + ip); os.makedirs(d)
+    for f in files: shutil.copy(os.path.join(WWW, f), d)
+    if db:
+        open(os.path.join(d, "config.php"), "w").write(open(os.path.join(WWW, "config.php")).read().replace("__FROGNET_DB_PASS__", PW)
+            .replace("define('DB_NAME', 'FrogNet');", "define('DB_NAME', '%s');" % db).replace("define('DB_USER', 'FrogUser');", "define('DB_USER', 'AdTestUser');"))
+        subprocess.run(["mysql", "-e", "DROP DATABASE IF EXISTS %s; CREATE DATABASE %s;" % (db, db) + "".join(
+            "CREATE USER IF NOT EXISTS 'AdTestUser'@'%s' IDENTIFIED BY '%s'; ALTER USER 'AdTestUser'@'%s' IDENTIFIED BY '%s'; GRANT ALL ON %s.* TO 'AdTestUser'@'%s';"
+            % (h, PW, h, PW, db, h) for h in ("localhost", "127.0.0.1"))], check=True)
+        for f in ("Create_Database.sql", "schema_fixups.sql"):
+            subprocess.run("sed 's/`FrogNet`/`%s`/g; s/^USE FrogNet;/USE %s;/' %s | mysql" % (db, db, os.path.join(WWW, f)), shell=True, check=True, stdout=subprocess.DEVNULL)
+    procs.append(subprocess.Popen(["php", "-S", "%s:80" % ip, "-t", d], env=dict(os.environ, PHP_CLI_SERVER_WORKERS="8"), start_new_session=True,
+                                  stdout=subprocess.DEVNULL, stderr=open(T + "/php-%s.log" % ip, "w")))
+    for _ in range(100):
+        try: socket.create_connection((ip, 80), 0.2).close(); return
+        except OSError: time.sleep(0.05)
+subprocess.run(["ip", "addr", "add", "127.0.0.2/8", "dev", "lo"], capture_output=True)
+if subprocess.run(["ip", "-o", "addr", "show", "fnt0"], capture_output=True, text=True).stdout.find("10.99.99.1/") < 0:
+    subprocess.run(["ip", "link", "add", "fnt0", "type", "veth", "peer", "name", "fnt0p"], capture_output=True)
+    subprocess.run(["ip", "addr", "add", "10.99.99.1/24", "dev", "fnt0"], capture_output=True)
+    for d_ in ("fnt0p", "fnt0"): subprocess.run(["ip", "link", "set", d_, "up"], capture_output=True)
+os.makedirs("/run/frognet/held", exist_ok=True); os.chmod("/run/frognet/held", 0o1777)
+serve_www("127.0.0.2", ["api.php", "config.php"], db="adtest_a")
+sys.path.insert(0, CORE)
+import frognet_tuples  # noqa: E402
+ME = frognet_tuples.my_ip(); serve_www(ME, ["held_fire.php"])
+HOSTS = T + "/hosts"
+open(HOSTS, "w").write("127.0.0.1 localhost\n127.0.1.1 FrogNetHost.Seattle7\n127.0.2.1 FrogNetHost.Seattle5\n127.0.3.1 FrogNetHost.Vashon1\n"
+                       "127.0.0.2 databasehost_control.frognet\n127.0.0.2 databasehost.frognet\n")
+rm = fdfram.RoleRam("127.0.0.2")
 MEM = {"a": 2_000_000, "b": 4_000_000, "c": 1_000_000}
 def env(n):
     return dict(os.environ, RINA_RAM=NET, FDF_FACTS=T + "/%s/facts.json" % n, FDF_VAR=T + "/" + n, FDF_APPS=T + "/%s/apps" % n,
-                FDF_BIN=T + "/bin", FDF_PY=os.path.join(F, "lib", "python"), FDF_NAME="Seattle" + n)
+                FDF_BIN=T + "/bin", FDF_PY=os.path.join(F, "lib", "python"), FDF_NAME="Seattle" + n, FDF_HOSTS=HOSTS, FROGNET_CORE=CORE)
 for i, n in enumerate("abc", start=1):
     d = T + "/" + n; os.makedirs(d + "/apps")
     json.dump({"name": {"a": "Seattle7", "b": "Seattle5", "c": "Vashon1"}[n], "guid": "guid-" + n, "role": "node", "subnet": "127.0.%d.0/24" % i,
-               "addrs": [{"ip": "127.0.%d.1" % i, "kind": "own"}], "capability": {"mem_total_kb": MEM[n], "cores": 4}}, open(d + "/facts.json", "w"))
+               "addrs": [{"ip": "127.0.%d.1" % i, "kind": "own"}, {"ip": ME, "kind": "own"}], "capability": {"mem_total_kb": MEM[n], "cores": 4}}, open(d + "/facts.json", "w"))
     procs.append(subprocess.Popen([T + "/bin/fdf-client"], env=env(n), stdout=open(d + "/client.log", "w"), stderr=subprocess.STDOUT))
 time.sleep(1.5)
-for n in "abc":   # c: installed with no admin (an older install line)
-    subprocess.run([os.path.join(F, "bin", "fdf-app"), "config", "openeoc", "general,alpha,bravo", "--role", "eoc@EOC", "--role", "alpha:default",
-                    "--role", "bravo:default", "--user", "EOCAdmin:EOCAdmin=eoc"] + (["--admin", "boss:adm-2026"] if n != "c" else []),
-                   env=env(n), check=True, stdout=subprocess.DEVNULL)
+CFG = ["openeoc", "general,alpha,bravo", "--role", "eoc@EOC", "--role", "alpha:default", "--role", "bravo:default", "--user", "EOCAdmin:EOCAdmin=eoc"]
+for n in "abc":
+    if n == "a":
+        subprocess.run([os.path.join(F, "bin", "fdf-app"), "config"] + CFG + ["--admin", "boss:adm-2026"], env=env(n), check=True, stdout=subprocess.DEVNULL)
+    elif n == "b":
+        subprocess.run([os.path.join(F, "bin", "fdf-app"), "install", "openeoc", "--admin", "boss:adm-2026"], env=dict(env(n), FDF_APP_RESTART="true"),
+                       check=True, stdout=subprocess.DEVNULL, stdin=subprocess.DEVNULL)
+    else:
+        mine = json.load(open(T + "/a/apps/openeoc.json"))
+        json.dump({k: mine[k] for k in ("app", "rams", "ports", "partition", "login", "roles", "categories", "users", "select") if k in mine},
+                  open(T + "/c/apps/openeoc.json", "w"))
     procs.append(subprocess.Popen([os.path.join(F, "bin", "fdf-app"), "serve"], env=env(n), stdout=open(T + "/%s/app.log" % n, "w"), stderr=subprocess.STDOUT))
 # the door, as a node serves it: /dc/ram.php, fdf.env beside www (member a's: its RAM, its app-where.json)
 os.makedirs(T + "/door/www/dc")
 shutil.copy(os.path.join(F, "www", "dc", "ram.php"), T + "/door/www/dc/ram.php")
 json.dump({"apps": []}, open(T + "/door/www/dc/apps.json", "w"))
-open(T + "/door/fdf.env", "w").write("export RINA_RAM=%s FDF_BIN=%s FDF_VAR=%s\n" % (NET, T + "/bin", T + "/a"))
+open(T + "/door/fdf.env", "w").write("export RINA_RAM=%s FDF_BIN=%s FDF_VAR=%s FDF_HOSTS=%s FDF_FACTS=%s FROGNET_CORE=%s\n" % (NET, T + "/bin", T + "/a", HOSTS, T + "/a/facts.json", CORE))
 DP = free(); DOOR = "127.0.0.1:%d" % DP
 procs.append(subprocess.Popen(["php", "-S", DOOR, "-t", T + "/door/www"], stdout=open(T + "/door.log", "w"), stderr=subprocess.STDOUT,
                               env=dict(os.environ, PHP_CLI_SERVER_WORKERS="8")))

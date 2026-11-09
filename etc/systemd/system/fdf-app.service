@@ -1,8 +1,13 @@
+################################################################
+#  Copyright (C) 2016-2026 Fawcett Innovations LLC             #
+#  SPDX-License-Identifier: GPL-2.0-only                       #
+################################################################
 # [APP_SERVICES_V1] the apps installed on this machine (/opt/fdf/apps/<app>.json): adopts each app's one configuration
-# tuple, holds this machine's capability tuples in the SystemRam, serves the AppRams /etc/hosts names this machine for.
+# tuple, announces this machine's capability tuples in the SystemRam [CAPABILITY_ANNOUNCED_V1], serves the AppRams
+# /etc/hosts names this machine for.
 # Shipped with the node bundle (an update carries it); fdf-join writes the same unit.
 [Unit]
-Description=FD&F apps: hold this machine's capability, serve the AppRams it is the AppHost of
+Description=FD&F apps: announce this machine's capability, serve the AppRams it is the AppHost of
 After=network-online.target
 
 [Service]

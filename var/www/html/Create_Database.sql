@@ -148,3 +148,17 @@ CREATE TABLE `SensorData` (
   PRIMARY KEY (`SensorID`),
   CONSTRAINT `fk_sd_sensor` FOREIGN KEY (`SensorID`) REFERENCES `Sensor`(`SensorID`) ON DELETE CASCADE
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+
+-- [HELD_READ_IN_API_V1] The holders of held reads on this host (see schema_fixups.sql).
+CREATE TABLE `HeldRead` (
+  `HoldID`     BIGINT       NOT NULL AUTO_INCREMENT,
+  `Holder`     VARCHAR(45)  NOT NULL,
+  `HolderID`   VARCHAR(64)  NOT NULL,
+  `SensorType` VARCHAR(191) NOT NULL,
+  `NameExact`  VARCHAR(191) NOT NULL DEFAULT '',
+  `NameLike`   VARCHAR(191) NOT NULL DEFAULT '',
+  `CreatedAt`  TIMESTAMP    NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  PRIMARY KEY (`HoldID`),
+  UNIQUE KEY `idx_hold` (`Holder`, `HolderID`, `SensorType`, `NameExact`, `NameLike`),
+  KEY `idx_hold_type` (`SensorType`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
