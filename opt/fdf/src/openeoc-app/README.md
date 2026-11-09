@@ -47,6 +47,31 @@ role's `act`/`req`, or `RT.button`). **A new view**: `RT.role(...)` in a layer's
 `RTA.panel(title, fn)` (none yet). Gates: `test/test_app.py` (32 checks; the Team and Public apps run with their own
 layers only), `test/test_team_host.py`, `android/typecheck.sh`.
 
+## The UI preview: EOC, Field and EOCAdmin ([UI_PREVIEW_V1], 2026-11-09)
+
+`ui-preview/` is a clickable preview of the new apps, for UI review (see its README.md). It has no network: three browser pages share one set of tuples in the browser.
+
+- **EOC** is the FEMA EOC function.
+- **Field** is the app each organization runs: Team, Hospital, Ambulance, Shelter and others. The app is its category.
+- **EOCAdmin** is the offline paperwork: ICS forms, IAP, 214 logs, AAR/IP.
+
+How OpenEOC's parts relate (John 2026-11-09):
+
+- **Roles.** Every physical node holds the FrogNetHost role. Almost every node is installed with OpenEOC, so it can hold EOCCommand. The election (`core/app_hosts.py`) picks the node that serves the general RAM, and a lone node elects itself.
+- **EOCCommandAdmin.** That is admin r17, which authorizes Teams and EOC users.
+- **EOCAdmin.** The new paperwork app, which the preview shows.
+
+The preview's `shared/store.js` is the only part that would change to bind it to the RAM. `test/test_ui_preview.py` runs the whole flow in Chromium:
+
+1. A Team claims its login. A second claim of the same login is refused.
+2. A member joins with the team password.
+3. A Hospital joins and reports, and its lifeline changes at the EOC.
+4. The EOC assigns Team Alpha, and the Team completes the assignment.
+5. The EOC approves a request.
+6. EOCAdmin's 209 fills in from these records, and its IAP renders.
+
+The test also checks every screen at phone width.
+
 ## r59: one team password by default, a member's own password if the lead says so ([MEMBER_PASSWORDS_OPTIONAL_V1])
 
 John, 2026-11-09: members should "default to one password for the team, with the option of individual passwords if
