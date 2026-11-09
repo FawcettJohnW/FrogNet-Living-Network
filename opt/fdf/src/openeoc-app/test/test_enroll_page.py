@@ -36,7 +36,7 @@ STUB = """window.__sent = []; window.rtNative = {
   send: l => __sent.push(['send', JSON.parse(l)]), scanTeam: () => __sent.push(['scan']),
   enroll: j => __sent.push(['enroll', JSON.parse(j)]), teamMembers: () => __sent.push(['members']),
   addMember: (n, p) => __sent.push(['add', n, p]), removeMember: n => __sent.push(['remove', n]),
-  teamHost: () => __sent.push(['host']),
+  teamHost: () => __sent.push(['host']), teamPlace: (a) => __sent.push(['place', a]), ensureHotspot: () => __sent.push(['hotspot']),
   setTeamPassword: p => __sent.push(['teamPw', p]) }"""
 with tempfile.TemporaryDirectory() as tmp, sync_playwright() as pw:
     b = pw.chromium.launch(); pg = b.new_page(viewport={"width": 420, "height": 860})
@@ -67,15 +67,20 @@ with tempfile.TemporaryDirectory() as tmp, sync_playwright() as pw:
     check(c.get("door") == "10.170.170.1" and c.get("name") == "kim" and c.get("role") == "team" and c.get("team") == "Echo"
           and c.get("user") == "kim" and c.get("password") == "kim-2026" and c.get("invite") == "",
           "3 enrolled: the page connects as kim, Team Echo, at the door: %s" % {k: c.get(k) for k in ("door", "name", "role", "team", "user")})
-    # 3b [LEAD_HOSTS_ITS_TEAM_V1] the lead connected, its team served nowhere (not in the door's RAMs): this phone hosts it;
-    #    served already (its RAMs name it): not replaced
-    pg.evaluate("__sent.length = 0")
+    # 3b [LEAD_STARTS_ASKED_V1] the lead connected, its team served nowhere: nothing done at once; a second later it is asked
+    #    (Host the team on this phone, Use SystemRam, Turn on the hotspot, Not now); Host and Use SystemRam do so
+    pg.evaluate("__sent.length = 0; S.leadAsked = false")
     pg.evaluate("rtDeliver(JSON.stringify({ev: 'connected', role: 'team', team: 'Echo', build: 'test', rams: {general: '10.170.170.1:61471'}}))")
-    hosts = ["host"] in pg.evaluate("__sent")
-    pg.evaluate("__sent.length = 0")
+    none = not [x for x in pg.evaluate("__sent") if x[0] in ("host", "place", "hotspot")]
+    pg.wait_for_selector("#lsHost", timeout=3000)
+    asked = all(pg.is_visible(x) for x in ("#lsHost", "#lsSys", "#lsHot", "#lsNo"))
+    pg.click("#lsSys"); sysr = ["place", "systemram"] in pg.evaluate("__sent")
+    pg.evaluate("__sent.length = 0; S.leadAsked = false")
     pg.evaluate("rtDeliver(JSON.stringify({ev: 'connected', role: 'team', team: 'Echo', build: 'test', rams: {general: '10.170.170.1:61471', echo: '10.170.170.1:65355'}}))")
-    kept = ["host"] not in pg.evaluate("__sent")
-    check(hosts and kept, "3b the lead's team served nowhere: this phone hosts it (%s); served already: not replaced (%s)" % (hosts, kept))
+    pg.wait_for_selector("#lsHot", timeout=3000)
+    kept = not pg.is_visible("#lsHost") and not pg.is_visible("#lsSys"); pg.click("#lsHot"); hot = ["hotspot"] in pg.evaluate("__sent")
+    check(none and asked and sysr and kept and hot, "3b the lead asked a second after connecting, nothing done before (%s): Host / Use SystemRam / hotspot / Not now %s; Use SystemRam places it %s; served already: only the hotspot is offered %s, and turns it on %s"
+          % (none, asked, sysr, kept, hot))
     btn = pg.evaluate("!document.querySelector('#membersBtn').hidden")   # (under ☰ on a phone: [RT_HEADER_MENU_V1])
     pg.click("#membersBtn")
     addrs = [{"label": "this phone's hotspot", "addr": "192.168.43.1"}, {"label": "FrogNet (the Internet)", "addr": "10.253.1.1"}]

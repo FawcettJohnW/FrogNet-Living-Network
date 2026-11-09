@@ -14,8 +14,8 @@ android {
         applicationId = "net.frognet.openeoc.hospital"
         minSdk = 29
         targetSdk = 34
-        versionCode = 40
-        versionName = "openeoc-app-2026-11-09-r65"
+        versionCode = 41
+        versionName = "openeoc-app-2026-11-09-r66"
         manifestPlaceholders["rtLayers"] = rtLayers.joinToString(",")
     }
     compileOptions { sourceCompatibility = JavaVersion.VERSION_17; targetCompatibility = JavaVersion.VERSION_17 }

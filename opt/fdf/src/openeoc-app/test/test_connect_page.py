@@ -5,7 +5,7 @@
 #   1 [JOINED_IS_DONE_V1] a phone that has joined (cfg.enrolled) opens on the map: no picker, no connect screen; it
 #     connects as what joining made it (Team Echo, its user, the node it joined through), no password
 #   2 that connect refused: the connect screen, saying why (not a blank screen); the scan is not offered to it
-#   3 [LEAD_HOTSPOT_V1] a lead's connect makes sure its hotspot is on (rtNative.ensureHotspot); a member's does not
+#   3 [LEAD_STARTS_ASKED_V1] a lead's connect asks, a second after, about its hotspot (Turn on the hotspot: rtNative.ensureHotspot); a member's does not
 #   4 [APP_EXIT_V1] Exit, on the connect screen and in the header (☰ on a phone), calls rtNative.exit; with no exit on
 #     the native side (the desktop) there is none
 #   5 [ONE_DIALOG_V1] Layers, the chat, a sheet (Sensors, Diag) and the person pop-up: opening one closes the other
@@ -51,7 +51,9 @@ with sync_playwright() as pw:
     # which turns the hotspot on itself -- test_enroll_page 3b)
     dl(pg, {"ev": "connected", "role": "team", "team": "Echo", "build": "t", "rams": {"general": "10.170.170.1:61471", "echo": "10.170.170.1:65355"}})
     gone = pg.evaluate("document.querySelector('#splash').classList.contains('gone')")
-    check(sent(pg, "hotspot") == [["hotspot"]] and not pg.is_hidden("#main") and gone, "3 the lead's connect asks for its hotspot: %s; the splash gone %s" % (sent(pg, "hotspot"), gone))
+    # [LEAD_STARTS_ASKED_V1] asked, a second after: Turn on the hotspot
+    pg.wait_for_selector("#lsHot", timeout=3000); pg.click("#lsHot")
+    check(sent(pg, "hotspot") == [["hotspot"]] and not pg.is_hidden("#main") and gone, "3 the lead's connect asks about its hotspot (Turn on the hotspot: %s); the splash gone %s" % (sent(pg, "hotspot"), gone))
     # 2 a joined member whose connect is refused; 3 a member asks for no hotspot
     pg2, errs2 = page(br, NATIVE, {"enrolled": {"user": "W7NEW", "role": "echo", "lead": False, "door": "10.170.170.1"}})
     pg2.wait_for_timeout(2300)

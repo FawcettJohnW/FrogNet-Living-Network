@@ -594,7 +594,11 @@ public final class MainActivity extends Activity implements LocationListener {
         for (android.net.Network n : cm.getAllNetworks()) { android.net.LinkProperties lp = cm.getLinkProperties(n); if (lp != null && lp.getInterfaceName() != null) nets.add(lp.getInterfaceName()); }
         try {
             for (java.net.NetworkInterface ni : java.util.Collections.list(java.net.NetworkInterface.getNetworkInterfaces())) {
-                if (!ni.isUp() || ni.isLoopback() || ni.getName().startsWith("tun") || nets.contains(ni.getName())) continue;
+                // [HOTSPOT_SEEN_V1] (found 2026-11-09 on John's Samsung: the hotspot on, swlan0 10.143.246.81, and still "turn it
+                // on") Android lists the hotspot's own swlan0 among its networks there: a hotspot interface by its name is the
+                // hotspot even when listed; another listed one (wlan1 ...) can be a Wi-Fi this phone is a client of
+                if (!ni.isUp() || ni.isLoopback() || ni.getName().startsWith("tun")) continue;
+                if (nets.contains(ni.getName()) && !ni.getName().matches("(swlan|ap|softap)\\d*")) continue;
                 // [TEAM_WIFI_V1] a tethering interface by its name (the hotspot's swlan0/ap0/wlan1/softap0, USB's rndis0/ncm0,
                 // Bluetooth's bt-pan): any other interface Android does not list (rmnet, ccmni, dummy, p2p ...) is not the
                 // team's Wi-Fi -- taking one for it said "hosting the team on this phone's hotspot" with the hotspot off

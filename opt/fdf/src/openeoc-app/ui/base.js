@@ -500,19 +500,36 @@ function connected(m) {
   }
   tabs(); toList()
   if (r.connected) r.connected(m)
-  // [LEAD_HOTSPOT_V1] a team's lead: its hotspot is the team's Wi-Fi; on every connect the phone makes sure it is on
-  // [LEAD_HOSTS_ITS_TEAM_V1] (John 2026-11-09, found when team messages said "team Bigdogs's RAM is not served on this
-  // network": "If the team is not currently active on the network, a device joining and starting the team will be the
-  // host") the lead's phone hosts its team's RAM itself when no one serves it; one that is served is not replaced.
-  // Hosting needs the hotspot on: Host team turns it on (asks Android) and hosts when it is.
+  // [LEAD_STARTS_ASKED_V1] (John 2026-11-09: "On the phone, when it starts, it needs to wait a second to see if I want to
+  // start the hotspot and if I want to host the system RAM") the lead's phone asks, nothing done before it is answered:
+  // the hotspot (the team's Wi-Fi), and -- its team served nowhere ([LEAD_HOSTS_ITS_TEAM_V1]) -- where the team lives:
+  // on this phone (Host team) or with no RAM of its own (Use SystemRam). A team served already is not replaced.
   const myTeam = String(S.team || '').toLowerCase()
-  const led = S.cfg.enrolled && S.cfg.enrolled.lead && String(S.cfg.enrolled.role || '').toLowerCase() === myTeam
-  if (led && S.role === 'team' && myTeam && !Object.keys(m.rams || {}).some(k => k.toLowerCase() === myTeam) && window.rtNative && window.rtNative.teamHost) {
-    status('team ' + cap(myTeam) + "'s RAM is served nowhere yet: this phone, its lead's, hosts it"); window.rtNative.teamHost()
-  } else if (S.cfg.enrolled && S.cfg.enrolled.lead && window.rtNative && window.rtNative.ensureHotspot) window.rtNative.ensureHotspot()
+  if (S.cfg.enrolled && S.cfg.enrolled.lead && S.role === 'team' && myTeam && window.rtNative && !S.leadAsked) {
+    S.leadAsked = true
+    const served = Object.keys(m.rams || {}).some(k => k.toLowerCase() === myTeam)
+    setTimeout(() => leadStart(served), 1000)
+  }
   RT.fire('connected', m)
   addressFix()
   redraw()
+}
+
+// [LEAD_STARTS_ASKED_V1] the lead's start: the hotspot, and where its team lives when no one serves it
+function leadStart(served) {
+  const t = cap(S.team), n = window.rtNative
+  if (!n.ensureHotspot && (served || (!n.teamHost && !n.teamPlace))) return   // nothing to ask here (a computer: no hotspot)
+  sheet('leadStart', 'Team ' + t, `<div class="meta">${served ? 'Team ' + esc(t) + ' is served on the network.' : 'Team ' + esc(t) + ' is served nowhere yet: its messages go nowhere until it is.'}</div>
+    <div class="sens">
+      ${served ? '' : `${n.teamHost ? `<button type="button" id="lsHost"><b>Host the team on this phone</b> <span class="meta">its RAM here; the hotspot is the team's Wi-Fi (turned on if it is off)</span></button>` : ''}
+      ${n.teamPlace ? `<button type="button" id="lsSys"><b>Use SystemRam</b> <span class="meta">no RAM of its own: everything through databasehost.frognet's api.php</span></button>` : ''}`}
+      ${n.ensureHotspot ? `<button type="button" id="lsHot"><b>Turn on the hotspot</b> <span class="meta">the team's Wi-Fi, for members to join</span></button>` : ''}
+      <button type="button" id="lsNo"><b>Not now</b> <span class="meta">Host team and Use SystemRam stay in the header</span></button></div>`)
+  const on = (id, f) => { const b = $('#' + id); if (b) b.onclick = () => { $('#sheet').hidden = true; S.sheet = ''; f() } }
+  on('lsHost', () => { status('hosting team ' + t + ' on this phone'); n.teamHost() })
+  on('lsSys', () => { status('team ' + t + ': no RAM of its own; everything through the SystemRam'); n.teamPlace('systemram') })
+  on('lsHot', () => n.ensureHotspot())
+  on('lsNo', () => {})
 }
 
 // ------------------------------------------------------------ the map

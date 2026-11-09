@@ -47,6 +47,23 @@ role's `act`/`req`, or `RT.button`). **A new view**: `RT.role(...)` in a layer's
 `RTA.panel(title, fn)` (none yet). Gates: `test/test_app.py` (32 checks; the Team and Public apps run with their own
 layers only), `test/test_team_host.py`, `android/typecheck.sh`.
 
+## r66: the lead is asked at start; the hotspot is seen ([LEAD_STARTS_ASKED_V1], [HOTSPOT_SEEN_V1])
+
+**The lead is asked at start.** John 2026-11-09: "On the phone, when it starts, it needs to wait a second to see if I want to start the hotspot and if I want to host the system RAM."
+
+A second after the lead's phone connects, it asks; nothing is done before the answer. The choices:
+- **Host the team on this phone** and **Use SystemRam**, only when its team is served nowhere;
+- **Turn on the hotspot**;
+- **Not now**.
+
+This replaces r64's hosting at once and the hotspot asked of Android on every connect.
+
+**The hotspot is seen.** Found in John's Logcat the same day: the hotspot was on (swlan0 10.143.246.81), but Host team said "turn it on". His Samsung lists its own hotspot interface among Android's networks, and hotspotAddr skipped every listed interface. Now swlan, ap and softap interfaces count as the hotspot even when listed.
+
+**Checked and left alone.** The same Logcat's "roles: cannot reach the node at 10.170.170.1" came before "FrogNet tunnel up" (the roles call at start, made before the tunnel was up). The connect that followed reached the door, and that address is Seattle7's own. Nothing changed for it.
+
+**Tests:** `test_enroll_page` step 3b and `test_connect_page` step 3.
+
 ## r65 / admin r19: Use SystemRam; the window says its view ([TEAM_ON_SYSTEMRAM_V1], [WINDOW_SAYS_ITS_VIEW_V1], door dc-door-2026-11-09-sysram1)
 
 **Use SystemRam.** John 2026-11-09: "Add an option to the Team config that says Use SystemRam. If that is set, the role does not have its own RAM and runs everything through databasehost.frognet, using the default api.php." The option is on the lead's Team screen, in place of the former "Team on the SystemRam".
