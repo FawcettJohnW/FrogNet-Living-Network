@@ -45,6 +45,12 @@ Where things are [APP_SERVICES_V1]:
         the app's first installation by its Admin: this machine's copy (FDF_APPS/<app>.json, the admin key kept there
         only) and the app's one configuration tuple, signed, written into databasehost-control (a port picked for every
         RAM). --serve: the RAMs this machine offers (default all); --select/--need: the app's selection (fdf_select.py).
+  fdf-app rename OLD NEW --admin USER:PASSWORD
+        [APP_RENAMED_V1] (RangerTrak -> OpenEOC, John 2026-11-08) the app installed here as OLD is the app NEW: this
+        machine's copy carried over (its RAMs, ports, roles, categories, users' and the teams-join verifiers, what it
+        serves; the admin key derived again for NEW, from the admin's password); the first machine renamed writes NEW's
+        one configuration tuple, every other one adopts it. OLD's copy is moved to FDF_VAR/retired-OLD.json; at the
+        restart OLD's capability is withdrawn. A team that joined OLD (fdf-app, child, OLD.<team>) joins NEW again.
   fdf-app install APP [config's arguments] [--admin USER:PASSWORD]
         [APP_INSTALL_V1] the one command on a machine's console: the app's one configuration tuple, read from
         databasehost-control, shown and adopted as it is (changes are the admin app's); none there: the first install
@@ -60,7 +66,7 @@ Environment: FDF_HOSTS (/etc/hosts), RINA_CONTROL_RAM / RINA_SYSTEM_RAM (an api.
 """
 import hashlib, hmac, json, os, queue, random, signal, socket, subprocess, sys, threading, time
 
-BUILD_TAG = "fdf-app-2026-11-07-roles1"   # [ROLES_ON_API_V1][CAPABILITY_ANNOUNCED_V1]
+BUILD_TAG = "fdf-app-2026-11-08-r52"   # [ROLES_ON_API_V1][CAPABILITY_ANNOUNCED_V1][APP_RENAMED_V1]
 LIB = os.environ.get("FDF_PY") or os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "lib", "python")
 sys.path.insert(0, LIB)
 import fdfram  # noqa: E402
@@ -722,6 +728,40 @@ def first_install(app, c, rm, old=None):
     return 0
 
 
+def rename(old, new, given, prog="fdf-app"):
+    """[APP_RENAMED_V1] this machine's copy of OLD carried over as NEW's (see the usage); then NEW is installed from it"""
+    ok = lambda x: bool(x) and all(ch.isalnum() or ch in "_-" for ch in x)
+    if not (ok(old) and ok(new)) or old == new:
+        print("fdf-app: rename OLD NEW: two different app names, letters, digits, _ and -"); return 2
+    who, _, pw = given.partition(":")
+    if not who or not pw:
+        print("fdf-app: --admin USER:PASSWORD"); return 2
+    mine = installed().get(old)
+    if not mine:
+        print("fdf-app: %s is not installed on this machine (%s): nothing renamed" % (old, os.path.join(APPS, old + ".json"))); return 2
+    if installed().get(new):
+        print("fdf-app: %s is installed on this machine already: nothing renamed" % new); return 2
+    ma = mine.get("admin") or {}
+    if not ma.get("key"):
+        print("fdf-app: %s has no admin key on this machine: nothing renamed (fdf-app install %s --admin USER:PASSWORD first)" % (old, old)); return 2
+    if ma.get("user") != who:
+        print("fdf-app: --admin names %s; %s's admin is %s" % (who, old, ma.get("user"))); return 2
+    if not hmac.compare_digest(admin_key(old, who, pw).hex(), ma["key"]):   # the password is the admin's: it opens OLD's key
+        print("fdf-app: that is not %s's admin password: nothing renamed" % old); return 2
+    k = admin_key(new, who, pw)
+    copy = {kk: mine[kk] for kk in ("rams", "ports", "partition", "login", "roles", "categories", "users", "join", "select", "serve") if kk in mine}
+    copy.update(app=new, admin={"user": who, "salt": admin_salt(new, who).hex(), "n": ADMIN_N, "key": k.hex(), "check": admin_check(k)})
+    save_installed(new, copy)                         # a copy with no signed tuple: install writes NEW's tuple from it, or adopts NEW's
+    src, dst = os.path.join(APPS, old + ".json"), os.path.join(VAR, "retired-%s.json" % old)
+    os.makedirs(VAR, exist_ok=True); os.replace(src, dst)  # out of FDF_APPS before the restart: the service never serves both
+    rc = install([prog, "install", new, "--admin", given])
+    if installed().get(new, {}).get("signed"):
+        print("fdf-app: %s is %s on this machine; %s's copy is %s" % (old, new, old, dst)); return rc
+    os.remove(os.path.join(APPS, new + ".json")); os.replace(dst, src)
+    print("fdf-app: %s was not installed as %s: %s is kept as it was (restart fdf-app to serve it again if it restarted)" % (old, new, old))
+    return rc or 1
+
+
 def install(argv):
     app = argv[2]
     if not (app and all(ch.isalnum() or ch in "_-" for ch in app)):
@@ -748,9 +788,9 @@ def install(argv):
         # with the admin key it keeps
         if bag is None:
             print("fdf-app: %s: this machine's configuration from before r47 becomes the app's one configuration tuple" % app)
-            c = {k: mine0[k] for k in ("rams", "partition", "login", "roles", "categories", "users", "admin", "select", "serve", "places") if k in mine0}
+            c = {k: mine0[k] for k in ("rams", "partition", "login", "roles", "categories", "users", "join", "admin", "select", "serve", "places") if k in mine0}
             c["app"] = app
-            return first_install(app, c, rm) or restart_service()
+            return first_install(app, c, rm, mine0) or restart_service()   # its ports kept
         pub = bag.get("admin") or {}
         if given_admin and pub.get("user"):          # [ADMIN_REKEY_V1] the admin's key replaces the one kept here
             a = _admin_for(app, pub, given_admin)
@@ -873,6 +913,8 @@ def main(argv):
         return first_install(argv[2], c, rm, old)
     if len(argv) >= 3 and argv[1] == "install":
         return install(argv)
+    if len(argv) == 6 and argv[1] == "rename" and argv[4] == "--admin":
+        return rename(argv[2], argv[3], argv[5], argv[0])
     if len(argv) == 4 and argv[1] == "where":
         print(where(argv[2], argv[3])); return 0
     if len(argv) == 2 and argv[1] == "serve":
