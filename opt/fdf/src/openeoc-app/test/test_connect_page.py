@@ -47,7 +47,9 @@ with sync_playwright() as pw:
           and c.get("name") == "KJ7ABC" and c.get("password") == "" and shown == [False, False] and splash[0] and "KJ7ABC: connecting as Team, lead of Echo" in splash[1]
           and "waiting for the FrogNet tunnel" in splash[1] and not errs,
           "1 a joined phone connects by itself, as %s; connect screen / picker shown %s; the splash up, saying %r; errors %s" % ({k: c.get(k) for k in ("role", "team", "user", "door", "name")}, shown, splash, errs))
-    dl(pg, {"ev": "connected", "role": "team", "team": "Echo", "build": "t"})
+    # (its team served: the door's RAMs name echo. [LEAD_HOSTS_ITS_TEAM_V1] served nowhere, the lead hosts it: Host team,
+    # which turns the hotspot on itself -- test_enroll_page 3b)
+    dl(pg, {"ev": "connected", "role": "team", "team": "Echo", "build": "t", "rams": {"general": "10.170.170.1:61471", "echo": "10.170.170.1:65355"}})
     gone = pg.evaluate("document.querySelector('#splash').classList.contains('gone')")
     check(sent(pg, "hotspot") == [["hotspot"]] and not pg.is_hidden("#main") and gone, "3 the lead's connect asks for its hotspot: %s; the splash gone %s" % (sent(pg, "hotspot"), gone))
     # 2 a joined member whose connect is refused; 3 a member asks for no hotspot

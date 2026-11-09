@@ -67,7 +67,15 @@ with tempfile.TemporaryDirectory() as tmp, sync_playwright() as pw:
     check(c.get("door") == "10.170.170.1" and c.get("name") == "kim" and c.get("role") == "team" and c.get("team") == "Echo"
           and c.get("user") == "kim" and c.get("password") == "kim-2026" and c.get("invite") == "",
           "3 enrolled: the page connects as kim, Team Echo, at the door: %s" % {k: c.get(k) for k in ("door", "name", "role", "team", "user")})
-    pg.evaluate("rtDeliver(JSON.stringify({ev: 'connected', role: 'team', team: 'Echo', build: 'test'}))")
+    # 3b [LEAD_HOSTS_ITS_TEAM_V1] the lead connected, its team served nowhere (not in the door's RAMs): this phone hosts it;
+    #    served already (its RAMs name it): not replaced
+    pg.evaluate("__sent.length = 0")
+    pg.evaluate("rtDeliver(JSON.stringify({ev: 'connected', role: 'team', team: 'Echo', build: 'test', rams: {general: '10.170.170.1:61471'}}))")
+    hosts = ["host"] in pg.evaluate("__sent")
+    pg.evaluate("__sent.length = 0")
+    pg.evaluate("rtDeliver(JSON.stringify({ev: 'connected', role: 'team', team: 'Echo', build: 'test', rams: {general: '10.170.170.1:61471', echo: '10.170.170.1:65355'}}))")
+    kept = ["host"] not in pg.evaluate("__sent")
+    check(hosts and kept, "3b the lead's team served nowhere: this phone hosts it (%s); served already: not replaced (%s)" % (hosts, kept))
     btn = pg.evaluate("!document.querySelector('#membersBtn').hidden")   # (under ☰ on a phone: [RT_HEADER_MENU_V1])
     pg.click("#membersBtn")
     addrs = [{"label": "this phone's hotspot", "addr": "192.168.43.1"}, {"label": "FrogNet (the Internet)", "addr": "10.253.1.1"}]

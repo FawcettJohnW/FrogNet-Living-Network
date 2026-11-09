@@ -49,7 +49,7 @@ public final class AppCore {
 
     public static final String APP = "openeoc";
     public static final String API = "/FawcettInnovations.RINA.ram_interface.php";
-    public static final String BUILD = "openeoc-app-2026-11-09-r63";
+    public static final String BUILD = "openeoc-app-2026-11-09-r64";
 
     private final Ui ui;
     private String door = "", dev = "", name = "", role = "", team = "", user = "", mission = "";

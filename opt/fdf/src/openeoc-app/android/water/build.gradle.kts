@@ -14,8 +14,8 @@ android {
         applicationId = "net.frognet.openeoc.water"
         minSdk = 29
         targetSdk = 34
-        versionCode = 38
-        versionName = "openeoc-app-2026-11-09-r63"
+        versionCode = 39
+        versionName = "openeoc-app-2026-11-09-r64"
         manifestPlaceholders["rtLayers"] = rtLayers.joinToString(",")
     }
     compileOptions { sourceCompatibility = JavaVersion.VERSION_17; targetCompatibility = JavaVersion.VERSION_17 }

@@ -47,6 +47,16 @@ role's `act`/`req`, or `RT.button`). **A new view**: `RT.role(...)` in a layer's
 `RTA.panel(title, fn)` (none yet). Gates: `test/test_app.py` (32 checks; the Team and Public apps run with their own
 layers only), `test/test_team_host.py`, `android/typecheck.sh`.
 
+## r64: the lead's phone hosts its team ([LEAD_HOSTS_ITS_TEAM_V1])
+
+Found on John's phone on 2026-11-09: team messages said "say: team Bigdogs's RAM is not served on this network". The team BigDogs was created by its lead, but nothing served its RAM until someone pressed Host team.
+
+The rule (John): "If the team is not currently active on the network, a device joining and starting the team will be the host."
+
+Now, when the lead connects and the door's RAMs do not name its team, the lead's phone hosts it at once, as Host team does. It turns the hotspot on through Android if it is off, and hosts when it is on.
+
+A team that is served already is not replaced. `test_enroll_page.py` step 3b checks both cases.
+
 ## r63: a claim made off the node's Wi-Fi says so ([CLAIM_ON_THE_NODES_WIFI_V1])
 
 Found on John's phone on 2026-11-09: it scanned the lead QR for JohnPhone, and Create the Team (BigDogs) timed out twice ("failed to connect to /10.170.170.1 (port 80) from /10.101.113.61 ... after 8000ms").

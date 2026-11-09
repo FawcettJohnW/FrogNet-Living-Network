@@ -499,7 +499,15 @@ function connected(m) {
   tabs(); toList()
   if (r.connected) r.connected(m)
   // [LEAD_HOTSPOT_V1] a team's lead: its hotspot is the team's Wi-Fi; on every connect the phone makes sure it is on
-  if (S.cfg.enrolled && S.cfg.enrolled.lead && window.rtNative && window.rtNative.ensureHotspot) window.rtNative.ensureHotspot()
+  // [LEAD_HOSTS_ITS_TEAM_V1] (John 2026-11-09, found when team messages said "team Bigdogs's RAM is not served on this
+  // network": "If the team is not currently active on the network, a device joining and starting the team will be the
+  // host") the lead's phone hosts its team's RAM itself when no one serves it; one that is served is not replaced.
+  // Hosting needs the hotspot on: Host team turns it on (asks Android) and hosts when it is.
+  const myTeam = String(S.team || '').toLowerCase()
+  const led = S.cfg.enrolled && S.cfg.enrolled.lead && String(S.cfg.enrolled.role || '').toLowerCase() === myTeam
+  if (led && S.role === 'team' && myTeam && !Object.keys(m.rams || {}).some(k => k.toLowerCase() === myTeam) && window.rtNative && window.rtNative.teamHost) {
+    status('team ' + cap(myTeam) + "'s RAM is served nowhere yet: this phone, its lead's, hosts it"); window.rtNative.teamHost()
+  } else if (S.cfg.enrolled && S.cfg.enrolled.lead && window.rtNative && window.rtNative.ensureHotspot) window.rtNative.ensureHotspot()
   RT.fire('connected', m)
   addressFix()
   redraw()
