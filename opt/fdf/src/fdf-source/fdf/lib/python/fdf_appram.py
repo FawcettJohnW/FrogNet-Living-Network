@@ -38,7 +38,7 @@ def config_of(app):
     except (OSError, ValueError):
         pass
     try:
-        for c in fdfram.Ram(fdfram.control_ram()).read("fdf-app", "config", app):
+        for c in fdfram.control_ram().read("fdf-app", "config", app):   # [ROLES_ON_API_V1] api.php
             return json.loads(str((c.get("bag") or {}).get("config") or "{}"))
     except (fdfram.RamError, ValueError):
         pass

@@ -13,7 +13,7 @@ informed as that world changes.
 | Fabric | The Linux nodes, their tunnels and their plans. It does all routing and re-forms as connectivity changes. | Anything a server does. Every server is blind to it. |
 | Member | A Linux machine with a bare-bones install. It is a full network member and can read the tuples. | A Windows or Android machine. |
 | Device | A Windows or Android machine. It attaches through the fabric and uses apps. | A member. It never serves the general AppRam; a Team's AppRam may be on its lead's device (`[GROUP_PLACE_V1]`). |
-| databasehost (the SystemRam) | The existing, deterministic selection that locates the current **network** RAM, the RAM host where members read and write. Capability and configuration tuples are in databasehost-control (the highest .1). | The app's RAM server. That is a separate selection. |
+| databasehost (the SystemRam) | The existing, deterministic selection of one host; the SystemRam is that host's `api.php` on port 80 (`[ROLES_ON_API_V1]`). Capability tuples and each machine's answers are there; configuration tuples are in databasehost-control (the highest .1, its own `api.php`). | The app's RAM server. That is a separate selection. A RAM port: roles have none. |
 | Droplet | An app's RAM server code, installable on any Linux member. | A DigitalOcean machine, or anything on the internet. |
 | Primary | The droplet install the admin designated. Its placement defines the app's scope. | Something the server knows. The server does not know it is primary and knows nothing about network state. |
 | App RAM server selection | The app's own deterministic criteria and algorithm, run over the capability tuples, that pick which droplet serves the app. | databasehost. |
@@ -508,8 +508,10 @@ was said on the radio, and stays in the log.
   - it holds a read on the configuration tuples in databasehost-control and adopts a newer seq whose mac is the admin
     key's, answering in the SystemRam, `(fdf-app, applied, <app>.<guid>)`; a Team's own tuple,
     `(fdf-app, config, <app>.<team>)`, written by its lead through the door, is adopted when it is that Team's lead's;
-  - it holds its capability for every AppRam it offers in the SystemRam, `(fdf-app, can, <app>.<ram>.<guid>)`,
-    written own:true by `ram hold` on its own session (`[CAPABILITY_HELD_BY_ITS_SESSION_V1]`): gone with the service;
+  - it announces its capability for every AppRam it offers in the SystemRam, `(fdf-app, can, <app>.<ram>.<guid>)`
+    (`[CAPABILITY_ANNOUNCED_V1]`): a plain write, a held read on the `can` family that writes them again if they go,
+    and a withdrawal at stop. A machine that leaves without stopping is removed with its writer: its permanent socket
+    to the role host closing removes what it wrote (`[WRITER_GONE_V1]`);
   - it serves each AppRam whose AppHost `/etc/hosts` names this machine, on that AppRam's port, and stops the others;
     a new port in the configuration restarts it there. It holds each AppRam's listening socket and hands it to
     `fdf-ram` (`RIBBIT_LISTEN_FD`), so one that exits is started again on the same socket
@@ -518,7 +520,9 @@ was said on the radio, and stays in the log.
   node's election (`discovery/elect.py`, `discovery/live.py`) writes `<app>Host.frognet` for each app's general AppRam and
   `<team>Host.<app>` for each Team's, one handler per service: a Team its lead placed "here" on a node, that node; else
   the app's selection over the live capability tuples. The tunnel daemon holds a read on the `fdf-app` family in
-  databasehost-control and in the SystemRam, so a capability or configuration written or gone is an event. When
+  databasehost-control and in the SystemRam (a held read in each role's `api.php`, fired through this node's port 80,
+  `[HELD_READ_IN_API_V1]`), so a capability or configuration written or gone is an event; `/etc/hosts` rewritten ends
+  the holds, and they are held again at the hosts it names. When
   databasehost-control moves, the merge writes the configuration tuples into it again, as signed, from the installed
   machines' copies (`[CONFIG_WRITTEN_AGAIN_BY_THE_MERGE_V1]`).
 - **The door on a node, `ram.php`** (door r13), maps each service to its app and RAM (`apps.json`: `"app"`, `"rams"`).

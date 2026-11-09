@@ -341,15 +341,14 @@ of its own.
 > **John** (rev 2, section 4): the LAN's machines from the highest IP (databasehost-control) down; "a machine is never
 > without a RAM manager".
 
-**Proposed:**
+**Decided (Q1, John 2026-11-07: "Drop to LAN-only: run runMerge"), `[SPLIT_IS_LAN_ONLY_V1]`:**
 
-- The partition's facts live on its `databasehost_control`: the highest live `.1` on the LAN, running `fdf-ram` on
-  port 8841 (`[LAN_RAM_ALWAYS_V1]`). This is the LAN's own route state, not an MRM: it reaches no WAN and covers only
-  its LAN.
-- Members write their facts there and plan from there (LAN routes only; no hub channel, no WireGuard).
-- What goes is the *walk* across a list. There is no list. There is the MRM, or there is the LAN's control host.
-
-**Open (Q1):** this is the design's largest decision.
+- A split is a network event. The member withdraws the region's routes, names and tunnels and runs `runMerge`: the
+  partition is LAN-only FrogNet (discovery, the elections, `/etc/hosts`), as a node with no region is.
+- Its facts and roles are the LAN's own: `databasehost_control.frognet` and `databasehost.frognet` are the hosts the
+  LAN's elections name, each that host's `api.php` on port 80 (`[ROLES_ON_API_V1]`). There is no LAN RAM manager, no
+  `fdf-ram` on 8841 and no walk list (`[LAN_RAM_ALWAYS_V1]` and `lan-rams.json` are gone).
+- The member keeps a standing session to every entry on the region's list; one answering is the event that rejoins.
 
 **Roles.** The partition elects every role again over its own alive members' capability facts. If an island's host is
 inside the partition, the incumbent is held and nothing moves. If it is outside, the partition elects a host of its own
@@ -614,7 +613,7 @@ Its public half is in the device's login record, and a node's is also in its rec
 | `region.py` | Keeps `own_dot1`, `ensure_lan_ram` (the control host's), `follow`. `lan_fallback` → `control_host()` (the highest live `.1`) |
 | `discovery/elect.py`, `discovery/hosts.py`, `core/frognet_service_hosts.py`, `core/database_handler.py` | `[ROLE_INCUMBENT_FROM_WHERE_V1]`: `evaluate(candidates, incumbents)` |
 | `core/role_registry.py` | Loads the installed apps' island handlers beside `databasehost` |
-| The role host | Starts and stops an island's `fdf-ram`, and writes its where cell (new: `fdf-island`, a child of the tunnel daemon, as `ensure_lan_ram` is) |
+| The role host | Starts and stops an island's `fdf-ram`, and writes its where cell (new: `fdf-island`, a child of the tunnel daemon) |
 | `fdf-org serve` | Reach to island ports from where cells and level grants |
 | `fdfspace.py`, `Space.kt` | → `Island` |
 | `ram.php` | Island host from the where cell |
@@ -625,7 +624,8 @@ Its public half is in the device's login record, and a node's is also in its rec
 - `system-space.json`.
 - `region.Standing`, `answers`, `_probe_up` and `fdfsp<N>`.
 - `system_managers` as a list.
-- `save_lan` as a walk list (`lan-rams.json`).
+- `save_lan` as a walk list (`lan-rams.json`). Done 2026-11-07 (`[ROLES_ON_API_V1]`), with `ensure_lan_ram` and the
+  LAN RAM port.
 - `fdf-org space`, `level --space`, the space ports, spaces in the login answer, `line --with`.
 - `SpaceAt` and `loginAll` across managers in `Join.kt`.
 - `fdfspace.from_login`.
@@ -659,9 +659,8 @@ The incumbent tests decide: `simulation/run_all.py` tiers, `discovery/sim/servic
 
 ## 15. Open questions for John
 
-1. **The split's facts.** Does a partition hold its facts on the LAN's `databasehost_control` (the highest live `.1`,
-   `fdf-ram` 8841), as section 8.1 proposes? Or should region mode on a split drop to LAN-only FrogNet discovery
-   (runMerge and the store at control)? Today the tree has both, in two modes.
+1. **The split's facts.** Settled (section 8.1, John 2026-11-07): region mode on a split drops to LAN-only FrogNet;
+   `runMerge` runs and the LAN's own roles (api.php on port 80) take over.
 2. **The egress route.** The applier owns only the /32 to the MRM via the exit, and FrogNet's default fixer is told when
    it moves (section 6.2). Is that the right split of ownership?
 3. **Island access during a split.** Settled (section 9.0): the signed login record, checked locally.
