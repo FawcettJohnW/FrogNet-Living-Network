@@ -13,8 +13,8 @@ android {
         applicationId = "net.frognet.openeoc"
         minSdk = 29
         targetSdk = 34
-        versionCode = 31
-        versionName = "openeoc-app-2026-11-09-r56"
+        versionCode = 32
+        versionName = "openeoc-app-2026-11-09-r57"
         manifestPlaceholders["rtLayers"] = rtLayers.joinToString(",")
     }
     compileOptions { sourceCompatibility = JavaVersion.VERSION_17; targetCompatibility = JavaVersion.VERSION_17 }

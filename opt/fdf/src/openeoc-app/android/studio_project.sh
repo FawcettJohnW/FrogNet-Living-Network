@@ -59,7 +59,7 @@ plugins { id("com.android.application") }
 android {
     namespace = "net.frognet.openeoc.admin.android"
     compileSdk = 34
-    defaultConfig { applicationId = "net.frognet.openeoc.admin"; minSdk = 29; targetSdk = 34; versionCode = 8; versionName = "openeoc-admin-2026-11-08-r15" }
+    defaultConfig { applicationId = "net.frognet.openeoc.admin"; minSdk = 29; targetSdk = 34; versionCode = 9; versionName = "openeoc-admin-2026-11-09-r16" }
     compileOptions { sourceCompatibility = JavaVersion.VERSION_17; targetCompatibility = JavaVersion.VERSION_17 }
     buildTypes { release { isMinifyEnabled = false } }
 }

@@ -47,6 +47,36 @@ role's `act`/`req`, or `RT.button`). **A new view**: `RT.role(...)` in a layer's
 `RTA.panel(title, fn)` (none yet). Gates: `test/test_app.py` (32 checks; the Team and Public apps run with their own
 layers only), `test/test_team_host.py`, `android/typecheck.sh`.
 
+## r57 / admin r16: the admin authorizes Teams and EOC users ([TEAMS_AUTHORIZED_V1])
+
+The phone (r57): a scanned QR with a login is a Team's: "Claim echo", "echo's password: this device claims it".
+
+John, 2026-11-09: "we are authorizing Teams, and that's the trust boundary. EOC allocates Team login and PW, lead
+connects to the EOC LAN and claims the Team on their Pi or phone"; "Categories are added by virtue of their apps being
+connected to the EOC. The EOC does not allocate"; a Hospital "joins the EOC in the same manner a Team does, but with
+the Hospital category"; a Team not active on the network is hosted by the device that claims it, and "if the team
+already has a server, no replacement".
+
+The admin's screen is now:
+- **Teams**: each Team's login (its name) and password, and its QR. In the configuration a Team is a role with its own
+  RAM and no category (the claiming app's), and a user of the Team's name that leads it, with the password's verifier.
+  A Team from an older configuration shows its category, and any other users it has ("also signed in by"), which can
+  be removed; one with no lead gets its login when given a password.
+- **EOC users**: the users of the EOC's role (the role in category EOC; made as `eoc` with the first one).
+- Gone: the Categories cards and their pop-up (groups, user lists, leads), and the EOC's one teams password. AdminCore
+  writes no `join` verifier any more, so the door's teams-password join ([CHILDREN_JOIN_V1]) ends at the next Apply;
+  teams that joined that way still show under Groups now and Connected now.
+
+The claim works through the door's enroll as it is: the Team's QR (or Manual login) and its password enroll the device
+as the Team's lead. Still the door's to do (`dc/ram.php`): refuse a claim while the Team is served; record the claiming
+app's view as the Team's category (op=roles says Teams for a Team with none until then); and accept the claiming
+device on its FrogNet identity, so the phone keeps no password.
+
+Tests: `test/test_admin_page.py` (rewritten for this screen). `test/test_admin.py` drives the real AdminCore against
+the fdf-ram model of the SystemRam, which `fdf-app` no longer uses (it now needs databasehost_control.frognet in
+/etc/hosts): its setup fails before and after this change; its steps are rewritten for this screen, and the
+api.php harness it needs is the roles-on-api work's.
+
 ## r56: Exit, one dialog at a time, the legend is the map, the QR code first, a joined phone is done
 
 John's changes of 2026-11-09, before the Android app goes to others. Tests: `test/test_connect_page.py` (new),

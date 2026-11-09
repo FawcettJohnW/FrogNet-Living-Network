@@ -6,34 +6,36 @@
 # test_admin.py [SHOTS_DIR] -- [ADMIN_APP_V1] the OpenEOC admin app (its real core, AdminCore, and its real page,
 # through DevHost) against a real network RAM (fdf-ram), three real members (fdf-client, fdf-app serve) and the real
 # door (/dc/ram.php under PHP, its `ram` CLI the real one). The members were installed with
-#   fdf-app config openeoc general,alpha,bravo --role eoc --role alpha:default --role bravo:default
+#   fdf-app config openeoc general,alpha,bravo --role eoc@EOC --role alpha:default --role bravo:default
 #       --user EOCAdmin:EOCAdmin=eoc --admin boss:adm-2026
+# [TEAMS_AUTHORIZED_V1] (John 2026-11-09: "we are authorizing Teams, and that's the trust boundary. EOC allocates Team
+# login and PW, lead connects to the EOC LAN and claims the Team") the admin's screen is Teams and EOC users:
 #   1 a wrong admin password is refused, on this device (no request carries it)
-#   2 the admin's screen: the roles, the users, every member and its configuration as current
-#   3 the admin adds team echo (its own RAM, no login) and user kim (role echo, a password) and applies: every member
-#     says adopted, on the screen; the door's op=roles has echo; kim's password logs in at the door as echo; the echo
-#     RAM is served; no password and no admin key in the network RAM
+#   2 the admin's screen: Teams alpha and bravo, EOC user EOCAdmin, every member and its configuration as current
+#   3 the admin adds Team echo with its password and applies: every member says adopted, on the screen; the door's
+#     op=roles has echo (its own RAM); echo's login and password log in at the door as echo; the echo RAM is served; no
+#     password and no admin key in the network RAM
 #   4 a member installed without --admin says why it did not adopt, on the screen
-#   5 [ENROLL_V1] the admin makes kim echo's lead: the members' configurations say so; at the door, op=enroll with a
-#     wrong password is refused, op=identity by a user who leads no team is refused, and kim's op=identity gets past
-#     the check to the region (none here, so the door says the region did not give the identity)
-#   6 [FROG_QR_V1] kim's QR on the admin's screen reads, by the phone scanner's zxing, as kim's enrollment line
-#   7 [ASSIGNMENTS_SAVE_V1] Save writes the assignments (verifiers, no password) to a file; kim is removed and applied;
-#     Restore loads the file as an edit, Apply sends it: kim is back as echo's lead and logs in with the old password
-#   8 [CATEGORIES_V1] the roles of a configuration made before categories are on the Teams tab; the admin adds the
-#     category Power, its group crew1 (own RAM) and its lead pat, and applies: the Power tab shows crew1 and pat, Teams
-#     does not; every member with the admin key adopts it; the door's op=roles says crew1 is in Power and the tabs'
-#     order (Teams, Power); pat logs in at the door as crew1
+#   5 [ENROLL_V1] echo's login leads echo: the members' configurations say so; at the door, op=enroll with a wrong
+#     password is refused, op=identity by a user who leads no team (EOCAdmin) is refused, and echo's op=identity gets
+#     past the check to the region (none here, so the door says the region did not give the identity)
+#   6 [FROG_QR_V1] echo's QR on the admin's screen reads, by the phone scanner's zxing, as echo's enrollment line
+#   7 [ASSIGNMENTS_SAVE_V1] Save writes the assignments (verifiers, no password) to a file; Team echo is removed and
+#     applied; Restore loads the file as an edit, Apply sends it: echo is back, led by its login, which logs in with the
+#     old password
+#   8 the admin adds Team crew1 (no category: its app's, at its claim) and EOC user dana: every member with the admin
+#     key adopts them; the configuration has no category for crew1 and dana in the EOC's role; crew1 and dana log in
+#     at the door as crew1 and eoc
 #  10 [APP_SELECTION_V1] the admin's "Where each RAM is served": * ranked -mem_total_kb, applied: the general RAM moves to
 #     Vashon1 (the least memory; every member decides by the newest configuration, Vashon1 too, which cannot adopt it);
 #     the row removed and applied: back on Seattle5 (the most memory)
-#  11 [GROUPS_NOW_V1] the admin's "Groups now": every group, its category, where it lives and where it is served; kim
+#  11 [GROUPS_NOW_V1] the admin's "Groups now": every group, its category, where it lives and where it is served; echo
 #     places echo on its device at the door: the table says so with no reload (the held read wakes on the place and on
-#     the where cell), echo served by nobody on the members; kim places it on databasehost: served again, in the table
-#   9 [GROUP_PLACE_V1] kim, echo's lead, through the real AppCore (CoreDriver, as the lead's phone runs it): Host team
-#     places echo here, on kim's phone, at the door -- the members adopt it, none serves echo, op=rams has no echo and its
-#     places say here; Team on databasehost places it there -- a member serves echo again, and the core hears it from
-#     the door's held op=rams (until=echo) in the time printed
+#     the where cell), echo served by nobody on the members; echo places it on the SystemRam: served again, in the table
+#   9 [GROUP_PLACE_V1] echo's lead, through the real AppCore (CoreDriver, as the lead's phone runs it): Host team
+#     places echo here, on the lead's phone, at the door -- the members adopt it, none serves echo, op=rams has no echo
+#     and its places say here; Team on databasehost places it there -- a member serves echo again, and the core hears
+#     it from the door's held op=rams (until=echo) in the time printed
 import hashlib, hmac, json, os, shutil, socket, subprocess, sys, tempfile, threading, time
 from urllib.request import urlopen, Request
 from playwright.sync_api import sync_playwright
@@ -80,7 +82,7 @@ for i, n in enumerate("abc", start=1):
     procs.append(subprocess.Popen([T + "/bin/fdf-client"], env=env(n), stdout=open(d + "/client.log", "w"), stderr=subprocess.STDOUT))
 time.sleep(1.5)
 for n in "abc":   # c: installed with no admin (an older install line)
-    subprocess.run([os.path.join(F, "bin", "fdf-app"), "config", "openeoc", "general,alpha,bravo", "--role", "eoc", "--role", "alpha:default",
+    subprocess.run([os.path.join(F, "bin", "fdf-app"), "config", "openeoc", "general,alpha,bravo", "--role", "eoc@EOC", "--role", "alpha:default",
                     "--role", "bravo:default", "--user", "EOCAdmin:EOCAdmin=eoc"] + (["--admin", "boss:adm-2026"] if n != "c" else []),
                    env=env(n), check=True, stdout=subprocess.DEVNULL)
     procs.append(subprocess.Popen([os.path.join(F, "bin", "fdf-app"), "serve"], env=env(n), stdout=open(T + "/%s/app.log" % n, "w"), stderr=subprocess.STDOUT))
@@ -114,90 +116,82 @@ try:
         pg.fill("[name=password]", "adm-2026"); pg.click("#connect .go")
         pg.wait_for_selector("#main:not([hidden])", timeout=15000)
         pg.wait_for_function("document.querySelectorAll('#members tr').length === 3", timeout=10000)
-        roles = pg.evaluate("[...document.querySelectorAll('#roles tr td:first-child b')].map(b=>b.textContent)")
+        teams = pg.evaluate("[...document.querySelectorAll('#teams tr td:first-child b')].map(b=>b.textContent)")
+        eocu = pg.evaluate("[...document.querySelectorAll('#eocUsers tr td:first-child b')].map(b=>b.textContent)")
         mem = pg.inner_text("#members")
-        check(sorted(roles) == ["alpha", "bravo", "eoc"] and "EOCAdmin" in pg.inner_text("#users") and mem.count("current") == 3 and "no admin key" in mem,
-              "2 the admin's screen: roles %s, users EOCAdmin, 3 members current (Vashon1 without an admin key): %s" % (roles, " | ".join(l for l in mem.splitlines() if l.strip())[:220]))
+        check(sorted(teams) == ["alpha", "bravo"] and eocu == ["EOCAdmin"] and mem.count("current") == 3 and "no admin key" in mem and not PAGE_ERRORS,
+              "2 the admin's screen: Teams %s, EOC users %s, 3 members current (Vashon1 without an admin key): %s; page errors %s" % (teams, eocu, " | ".join(l for l in mem.splitlines() if l.strip())[:220], PAGE_ERRORS))
         if SHOTS: pg.screenshot(path=os.path.join(SHOTS, "admin-before.png"), full_page=True)
-        pg.fill("#newRole", "echo"); pg.click("#addRole")
-        pg.fill("#newUser", "kim"); pg.click("#addUser"); pg.select_option("[data-u=kim]", "echo"); pg.fill("[data-pw=kim]", "kim-2026")
+        pg.fill("#newTeam", "echo"); pg.fill("#newTeamPw", "echo-2026"); pg.click("#addTeam")
         chg = pg.inner_text("#changes")
         pg.click("#apply")
         pg.wait_for_function("(document.querySelector('#members').textContent.match(/adopted/g)||[]).length === 2 && /refused/.test(document.querySelector('#members').textContent)", timeout=20000)
         mem2 = pg.inner_text("#members")
         if SHOTS: pg.screenshot(path=os.path.join(SHOTS, "admin-applied.png"), full_page=True)
         ro = door("op=roles&app=openeoc")
-        lg = door("op=login&app=openeoc", {"user": "kim", "password": "kim-2026"})
+        lg = door("op=login&app=openeoc", {"user": "echo", "password": "echo-2026"})
         echo = wait_for(lambda: door("op=rams&app=openeoc").get("rams", {}).get("echo"), 15)
         txt = json.dumps([c["bag"] for c in rm.read("fdf-app", "config")] + [c["bag"] for c in rm.read("fdf-app", "admin")])
         k = hashlib.pbkdf2_hmac("sha256", b"adm-2026", hashlib.sha256(b"fdf-app-admin:openeoc:boss").digest()[:16], 200000).hex()
-        check("echo" in ro.get("roles", {}) and ro["roles"]["echo"]["ram"] and lg.get("role") == "echo" and bool(echo) and "kim-2026" not in txt and k not in txt,
-              "3 '%s' applied: two members adopted it, on the screen; op=roles has echo (%s); kim logs in at the door as %s; echo served at %s; "
+        check("echo" in ro.get("roles", {}) and ro["roles"]["echo"]["ram"] and lg.get("role") == "echo" and bool(echo) and "echo-2026" not in txt and k not in txt,
+              "3 '%s' applied: two members adopted it, on the screen; op=roles has echo (%s); echo logs in at the door as %s; echo served at %s; "
               "no password, no admin key in the network RAM" % (chg[:90], ro.get("roles", {}).get("echo"), lg.get("role") or lg.get("why"), echo))
         check("no admin key on this member" in mem2, "4 the member installed without --admin says why it did not adopt: " +
               [l for l in mem2.splitlines() if "refused" in l or "no admin key" in l][:2].__repr__()[:200])
 
-        # 5 kim leads echo
-        def leads_kim():   # both members with the admin key say kim leads
-            l = [c for c in rm.read("fdf-app", "config") if c["bag"].get("users", {}).get("kim", {}).get("lead")]
+        # 5 echo's login leads echo
+        def leads_kim():   # both members with the admin key say echo's login leads it
+            l = [c for c in rm.read("fdf-app", "config") if c["bag"].get("users", {}).get("echo", {}).get("lead")]
             return l if len(l) == 2 else None
-        pg.check("[data-lead=kim]"); chg5 = pg.inner_text("#changes"); pg.click("#apply")
+        chg5 = "Team echo"
         lead = wait_for(leads_kim, 20)
-        bad = door("op=enroll&app=openeoc", {"user": "kim", "password": "nope"})
+        bad = door("op=enroll&app=openeoc", {"user": "echo", "password": "nope"})
         notlead = door("op=identity&app=openeoc", {"user": "EOCAdmin", "password": "EOCAdmin", "name": "x1"})
-        kid = door("op=identity&app=openeoc", {"user": "kim", "password": "kim-2026", "name": "x1"})
+        kid = door("op=identity&app=openeoc", {"user": "echo", "password": "echo-2026", "name": "x1"})
         check(lead and len(lead) == 2 and "not this app" in bad.get("why", "") and "does not lead" in notlead.get("why", "")
               and "did not give openeoc-echo-x1 an identity" in kid.get("why", ""),
-              "5 '%s': %d members say kim leads; a wrong password: %s; a non-lead: %s; kim gets to the region: %s"
+              "5 '%s': %d members say echo's login leads it; a wrong password: %s; a non-lead: %s; echo gets to the region: %s"
               % (chg5[:60], len(lead or []), bad.get("why", "")[:50], notlead.get("why", "")[:60], kid.get("why", "")[:80]))
         # 6 kim's QR
         pg.wait_for_function("document.querySelector('#changes').textContent.indexOf('adopted by 2') >= 0", timeout=20000)
-        pg.click("[data-qr=kim]"); pg.wait_for_selector("#qr:not([hidden]) #qrImg svg", timeout=5000)
+        pg.click("[data-qr=echo]"); pg.wait_for_selector("#qr:not([hidden]) #qrImg svg", timeout=5000)
         shot = os.path.join(T, "kim-qr.png"); pg.locator("#qrImg svg").screenshot(path=shot)
         if SHOTS: pg.screenshot(path=os.path.join(SHOTS, "admin-qr.png"))
         got = zxing_read.read([shot]).get(shot)
-        want = "fdfenroll1 http://%s/dc/ram.php openeoc kim" % DOOR
-        check(got == want, "6 kim's QR reads as %r" % got)
+        want = "fdfenroll1 http://%s/dc/ram.php openeoc echo" % DOOR
+        check(got == want, "6 echo's QR reads as %r" % got)
         pg.click("#qrClose")
         # 7 save, remove, restore
         pg.click("#save")
         sv = wait_for(lambda: [f for f in os.listdir(T + "/FrogNet-assignments")] if os.path.isdir(T + "/FrogNet-assignments") else None, 10)
         saved = open(os.path.join(T, "FrogNet-assignments", sv[0])).read() if sv else ""
         pg.wait_for_function("document.querySelector('#saves').value", timeout=5000)
-        pg.click("[data-del-user=kim]"); pg.click("#apply")
-        gone = wait_for(lambda: all("kim" not in c["bag"].get("users", {}) for c in rm.read("fdf-app", "config") if c["bag"].get("admin", {}).get("check")), 20)
+        pg.click("[data-del-team=echo]"); pg.click("#apply")
+        gone = wait_for(lambda: all("echo" not in c["bag"].get("users", {}) and "echo" not in c["bag"].get("roles", {}) for c in rm.read("fdf-app", "config") if c["bag"].get("admin", {}).get("check")), 20)
         pg.wait_for_function("document.querySelector('#changes').textContent.indexOf('adopted by 2') >= 0", timeout=20000)
         pg.click("#restore")
-        pg.wait_for_function("/user kim/.test(document.querySelector('#changes').textContent)", timeout=5000)
+        pg.wait_for_function("/Team echo/.test(document.querySelector('#changes').textContent)", timeout=5000)
         chg7 = pg.inner_text("#changes"); pg.click("#apply")
         back = wait_for(leads_kim, 20)
-        lg7 = door("op=login&app=openeoc", {"user": "kim", "password": "kim-2026"})
-        check(bool(sv) and '"kim"' in saved and "verifier" in saved and "kim-2026" not in saved and gone and back and len(back) == 2 and lg7.get("role") == "echo",
-              "7 saved %s (kim's verifier, no password); kim removed on every member: %s; restored ('%s') and applied: %d members say kim leads; kim logs in as %s"
+        lg7 = door("op=login&app=openeoc", {"user": "echo", "password": "echo-2026"})
+        check(bool(sv) and '"echo"' in saved and "verifier" in saved and "echo-2026" not in saved and gone and back and len(back) == 2 and lg7.get("role") == "echo",
+              "7 saved %s (echo's verifier, no password); Team echo removed on every member: %s; restored ('%s') and applied: %d members say echo's login leads it; echo logs in as %s"
               % (sv, bool(gone), chg7[:70], len(back or []), lg7.get("role") or lg7.get("why")))
-        # 8 categories: Power, its group crew1 and its lead pat
+        # 8 [TEAMS_AUTHORIZED_V1] Team crew1 (no category) and EOC user dana
         pg.wait_for_function("document.querySelector('#changes').textContent.indexOf('adopted by 2') >= 0", timeout=20000)
-        tabs0 = pg.evaluate("[...document.querySelectorAll('#tabs button[data-tab]')].map(b=>b.dataset.tab)")
-        pg.fill("#newCat", "Power"); pg.click("#addCat")
-        pg.fill("#newRole", "crew1"); pg.click("#addRole")
-        pg.fill("#newUser", "pat"); pg.click("#addUser"); pg.fill("[data-pw=pat]", "pat-2026"); pg.check("[data-lead=pat]")
-        power_roles = pg.evaluate("[...document.querySelectorAll('#roles tr td:first-child b')].map(b=>b.textContent)")
-        power_users = pg.evaluate("[...document.querySelectorAll('#users tr td:first-child b')].map(b=>b.textContent)")
+        pg.fill("#newTeam", "crew1"); pg.fill("#newTeamPw", "crew1-2026"); pg.click("#addTeam")
+        pg.fill("#newEoc", "dana"); pg.fill("#newEocPw", "dana-2026"); pg.click("#addEoc")
         chg8 = pg.inner_text("#changes"); pg.click("#apply")
         def crew1_everywhere():
-            l = [c for c in rm.read("fdf-app", "config") if (c["bag"].get("roles", {}).get("crew1") or {}).get("category") == "Power"
-                 and (c["bag"].get("users", {}).get("pat") or {}).get("lead")]
+            l = [c for c in rm.read("fdf-app", "config") if (c["bag"].get("roles", {}).get("crew1") or {}).get("category") == ""
+                 and (c["bag"].get("users", {}).get("crew1") or {}).get("lead") and (c["bag"].get("users", {}).get("dana") or {}).get("role") == "eoc"]
             return l if len(l) == 2 else None
         adopted8 = wait_for(crew1_everywhere, 20)
-        pg.click("[data-tab=Teams]")
-        teams_roles = pg.evaluate("[...document.querySelectorAll('#roles tr td:first-child b')].map(b=>b.textContent)")
-        ro8 = door("op=roles&app=openeoc"); lg8 = door("op=login&app=openeoc", {"user": "pat", "password": "pat-2026"})
-        if SHOTS: pg.click("[data-tab=Power]"); pg.screenshot(path=os.path.join(SHOTS, "admin-power.png"), full_page=True) if SHOTS else None
-        check(tabs0 == ["Teams"] and power_roles == ["crew1"] and power_users == ["pat"] and "crew1" not in teams_roles and bool(adopted8)
-              and (ro8.get("roles", {}).get("crew1") or {}).get("category") == "Power" and ro8.get("categories") == ["Teams", "Power"]
-              and (ro8.get("roles", {}).get("echo") or {}).get("category") == "Teams" and lg8.get("role") == "crew1",
-              "8 tabs before %s; '%s'; the Power tab: groups %s, users %s; Teams: %s; %d members adopted; op=roles crew1 %s, categories %s; pat logs in as %s"
-              % (tabs0, chg8[:90], power_roles, power_users, teams_roles, len(adopted8 or []), ro8.get("roles", {}).get("crew1"), ro8.get("categories"), lg8.get("role") or lg8.get("why")))
+        lg8 = door("op=login&app=openeoc", {"user": "crew1", "password": "crew1-2026"}); lg8d = door("op=login&app=openeoc", {"user": "dana", "password": "dana-2026"})
+        if SHOTS: pg.screenshot(path=os.path.join(SHOTS, "admin-teams.png"), full_page=True)
+        check(bool(adopted8) and lg8.get("role") == "crew1" and lg8d.get("role") == "eoc" and not PAGE_ERRORS,
+              "8 '%s'; %d members adopted it; crew1 logs in as %s, dana as %s; page errors %s"
+              % (chg8[:90], len(adopted8 or []), lg8.get("role") or lg8.get("why"), lg8d.get("role") or lg8d.get("why"), PAGE_ERRORS))
         # 10 the app's selection, from the admin's screen
         pg.wait_for_function("document.querySelector('#changes').textContent.indexOf('No changes') >= 0 || document.querySelector('#changes').textContent.indexOf('adopted') >= 0", timeout=20000)
         pg.fill("#newSel", "*"); pg.click("#addSel")
@@ -216,15 +210,15 @@ try:
         # 11 Groups now
         row = lambda g: pg.evaluate("[...document.querySelectorAll('#groups tr')].map(r=>r.innerText).find(t=>t.startsWith(%s)) || ''" % json.dumps(g))
         g0 = {g: row(g) for g in ("echo", "crew1", "eoc")}
-        door("op=place&app=openeoc", {"user": "kim", "password": "kim-2026", "at": "here", "guid": "phone-kim"})
+        door("op=place&app=openeoc", {"user": "echo", "password": "echo-2026", "at": "here", "guid": "phone-kim"})
         try: pg.wait_for_function("[...document.querySelectorAll('#groups tr')].some(r=>r.innerText.startsWith('echo') && r.innerText.indexOf(\"lead's device\")>=0 && r.innerText.indexOf('not a member')>=0)", timeout=20000); live1 = row("echo")
         except Exception: live1 = ""
-        door("op=place&app=openeoc", {"user": "kim", "password": "kim-2026", "at": "databasehost"})
-        try: pg.wait_for_function("[...document.querySelectorAll('#groups tr')].some(r=>r.innerText.startsWith('echo') && /databasehost[\\s\\S]*127\\.0\\./.test(r.innerText))", timeout=20000); live2 = row("echo")
+        door("op=place&app=openeoc", {"user": "echo", "password": "echo-2026", "at": "databasehost"})
+        try: pg.wait_for_function("[...document.querySelectorAll('#groups tr')].some(r=>r.innerText.startsWith('echo') && /SystemRam[\\s\\S]*127\\.0\\./.test(r.innerText))", timeout=20000); live2 = row("echo")
         except Exception: live2 = ""
         if SHOTS: pg.screenshot(path=os.path.join(SHOTS, "admin-groups.png"), full_page=True)
-        check("Teams" in g0["echo"] and "kim" in g0["echo"] and "Power" in g0["crew1"] and "pat" in g0["crew1"] and "no RAM of its own" in g0["eoc"] and bool(live1) and bool(live2),
-              "11 Groups now: %s; kim places echo on its device: %s; on databasehost: %s" % (" | ".join(v.replace("\t", " / ") for v in g0.values())[:260], live1.replace("\t", " / ")[:120], live2.replace("\t", " / ")[:120]))
+        check("its app's, at its claim" in g0["echo"] and "echo" in g0["echo"].split("\t")[4] and "crew1" in g0["crew1"].split("\t")[4] and "EOC" in g0["eoc"] and "no RAM of its own" in g0["eoc"] and bool(live1) and bool(live2),
+              "11 Groups now: %s; echo places echo on its device: %s; on the SystemRam: %s" % (" | ".join(v.replace("\t", " / ") for v in g0.values())[:260], live1.replace("\t", " / ")[:120], live2.replace("\t", " / ")[:120]))
         br.close()
     # 9 the lead says where its team lives
     import queue
@@ -252,13 +246,13 @@ try:
         env=dict(os.environ, RINA_REGION_FILE=T + "/lead.perm", RINA_NET_CONFIG=T + "/none"), stdout=subprocess.DEVNULL, stderr=open(T + "/lead-ram.log", "w")))
     kim = Dev(); kim.send(op="connect", door=DOOR, dev="kimphone", name="Kim", role="team", team="Echo")
     con = kim.wait(lambda o: o.get("ev") == "connected")
-    kim.send(op="teamHost", port=LP, addr="127.0.0.1", card={}, user="kim", password="kim-2026")
+    kim.send(op="teamHost", port=LP, addr="127.0.0.1", card={}, user="echo", password="echo-2026")
     said = kim.wait(lambda o: "lives on this phone" in str(o.get("text", "")))
     def unserved():
         r = door("op=rams&app=openeoc")
         return r if "echo" not in r.get("rams", {}) and (r.get("places", {}).get("echo") or {}).get("at") == "here" else None
     here = wait_for(unserved, 20)
-    t0 = time.time(); kim.send(op="teamPlace", at="databasehost", user="kim", password="kim-2026")
+    t0 = time.time(); kim.send(op="teamPlace", at="databasehost", user="echo", password="echo-2026")
     served = kim.wait(lambda o: "served on databasehost now" in str(o.get("text", "")) or "not served yet" in str(o.get("text", "")), 40)
     dt = time.time() - t0
     after = door("op=rams&app=openeoc")

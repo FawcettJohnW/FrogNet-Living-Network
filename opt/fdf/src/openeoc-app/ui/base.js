@@ -296,9 +296,10 @@ function enrollScan(m) {
   $('#enrollCallL').hidden = !m.team || callFromName; $('#enrollCall').value = callFromName ? nm : ''
   $('#enrollCallL').querySelector('.ecl').textContent = eoc ? "Your team's name" : 'Your call sign'
   $('#enrollCall').setAttribute('autocapitalize', eoc ? 'words' : 'characters')
-  $('#enrollWho').textContent = (eoc ? 'Join the EOC · ' : m.team ? 'Team · ' : m.user + ' · ') + m.app + ' · ' + m.url.replace(/^https?:\/\//, '').replace(/\/.*/, '')
+  // [TEAMS_AUTHORIZED_V1] a QR with a login is a Team's the admin authorized (or an EOC user's): its password claims it here
+  $('#enrollWho').textContent = (eoc ? 'Join the EOC · ' : m.team ? 'Team · ' : 'Claim ' + m.user + ' · ') + m.app + ' · ' + m.url.replace(/^https?:\/\//, '').replace(/\/.*/, '')
   $('#enrollBox').hidden = false; $('#enrollPw').value = ''; (m.team && !callFromName ? $('#enrollCall') : $('#enrollPw')).focus()
-  $('#cstatus').textContent = eoc ? "your team's name and the EOC's teams password" : callFromName ? 'the team password (you join as ' + nm + ')' : m.team ? 'your call sign and the team password' : 'type ' + m.user + "'s password"
+  $('#cstatus').textContent = eoc ? "your team's name and the EOC's teams password" : callFromName ? 'the team password (you join as ' + nm + ')' : m.team ? 'your call sign and the team password' : m.user + "'s password: this device claims it"
 }
 $('#enrollGo').onclick = () => {
   if (!S.enrollLine) return

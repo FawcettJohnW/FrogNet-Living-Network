@@ -51,7 +51,7 @@ import java.util.Map;
  */
 public final class AdminCore {
     public interface Ui { void deliver(String json); }
-    public static final String BUILD = "openeoc-admin-2026-11-08-r15";
+    public static final String BUILD = "openeoc-admin-2026-11-09-r16";
 
     private final Ui ui;
     private volatile String door = "", app = "", user = "";
@@ -295,9 +295,10 @@ public final class AdminCore {
         for (Map.Entry<String, Object> e : Json.obj(want.get("roles")).entrySet()) {
             String r = e.getKey().trim();
             if (!r.matches("[A-Za-z0-9_-]{1,40}") || r.equals("general")) throw new Exception("role '" + r + "': letters, digits, _ and - (not 'general')");
-            String cat = Json.str(Json.obj(e.getValue()).get("category")); if (cat.isEmpty()) cat = "Teams";
-            if (!catOk(cat)) throw new Exception("role '" + r + "': category '" + cat + "': letters, digits, space, _ and -, at most 40");
-            if (!cats.contains(cat)) cats.add(cat);
+            // [TEAMS_AUTHORIZED_V1] a Team the admin authorizes has no category: its app's is the one it joins in, at its claim
+            String cat = Json.str(Json.obj(e.getValue()).get("category"));
+            if (!cat.isEmpty() && !catOk(cat)) throw new Exception("role '" + r + "': category '" + cat + "': letters, digits, space, _ and -, at most 40");
+            if (!cat.isEmpty() && !cats.contains(cat)) cats.add(cat);
             roles.put(r, Json.o("default", Json.bool(Json.obj(e.getValue()).get("default")), "category", cat));
         }
         Map<String, Object> was = Json.obj(current.get("users")), users = new LinkedHashMap<String, Object>();
@@ -331,11 +332,9 @@ public final class AdminCore {
             while (p == 0 || (!had.containsKey(r) && used.contains(p))) p = 20000 + rnd.nextInt(65535 - 20000 + 1);
             used.add(p); ports.put(Json.str(r), p);
         }
-        // [CHILDREN_JOIN_V1] the EOC's teams password: its verifier (the password goes nowhere); kept when not given again
-        String jp = Json.str(pws.get("*join"));
-        Object join = !jp.isEmpty() ? verifier(jp) : current.get("join");
+        // [TEAMS_AUTHORIZED_V1] (John 2026-11-09: "we are authorizing Teams, and that's the trust boundary") each Team has its
+        // own login and password: the EOC's one teams password ([CHILDREN_JOIN_V1] "join") is not written again
         Map<String, Object> cfgOut = Json.o("rams", rams, "ports", ports, "partition", part, "login", Json.bool(want.get("login")), "roles", roles, "categories", cats, "users", users, "select", sel);
-        if (join instanceof Map) cfgOut.put("join", join);
         String text = Json.write(cfgOut);
         long seq = Math.max(System.currentTimeMillis(), (long) Json.num(current.get("seq")) + 1);
         door("op=admin&app=" + URLEncoder.encode(app, "UTF-8"),

@@ -49,26 +49,14 @@ section h3 { margin: 12px 0 4px; font-size: 15px; }
 footer { position: fixed; left: 0; right: 0; bottom: 0; background: var(--pn); border-top: 1px solid var(--bd); padding: 12px 20px; display: flex; gap: 12px; align-items: center; z-index: 2; flex-wrap: wrap; }
 footer #changes { flex: 1; color: var(--mu); min-width: 200px; } footer #changes.dirty { color: var(--wa); }
 #status { color: var(--mu); font-size: 13px; padding: 0 20px; }
-/* [CATEGORY_DIALOG_V1] */
-.cats { display: grid; grid-template-columns: repeat(auto-fill, minmax(220px, 1fr)); gap: 10px; }
-.catcard { display: grid; gap: 4px; text-align: left; padding: 12px 14px; border-radius: 10px; background: var(--pn2); }
-.catcard b { font-size: 16px; } .catcard .gl { font-size: 13px; overflow-wrap: anywhere; }
-#lost .urow { display: flex; gap: 10px; align-items: center; padding: 6px 0; flex-wrap: wrap; }
-.dlg { position: fixed; inset: 0; background: rgba(0,0,0,.65); display: grid; place-items: start center; overflow-y: auto; z-index: 8; padding: 4vh 12px; }
-.dlg > .card { background: var(--pn); border: 1px solid var(--bd); border-radius: 14px; padding: 16px 18px; width: min(920px, 100%); display: grid; gap: 10px; }
-.dlg .dh, .dlg .dfoot, .grp .gh { display: flex; gap: 10px; align-items: center; flex-wrap: wrap; } .dlg .sp { flex: 1; }
-.dlg h2 { margin: 0; font-size: 20px; } .dlg .why { margin: 0; }
-.grp { border: 1px solid var(--bd); border-radius: 10px; padding: 10px 12px; margin-bottom: 10px; background: #131b17; }
-.grp .gh b { font-size: 16px; } .grp tr.nu td { border-bottom: 0; } .grp td input[type=text], .grp td input[type=password] { width: 100%; }
-.newgroup { border-top: 1px solid var(--bd); padding-top: 4px; } .newgroup .add input[type=text], .newgroup .add input[type=password] { flex: 1; }
-.dfoot { border-top: 1px solid var(--bd); padding-top: 10px; }
+/* [TEAMS_AUTHORIZED_V1] */ .add input[type=password] { flex: 1; } td .also { font-size: 12px; }
 @media (max-width: 860px) { main { grid-template-columns: 1fr; padding: 12px 12px 140px; } header { padding: 10px 12px; } .hide-s { display: none; } }
   ul.tree, ul.tree ul { list-style: none; margin: 0; padding-left: 18px; border-left: 1px solid #ccd; } ul.tree { padding-left: 4px; border: 0 } ul.tree li { margin: 3px 0 }
 </style></head><body>
 <div id="splash"><img class="logo" src="openeoc-logo.svg" alt="OpenEOC: powered by the FrogNet Living Network"><div class="b">Admin</div></div>
 
 <form id="connect" hidden>
-  <h1>OpenEOC Admin</h1><div class="sub">Sets up the app's teams, roles and users for the whole network.</div>
+  <h1>OpenEOC Admin</h1><div class="sub">Authorizes the app's Teams and EOC users for the whole network.</div>
   <label>Node (any member with the app's door)<input name="door" required placeholder="10.170.170.1"></label>
   <label>App<input name="app" required value="openeoc"></label>
   <label>Admin user<input name="user" required autocomplete="username"></label>
@@ -82,22 +70,30 @@ footer #changes { flex: 1; color: var(--mu); min-width: 200px; } footer #changes
     <button id="reload" type="button">Reload from the network</button></header>
   <div id="status"></div>
   <main>
+    <!-- [TEAMS_AUTHORIZED_V1] (John 2026-11-09) "we are authorizing Teams, and that's the trust boundary. EOC allocates
+         Team login and PW, lead connects to the EOC LAN and claims the Team on their Pi or phone." The admin does not
+         allocate categories: "Categories are added by virtue of their apps being connected to the EOC" -- a Hospital
+         joins the EOC the same way a Team does, in the Hospital category. -->
     <section class="wide">
-      <h2>Categories and groups</h2><!-- [CATEGORIES_V1] -->
-      <p class="why">One card per category the event uses (Teams, Power, Water, Ambulance, Hospitals ...). Open one to
-        manage its groups: each group is a team for what the category services, added with its lead, and its users added,
-        given passwords and QR codes there.</p>
-      <!-- [CATEGORY_DIALOG_V1] each category opens as a pop-up: its groups, each group's users and lead -->
-      <div class="cats" id="cats"></div><div id="lost"></div>
-      <div class="add"><input type="text" id="newCat" placeholder="new category, e.g. Power"><button type="button" id="addCat">Add category</button></div>
+      <h2>Teams</h2>
+      <p class="why">The EOC authorizes each Team here: its login and its password. The Team's lead, on the EOC's LAN,
+        claims it on a phone or a Pi with them (by the Team's QR code, or typed at Manual login), and that device hosts
+        it; its members join through the lead. A Team joins in its app's category: the Team app's are Teams, the
+        Hospital app's Hospitals, and so on. A Team no device holds can be claimed; one being served now cannot be
+        taken over. A password is kept only as a verifier, made on this computer; blank keeps the one it has.</p>
+      <table class="t"><thead><tr><th>Team</th><th>Category</th><th>Password</th><th class="c">QR</th><th></th></tr></thead><tbody id="teams"></tbody></table>
+      <div class="add"><input type="text" id="newTeam" placeholder="new Team's login, e.g. echo or medic1" autocomplete="off">
+        <input type="password" id="newTeamPw" placeholder="its password" autocomplete="new-password"><button type="button" class="go" id="addTeam">Add Team</button></div>
+      <div id="teamSays" class="mu"></div>
     </section>
     <section>
-      <h2>Teams join the EOC</h2>
-      <p class="why">[CHILDREN_JOIN_V1] Teams are not set up here: they join. A team lead opens the Team app, scans the EOC's QR,
-        names the team anything, and gives this password; the team is then on the EOC's map and under On now, and its lead
-        has the team's own QR and password for its members.</p>
-      <div class="add"><input type="password" id="joinPw" placeholder="the EOC's teams password" autocomplete="new-password">
-        <button type="button" id="joinQr">The EOC's QR</button><span class="mu" id="joinSays"></span></div>
+      <h2>EOC users</h2>
+      <p class="why">Who logs in to the EOC app, by user name and password. Nobody else needs a user: a Team's members
+        join through its lead.</p>
+      <table class="t"><thead><tr><th>User</th><th>Password</th><th></th></tr></thead><tbody id="eocUsers"></tbody></table>
+      <div class="add"><input type="text" id="newEoc" placeholder="new user" autocomplete="off"><input type="password" id="newEocPw" placeholder="password" autocomplete="new-password">
+        <button type="button" id="addEoc">Add user</button></div>
+      <div id="eocSays" class="mu"></div>
     </section>
     <section>
       <h2>Behaviour</h2>
@@ -128,7 +124,7 @@ footer #changes { flex: 1; color: var(--mu); min-width: 200px; } footer #changes
     </section>
     <section>
       <h2>Saved assignments</h2>
-      <p class="why">The teams, users and leads live on the network's nodes. If the node holding them goes, they are gone
+      <p class="why">The Teams and EOC users live on the network's nodes. If the node holding them goes, they are gone
         until you put them back. Save them here after a change; Restore loads a save as an edit you review and apply,
         to this node or (connected through it) a fallback node. Nothing saves or restores on its own.</p>
       <div class="add"><button type="button" id="save">Save the current assignments</button><select id="saves"></select><button type="button" id="restore">Restore</button></div>
@@ -143,20 +139,6 @@ footer #changes { flex: 1; color: var(--mu); min-width: 200px; } footer #changes
   </main>
   <footer><div id="changes">No changes.</div><button type="button" id="revert">Revert</button><button type="button" class="go" id="apply" disabled>Apply to the network</button></footer>
 </div>
-<!-- [CATEGORY_DIALOG_V1] a category: its groups; in each, its users (lead, password, QR); a group is added with its lead -->
-<div id="cat" class="dlg" hidden><div class="card wide">
-  <div class="dh"><h2 id="catTitle"></h2><span class="sp"></span><button type="button" id="catDel" class="x" title="remove this empty category">Remove category</button><button type="button" id="catClose">Close</button></div>
-  <p class="why">Each <b>group</b> is a team for what this category services. <b>Own RAM</b>: its own chat and members' data.
-    <b>No login</b>: clients may take it without a user. Its <b>lead</b> signs up its own members from their device.
-    A password is kept only as a verifier, made on this computer; blank keeps the one a user has.</p>
-  <div id="catGroups"></div>
-  <div class="newgroup"><h3>Add a group</h3>
-    <div class="add"><input type="text" id="newRole" placeholder="group, e.g. echo or crew1">
-      <label class="mu"><input type="checkbox" id="newTeam" checked> own RAM</label><label class="mu"><input type="checkbox" id="newDef"> no login</label></div>
-    <div class="add"><input type="text" id="newLead" placeholder="its lead (a user name, e.g. KJ7ABC)"><input type="password" id="newLeadPw" placeholder="the lead's password" autocomplete="new-password">
-      <button type="button" class="go" id="addRole">Add group</button></div></div>
-  <div class="dfoot"><span id="catChanges" class="mu"></span><span class="sp"></span><button type="button" class="go" id="catApply">Apply to the network</button></div>
-</div></div>
 <div id="qr" hidden><div class="card"><div id="qrImg"></div><div id="qrWho"></div>
   <div class="mu">A computer enrolls with this line (setup.cmd &lt;the line&gt;): <code id="qrLine" style="user-select:all;word-break:break-all"></code></div>
   <label class="mu">Address the phone reaches this node's door at <input type="text" id="qrDoor"></label>
