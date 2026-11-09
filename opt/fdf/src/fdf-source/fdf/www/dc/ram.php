@@ -49,7 +49,7 @@
 // the network, typed by nobody. A device this node gave no lease has none here, and is told so.
 header('Content-Type: application/json');
 // [DOOR_SAYS_ITS_BUILD_V1] every answer says which door answered: the header, and "door" in the admin and roles answers
-const DOOR_BUILD = 'dc-door-2026-11-09-leads1';   // [ROLES_ON_API_V1] [EOC_LEADS_V1]
+const DOOR_BUILD = 'dc-door-2026-11-09-sysram1';   // [ROLES_ON_API_V1] [EOC_LEADS_V1] [TEAM_ON_SYSTEMRAM_V1]
 // [SENSORS_BY_THE_DOOR_V1] the sensor store (api.php on databasehost.frognet) by the address this node's /etc/hosts gives
 // it: an app through the tunnel has no .frognet names (the phone's DNS is its carrier's), the address routes
 function door_sensors() {
@@ -249,7 +249,16 @@ function served_at($app, $ram) {
 function served_map($app) {
     $cfg = app_tuple($app); $o = [];
     foreach ((is_array($cfg) ? ($cfg['rams'] ?? []) : []) as $r) { $w = served_at($app, $r); if ($w !== '') $o[$r] = $w; }
+    // [TEAM_ON_SYSTEMRAM_V1] a Team its lead put on the SystemRam has no RAM of its own: it is "systemram" here, and its
+    // tuples are in the SystemRam's api.php (op=team, op=teamwrite)
+    foreach ((is_array($cfg) ? ($cfg['places'] ?? []) : []) as $t => $p) if (is_array($p) && ($p['at'] ?? '') === 'systemram') $o[$t] = 'systemram';
     return $o;
+}
+/** [TEAM_ON_SYSTEMRAM_V1] the SystemRam's service for a Team's service: its own, scoped to the team */
+function team_svc($svc, $team) { return $svc . '@' . strtolower($team); }
+function team_on_sysram($app, $team) {
+    foreach ((app_tuple($app)['places'] ?? []) as $t => $p) if (strtolower((string)$t) === strtolower($team)) return is_array($p) && ($p['at'] ?? '') === 'systemram';
+    return false;
 }
 // [ENROLL_V1] a user and password, checked against the verifier in the app's configuration: the user's record
 // [CHILDREN_JOIN_V1] (John 2026-11-05: "One qr code for the whole team, and one password" ... "Same thing for the eoc. The
@@ -541,6 +550,24 @@ if ($op === 'read') {
         $o[$n] = ['by' => (string)($b['by'] ?? ''), 'at' => intval($b['at'] ?? 0), 'roles' => $b['roles'] ?? ['*'], 'team' => $t, 'kind' => $t !== '' ? (string)((children($app)[$t] ?? [])['kind'] ?? '') : ''];
     }
     echo json_encode(['ok' => true, 'leads' => (object)$o, 'door' => DOOR_BUILD], JSON_UNESCAPED_SLASHES);
+} elseif ($op === 'team') {
+    // [TEAM_ON_SYSTEMRAM_V1] a Team on the SystemRam: its service's tuples, read at databasehost.frognet's api.php;
+    // &after=LAST&wait=W: held there (role_hold_wait: api.php fires this door's held socket) until they are not LAST
+    $app = $_GET['app'] ?? ''; $s = (string)($_GET['s'] ?? ''); $t = (string)($_GET['team'] ?? '');
+    if (!preg_match('/^[A-Za-z0-9_-]{1,40}$/', $app) || !isset($allowed[$s]) || !child_ok($t)) fail(400, 'app, s (an installed service) and team needed');
+    if (!team_on_sysram($app, $t)) fail(409, "team $t is not on the SystemRam (its lead has not said Use SystemRam)");
+    $svc = team_svc($s, $t);
+    $rows = isset($_GET['after']) ? role_hold_wait(sys_host(), $svc, '', '', intval($_GET['after']), max(0, min(25, intval($_GET['wait'] ?? 20)))) : role_rows(sys_host(), $svc);
+    echo json_encode(['ok' => true, 'rows' => role_cells($rows), 'last' => role_sig($rows), 'at' => sys_host(), 'door' => DOOR_BUILD], JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE);
+} elseif ($op === 'teamwrite' && $_SERVER['REQUEST_METHOD'] === 'POST') {
+    $in = json_decode(file_get_contents('php://input'), true);
+    $app = $_GET['app'] ?? '';
+    if (!is_array($in) || !preg_match('/^[A-Za-z0-9_-]{1,40}$/', $app)) fail(400, 'app and a JSON body needed');
+    $s = (string)($in['s'] ?? ''); $t = (string)($in['team'] ?? '');
+    if (!isset($allowed[$s]) || !child_ok($t)) fail(400, 's (an installed service) and team needed');
+    if (!name_ok($in['v'] ?? null) || !name_ok($in['i'] ?? null) || !is_array($in['bag'] ?? null)) fail(400, 'v, i and bag (an object) needed');
+    if (!team_on_sysram($app, $t)) fail(409, "team $t is not on the SystemRam (its lead has not said Use SystemRam)");
+    echo role_write(sys_host(), team_svc($s, $t), (string)$in['v'], (string)$in['i'], $in['bag']);
 } elseif ($op === 'whoami') {
     // [STATION_IS_HOSTNAME_V1] the asking device's host name, from its lease here; '' when it gave none (the device's
     // own name is then its name: the page asks for it). Nobody sees a station ID: it is the host or device name.
@@ -640,10 +667,20 @@ if ($op === 'read') {
     $u = check_user($app, $in);
     if (empty($u['lead'])) fail(403, 'user ' . $in['user'] . ' does not lead a group: only its lead says where it lives');
     $role = (string)$u['role']; $cfg = app_cfg($app);
+    $at0 = (string)($in['at'] ?? '');
+    if ($at0 === 'systemram') {
+        // [TEAM_ON_SYSTEMRAM_V1] (John 2026-11-09: "If that is set, the role does not have its own RAM and runs everything
+        // through databasehost.frognet, using the default api.php") the lead says so; every device follows the team there
+        $bag = ['at' => 'systemram', 'guid' => '', 'user' => (string)$in['user'], 'role' => $role, 'seq' => (int)(microtime(true) * 1000), 'from' => $_SERVER['REMOTE_ADDR'] ?? ''];
+        role_write(ctl_host(), 'fdf-app', 'config', $app . '.' . $role, $bag);
+        error_log('dc ram.php: [TEAM_ON_SYSTEMRAM_V1] ' . $app . ' team ' . $role . ' is on the SystemRam (its lead ' . $bag['user'] . ')');
+        echo json_encode(['ok' => true, 'place' => $bag, 'door' => DOOR_BUILD], JSON_UNESCAPED_SLASHES);
+        exit;
+    }
     if (!empty($u['child']) && ($in['at'] ?? '') === 'databasehost') fail(400, "team $role joined the EOC: it lives on its lead's phone (Host team); the SystemRam serves the RAMs the admin configured");
     if (empty($u['child']) && !in_array($role, $cfg['rams'] ?? [], true)) fail(400, "group $role has no RAM of its own (the app's RAMs: " . implode(',', $cfg['rams'] ?? []) . ')');
     $at = (string)($in['at'] ?? ''); $guid = (string)($in['guid'] ?? '');
-    if ($at !== 'here' && $at !== 'databasehost') fail(400, "at: here (the lead's device, named by its guid) or databasehost");
+    if ($at !== 'here' && $at !== 'databasehost') fail(400, "at: here (the lead's device, named by its guid), databasehost or systemram");
     if ($at === 'here' && !preg_match('/^[A-Za-z0-9._:-]{1,80}$/', $guid)) fail(400, "guid: the lead's device that serves the group");
     $bag = ['at' => $at, 'guid' => $at === 'here' ? $guid : '', 'user' => (string)$in['user'], 'role' => $role,
             'seq' => (int)(microtime(true) * 1000), 'from' => $_SERVER['REMOTE_ADDR'] ?? ''];
@@ -661,5 +698,5 @@ if ($op === 'read') {
     if ($at === '') fail(503, "the app's general AppRam has no AppHost yet (" . svc_host($app, 'general') . "): nothing works until it has");
     echo ram('. ' . escapeshellarg(dirname(__DIR__, 2) . '/fdf.env') . ' && RINA_RAM=' . escapeshellarg($at) . ' exec "$FDF_BIN"/ram ', ['write', 'fdf-app', 'device', $app . '.' . $dev, json_encode($bag, JSON_UNESCAPED_SLASHES)]);
 } else {
-    fail(400, 'op is read, write, watch, announce, rams, roles, admin, whoami, login, device, enroll, identity, place, lead or leads');
+    fail(400, 'op is read, write, watch, announce, rams, roles, admin, whoami, login, device, enroll, identity, place, lead, leads, team or teamwrite');
 }

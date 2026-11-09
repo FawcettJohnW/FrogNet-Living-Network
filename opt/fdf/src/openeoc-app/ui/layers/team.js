@@ -40,8 +40,10 @@ RT.layer('team', (RT) => {
   })
   RT.button('hostBtn', 'Host team', () => { status("hosting the team: turn on this phone's hotspot if it is not on, then come back"); window.rtNative.teamHost() },
             "the team's RAM on this phone: it goes where the lead goes")
-  RT.button('placeBtn', 'Team on the SystemRam', () => { status("the team's RAM moves to the SystemRam: it stays there when you leave"); window.rtNative.teamPlace('databasehost') },
-            "the team's RAM on the SystemRam: it stays when the lead leaves")
+  // [TEAM_ON_SYSTEMRAM_V1] (John 2026-11-09: "Use SystemRam ... the role does not have its own RAM and runs everything
+  // through databasehost.frognet, using the default api.php") in place of a RAM of the team's own on databasehost
+  RT.button('placeBtn', 'Use SystemRam', () => { status("team " + cap(S.team) + ": no RAM of its own; everything through the SystemRam (databasehost.frognet's api.php)"); window.rtNative.teamPlace('systemram') },
+            "the team has no RAM of its own: everything goes through the SystemRam (databasehost.frognet's api.php); it stays when the lead leaves")
 
   // ------------------------------------------------------------ [TEAM_JOIN_V1] the lead's team: one QR, one password
   // (John 2026-11-05: "One qr code for the whole team, and one password"; members give their own call signs.) The lead sets

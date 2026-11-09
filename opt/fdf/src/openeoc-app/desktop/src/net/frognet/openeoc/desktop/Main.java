@@ -196,7 +196,11 @@ public final class Main extends Application {
         });
         web.setOnAlert(e -> System.out.println("page: " + e.getData()));
         web.load(Paths.get(ui, "index.html").toUri().toString());
-        stage.setTitle(("eoc".equals(lock()) ? "OpenEOC EOC" : "OpenEOC") + " — powered by the FrogNet Living Network");   // [RT_EOC_APP_V1]
+        // [WINDOW_SAYS_ITS_VIEW_V1] (John 2026-11-09: "The Windows tools need to say what UI is running in the title bar") the
+        // window's title is the page's: the view it opens as, or the one it connected as (OpenEOC EOCAdmin, OpenEOC Team · Bigdogs ...)
+        String first = lock().isEmpty() ? "OpenEOC" : "OpenEOC " + ("eocadmin".equals(lock()) ? "EOCAdmin" : "eoc".equals(lock()) ? "EOC" : lock());
+        stage.setTitle(first + " — powered by the FrogNet Living Network");
+        web.titleProperty().addListener((o, was, now) -> { if (now != null && !now.trim().isEmpty()) stage.setTitle(now.trim() + " — powered by the FrogNet Living Network"); });
         // [OPENEOC_BRAND_V1] the OpenEOC mark as the window's icon (taskbar, title bar), from the page's own folder
         java.nio.file.Path mark = Paths.get(ui, "openeoc-mark-256.png");
         if (java.nio.file.Files.exists(mark)) stage.getIcons().add(new javafx.scene.image.Image(mark.toUri().toString()));

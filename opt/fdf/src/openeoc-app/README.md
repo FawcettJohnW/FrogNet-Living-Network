@@ -47,6 +47,29 @@ role's `act`/`req`, or `RT.button`). **A new view**: `RT.role(...)` in a layer's
 `RTA.panel(title, fn)` (none yet). Gates: `test/test_app.py` (32 checks; the Team and Public apps run with their own
 layers only), `test/test_team_host.py`, `android/typecheck.sh`.
 
+## r65 / admin r19: Use SystemRam; the window says its view ([TEAM_ON_SYSTEMRAM_V1], [WINDOW_SAYS_ITS_VIEW_V1], door dc-door-2026-11-09-sysram1)
+
+**Use SystemRam.** John 2026-11-09: "Add an option to the Team config that says Use SystemRam. If that is set, the role does not have its own RAM and runs everything through databasehost.frognet, using the default api.php." The option is on the lead's Team screen, in place of the former "Team on the SystemRam".
+
+1. **The lead sets it.** The button (`teamPlace` at `systemram`) records the team's place, `(fdf-app, config, openeoc.<team>) {at: systemram}`, at the door's `op=place`. A team a lead created may do this too. It also writes the lead's host cell with ram `systemram`, so every device follows the change at once.
+2. **The door names it.** Its `op=rams` names the team `systemram`.
+3. **Every device follows it there.** In place of a Follower on a team RAM, the core uses `TeamStore.OnSystemRam`. That reads and writes the team's service at databasehost.frognet's api.php, as `openeoc-team@<team>`, through the door's two new ops:
+   - `op=team`: a held read; the door holds at api.php with `role_hold_wait`, as its admin read does;
+   - `op=teamwrite`.
+4. **What the lead stops doing:** it stops hosting.
+5. **What changes in the core:** team names from the door are lower case, as the lead cells say them, so one team is one store.
+
+**The window says its view.** John: "The Windows tools need to say what UI is running in the title bar."
+- The desktop window's title is the page's. That is the view the app opens as (OpenEOC EOC, OpenEOC EOCAdmin) or connected as, with its team or unit: OpenEOC Team · Lee Rescue.
+- The admin tool's window title is "OpenEOC Admin (EOCCommandAdmin)".
+
+**Not yet:** the node's own `/openeoc/` pages (the radio log) read team families through `op=read` and `op=watch`, which go to a team RAM. A team on the SystemRam is not on those pages yet.
+
+**Tests.** `test_leads.py` steps 15 to 17:
+15. Use SystemRam, as the door says it, and the window title.
+16. A team message reaches the EOC through api.php.
+17. The EOC's reply reaches the team.
+
 ## r64: the lead's phone hosts its team ([LEAD_HOSTS_ITS_TEAM_V1])
 
 Found on John's phone on 2026-11-09: team messages said "say: team Bigdogs's RAM is not served on this network". The team BigDogs was created by its lead, but nothing served its RAM until someone pressed Host team.

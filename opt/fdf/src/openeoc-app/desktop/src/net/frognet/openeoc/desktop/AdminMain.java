@@ -74,7 +74,7 @@ public final class AdminMain extends Application {
             web.executeScript("rtInit(" + Json.write(load()) + ")");
         });
         web.load(Paths.get(ui, "index.html").toUri().toString());
-        stage.setTitle("OpenEOC Admin — powered by the FrogNet Living Network");
+        stage.setTitle("OpenEOC Admin (EOCCommandAdmin) — powered by the FrogNet Living Network");   // [WINDOW_SAYS_ITS_VIEW_V1]
         // [OPENEOC_BRAND_V1] the OpenEOC mark as the window's icon (taskbar, title bar), from the page's own folder
         java.nio.file.Path mark = Paths.get(ui, "openeoc-mark-256.png");
         if (java.nio.file.Files.exists(mark)) stage.getIcons().add(new javafx.scene.image.Image(mark.toUri().toString()));

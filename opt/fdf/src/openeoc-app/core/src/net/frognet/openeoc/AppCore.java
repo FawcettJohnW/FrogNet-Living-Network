@@ -49,7 +49,7 @@ public final class AppCore {
 
     public static final String APP = "openeoc";
     public static final String API = "/FawcettInnovations.RINA.ram_interface.php";
-    public static final String BUILD = "openeoc-app-2026-11-09-r64";
+    public static final String BUILD = "openeoc-app-2026-11-09-r65";
 
     private final Ui ui;
     private String door = "", dev = "", name = "", role = "", team = "", user = "", mission = "";
@@ -61,7 +61,7 @@ public final class AppCore {
     private final Map<String, Layer.Role> views = new java.util.LinkedHashMap<String, Layer.Role>();
     private final List<Follower> layerF = new java.util.concurrent.CopyOnWriteArrayList<Follower>();
     private String status = "available";
-    private final Map<String, Follower> teams = new HashMap<String, Follower>();
+    private final Map<String, TeamStore> teams = new HashMap<String, TeamStore>();   // [TEAM_ON_SYSTEMRAM_V1] a RAM's, or the SystemRam's
     private final Map<String, Boolean> seen = new HashMap<String, Boolean>();   // message ids shown
     private Map<String, Object> fix = null;
     private volatile boolean resolving = false;
@@ -280,7 +280,8 @@ public final class AppCore {
         if (!Json.str(o.get("node")).isEmpty()) doorNode = Json.str(o.get("node"));
         if (SENSORS_SET.isEmpty() && !Json.str(o.get("sensors")).isEmpty()) SENSORS = Json.str(o.get("sensors"));
         Map<String, String> out = new HashMap<String, String>();
-        for (Map.Entry<String, Object> e : Json.obj(o.get("rams")).entrySet()) out.put(e.getKey(), Json.str(e.getValue()));
+        // a team by its name in lower case, as the lead's cells say it (a team a lead named "Lee Rescue" is one team, not two)
+        for (Map.Entry<String, Object> e : Json.obj(o.get("rams")).entrySet()) out.put(e.getKey().toLowerCase(), Json.str(e.getValue()));
         return out;
     }
 
@@ -352,7 +353,7 @@ public final class AppCore {
 
     private void stopAll() {
         for (Follower f : new Follower[]{general, mis, dm, positions, msgs, callF, logF, hostF}) if (f != null) f.stop();
-        for (Follower f : teams.values()) f.stop();
+        for (TeamStore f : teams.values()) f.stop();
         for (Follower f : layerF) f.stop();
         teams.clear(); layerF.clear(); general = mis = dm = positions = msgs = callF = logF = hostF = null;
     }
@@ -372,17 +373,22 @@ public final class AppCore {
     /** the team followers: each on where its RAM is now */
     private void startTeams() {
         Follower.Log lg = new Follower.Log() { public void say(String l) { onSessionLine(l); } };
-        for (Follower f : teams.values()) f.stop();
+        for (TeamStore f : teams.values()) f.stop();
         teams.clear();
         for (Map.Entry<String, String> e : rams.entrySet()) {
             String k = e.getKey();
             if (k.equals("general")) continue;      // the door says the app's RAMs by their names: general, and one per team
             String t = k;
             if (view().allTeams || t.equalsIgnoreCase(team)) {
-                String[] a = hp(e.getValue());
                 final String tn = t;
-                teams.put(t, new Follower("team " + t, a[0], Integer.parseInt(a[1]), API, "openeoc-team", lg, null,
-                        new Runnable() { public void run() { onTeam(tn); } }));
+                Runnable ch = new Runnable() { public void run() { onTeam(tn); } };
+                if (e.getValue().equals("systemram"))           // [TEAM_ON_SYSTEMRAM_V1] no RAM of its own: the SystemRam, through the door
+                    teams.put(t, new TeamStore.OnSystemRam(APP, "openeoc-team", t, new TeamStore.Door() {
+                        public Map<String, Object> call(String q, String body, int readMs) throws Exception { return doorCall(q, body, readMs); } }, lg, ch));
+                else {
+                    String[] a = hp(e.getValue());
+                    teams.put(t, TeamStore.of(new Follower("team " + t, a[0], Integer.parseInt(a[1]), API, "openeoc-team", lg, null, ch)));
+                }
             }
         }
     }
@@ -406,7 +412,7 @@ public final class AppCore {
      *  not there (its session began again, or it moved) */
     private void onHosts() {
         Follower h = hostF; if (h == null) return;
-        for (Follower t : teams.values()) t.again();     // [EVENTS_NOT_TIMERS_V1] a lead's cell written: its RAM is there (again)
+        for (TeamStore t : teams.values()) t.again();     // [EVENTS_NOT_TIMERS_V1] a lead's cell written: its RAM is there (again)
         String mine = team.toLowerCase();
         if (!hosting.isEmpty()) {
             Map<String, Object> c = h.family("host").get(mine);
@@ -436,7 +442,7 @@ public final class AppCore {
         say("[TEAM_HOST_V1] hosting team " + cap(team) + "'s RAM on this phone (" + hosting + ")" + (hostAddr.isEmpty() ? "; the EOC is not told where (no address on the network yet)" : "; the EOC is told " + hostAddr));
         place(m, "here");
         onHosts();
-        Follower f = teams.get(team.toLowerCase()); if (f != null) onTeam(team.toLowerCase());
+        TeamStore f = teams.get(team.toLowerCase()); if (f != null) onTeam(team.toLowerCase());
     }
 
     /** [GROUP_PLACE_V1] (John 2026-11-03: the lead says where its group lives) the lead's choice, at the door: "here" (this
@@ -448,7 +454,7 @@ public final class AppCore {
         if (u.isEmpty()) { say("[GROUP_PLACE_V1] team " + cap(team) + ": no lead's user on this phone: where the team lives is not said at the door"); return; }
         Map<String, Object> o = doorCall("op=place&app=" + APP, Json.write(Json.o("user", u, "password", pw, "at", at, "guid", "phone-" + dev)));
         Map<String, Object> pl = Json.obj(o.get("place"));
-        say("[GROUP_PLACE_V1] team " + cap(Json.str(pl.get("role"))) + " lives " + (at.equals("here") ? "on this phone (" + Json.str(pl.get("guid")) + ")" : "on databasehost") + ": the door says so (" + Json.str(o.get("door")) + ")");
+        say("[GROUP_PLACE_V1] team " + cap(Json.str(pl.get("role"))) + " lives " + (at.equals("here") ? "on this phone (" + Json.str(pl.get("guid")) + ")" : at.equals("systemram") ? "on the SystemRam, with no RAM of its own" : "on databasehost") + ": the door says so (" + Json.str(o.get("door")) + ")");
     }
 
     /** [GROUP_PLACE_V1] the lead moves its team's RAM to databasehost: placed there at the door, this phone's own host
@@ -456,14 +462,18 @@ public final class AppCore {
      *  its RAM). Nothing is carried over: each owner writes its own truth again in the team's RAM where it is now. */
     private void teamPlace(Map<String, Object> m) throws Exception {
         String at = Json.str(m.get("at"));
-        if (!at.equals("databasehost")) throw new Exception("teamPlace: at databasehost (hosting here is Host team)");
+        if (!at.equals("databasehost") && !at.equals("systemram")) throw new Exception("teamPlace: at databasehost or systemram (hosting here is Host team)");
         if (!isTeam() || team.isEmpty()) throw new Exception("only a team's lead places its team");
         place(m, at);
         Follower h = hostF;
         if (h != null && !hosting.isEmpty()) h.write("host", team.toLowerCase(), Json.o("team", cap(team), "ram", "", "dev", dev, "name", name, "at", System.currentTimeMillis() / 1000), true);
         hosting = ""; hostAddr = ""; card = null;
-        doorRams = servedRams(team.toLowerCase(), 20);
-        say("[GROUP_PLACE_V1] team " + cap(team) + "'s RAM " + (doorRams.containsKey(team.toLowerCase()) ? "is served on databasehost now, at " + doorRams.get(team.toLowerCase())
+        doorRams = at.equals("systemram") ? servedRams() : servedRams(team.toLowerCase(), 20);   // the SystemRam: nothing to wait for
+        // [TEAM_ON_SYSTEMRAM_V1] the lead's cell says so too: every device follows the hosts' cells (an event), not only the door
+        if (at.equals("systemram") && h != null) h.write("host", team.toLowerCase(), Json.o("team", cap(team), "ram", "systemram", "dev", dev, "name", name, "at", System.currentTimeMillis() / 1000), true);
+        if (at.equals("systemram")) say("[TEAM_ON_SYSTEMRAM_V1] team " + cap(team) + " has no RAM of its own now: everything goes through the SystemRam ("
+            + (doorRams.containsKey(team.toLowerCase()) ? "the door says so" : "the door does not say so yet") + ")");
+        else say("[GROUP_PLACE_V1] team " + cap(team) + "'s RAM " + (doorRams.containsKey(team.toLowerCase()) ? "is served on databasehost now, at " + doorRams.get(team.toLowerCase())
             : "is not served yet 20 s after (no member has it running): the team page waits for it"));
         onHosts();
     }
@@ -596,7 +606,7 @@ public final class AppCore {
     private void onMsgs() { for (Map.Entry<String, Map<String, Object>> e : msgs.family(mission).entrySet()) emitOnce("m:" + e.getKey(), e.getValue(), "all"); }
     private void onDm() { for (Map.Entry<String, Map<String, Object>> e : dm.family(mission + "." + dev).entrySet()) emitOnce("d:" + e.getKey(), e.getValue(), "dev:" + dev); }
     private void onTeam(String t) {
-        Follower f = teams.get(t); if (f == null) return;
+        TeamStore f = teams.get(t); if (f == null) return;
         // [TEAM_HOST_V1] the lead's card in its own team's RAM: what a member's app reads on the hotspot to connect
         Map<String, Object> cd = card;
         if (cd != null && !hosting.isEmpty() && t.equalsIgnoreCase(team)) {
@@ -626,8 +636,8 @@ public final class AppCore {
         lastSay = Json.o("to", to, "id", id, "at", ms);
         if (to.equals("all")) { if (msgs == null || !msgs.write(mission, inst, b, false)) throw new Exception("not connected"); }
         else if (to.startsWith("team:")) {
-            String t = to.substring(5); Follower f = null;
-            for (Map.Entry<String, Follower> e : teams.entrySet()) if (e.getKey().equalsIgnoreCase(t)) f = e.getValue();
+            String t = to.substring(5); TeamStore f = null;
+            for (Map.Entry<String, TeamStore> e : teams.entrySet()) if (e.getKey().equalsIgnoreCase(t)) f = e.getValue();
             if (f == null) throw new Exception("team " + t + "'s RAM is not served on this network");
             b.put("team", t);
             if (!f.write(mission, inst, b, false)) throw new Exception("not connected to team " + t);
@@ -908,7 +918,7 @@ public final class AppCore {
         List<Follower> out = new ArrayList<Follower>();
         for (Follower f : new Follower[]{general, mis, dm, positions, msgs, callF, logF, hostF}) if (f != null) out.add(f);
         out.addAll(layerF);
-        out.addAll(teams.values());
+        for (TeamStore t : teams.values()) if (t.follower() != null) out.add(t.follower());
         return out;
     }
 

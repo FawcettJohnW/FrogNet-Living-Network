@@ -78,11 +78,14 @@ try:
     from playwright.sync_api import sync_playwright
     def free():
         s = socket.socket(); s.bind(("127.0.0.1", 0)); p = s.getsockname()[1]; s.close(); return p
-    pe, pt = free(), free()
+    pe, pt, pl = free(), free(), free()
+    os.makedirs("/run/frognet/held", exist_ok=True)
     procs.append(subprocess.Popen(["java", "-Drt.layers=help,field,eoc,medical,ics,fema", "-Duser.home=" + T, "-cp", CP, "DevHost", APP + "/ui", str(pe), "eoc1", "EOC Desk", "127.0.1.1:8088", "eoc", "", "eoc"],
                                   stdout=open(T + "/dev-eoc.log", "w"), stderr=subprocess.STDOUT))
     procs.append(subprocess.Popen(["java", "-Drt.layers=help,field,team,ics,fema", "-Duser.home=" + T, "-cp", CP, "DevHost", APP + "/ui", str(pt), "lee1", "Lee", "127.0.1.1:8088", "team", "", "team"],
                                   stdout=open(T + "/dev-team.log", "w"), stderr=subprocess.STDOUT))
+    procs.append(subprocess.Popen(["java", "-Drt.layers=help,field,team,ics,fema", "-Duser.home=" + T, "-cp", CP, "DevHost", APP + "/ui", str(pl), "lr1", "Lee", "127.0.1.1:8088", "team", "Lee Rescue", "team"],
+                                  stdout=open(T + "/dev-lr.log", "w"), stderr=subprocess.STDOUT))
     time.sleep(2.5)
     with sync_playwright() as pw:
         br = pw.chromium.launch(); errs = []
@@ -135,6 +138,29 @@ try:
         pg.click("#sheet tr:has-text('sam') button:has-text('Remove')"); pg.wait_for_function("S.leads && !S.leads.sam", timeout=15000)
         gone = door("op=login&app=openeoc", {"user": "sam", "password": "sam-2026"})
         check("not this app" in str(gone.get("why")), "13 Remove: sam is gone at the door: " + str(gone.get("why")))
+        # [TEAM_ON_SYSTEMRAM_V1] the lead says Use SystemRam: the team has no RAM of its own; its messages go through api.php
+        lr = br.new_page(viewport={"width": 412, "height": 860}); lr.on("pageerror", lambda e: errs.append("lr: " + str(e)))
+        lr.goto("http://127.0.0.1:%d/" % pl); lr.wait_for_selector("#connect:not([hidden])", timeout=8000)
+        lr.evaluate("() => { const f = $('#connect'); if (![...f.team.options].some(o => o.value === 'Lee Rescue')) f.team.insertAdjacentHTML('beforeend', '<option>Lee Rescue</option>'); f.team.value = 'Lee Rescue' }")
+        lr.click("#connect button[type=submit]"); lr.wait_for_selector("#main:not([hidden])", timeout=20000)
+        lr.evaluate("send({op: 'teamPlace', at: 'systemram', user: 'lee', password: 'lee-2026'})")
+        for _ in range(100):
+            rm = door("op=rams&app=openeoc").get("rams", {})
+            if rm.get("Lee Rescue") == "systemram": break
+            time.sleep(0.2)
+        title = lr.evaluate("document.title")
+        check(rm.get("Lee Rescue") == "systemram" and title == "OpenEOC Team · Lee Rescue", "15 Use SystemRam: the door says team Lee Rescue is %r; the lead's window title %r" % (rm.get("Lee Rescue"), title))
+        pg.wait_for_function("() => true"); time.sleep(3)
+        lr.evaluate("send({op: 'say', to: 'team:Lee Rescue', text: 'Lee Rescue on the SystemRam, over'})")
+        try: pg.wait_for_function("S.msgs.some(m => m.text === 'Lee Rescue on the SystemRam, over')", timeout=30000); got = True
+        except Exception: got = False
+        rows = door("op=team&app=openeoc&s=openeoc-team&team=Lee%20Rescue").get("rows", [])
+        check(got and any((r.get("bag") or {}).get("text") == "Lee Rescue on the SystemRam, over" for r in rows),
+              "16 the team's message reaches the EOC (%s), through the SystemRam's api.php (op=team: %d tuple(s) for openeoc-team@lee rescue)" % (got, len(rows)))
+        pg.evaluate("send({op: 'say', to: 'team:Lee Rescue', text: 'EOC copies, Lee Rescue'})")
+        try: lr.wait_for_function("S.msgs.some(m => m.text === 'EOC copies, Lee Rescue')", timeout=30000); back = True
+        except Exception: back = False
+        check(back, "17 the EOC's message to team Lee Rescue reaches the team's device through the SystemRam")
         logs = open(T + "/php-door.log").read() + open(T + "/dev-eoc.log").read()
         check(not errs and "lee-2026" not in logs and "sam-2026" not in logs, "14 no page errors %s; no password in the door's or the core's log" % errs)
         br.close()

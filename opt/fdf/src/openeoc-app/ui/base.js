@@ -461,6 +461,8 @@ function connected(m) {
   S.doorNode = m.node || ''                            // [DOOR_SAYS_ITS_NODE_V1] the node the door is (dc-door r16 on)
   if ($('#pick')) $('#pick').hidden = true     // [RT_APP_PICKER_V1] connected (an enrolled phone, a lead's card): the question is answered
   S.role = m.role; S.team = m.team || ''; S.connectedAt = Date.now(); S.autoConnect = false; $('#splash').classList.add('gone')
+  // [WINDOW_SAYS_ITS_VIEW_V1] the title (the window's, on Windows) says the view this app is running as, and its team or unit
+  { const rr = RT.roles[m.role] || {}; document.title = (rr.title || 'OpenEOC ' + (rr.label || m.role)) + (S.team ? ' · ' + cap(S.team) : '') }
   const r = RT.me()
   $('#connect').hidden = true; $('#main').hidden = false
   $('#who').textContent = S.cfg.name + ' · ' + (r.who ? r.who() : r.label || S.role)
