@@ -1,0 +1,121 @@
+# OpenEOC on FrogNet: deploying build fdf-2026-11-01-r38
+
+What runs where, and the commands, for the build of 2026-11-01. The design is `PLAN.md` and
+`opt/fdf/docs/APP-SETUP-AND-OPERATION.md`.
+
+## The files
+
+| file | for |
+| --- | --- |
+| `fdf-install-x86_64-fdf-2026-11-01-r38.run` | each x86_64 FrogNet node |
+| `fdf-install-aarch64-fdf-2026-11-01-r38.run` | each Pi node |
+| `fdf-droplet-x86_64-fdf-2026-11-01-r38.tgz` | an x86_64 region holder (a droplet) |
+| `fdf-droplet-aarch64-fdf-2026-11-01-r38.tgz` | a Pi region holder (a LAN region) |
+| `fdf-addin-dc-linux-any-dc-2026-11-01-r1.tgz` | the app: the DisasterComm add-in, which carries OpenEOC's pages (`/openeoc/`) and the post's 309 writer |
+
+Made by `rinab/tools/make_deliverables.sh OUTDIR` and `bundles/make_addin.sh dc OUTDIR`.
+
+## 0. The region holder first
+
+On the holder, the bundle for its processor (`fdf-droplet-aarch64-...` on a Pi, `fdf-droplet-x86_64-...` on a droplet),
+then the region, defined whole. `fdf-setup-ui` shows every setting with its default on one screen, in the terminal;
+`fdf-setup` asks the same as questions; `fdf-setup --define FILE` takes it all at once.
+
+    cd / && tar xvzf - < /tmp/fdf-droplet-aarch64-fdf-2026-11-01-r38.tgz
+    sudo /opt/fdf/bin/fdf-region-create --migrate
+    sudo /opt/fdf/bin/fdf-setup-ui
+
+`--migrate` moves a region an earlier build made into its own directory, keeping its keys and members; on a machine with
+none it says so and does nothing. It moves only this machine's own region: a `hub.env` whose `FDF_HUB_NAME` is another
+machine's is refused and nothing is changed ([MIGRATE_ONLY_OWN_REGION_V1]; on 2026-11-01 Seattle7 held a stray copy of
+StreamingFrog's, and the hub started from it took Seattle7's own membership down). A machine holds as many regions as
+it is given, each on its own ports.
+
+The holder bundle is for a machine that is not a FrogNet node. Untarred on a node it replaces the node's FD&F programs
+without the tunnel daemon's region code of the same build (found on Seattle7: r38 `fdf-events` against an r31-era
+`region.py`, whose region loop then never came up). A node that is to serve an app's RAMs needs no region of its own:
+it is already a member (section 2).
+
+Then one invitation per node (on the holder):
+
+    sudo /opt/fdf/bin/fdf-invite NODENAME --area AREA
+
+## 1. The droplets: every Linux node that may serve the app's RAMs
+
+    sudo bash /tmp/fdf-install-x86_64-fdf-2026-11-01-r38.run fdfinv1.<this node's invitation>
+
+The join installs `fdf-client`, `fdf-facts` and `fdf-app` (`fdf-app.service`: `fdf-app serve`). `fdf-app serve`
+adopts the app's one configuration tuple from databasehost-control, holds this node's capability tuples in the
+SystemRam, and starts `fdf-ram` for each AppRam whose AppHost (`<app>Host.frognet`, `<team>Host.<app>`, written by the
+election into `/etc/hosts`) is this node, on that AppRam's port. Nothing else is
+started by hand.
+
+## 2. The app on each node: install, then configure
+
+    cd /tmp && tar xzf fdf-addin-dc-linux-any-dc-2026-11-01-r1.tgz && sudo ./fdf-addin-dc-dc-2026-11-01-r1/install
+
+The pages go to `/opt/fdf/www/dc` and `/opt/fdf/www/openeoc`, and Apache serves them (`/openeoc/` opens `index.html`).
+`fdf-addin-dc.service` holds the add-in's tuple and runs `openeoc-post309`, which writes the post's ICS-309 and ICS-213
+files to `/opt/fdf/var/rt/`.
+
+Then the admin's configuration, the same line on every node the app is installed on (the admin app is this command
+for now; the automatic install of the named remote nodes is not built):
+
+    sudo /opt/fdf/bin/fdf-app config openeoc general,hospitals --role hospitals --role eoc:default --user kim:<password>=hospitals
+
+- `general,hospitals`: the app's RAMs, the general RAM and one per team that has its own.
+- `--role NAME[:default]`: a role; `:default` lets a client take it with no password (an EOC client).
+- `--user USER:PASSWORD=ROLE`: an individual, whose role is activated at their login. Only a verifier is kept.
+- `--login`: login required. Without it, a client with no role uses the general RAM.
+
+`fdf-app serve` picks the change up at once: it writes the configuration into the network RAM, and serves the RAMs
+where its selection says.
+
+## 3. The users
+
+Windows, Android and any laptop: a browser on a node's Wi-Fi, `http://<the node>/openeoc/`. (The Windows and Android
+shells that show the same pages from the device itself are not built yet.)
+
+1. The page connects first. The device is shown by its host name, from the lease the node gave it; a device that
+   sent none (many Android phones) is named once on the Radio Log ("This device").
+2. A user with a role logs in once (user and password on the Radio Log); an EOC client opens
+   `http://<the node>/openeoc/index.html?role=eoc` and needs no password.
+3. The page opens on the role's screen: the Radio Log, a team's messages, or the EOC's Summary.
+4. Everything after that is on every post as it is written: entries, marks, positions, messages, the forms.
+
+A post cut off keeps working on its own side; when it is back, every device writes its own again and every screen
+has it. No user action.
+
+## The app demo (2026-11-01): EOC on Windows, a responder on a phone
+
+The app is `opt/fdf/src/openeoc-app` (its README says how it is built). On the node that serves it (Seattle7):
+
+    cd /tmp && tar xzf fdf-addin-dc-linux-any-dc-2026-11-01-r3.tgz && sudo ./fdf-addin-dc-dc-2026-11-01-r3/install
+    sudo /opt/fdf/bin/fdf-app config openeoc general,alpha,bravo,charlie,delta --role eoc --role alpha:default --role bravo:default --role charlie:default --role delta:default --user EOCAdmin:EOCAdmin=eoc
+    sudo systemd-run --unit openeoc-sim --setenv=FDF_HOME=/opt/fdf /opt/fdf/addins/dc/bin/openeoc-sim
+
+- the general RAM and one RAM per team (team messages), served by `fdf-app` where its selection says;
+- `openeoc-sim` on one node only: 80 simulated instances, each on its own session; `systemctl stop openeoc-sim` and they are gone.
+
+Windows: unzip `OpenEOC-windows-x64-openeoc-app-2026-11-01-r1.zip`, run `OpenEOC\OpenEOC.cmd`, on the node's
+Wi-Fi. EOC: user `EOCAdmin`. Phone: the APK from `opt/fdf/src/openeoc-app/android` (Android Studio), on the node's
+Wi-Fi; the node is filled in from the Wi-Fi's gateway.
+
+## What is not in this build
+
+- A browser holds at most 6 connections to one host, and each open OpenEOC page holds one: a device with more
+  than about 5 OpenEOC pages open at one post waits for one to close.
+
+- The Windows and Android shells for the pages (both use the browser for now).
+- The automatic install of the remote nodes.
+
+## The admin app (2026-11-01, [ADMIN_APP_V1])
+
+On every member with OpenEOC (once): the node update (`fdf-app` r4, the door, openeoc-sim r8), and the install line with
+an admin added, e.g. `... --user EOCAdmin:EOCAdmin=eoc --admin boss:<password>`, then `systemctl restart fdf-app`.
+On Windows: unzip `OpenEOC-Admin-windows-x64-<build>.zip`, run `OpenEOCAdmin.cmd`, connect to any member with the
+app as that admin. Teams, roles and users changed there are adopted by every member that has the admin key; the
+Members table says which did. Running the install line again later replaces what the admin app set on that member.
+- The hospital status screen, inbound ambulances, assignments and overdue teams (in the mock-up only).
+- Liveness bound to a device's session: a device that has left stays on the map, aging (see `PLAN.md`, the
+  Meshtastic merge).

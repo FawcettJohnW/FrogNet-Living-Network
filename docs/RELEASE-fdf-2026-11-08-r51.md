@@ -38,7 +38,7 @@ the installed machines' copies (`[CONFIG_WRITTEN_AGAIN_BY_THE_MERGE_V1]`).
 ## Gates (in the container)
 
 `simulation/run_all.py` PASS, with 84/84 discovery oracles. Also: `test_frognet_host` 10/10, `test_fdf_app` 13/13,
-`test_rt_pages` 28/28, `netns-system-space-test` 21/21, `netns-enroll-test` 12/12 and `test_writer_gone_oracle` 4/4.
+`test_openeoc_pages` 28/28, `netns-system-space-test` 21/21, `netns-enroll-test` 12/12 and `test_writer_gone_oracle` 4/4.
 
 These netns tests pass: admit-kt, graph, hub-addr, invisible, join-kt, org, region-loop, regions, space, spaces,
 targets, member-death, latency and scale.

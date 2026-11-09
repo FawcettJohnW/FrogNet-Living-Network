@@ -687,7 +687,7 @@ def _questions(app, c):
 
 def restart_service():
     r = subprocess.run((os.environ.get("FDF_APP_RESTART") or "systemctl restart fdf-app").split())
-    print("fdf-app: fdf-app.service %s" % ("restarted: it holds this machine's capability in the SystemRam and serves what the election gives it"
+    print("fdf-app: fdf-app.service %s" % ("restarted: it announces this machine's capability in the SystemRam and serves what the election gives it"
                                          if r.returncode == 0 else "did NOT restart (systemctl %d): journalctl -u fdf-app" % r.returncode))
     return 0 if r.returncode == 0 else 1
 

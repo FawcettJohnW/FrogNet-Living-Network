@@ -104,13 +104,13 @@ for b in "$H/build/static/"{fdf-client,fdf-events,fdf-participants,fdf-attention
 W=$(mktemp -d); trap 'rm -rf "$W"' EXIT
 fdf_tree() {   # $1 = root, $2 = binary dir, $3.. = binary names (as installed: fdf-ram-static -> fdf-ram)
   local R=$1 BD=$2; shift 2; mkdir -p "$R/opt"
-  cp -a "$TOP/fdf" "$R/opt/fdf"; rm -rf "$R/opt/fdf/var" "$R/opt/fdf/hub/hub.env" "$R/opt/fdf/www/dc" "$R/opt/fdf/www/rt"; find "$R" -name __pycache__ -prune -exec rm -rf {} +
+  cp -a "$TOP/fdf" "$R/opt/fdf"; rm -rf "$R/opt/fdf/var" "$R/opt/fdf/hub/hub.env" "$R/opt/fdf/www/dc" "$R/opt/fdf/www/openeoc"; find "$R" -name __pycache__ -prune -exec rm -rf {} +
   for b in "$@"; do cp "$BD/${b%%:*}" "$R/opt/fdf/bin/${b##*:}"; done
   chmod 755 "$R/opt/fdf/bin/"*; }      # every /opt/fdf/bin entry runs (the installer execs fdf-region-join)
-# [ONE_FILE_UPDATE_V1] a node bundle carries the DisasterComm pages and their door (/opt/fdf/www/dc, /opt/fdf/www/rt) and
+# [ONE_FILE_UPDATE_V1] a node bundle carries the DisasterComm pages and their door (/opt/fdf/www/dc, /opt/fdf/www/openeoc) and
 # their Apache conf: every node is a device's edge, so every node's door answers (one file, John 2026-11-04)
-node_pages() { local R=$1; cp -a "$TOP/fdf/www/dc" "$R/opt/fdf/www/dc"; cp -a "$TOP/fdf/www/rt" "$R/opt/fdf/www/rt"
-  rm -f "$R/opt/fdf/www/rt/"*.py "$R/opt/fdf/www/rt/"*.mjs; find "$R/opt/fdf/www" -name __pycache__ -prune -exec rm -rf {} +
+node_pages() { local R=$1; cp -a "$TOP/fdf/www/dc" "$R/opt/fdf/www/dc"; cp -a "$TOP/fdf/www/openeoc" "$R/opt/fdf/www/openeoc"
+  rm -f "$R/opt/fdf/www/openeoc/"*.py "$R/opt/fdf/www/openeoc/"*.mjs; find "$R/opt/fdf/www" -name __pycache__ -prune -exec rm -rf {} +
   mkdir -p "$R/etc/apache2/conf-available"; cp "$TOP/../bundles/addins/dc/fdf-dc.conf" "$R/etc/apache2/conf-available/"; }
 # [FROGNET_RUNTIME_WHOLE_V1] (Seattle3B 2026-11-08: r50 shipped daemon/engine/server.py alone; the node's older
 # core/semcache_wire.py has no OP_REQ_SAME_MISS and frognet-daemon died on import) the node patch carries FrogNet's

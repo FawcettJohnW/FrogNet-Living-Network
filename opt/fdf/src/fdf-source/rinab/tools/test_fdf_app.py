@@ -10,15 +10,15 @@ and 127.0.0.3: this tree's api.php on port 80, each on its own MariaDB database;
 where they fire the held reads. The hosts file (as every node's election writes it) names databasehost-control and the
 SystemRam; the AppRams are services (fdf-ram, served by fdf-app on their ports); the AppHost lines are
 the real election's (core/app_hosts.py), run here as the tunnel daemon runs it: on a held read on each fdf-app family
-and on a membership change. One app, rangertrak, RAMs general and hospitals; c has the most memory, b the next, a the
+and on a membership change. One app, openeoc, RAMs general and hospitals; c has the most memory, b the next, a the
 least, d the most and no app.
 
-  1  the first install (a, the Admin's line): ONE configuration tuple, (fdf-app, config, rangertrak), in
+  1  the first install (a, the Admin's line): ONE configuration tuple, (fdf-app, config, openeoc), in
      databasehost-control, signed, with a port in 20000..65535 for every RAM; nothing else of the app there
   2  b and c install it from that tuple (the admin password checked against its check value); d never offers it.
      databasehost-control still holds exactly the one tuple: no machine writes a copy of its own
   3  each machine's capability tuple per AppRam in the SystemRam; the password nowhere in a tuple
-  4  the election: rangertrakHost.frognet and hospitalsHost.rangertrak name c; c serves each on its configured port
+  4  the election: openeocHost.frognet and hospitalsHost.openeoc name c; c serves each on its configured port
   5  c's service stopped (its machine still there): it withdrew its capability tuples; both on b
   6  c back: both on c again
   7  the Admin's configuration (a new Team RAM alpha with its own port, a new user): adopted by a, b and c (their
@@ -26,7 +26,7 @@ least, d the most and no app.
   8  a configuration under the wrong admin password: refused by every machine; nothing changes
   9  the port of general changed in the configuration: its AppHost restarts it on the new port; the old one closed
  10  the app's selection (-mem_total_kb): every AppRam on a
- 11  hospitals' lead places it here on b (its own configuration tuple): hospitalsHost.rangertrak names b; a place by a
+ 11  hospitals' lead places it here on b (its own configuration tuple): hospitalsHost.openeoc names b; a place by a
      user who is not its lead is no place; placed on databasehost: the selection again
  12  databasehost-control and the SystemRam move (the hosts file names the other role host): the merge writes the
      configuration tuples into the new databasehost-control as signed; each machine announces its capability tuples
@@ -173,51 +173,51 @@ def wait_for(pred, limit=15.0):
 def ctl(): return R[world["control"]]
 def sysr(): return R[world["system"]]
 def cfg_now():
-    b = [c["bag"] for c in live(ctl(), "config") if c["instance"] == "rangertrak"]
+    b = [c["bag"] for c in live(ctl(), "config") if c["instance"] == "openeoc"]
     return (json.loads(b[0]["config"]), b[0]) if b else (None, None)
 def on(want):
     """every AppRam named on the node it should be, answering on its configured port"""
     def f():
         c, _ = cfg_now(); h = hosts()
         if not c: return None
-        got = {r: "%s:%s" % (h.get(app_hosts.host_name("rangertrak", r), ""), c["ports"][r]) for r in want}
+        got = {r: "%s:%s" % (h.get(app_hosts.host_name("openeoc", r), ""), c["ports"][r]) for r in want}
         return got if all(got[r].startswith("127.0.%d.1:" % IDX[want[r]]) and answers(got[r]) for r in want) else None
     return f
 def admin_send(pw, cfg, seq):
-    salt = hashlib.sha256(b"fdf-app-admin:rangertrak:boss").digest()[:16]
+    salt = hashlib.sha256(b"fdf-app-admin:openeoc:boss").digest()[:16]
     k = hashlib.pbkdf2_hmac("sha256", pw.encode(), salt, 200000)
     text = json.dumps(cfg, sort_keys=True)
     _, bag = cfg_now()
-    ctl().write("fdf-app", "config", "rangertrak", {"config": text, "seq": seq, "user": "boss", "admin": bag["admin"], "at": int(time.time()),
+    ctl().write("fdf-app", "config", "openeoc", {"config": text, "seq": seq, "user": "boss", "admin": bag["admin"], "at": int(time.time()),
                                                     "mac": hmac.new(k, ("%s\n%d" % (text, seq)).encode(), hashlib.sha256).hexdigest()})
     return k
 def applied(seq, ok=True):
-    a = [c["bag"] for c in live(sysr(), "applied", "rangertrak.")]
+    a = [c["bag"] for c in live(sysr(), "applied", "openeoc.")]
     return a if len(a) == 3 and all(x["seq"] == seq and bool(x["ok"]) == ok for x in a) else None
 
 try:
-    rc, out = run("a", "config", "rangertrak", "general,hospitals", "--login", "--role", "hospitals", "--role", "command:default",
+    rc, out = run("a", "config", "openeoc", "general,hospitals", "--login", "--role", "hospitals", "--role", "command:default",
                   "--user", "pat:beds-2026=hospitals", "--user", "kim:kim-2026=command", "--admin", "boss:adm-2026")
     cf = live(ctl(), "config")
     c0, b0 = cfg_now()
-    check(rc == 0 and [x["instance"] for x in cf] == ["rangertrak"] and c0 and all(20000 <= c0["ports"][r] <= 65535 for r in ("general", "hospitals"))
+    check(rc == 0 and [x["instance"] for x in cf] == ["openeoc"] and c0 and all(20000 <= c0["ports"][r] <= 65535 for r in ("general", "hospitals"))
           and len(b0["mac"]) == 64 and "key" not in json.dumps(b0["admin"]) and not live(ctl(), "can") and not live(ctl(), "applied"),
           "1 the first install: one configuration tuple in databasehost-control %s, signed, ports %s; nothing else of the app there: %s"
           % ([x["instance"] for x in cf], c0 and c0["ports"], out.splitlines()[-1:]))
-    rcs = [run(n, "install", "rangertrak", "--admin", "boss:adm-2026") for n in "bc"]
-    bad = run("d", "install", "rangertrak", "--admin", "boss:wrong")
-    check(all(r[0] == 0 for r in rcs) and bad[0] != 0 and not os.listdir(T + "/d/apps") and [x["instance"] for x in live(ctl(), "config")] == ["rangertrak"]
-          and all(json.load(open(T + "/%s/apps/rangertrak.json" % n))["ports"] == c0["ports"] for n in "bc"),
+    rcs = [run(n, "install", "openeoc", "--admin", "boss:adm-2026") for n in "bc"]
+    bad = run("d", "install", "openeoc", "--admin", "boss:wrong")
+    check(all(r[0] == 0 for r in rcs) and bad[0] != 0 and not os.listdir(T + "/d/apps") and [x["instance"] for x in live(ctl(), "config")] == ["openeoc"]
+          and all(json.load(open(T + "/%s/apps/openeoc.json" % n))["ports"] == c0["ports"] for n in "bc"),
           "2 b and c installed from the tuple; a wrong admin password on d installs nothing (%s); databasehost-control still holds one tuple"
           % bad[1].splitlines()[-1:])
     for n in "abcd": serve(n)
-    cans, _ = wait_for(lambda: (lambda x: x if len(x) == 6 else None)(sorted(c["instance"] for c in live(sysr(), "can", "rangertrak."))))
+    cans, _ = wait_for(lambda: (lambda x: x if len(x) == 6 else None)(sorted(c["instance"] for c in live(sysr(), "can", "openeoc."))))
     alltext = json.dumps([c["bag"] for c in live(ctl(), "config") + live(sysr(), "can")])
     check(bool(cans) and "beds-2026" not in alltext and "adm-2026" not in alltext,
           "3 the capability tuples in the SystemRam, one per machine per AppRam: %s; no password in any tuple" % cans)
     m, dt = wait_for(on({"general": "c", "hospitals": "c"}))
     check(m is not None and not [l for l in open(T + "/d/app.log") if "serving" in l],
-          "4 the election: rangertrakHost.frognet and hospitalsHost.rangertrak on c, served on their ports (%.0f ms): %s" % (dt * 1000, m))
+          "4 the election: openeocHost.frognet and hospitalsHost.openeoc on c, served on their ports (%.0f ms): %s" % (dt * 1000, m))
 
     stop("c"); t0 = time.monotonic()
     m, dt = wait_for(on({"general": "b", "hospitals": "b"}))
@@ -237,12 +237,12 @@ try:
     k = admin_send("adm-2026", new, seq)
     ap, dt = wait_for(lambda: applied(seq), 15)
     m, _ = wait_for(on({"general": "c", "hospitals": "c", "alpha": "c"}))
-    check(ap is not None and m is not None and all("ann" in json.load(open(T + "/%s/apps/rangertrak.json" % n))["users"] for n in "abc")
+    check(ap is not None and m is not None and all("ann" in json.load(open(T + "/%s/apps/openeoc.json" % n))["users"] for n in "abc")
           and k.hex() not in json.dumps([c["bag"] for c in live(ctl(), "config")]),
           "7 the Admin's configuration adopted by a, b and c in %.0f ms (%s); alpha served on its port %s" % (dt * 1000, [(x["member"], x["ok"]) for x in ap or []], m and m.get("alpha")))
     admin_send("not-the-password", dict(new, users={}), seq + 1)
     bad, _ = wait_for(lambda: applied(seq + 1, ok=False), 15)
-    check(bad is not None and all("mac" in x["why"] for x in bad) and all(json.load(open(T + "/%s/apps/rangertrak.json" % n))["seq"] == seq for n in "abc"),
+    check(bad is not None and all("mac" in x["why"] for x in bad) and all(json.load(open(T + "/%s/apps/openeoc.json" % n))["seq"] == seq for n in "abc"),
           "8 a configuration under the wrong admin password refused by every machine (%s); nothing changed" % ([x["why"][:40] for x in bad or []][:1]))
 
     oldp = new["ports"]["general"]; newp = 20000 + (oldp - 20000 + 77) % 45000
@@ -259,7 +259,7 @@ try:
     lead = dict(new3, users=dict(new3["users"], pat=dict(new3["users"]["pat"], lead=True)))
     admin_send("adm-2026", lead, seq + 4); wait_for(lambda: applied(seq + 4), 15)
     def place(user, at, guid=""):
-        ctl().write("fdf-app", "config", "rangertrak.hospitals", {"at": at, "guid": guid, "user": user, "role": "hospitals", "seq": int(time.time() * 1000), "from": "test"})
+        ctl().write("fdf-app", "config", "openeoc.hospitals", {"at": at, "guid": guid, "user": user, "role": "hospitals", "seq": int(time.time() * 1000), "from": "test"})
     place("pat", "here", "guid-b")
     m, dt = wait_for(on({"general": "a", "hospitals": "b"}), 15)
     place("kim", "here", "guid-c")
@@ -268,14 +268,14 @@ try:
     place("pat", "databasehost")
     m2, dt2 = wait_for(on({"general": "a", "hospitals": "a"}), 15)
     check(m is not None and m1 is not None and m2 is not None,
-          "11 pat placed hospitals here on b: hospitalsHost.rangertrak on b %.0f ms after; a place by kim (not its lead) is no place: the selection (a), not c: %s; "
+          "11 pat placed hospitals here on b: hospitalsHost.openeoc on b %.0f ms after; a place by kim (not its lead) is no place: the selection (a), not c: %s; "
           "pat placed it on databasehost: the selection again (a) %.0f ms after" % (dt * 1000, bool(m1), dt2 * 1000))
 
     _, before = cfg_now()
     world["control"] = world["system"] = "127.0.0.3"; t0 = time.monotonic(); elect("split")
     got, dt = wait_for(lambda: (lambda b: b if b and b[0]["bag"]["seq"] == before["seq"] and b[0]["bag"]["mac"] == before["mac"] else None)
-                       ([c for c in live(R["127.0.0.3"], "config") if c["instance"] == "rangertrak"]), 15)
-    cn, _ = wait_for(lambda: (lambda x: x if len(x) == 9 else None)(sorted(c["instance"] for c in live(R["127.0.0.3"], "can", "rangertrak."))), 15)
+                       ([c for c in live(R["127.0.0.3"], "config") if c["instance"] == "openeoc"]), 15)
+    cn, _ = wait_for(lambda: (lambda x: x if len(x) == 9 else None)(sorted(c["instance"] for c in live(R["127.0.0.3"], "can", "openeoc."))), 15)
     m, _ = wait_for(on({"general": "a", "hospitals": "a", "alpha": "a"}), 15)
     check(bool(got) and bool(cn) and m is not None,
           "12 databasehost-control and the SystemRam moved: the configuration tuple written into the new one by the merge, as signed (%.0f ms); "
@@ -284,7 +284,7 @@ try:
     os.makedirs(T + "/e/apps")
     json.dump({"name": "node-e", "guid": "guid-e", "addrs": [{"ip": "127.0.5.1", "kind": "own"}]}, open(T + "/e/facts.json", "w"))
     open(T + "/nohosts", "w").write("127.0.0.1 localhost\n")
-    p = subprocess.run([sys.executable, fa, "install", "rangertrak", "--admin", "boss:adm-2026"], env=dict(env_of("e"), FDF_HOSTS=T + "/nohosts"),
+    p = subprocess.run([sys.executable, fa, "install", "openeoc", "--admin", "boss:adm-2026"], env=dict(env_of("e"), FDF_HOSTS=T + "/nohosts"),
                        capture_output=True, text=True, stdin=subprocess.DEVNULL)
     check(p.returncode != 0 and not os.listdir(T + "/e/apps") and "databasehost-control" in p.stdout,
           "13 install with no databasehost-control named: nothing installed (%s)" % p.stdout.strip().splitlines()[-1:])

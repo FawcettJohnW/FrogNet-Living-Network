@@ -44,7 +44,7 @@ focus, while the admin app is used to set up and configure things. Clients must 
 they can do anything."
 
 - **The admin app** sets the app up and configures it: the steps below. It writes the app configuration tuples. It is a
-  standalone app (RangerTrak's: `opt/fdf/src/rangertrak-app`, `RangerTrak-Admin`) that reaches the network through any
+  standalone app (OpenEOC's: `opt/fdf/src/openeoc-app`, `OpenEOC-Admin`) that reaches the network through any
   member's door. Its change is the whole configuration, signed with the admin key; every member that has the app checks
   the signature with its own copy of the key, adopts it as its own configuration and says so ([ADMIN_APP_V1]).
 - **The client app** is one app. Its main focus follows the user's team (**John:** "They just change the main focus
@@ -132,7 +132,7 @@ speak its wire. A host and its clients are updated together, from the one tarbal
 `/opt/fdf/bin/rina-host` to `/opt/fdf/bin/fdf-ram`, removes `rina-host`, reloads systemd and restarts the `fdf-*`
 units. The region file (`RINA_REGION_FILE`) is the same file: its Permanent records are restored by `fdf-ram` at start
 (`[REGION_FILE_V1] N Permanent record(s) restored` in the unit's journal). A phone's team RAM (`libteamram.so`) is
-built on the same platform with the RangerTrak app.
+built on the same platform with the OpenEOC app.
 
 ## A Windows or Android device
 
@@ -156,16 +156,16 @@ built on the same platform with the RangerTrak app.
 The device remains a device; it never becomes a Linux fabric member. Its app participation follows the same
 write-first, read-second rule.
 
-**An app is a base and its layers** ([RT_LAYERS_V1], built, rt-app r29; John 2026-11-04: "a top level presentation and
-a low level base layer, and each role adds a ui to the base user and admin apps"). RangerTrak's base (page `ui/base.js`,
+**An app is a base and its layers** ([RT_LAYERS_V1], built, openeoc-app r29; John 2026-11-04: "a top level presentation and
+a low level base layer, and each role adds a ui to the base user and admin apps"). OpenEOC's base (page `ui/base.js`,
 core `AppCore`) is what every app has; each layer (`ui/layers/<name>.js` and `layer/<Name>Layer.java`: help, field, eoc,
 team, medical, units, public) adds its views, screens, map kinds and ops through one interface (`RT` on the page, `Layer`
 in the core), and an app names its layers (Android `rtLayers` in the module, Windows `--layers=`), carrying only those.
-The table of layers and apps, and how to add a screen, a view or an app: `rangertrak-app/README.md`.
+The table of layers and apps, and how to add a screen, a view or an app: `openeoc-app/README.md`.
 
 **Every app is self-contained: it is its own FrogNet member** ([APP_IS_SELF_CONTAINED_V1], built; it replaces
 [BASE_APP_V1], the hidden Disaster Area base). **John (2026-11-04):** "we aren't going to have the user install 2
-things, on any platform. All apps are fully self contained entities." On Android each RangerTrak app (EOC, Team,
+things, on any platform. All apps are fully self contained entities." On Android each OpenEOC app (EOC, Team,
 Public, the unit apps, the admin app) compiles frognet-android's member, MemberService, BridgeVpn and fdf-tun in
 (`shared`, `Member.java`); its membership (key, invitation or join line, login) is in that app's private storage. On
 Windows the client zip carries the member. Nothing else is installed. The membership is a FrogNet network, routed
@@ -173,7 +173,7 @@ through the WAN role when one is present -- not a VPN. Its TUN is made with Andr
 way Android gives an app a TUN, and Android keeps one VpnService TUN at a time: off a node's LAN, two apps joined on one
 phone would take the TUN from each other -- so they don't ([SHARED_TUNNEL_V1], r28): an app that finds another app's tunnel to the
 FrogNet host up (a TUN routing 10.0.0.0/8) brings up none of its own; the phone's routes carry it. When that tunnel goes
-(Android's network callback), it brings up its own. On a node's LAN there is no TUN at all ([ON_THE_LAN_NO_TUNNEL_V1]). Gates: `rangertrak-app/android/typecheck.sh` (the member's
+(Android's network callback), it brings up its own. On a node's LAN there is no TUN at all ([ON_THE_LAN_NO_TUNNEL_V1]). Gates: `openeoc-app/android/typecheck.sh` (the member's
 classes are compiled in); not run on a phone here.
 
 ## Roles, the resilient EOC, and login wherever a device can ([ROLES_NOT_MACHINES_V1], John 2026-11-02)
@@ -196,8 +196,8 @@ state ... but they can't do water." **Built** for the configuration and the admi
 group) carries its `category`, and the configuration the order of the `categories` (the tabs); a role from a
 configuration made before categories is in Teams. `fdf-app config ... --category NAME --role NAME[:default][@CATEGORY]`;
 the admin app has one tab per category with its groups and its users; the door's `op=roles` says each role's category
-and the order. Gate: `rangertrak-app/test/test_admin.py` step 8. What a category's people can do with its data is the
-apps' (next paragraph); the RangerTrak screens do not yet group by category.
+and the order. Gate: `openeoc-app/test/test_admin.py` step 8. What a category's people can do with its data is the
+apps' (next paragraph); the OpenEOC screens do not yet group by category.
 
 **A role's privileges are commentary, not data ownership.** **John:** sensor data is automatic and bears the app ID;
 it goes to databasehost like everything else (`metric_upsert`). A role's extra privileges apply to its own data and
@@ -224,11 +224,11 @@ regular api.php." "There is no 'bring up' a region. It just turns on ... Turning
   `roles`, so the admin's next configuration keeps it) and writes it again with it: owned, not held.
 - Gates: `rinab/tools/test_fdf_app.py` 13-15 (placed here, a non-lead's place ignored, the device gone and nobody
   serving it, back to the selection); `rinab/tools/netns-enroll-test.sh` 9 (the real door).
-- **On the lead's phone** (built): Host team (the RangerTrak Team app, [TEAM_HOST_V1]) runs the team's RAM on the phone
+- **On the lead's phone** (built): Host team (the OpenEOC Team app, [TEAM_HOST_V1]) runs the team's RAM on the phone
   (libteamram) and places the team `here` at the door with the lead's user and password from the phone's enrollment,
   so no member serves it while the phone does: one RAM per team. **Team on databasehost** (the lead's button) places it
   there, stops the phone's RAM (the lead's sponsor stays) and clears the lead's host cell; the core waits on the door's
-  held `op=rams&until=TEAM` and says where the team's RAM is now. Gate: `rangertrak-app/test/test_admin.py` 9 (the real
+  held `op=rams&until=TEAM` and says where the team's RAM is now. Gate: `openeoc-app/test/test_admin.py` 9 (the real
   door, members and AppCore: Host team -> unserved on the members; databasehost -> served again, told 0.5 s after).
   A Pi lead is a member and serves its group with `fdf-app serve`.
 - **The admin's view, Groups now** ([GROUPS_NOW_V1], built): every group, its category, where its lead placed it,
@@ -265,7 +265,7 @@ work like this -- EOC is just the example. For a media service, the requirements
   configuration among the alive members, so all compute the same member. No `select`: the most memory, then the most
   cores, then the highest guid. `fdf-app config ... --select RAM=KEY,-KEY --need RAM=KEY --serve RAM,RAM`, or the
   admin's configuration: the admin app's **Where each RAM is served** (a row per RAM or `*`: need, rank). `fdf_select.py`.
-  Gates: `rinab/tools/test_fdf_app.py` 10-12; `rangertrak-app/test/test_admin.py` 10 (from the admin's screen).
+  Gates: `rinab/tools/test_fdf_app.py` 10-12; `openeoc-app/test/test_admin.py` 10 (from the admin's screen).
 - **A device's space follows capability too** ([SPACE_BY_CAPABILITY_V1], **built**). **John:** "There is no fallback
   list. Fallback is determined by capability." Each RAM host's `fdf-org` writes its capability (its probe's scalars,
   its guid) into each space's RAM there and into the region's, `(fdf-space, can, AREA)`. `fdfspace.py` and `Space.kt`
@@ -357,15 +357,15 @@ and `fdf-identity@frognet` with it. Then, on any machine in the region, `fdf-org
 
 **2. The EOC** (Seattle7, 10.170.170.1, on the EOC's network). It joins the WAN region as a node:
 `fdf-region-join fdfjoin1.<...>`. Then the app goes on it: the add-in (the door, `/dc/ram.php`) and
-`fdf-app config rangertrak general,<team>,... --role eoc --role <team>:default ... --user EOCAdmin:<pw>=eoc
---admin <admin>:<pw>`, with `fdf-app serve` running. From then on the admin works in the admin app (RangerTrak-Admin),
+`fdf-app config openeoc general,<team>,... --role eoc --role <team>:default ... --user EOCAdmin:<pw>=eoc
+--admin <admin>:<pw>`, with `fdf-app serve` running. From then on the admin works in the admin app (OpenEOC-Admin),
 connected through Seattle7's door. The admin adds teams, hospitals, ambulances, users and roles there. The door asks
 the region Seattle7 is joined to for invitations (`fdf-identity <app>-<user> --leaf --again --line`, answered where
 the WAN hub is).
 
 **3. A team's lead is named by the admin.** In the admin app's Users list, the admin gives the user the team's role,
 a password, and ticks **Leads**, then Apply. Every member of the app adopts the change (`"lead": true` on that user).
-**QR** shows the lead's enrollment code: `fdfenroll1 http://<Seattle7's door>/dc/ram.php rangertrak <user>`, drawn
+**QR** shows the lead's enrollment code: `fdfenroll1 http://<Seattle7's door>/dc/ram.php openeoc <user>`, drawn
 as the frog. The lead scans it with the app and types the password. The door checks it against the verifier and
 answers with the role, the lead flag and the phone's own WAN invitation. The phone joins the WAN region with it, and
 the app opens on the team's screen. Only the lead's phone and the door need to see each other for that one exchange:
@@ -379,7 +379,7 @@ own (John: "No, do not automate this part of it. It needs to be intentional").
 **4. The lead assigns its members** on the phone's Team members page: each member's name (usually a callsign) and a
 password. The phone keeps only verifiers. Opening the page starts the team's sponsor on port 21801, in the app's
 foreground service, and it keeps running while the app's service does.
-**QR** shows a member's code: `fdfenroll1 http://<the lead's address>:21801/enroll rangertrak <name>`. The lead's
+**QR** shows a member's code: `fdfenroll1 http://<the lead's address>:21801/enroll openeoc <name>`. The lead's
 address is whichever the member can reach: the hotspot's, the Wi-Fi's, or the lead's WAN edge. The member scans it and
 types the password. The lead's phone checks it, asks the door for the member's invitation as the lead
 (`op=identity`, `<app>-<team>-<name>`), and answers as the door would: the role, not a lead, the invitation, and the
@@ -414,8 +414,8 @@ sections 5, 7 and 9): the Admin's one configuration tuple in databasehost-contro
 `fdf-app can` (held by its session) and `fdf-app applied` in the SystemRam; app data in the AppRams; the AppHosts in
 `/etc/hosts`, written by the election. On a split each side's election names its own AppHosts from the capability
 tuples on that side, and the merge writes the configuration tuples into that side's databasehost-control. Gates:
-`rinab/tools/test_fdf_app.py` 1-13, `fdf/www/rt/test_rt_pages.py`, `rinab/tools/netns-enroll-test.sh`,
-`rinab/tools/netns-system-space-test.sh` (the real tunnel daemon's election writes `rangertrakHost.frognet` on both
+`rinab/tools/test_fdf_app.py` 1-13, `fdf/www/openeoc/test_openeoc_pages.py`, `rinab/tools/netns-enroll-test.sh`,
+`rinab/tools/netns-system-space-test.sh` (the real tunnel daemon's election writes `openeocHost.frognet` on both
 nodes, through both hub failovers; nothing of the app on the conduit).
 
 1. Connectivity changes.
@@ -466,7 +466,7 @@ that picture by asserting what they own, reading what others have asserted, and 
 ## An app has as many RAMs as it needs: the general RAM and the team RAMs
 
 One RAM is one audience and one place a tuple query runs. So what must be queried together, across everyone, goes in
-one RAM. What belongs to one team, with its own audience and protection, goes in that team's RAM. **John:** "RangerTrak
+one RAM. What belongs to one team, with its own audience and protection, goes in that team's RAM. **John:** "OpenEOC
 is as many RAMs as it needs, but absolutely more than 2." "Getting GPS locations for everybody is a tuple query."
 
 - **The general RAM** is shared by everyone in the app. It holds what everybody reads across everybody, each record
@@ -477,13 +477,13 @@ is as many RAMs as it needs, but absolutely more than 2." "Getting GPS locations
 - **Messages are not a role.** General messages live in the general RAM: announcements to everyone, and direct
   messages between people in different teams. Team messages live in the team's RAM. A direct message in the general
   RAM is read only by its sender and addressee, and nothing checks that: it is written into the addressee's own
-  variable (RangerTrak: `(rt-dm, <mission>.<to station>, <dev>.<ms>)`), which is what the addressee reads; the sender
+  variable (OpenEOC: `(openeoc-dm, <mission>.<to station>, <dev>.<ms>)`), which is what the addressee reads; the sender
   keeps its copy as its own truth. **John, 2026-11-01:** "There's no check to be made."
 
 The application joins the general RAM and the RAMs authorized for its user's teams; devices run applications, they do not join RAMs. The access by team in the app configuration tuples grants each one.
 Each RAM has its own selection and its own fail or relocate.
 
-### RangerTrak
+### OpenEOC
 
 | RAM | What it holds | Who writes (their own truth) |
 | --- | --- | --- |
@@ -535,7 +535,7 @@ was said on the radio, and stays in the log.
   follow on every family the page shows, ended by the first rows. A family whose RAM does not answer is held until
   that RAM says it is up, or `/etc/hosts` is written (an AppHost elected): the answer says `"again"` and the page reads that family
   in full. ESTALE (the RAM started again) is answered the same way. `op=rams&not=<map>&up=<host:port,..>&wait_s=S`
-  holds a member until its RAMs are not that map (they moved) or one of those RAMs says it is up (`"up"`): RangerTrak's
+  holds a member until its RAMs are not that map (they moved) or one of those RAMs says it is up (`"up"`): OpenEOC's
   `AppCore` waits there when a session fails, and its followers open their sessions again on that answer
   (`Follower.again()`), never on a timer. `op=admin` with `after` holds the same way when the network RAM is down.
 - **One held request per page** (`ram.php?op=watch`): every family a page shows is held in one request, and each

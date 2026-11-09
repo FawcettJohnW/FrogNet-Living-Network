@@ -1,0 +1,24 @@
+<?xml version="1.0" encoding="utf-8"?>
+<manifest xmlns:android="http://schemas.android.com/apk/res/android">
+    <uses-permission android:name="android.permission.INTERNET" />
+    <uses-permission android:name="android.permission.ACCESS_FINE_LOCATION" />
+    <uses-permission android:name="android.permission.ACCESS_COARSE_LOCATION" />
+    <uses-permission android:name="android.permission.ACCESS_WIFI_STATE" />
+    <!-- [NODE_NETWORK_CHOSEN_V1] the node's Wi-Fi, chosen for the app's connections (it has no Internet) -->
+    <uses-permission android:name="android.permission.ACCESS_NETWORK_STATE" />
+    <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
+    <uses-feature android:name="android.hardware.location.gps" android:required="false" />
+    <!-- [RT_CALL_V1] Call opens the FrogNet Communicator (the FrogNet Member app): Android 11+ shows another app's
+         screen to this one only when it is named here -->
+    <queries><intent><action android:name="net.frognet.communicator.CALL" /></intent></queries>
+    <!-- the node's door (ram.php) and its RAMs are plain HTTP/TCP on the node's own network -->
+    <application android:label="OpenEOC" android:usesCleartextTraffic="true" android:theme="@style/RtTheme">
+        <meta-data android:name="net.frognet.openeoc.LAYERS" android:value="${rtLayers}" />   <!-- [RT_LAYERS_V1] its layers (build.gradle.kts) -->
+        <activity android:name=".MainActivity" android:exported="true" android:configChanges="orientation|screenSize|keyboardHidden" android:windowSoftInputMode="adjustResize">
+            <intent-filter>
+                <action android:name="android.intent.action.MAIN" />
+                <category android:name="android.intent.category.LAUNCHER" />
+            </intent-filter>
+        </activity>
+    </application>
+</manifest>

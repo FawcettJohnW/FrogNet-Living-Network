@@ -5,7 +5,7 @@
 // without the user opening this one: this app is the device's hidden base (the Disaster Area base, John 2026-11-03:
 // "the base disaster area app is hidden from the user. They don't need to bring it up and make login a 2-step
 // process" ... "it's shared between all of the various apps and ram regions a given machine needs"). One membership
-// per device, whichever level apps (RangerTrak Team, Public, the kart ...) use it.
+// per device, whichever level apps (OpenEOC Team, Public, the kart ...) use it.
 //   action net.frognet.action.JOIN, extras (all optional): "line" (an fdfjoin1 join line or an fdfinv1 invitation: kept
 //     as this device's), "user" and "password" (the level's login, the one the level app asked for: the single login),
 //     "name" (the member's name). No screen of its own (translucent, gone at once): it asks Android for the VPN consent

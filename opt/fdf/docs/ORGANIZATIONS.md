@@ -88,7 +88,7 @@ to *alias network* (`AliasNet` in the code). From here on, "island" means only a
 
 It holds no application data. **John:** "The ram manager owns the actual data, but that is not the droplet."
 
-**Found:** the radio log pages write their cells (`rt-mission`, `rt-log`, `rt-handled`, `rt-roster`) to `RINA_RAM`.
+**Found:** the radio log pages write their cells (`openeoc-mission`, `openeoc-log`, `openeoc-handled`, `openeoc-roster`) to `RINA_RAM`.
 That is the MRM, so they break this rule. `ram.php` proxies to whatever `fdf.env`'s `RINA_RAM` names. Section 10
 moves them.
 
@@ -373,7 +373,7 @@ own handshake retry (5 s); a link or DHCP event also retries at once. When it re
 
 A phone with no tunnel and no LAN is a partition of one. A device is never a role candidate (`[ELECT_NODES_ONLY_V1]`).
 Whether its app runs on a local RAM until it is back is for the app's selection code to say. The radio log does run on
-one, as tested. RangerTrak's says a team's RAM is on its lead's phone (`[TEAM_HOST_V1]`, 2026-11-02): the lead's phone
+one, as tested. OpenEOC's says a team's RAM is on its lead's phone (`[TEAM_HOST_V1]`, 2026-11-02): the lead's phone
 runs the Ribbit platform's RAM host (`libteamram.so`) for the phones on its hotspot, and says where it is in the app's
 general RAM. That is the app's RAM on a device, not a role: the device is still never a candidate for the network's.
 
@@ -470,8 +470,8 @@ An app's add-in declares its islands. **Proposed:** in its `apps.json` entry:
 
 ```json
 "islands": {
-  "rt-eoc":      { "select": "rt_islands.py:Eoc",      "persist": true,  "access": "rt_islands.py:EocAccess" },
-  "rt-hospital": { "select": "rt_islands.py:Hospital", "persist": true,  "access": "rt_islands.py:HospitalAccess" }
+  "openeoc-eoc":      { "select": "rt_islands.py:Eoc",      "persist": true,  "access": "rt_islands.py:EocAccess" },
+  "openeoc-hospital": { "select": "rt_islands.py:Hospital", "persist": true,  "access": "rt_islands.py:HospitalAccess" }
 }
 ```
 
@@ -495,7 +495,7 @@ An app's add-in declares its islands. **Proposed:** in its `apps.json` entry:
 - Each island is its own role, elected on its own.
 - Two islands can land on one host, or the app's code can keep them apart. For example, `Hospital.evaluate` can drop
   the candidate that `Eoc` names; it may read the other islands' incumbents, which are passed in.
-- Placement by site needs a site fact. RangerTrak's EOC island belongs at the EOC and the Hospital island at the
+- Placement by site needs a site fact. OpenEOC's EOC island belongs at the EOC and the Hospital island at the
   hospital. **Proposed:** `facts.site`, from the node's join (its level or a site name typed at install). **Open (Q5).**
 
 ### 9.3 Connecting to an island
@@ -571,7 +571,7 @@ Its public half is in the device's login record, and a node's is also in its rec
   read and holds one connection to whoever the cell names. When the cell changes, it reconnects, re-arms the app's
   reads and calls the app's handler, which writes its own truth again. There are no candidate lists, no standing
   sessions to standbys and no fallback list. The app's selection code is the only chooser.
-- **Node-served pages** (`/rt/`, `ram.php`). `ram.php` takes `service` → island from the add-in (`rt-*` → `rt-eoc`
+- **Node-served pages** (`/openeoc/`, `ram.php`). `ram.php` takes `service` → island from the add-in (`openeoc-*` → `openeoc-eoc`
   for the EOC post) and proxies to the island's host from the where cell, not to `RINA_RAM`. Its answer's `ram` field
   (`[RAM_IS_SAID_V1]`) is the island host, so a page that sees it change already reads everything and writes its own
   entries again (`[OWN_TRUTH_AGAIN_V1]`). That code does not change.
@@ -636,7 +636,7 @@ The incumbent tests decide: `simulation/run_all.py` tiers, `discovery/sim/servic
 `databasehost_convergence_check.py`, `test_service_host_consistency_oracle.py`, `role_registry_lxmlfree_check.py`
 (which asserts one role, so it changes when island roles are added; that change is to be named in its commit),
 `fdf/lib/python/fdf_graph_oracle.py`, `internet_tunnels_v3/tests/graph_apply_oracle.py`, `test_region_oracle.py` and
-`test_rt_pages.py`. Each change runs them before and after.
+`test_openeoc_pages.py`. Each change runs them before and after.
 
 | Test | Status |
 | --- | --- |
@@ -645,7 +645,7 @@ The incumbent tests decide: `simulation/run_all.py` tiers, `discovery/sim/servic
 | `netns-space-test.sh`, `netns-spaces-test.sh` | Become `netns-island-test.sh`: two islands, selection keeps them apart; the host killed → re-elected, the app re-writes; a stronger node joins → nothing moves; heal with two incumbents → one |
 | `netns-join-kt-test.sh` | One MRM; the Kotlin `Island` |
 | New: the challenge | A member's key passes; a LAN host with no member key and a revoked member fail |
-| `test_rt_pages.py` | Cells on the island host, none on the MRM (asserted by reading the MRM) |
+| `test_openeoc_pages.py` | Cells on the island host, none on the MRM (asserted by reading the MRM) |
 
 ## 14. Order of work (proposed)
 
@@ -655,7 +655,7 @@ The incumbent tests decide: `simulation/run_all.py` tiers, `discovery/sim/servic
 4. The split onto the control host and the merge (8), with `netns-split-test.sh`.
 5. Island roles, the role host, where cells (7.3, 9.1–9.2).
 6. The challenge and the app's access (9.3).
-7. `Island` in Python and Kotlin; `ram.php`; the radio log on `rt-eoc` / `rt-hospital`.
+7. `Island` in Python and Kotlin; `ram.php`; the radio log on `openeoc-eoc` / `openeoc-hospital`.
 
 ## 15. Open questions for John
 

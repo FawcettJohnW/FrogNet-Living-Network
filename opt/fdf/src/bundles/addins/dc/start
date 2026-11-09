@@ -8,8 +8,8 @@ set -eu
 . "$(cd "$(dirname "$0")" && pwd)/../lib/addin.sh"
 addin_control
 [ -f "$H/www/dc/index.html" ] || { asay "no $H/www/dc: the add-in's pages are not installed (run its install)"; exit 1; }
-# [POST_309_V1] the post's 309 and 213 files: RangerTrak's Post participant, beside the pages it files for. It follows
+# [POST_309_V1] the post's 309 and 213 files: OpenEOC's Post participant, beside the pages it files for. It follows
 # the app's general RAM (app-where.json) itself; it stops with the add-in.
-"$H/bin/rt-post309" & P309=$!
+"$H/bin/openeoc-post309" & P309=$!
 trap 'kill $P309 2>/dev/null' EXIT
 addin_hold dc web=self:${DC_PORT:-80} path=/dc/
