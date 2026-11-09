@@ -3,20 +3,21 @@
 # test_enroll_page.py -- [ENROLL_V1] the phone's page (ui/), in Chromium, with the Android side stood in for by a
 # recording rtNative (the native side's events are delivered as MainActivity delivers them):
 #   1 [CONNECT_QR_FIRST_V1] (John 2026-11-09) Scan a QR code is first on an Android phone's connect screen; the fill-in
-#     fields are below it, under Manual login (closed), with Start a team (Join EOC was its name) in it
+#     fields are below it, under Manual login (closed), with Create a team (Start a team, Join EOC before) in it
 #   6 [TEAM_JOIN_V1] the team's QR scanned asks a call sign and the team password; Join enrolls the call sign, the
 #     line keeping the lead's key's fingerprint [SEALED_ENROLL_V1] (the team's QR has five parts). [CONNECT_QR_FIRST_V1]
 #     6b with Your name typed before (nameGiven) and a call sign, the team password only: the call sign is that name
-#   2 a scanned code (enrollScan) asks for that user's password; Join hands the line and the password to the native side
-#   3 enrolled (lead of echo, the door): the page connects as that user, Team view, team Echo, the door, the password
+#   2 [EOC_LEADS_V1] (John 2026-11-09) the EOC's QR for a user scanned: the user filled in, the team's name blank, the
+#     password; Create the Team hands the line, the password, the team's name and the app's view (its kind) to the native side
+#   3 enrolled (lead of Echo, kind team, the door): the page connects as that user, Team view, team Echo, the door, the password
 #   4b [MEMBER_PASSWORDS_OPTIONAL_V1] one team password by default; a member with their own password, and their own QR, if
 #      the lead adds one under Individual passwords
 #   4 the lead's Team members button; the members sheet (members): adding a member hands its name and password to the
 #     native side; a member's QR, read by zxing (the phone scanner's library), is that member's enrollment line at the
 #     address chosen, and choosing another address changes it
 #   5 a refused enrollment is said, and Join can be pressed again
-#   7 [CHILDREN_JOIN_V1] Start a team, under Manual login: the team's name and the EOC's teams password; Join enrolls the
-#     name at the EOC's door (the Node field's), and enrolled (lead of Red Cross) connects as Team Red Cross
+#   7 [EOC_LEADS_V1] Create a team, under Manual login (no QR at hand): the user typed, the team's name, the password;
+#     Create the Team enrolls them at the EOC's door (the Node field's), and enrolled (lead of Red Cross) connects as Team Red Cross
 import json, os, sys, tempfile
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import zxing_read  # noqa: E402
@@ -44,19 +45,21 @@ with tempfile.TemporaryDirectory() as tmp, sync_playwright() as pw:
     pg.wait_for_selector("#connect:not([hidden])", timeout=5000)
     first = pg.evaluate("!!(document.querySelector('#qrSec').compareDocumentPosition(document.querySelector('#manual')) & Node.DOCUMENT_POSITION_FOLLOWING)")
     closed = not pg.evaluate("$('#manual').open"); hid = not pg.is_visible("#joinEoc") and not pg.is_visible("[name=door]")
-    pg.click("#manual > summary"); opened = pg.is_visible("[name=door]") and pg.is_visible("#joinEoc") and pg.inner_text("#joinEoc").startswith("Start a team")
+    pg.click("#manual > summary"); opened = pg.is_visible("[name=door]") and pg.is_visible("#joinEoc") and pg.inner_text("#joinEoc").startswith("Create a team")
     pg.click("#manual > summary")
     check(pg.is_visible("#scanTeam") and pg.inner_text("#scanTeam") == "Scan a QR code" and first and closed and hid and opened,
-          "1 Scan a QR code first (%s), Manual login below it, closed (%s: its fields hidden %s), opened: the fields and Start a team %s" % (first, closed, hid, opened))
+          "1 Scan a QR code first (%s), Manual login below it, closed (%s: its fields hidden %s), opened: the fields and Create a team %s" % (first, closed, hid, opened))
     pg.click("#scanTeam")
     line = "fdfenroll1 http://10.170.170.1/dc/ram.php openeoc kim"
     pg.evaluate("l => rtDeliver(JSON.stringify({ev: 'enrollScan', line: l, url: 'http://10.170.170.1/dc/ram.php', app: 'openeoc', user: 'kim'}))", line)
-    shown = pg.is_visible("#enrollBox") and "kim" in pg.inner_text("#enrollWho")
-    pg.fill("#enrollPw", "kim-2026"); pg.click("#enrollGo")
+    shown = (pg.is_visible("#enrollBox") and pg.input_value("#enrollUser") == "kim" and pg.evaluate("$('#enrollUser').readOnly") and pg.input_value("#enrollCall") == ""
+             and pg.inner_text("#enrollCallL").startswith("Team name") and pg.inner_text("#enrollGo") == "Create the Team")
+    pg.click("#enrollGo"); noTeam = "team's name" in pg.inner_text("#cstatus") and not [x for x in pg.evaluate("__sent") if x[0] == "enroll"]
+    pg.fill("#enrollCall", "Echo"); pg.fill("#enrollPw", "kim-2026"); pg.click("#enrollGo")
     sent = pg.evaluate("__sent")
-    check(shown and ["scan"] in sent and ["enroll", {"line": line, "password": "kim-2026"}] in sent,
-          "2 the scanned code asks for kim's password; Join hands over the line and the password: %s" % [s for s in sent if s[0] == "enroll"])
-    pg.evaluate("rtDeliver(JSON.stringify({ev: 'enrolled', user: 'kim', role: 'echo', lead: true, door: '10.170.170.1', invited: 'openeoc-kim in frognet'}))")
+    check(shown and noTeam and ["scan"] in sent and ["enroll", {"line": line, "password": "kim-2026", "team": "Echo", "kind": "team"}] in sent,
+          "2 the EOC's QR for kim: kim filled in, the team's name blank (%s; none given: asked %s); Create the Team hands over %s" % (shown, noTeam, [s for s in sent if s[0] == "enroll"]))
+    pg.evaluate("rtDeliver(JSON.stringify({ev: 'enrolled', user: 'kim', role: 'Echo', kind: 'team', lead: true, door: '10.170.170.1', invited: 'openeoc-echo in frognet'}))")
     conn = [s[1] for s in pg.evaluate("__sent") if s[0] == "send" and s[1].get("op") == "connect"]
     c = conn[-1] if conn else {}
     check(c.get("door") == "10.170.170.1" and c.get("name") == "kim" and c.get("role") == "team" and c.get("team") == "Echo"
@@ -128,20 +131,21 @@ with tempfile.TemporaryDirectory() as tmp, sync_playwright() as pw:
     pg.evaluate("rtDeliver(JSON.stringify({ev: 'enrollFailed', text: \"that user and password are not a member of echo's team\"}))")
     check("not a member of echo" in pg.inner_text("#cstatus") and not pg.is_disabled("#enrollGo") and pg.is_visible("#enrollBox"),
           "5 a refused enrollment is said (%s), and Join can be pressed again" % pg.inner_text("#cstatus"))
-    # 7 [CHILDREN_JOIN_V1] Join EOC: a new team, named here, by the EOC's teams password
+    # 7 [EOC_LEADS_V1] Create a team with no QR at hand: the user, the team's name, the password
     pg.evaluate("__sent.length = 0; $('#enrollBox').hidden = true")
-    pg.click("#manual > summary")                                          # [CONNECT_QR_FIRST_V1] Start a team is under Manual login
+    pg.click("#manual > summary")                                          # [CONNECT_QR_FIRST_V1] Create a team is under Manual login
     pg.fill("[name=door]", "")
     pg.click("#joinEoc"); noNode = "the Node first" in pg.inner_text("#cstatus")
     pg.fill("[name=door]", "10.170.170.1"); pg.click("#joinEoc")
-    asks7 = pg.is_visible("#enrollCall") and "team's name" in pg.inner_text("#enrollCallL") and "Join the EOC" in pg.inner_text("#enrollWho")
-    pg.fill("#enrollCall", "Red Cross"); pg.fill("#enrollPw", "teams-2026"); pg.click("#enrollGo")
+    asks7 = (pg.is_visible("#enrollUser") and not pg.evaluate("$('#enrollUser').readOnly") and pg.is_visible("#enrollCall") and pg.inner_text("#enrollCallL").startswith("Team name")
+             and "Create your team" in pg.inner_text("#enrollWho"))
+    pg.fill("#enrollUser", "lee"); pg.fill("#enrollCall", "Red Cross"); pg.fill("#enrollPw", "lee-2026"); pg.click("#enrollGo")
     sent7 = [x for x in pg.evaluate("__sent") if x[0] == "enroll"]
-    pg.evaluate("rtDeliver(JSON.stringify({ev: 'enrolled', user: 'Red Cross', role: 'Red Cross', lead: true, child: true, door: '10.170.170.1', invited: 'openeoc-red_cross in frognet'}))")
+    pg.evaluate("rtDeliver(JSON.stringify({ev: 'enrolled', user: 'lee', role: 'Red Cross', kind: 'team', lead: true, child: true, door: '10.170.170.1', invited: 'openeoc-red_cross in frognet'}))")
     conn7 = [x[1] for x in pg.evaluate("__sent") if x[0] == "send" and x[1].get("op") == "connect"]
     c7 = conn7[-1] if conn7 else {}
-    check(noNode and asks7 and sent7 == [["enroll", {"line": "fdfenroll1 http://10.170.170.1/dc/ram.php openeoc Red%20Cross", "password": "teams-2026"}]]
-          and c7.get("role") == "team" and c7.get("user") == "Red Cross" and c7.get("password") == "teams-2026",
-          "7 Start a team: Node asked first %s; the team's name and the teams password %s; Join enrolls %s; connects %s" % (noNode, asks7, sent7, {k: c7.get(k) for k in ("door", "role", "team", "user")}))
+    check(noNode and asks7 and sent7 == [["enroll", {"line": "fdfenroll1 http://10.170.170.1/dc/ram.php openeoc lee", "password": "lee-2026", "team": "Red Cross", "kind": "team"}]]
+          and c7.get("role") == "team" and c7.get("team") == "Red Cross" and c7.get("user") == "lee" and c7.get("password") == "lee-2026",
+          "7 Create a team: Node asked first %s; the user, the team's name and the password %s; Create the Team enrolls %s; connects %s" % (noNode, asks7, sent7, {k: c7.get(k) for k in ("door", "role", "team", "user")}))
     b.close()
 print("%d failed" % len(fails) if fails else "ALL PASS"); sys.exit(1 if fails else 0)

@@ -281,11 +281,26 @@ $('#joinEoc').onclick = () => {
   const d = $('#connect').door.value.trim()
   if (!d) { $('#cstatus').textContent = 'the Node first: the node the EOC is on (e.g. 10.170.170.1)'; $('#connect').door.focus(); return }
   const url = 'http://' + d.replace(/^https?:\/\//, '').replace(/\/.*/, '') + '/dc/ram.php'
-  enrollScan({ line: FrogQR.enrollLine(url, 'openeoc', '*'), url, app: 'openeoc', user: '*', team: true })
+  enrollScan({ line: FrogQR.enrollLine(url, 'openeoc', '*'), url, app: 'openeoc', user: '', manual: true })   // [EOC_LEADS_V1] the user typed here
 }
 // [ENROLL_V1] scanned: who this code is for and where; the password, then Join
 function enrollScan(m) {
   S.enrollLine = m.line; S.enrollTeam = m.team ? m : null
+  // [EOC_LEADS_V1] (John 2026-11-09: "When I scan the QR code it should take me to a filled in screen with my username filled
+  // in, but the team name blank. I fill in the team name, add my password, and hit the button to create the Team") the
+  // EOC's QR for a user it added (its door, a user, no key): the user filled in, the team's name blank, the password
+  const lead = /\/dc\/ram\.php/.test(m.url) && !m.key && (m.manual || (m.user && m.user !== '*'))
+  S.enrollLead = lead ? m : null
+  $('#enrollUserL').hidden = !lead; $('#enrollGo').textContent = lead ? 'Create the Team' : 'Join'
+  if (lead) {
+    $('#enrollUser').value = m.user || ''; $('#enrollUser').readOnly = !m.manual
+    $('#enrollCallL').hidden = false; $('#enrollCall').value = ''; $('#enrollCallL').querySelector('.ecl').textContent = 'Team name'
+    $('#enrollCall').setAttribute('autocapitalize', 'words')
+    $('#enrollWho').textContent = 'Create your team · ' + m.app + ' · ' + m.url.replace(/^https?:\/\//, '').replace(/\/.*/, '')
+    $('#enrollBox').hidden = false; $('#enrollPw').value = ''; (m.manual ? $('#enrollUser') : $('#enrollCall')).focus()
+    $('#cstatus').textContent = m.manual ? 'the user the EOC gave you, your team\'s name and your password' : "your team's name and your password: you lead the team"
+    return
+  }
   // [TEAM_JOIN_V1] a team's QR: the call sign is yours, the password the team's. [CHILDREN_JOIN_V1] the EOC's QR (its
   // door): the name is your new team's (anything), the password the EOC's teams password -- you lead that team
   const eoc = m.team && /\/dc\/ram\.php/.test(m.url); S.enrollEoc = eoc
@@ -303,6 +318,18 @@ function enrollScan(m) {
 }
 $('#enrollGo').onclick = () => {
   if (!S.enrollLine) return
+  if (S.enrollLead) {                                    // [EOC_LEADS_V1] create the team: the user, the team's name, the password
+    const u = $('#enrollUser').value.trim(), t = $('#enrollCall').value.trim()
+    if (!/^[A-Za-z0-9][A-Za-z0-9._-]{0,39}$/.test(u)) { $('#cstatus').textContent = 'your user: the one the EOC gave you'; $('#enrollUser').focus(); return }
+    if (!/^[A-Za-z0-9][A-Za-z0-9 ._-]{0,39}$/.test(t)) { $('#cstatus').textContent = "the team's name: letters, digits, space . _ - (at most 40)"; $('#enrollCall').focus(); return }
+    if (!$('#enrollPw').value) { $('#cstatus').textContent = 'your password'; $('#enrollPw').focus(); return }
+    $('#cstatus').textContent = 'creating team ' + t + '…'; $('#enrollGo').disabled = true
+    S.enrollPw = $('#enrollPw').value   // [PASSWORD_NOT_LOGGED_V1]
+    // the kind: the view this app runs the team as (its own, or the one picked), one of the roles the EOC gave the lead
+    const kind = S.cfg.lock || (document.querySelector('[name=role]:checked') || {}).value || 'team'
+    window.rtNative.enroll(JSON.stringify({ line: FrogQR.enrollLine(S.enrollLead.url, S.enrollLead.app, u), password: S.enrollPw, team: t, kind }))
+    return
+  }
   let line = S.enrollLine
   if (S.enrollTeam) {
     const raw = $('#enrollCall').value.trim(), cs = S.enrollEoc ? raw : raw.toUpperCase()
@@ -321,7 +348,10 @@ function enrolled(m) {
   S.cfg.enrolled = { user: m.user, role: m.role, lead: m.lead, door: m.door }
   if (m.door) f.door.value = m.door
   f.name.value = m.user; f.user.value = m.user; f.password.value = S.enrollPw || ''; S.enrollPw = ''
-  const rl = String(m.role || '').toLowerCase(), view = RT.roles[rl] && rl !== 'team' ? rl : RT.roles.team ? 'team' : rl
+  const rl = String(m.role || '').toLowerCase(), kd = String(m.kind || '').toLowerCase()
+  // [EOC_LEADS_V1] a team a lead created runs as its kind (team, hospital, ambulance ...): a unit's name is the team's
+  const view = kd && RT.roles[kd] ? kd : RT.roles[rl] && rl !== 'team' ? rl : RT.roles.team ? 'team' : rl
+  if (kd && RT.roles[kd] && RT.roles[kd].field === 'unit') f.unit.value = m.role
   const rb = f.querySelector(`[name=role][value=${view}]`); if (rb && !$('#roleSet').hidden) rb.checked = true
   RT.fire('enrolled', m, view)
   roleFields()

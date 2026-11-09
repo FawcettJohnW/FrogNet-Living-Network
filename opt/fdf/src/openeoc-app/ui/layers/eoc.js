@@ -34,6 +34,49 @@ RT.layer('eoc', (RT) => {
     if (names.length && !Object.keys(S.gps).length) send({ op: 'hosts' })
     redraw()
   })
+  // ------------------------------------------------------------ [EOC_LEADS_V1] Leads
+  // (John 2026-11-09: "the EOC needs to have a menu named Leads. [Click] that and you get the Lead creation screen, which has
+  // the name, password, and list of Roles the name can handle. The list of roles may be * for all roles, or a hand-entered
+  // list of only those that user can run") A lead's QR is the EOC's door and the lead's name, never the password: the lead
+  // scans it, sees its name filled in, names its team, gives its password, and creates the team (as one of its roles).
+  const VIEWS = ['team', 'hospital', 'ambulance', 'shelter', 'power', 'water', 'phone']
+  S.leads = null
+  RT.on('leads', (m) => { S.leads = m.leads || {}; S.leadsDoor = m.door || ''; refreshSheet('leads') })
+  RT.hook('refresh', (what) => { if (what === 'leads' && S.sheet === 'leads') RT.open('leads') })
+  const doorUrl = () => 'http://' + String(S.leadsDoor || $('#connect').door.value || '').replace(/^https?:\/\//, '').replace(/\/.*/, '') + '/dc/ram.php'
+  RT.screen('leads', (qr) => {
+    const ls = S.leads
+    // what is typed in the form stays when the list comes in (a redraw is not a reset)
+    const was = S.sheet === 'leads' && document.querySelector('#sheet .leadform'), keep = {}
+    if (was) for (const k of ['lead', 'password', 'roles']) keep[k] = was[k].value
+    sheet('leads', 'Leads', `<form class="leadform">
+        <div class="meta">A lead creates and runs a team. Give the lead a name, a password, and the roles they can run their team as.</div>
+        <label>Name <input name="lead" autocomplete="off" autocapitalize="none" required></label>
+        <label>Password <input name="password" type="password" autocomplete="new-password" required></label>
+        <label>Roles <input name="roles" value="*" autocomplete="off" autocapitalize="none"></label>
+        <div class="meta">* for all roles, or a list: ${VIEWS.join(', ')}</div>
+        <button class="go">Create the lead</button></form>
+      <h3>Leads</h3>${ls === null ? '<div class="meta">asking the node…</div>' : `<table class="ics"><tr><th>Lead</th><th>Roles</th><th>Team</th><th></th></tr>
+      ${Object.entries(ls).sort().map(([n, l]) => `<tr><td><b>${esc(n)}</b></td><td>${esc((l.roles || ['*']).join(', '))}</td><td>${l.team ? esc(l.team) + (l.kind ? ' <span class="meta">(' + esc(l.kind) + ')</span>' : '') : '<span class="meta">not created yet</span>'}</td>
+        <td><button type="button" onclick="RT.open('leads','${esc(n)}')">QR</button> <button type="button" onclick="send({op:'leadRemove',lead:'${esc(n)}'})">Remove</button></td></tr>`).join('') || '<tr><td colspan="4" class="meta">none yet</td></tr>'}</table>`}
+      ${qr ? `<div class="card leadqr"><b>${esc(qr)}</b> scans this on the EOC's Wi-Fi, names the team, gives their password, and creates it.<div class="qrbox">${FrogQR.svg(FrogQR.enrollLine(doorUrl(), 'openeoc', qr), { px: 300 })}</div>
+        <div class="meta">${esc(doorUrl())} · the password is not in the code</div></div>` : ''}`)
+    if (was) { const f = document.querySelector('#sheet .leadform'); for (const k in keep) f[k].value = keep[k] }
+    document.querySelector('#sheet .leadform').onsubmit = (e) => {
+      e.preventDefault(); const x = e.target
+      const roles = x.roles.value.split(/[\s,]+/).map(r => r.trim().toLowerCase()).filter(Boolean)
+      if (!roles.length) { status('the roles: * for all, or a list'); return }
+      const bad = roles.filter(r => r !== '*' && !VIEWS.includes(r))
+      if (bad.length) { status('not a role: ' + bad.join(', ') + ' (the roles: * or ' + VIEWS.join(', ') + ')'); return }
+      send({ op: 'leadAdd', lead: x.lead.value.trim(), password: x.password.value, roles })
+      S.leadQr = x.lead.value.trim(); x.lead.value = ''; x.password.value = ''; x.roles.value = '*'
+    }
+  })
+  // a lead just added: its QR, when the node's list has it
+  RT.on('leads', () => { if (S.leadQr && S.leads && S.leads[S.leadQr] && S.sheet === 'leads') { const n = S.leadQr; S.leadQr = ''; RT.open('leads', n) } })
+  RT.button('leadsBtn', 'Leads', () => { RT.open('leads'); send({ op: 'leads' }) }, 'the leads: who can create and run a team, and as which roles', '#layersBtn')
+  RT.hook('connected', () => { $('#leadsBtn').hidden = S.role !== 'eoc' })
+
   RT.section('sens', () => {
     const bad = Object.keys(S.compliance)
     return bad.length ? '<div class="card ooc"><b>Out of compliance</b>' + bad.map(n => `<div>${esc(n)}: ${esc(envText(S.compliance[n]))}</div>`).join('') + '</div>' : ''

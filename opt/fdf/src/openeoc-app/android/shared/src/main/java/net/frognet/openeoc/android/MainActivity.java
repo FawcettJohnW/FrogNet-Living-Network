@@ -730,9 +730,10 @@ public final class MainActivity extends Activity implements LocationListener {
         net.frognet.ram.Enroll.Line l = net.frognet.ram.Enroll.parse(Json.str(m.get("line")));
         if (l == null) { deliver(Json.o("ev", "error", "text", "not an enrollment code")); return; }
         String pw = Json.str(m.get("password"));
-        note("[ENROLL_V1] enrolling as " + l.user + " in " + l.app + " at " + l.url + " (" + net.frognet.ram.Enroll.BUILD + ")");
+        note("[ENROLL_V1] enrolling as " + l.user + (Json.str(m.get("team")).isEmpty() ? "" : ", creating team " + Json.str(m.get("team"))) + " in " + l.app + " at " + l.url + " (" + net.frognet.ram.Enroll.BUILD + ")");
         Map<String, Object> a;
-        try { a = net.frognet.ram.Enroll.enroll(l, pw); }
+        // [EOC_LEADS_V1] the EOC's QR for a user it added: the team's name the lead typed (the door creates the team)
+        try { a = net.frognet.ram.Enroll.enroll(l, pw, Json.str(m.get("team")), Json.str(m.get("kind"))); }
         catch (Exception e) { deliver(Json.o("ev", "enrollFailed", "text", e.getMessage() == null ? e.toString() : e.getMessage())); return; }
         String inv = Json.str(a.get("invite")).trim();    // [APP_IS_SELF_CONTAINED_V1] this app joins with it, at Connect
         if (!inv.startsWith("fdfinv1.")) { deliver(Json.o("ev", "enrollFailed", "text", "the invitation it gave is not one: " + (inv.length() > 40 ? inv.substring(0, 40) : inv))); return; }
@@ -746,7 +747,7 @@ public final class MainActivity extends Activity implements LocationListener {
         boolean lead = Json.bool(a.get("lead"));
         Enrolled.keep(this, l.app, l.user, pw, Json.str(a.get("role")), lead, door);
         note("[ENROLL_V1] enrolled: " + l.user + " is " + Json.str(a.get("role")) + (lead ? ", its team's lead" : "") + "; this phone's FrogNet invitation is kept (" + invitedAs() + ")");
-        deliver(Json.o("ev", "enrolled", "user", l.user, "role", Json.str(a.get("role")), "lead", lead, "door", door, "invited", invitedAs()));
+        deliver(Json.o("ev", "enrolled", "user", l.user, "role", Json.str(a.get("role")), "kind", Json.str(a.get("kind")), "lead", lead, "door", door, "invited", invitedAs()));
     }
 
     /** [ENROLL_V1] the lead's members page: who may enroll here, where a member can reach this phone, and the sponsor */

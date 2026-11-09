@@ -49,7 +49,7 @@
 // the network, typed by nobody. A device this node gave no lease has none here, and is told so.
 header('Content-Type: application/json');
 // [DOOR_SAYS_ITS_BUILD_V1] every answer says which door answered: the header, and "door" in the admin and roles answers
-const DOOR_BUILD = 'dc-door-2026-11-07-roles1';   // [ROLES_ON_API_V1]
+const DOOR_BUILD = 'dc-door-2026-11-09-leads1';   // [ROLES_ON_API_V1] [EOC_LEADS_V1]
 // [SENSORS_BY_THE_DOOR_V1] the sensor store (api.php on databasehost.frognet) by the address this node's /etc/hosts gives
 // it: an app through the tunnel has no .frognet names (the phone's DNS is its carrier's), the address routes
 function door_sensors() {
@@ -267,10 +267,47 @@ function children($app) {
     }
     return $o;
 }
+// [EOC_LEADS_V1] (John 2026-11-09: "The EOC should just have a way for me to add users. When I scan the QR code it should
+// take me to a filled in screen with my username filled in, but the team name blank. I fill in the team name, add my
+// password, and hit the button to create the Team") a lead the EOC added: (fdf-app, lead, <app>.<user>) {name, verifier,
+// by, at} in databasehost-control, written here for an EOC user (its role eoc, or a role in the EOC category); never a
+// password, only its verifier. The lead names its team when it enrolls; the team (a child) records its lead.
+function leads($app) {
+    $o = [];
+    foreach (array_reverse(role_read(ctl_host(), 'fdf-app', 'lead')['rows']) as $c) {       // oldest first: the newest stands
+        $i = (string)($c['instance'] ?? ''); $b = $c['bag'] ?? null;
+        if (!is_array($b) || strpos($i, $app . '.') !== 0) continue;
+        $n = substr($i, strlen($app) + 1);
+        if (!empty($b['removed'])) unset($o[$n]); else $o[$n] = $b;
+    }
+    return $o;
+}
+function lead_ok($name) { return is_string($name) && preg_match('/^[A-Za-z0-9][A-Za-z0-9._-]{0,39}$/', $name); }
+/** the team a lead created (the newest child that names it its lead), or '' */
+function team_of_lead($app, $lead) {
+    $t = ''; $at = -1;
+    foreach (children($app) as $n => $b) if ((string)($b['lead'] ?? '') === $lead && intval($b['at'] ?? 0) >= $at) { $t = $n; $at = intval($b['at'] ?? 0); }
+    return $t;
+}
+/** an EOC user, by its password: the configuration's user whose role is eoc or in the EOC category */
+function eoc_user($app, $in) {
+    $cfg = app_cfg($app); $u = check_user($app, $in);
+    $r = (string)($u['role'] ?? ''); $c = strtolower((string)(($cfg['roles'][$r] ?? [])['category'] ?? ''));
+    if (strtolower($r) !== 'eoc' && $c !== 'eoc') fail(403, 'user ' . ($in['user'] ?? '') . " has role $r, not an EOC user's: only the EOC adds users");
+    return $u;
+}
 function child_ok($name) { return is_string($name) && preg_match('/^[A-Za-z0-9][A-Za-z0-9 ._-]{0,39}$/', $name) && $name !== 'general'; }
 function check_user($app, $in) {
     $cfg = app_cfg($app);
     $user = (string)($in['user'] ?? '');
+    // [EOC_LEADS_V1] a lead the EOC added, with its own password: it leads the team it created
+    $ld = ($user !== '' && !isset($cfg['users'][$user])) ? (leads($app)[$user] ?? null) : null;
+    if (is_array($ld)) {
+        if (!verified($ld['verifier'] ?? null, $in['password'] ?? '')) fail(403, "that user and password are not this app's");
+        $t = team_of_lead($app, $user);
+        if ($t === '') fail(403, "user $user has not created a team yet: scan the EOC's QR for $user and name the team");
+        return ['role' => $t, 'lead' => true, 'child' => true];
+    }
     // [CHILDREN_JOIN_V1] a child the app's join password made: its lead is whoever has that password and the child's name
     if ($user !== '' && !isset($cfg['users'][$user]) && isset(children($app)[$user]) && verified($cfg['join'] ?? null, $in['password'] ?? ''))
         return ['role' => $user, 'lead' => true, 'child' => true];
@@ -469,6 +506,41 @@ if ($op === 'read') {
     if ($in['seq'] <= intval($cur['seq'] ?? 0)) fail(409, 'seq ' . $in['seq'] . ' is not newer than the configuration in databasehost-control (' . intval($cur['seq'] ?? 0) . ')');
     $bag = ['config' => $in['config'], 'seq' => $in['seq'], 'user' => (string)($in['user'] ?? ''), 'mac' => $in['mac'], 'admin' => $cur['admin'] ?? (object)[], 'at' => time()];
     echo role_write(ctl_host(), 'fdf-app', 'config', $app, $bag);
+} elseif ($op === 'lead' && $_SERVER['REQUEST_METHOD'] === 'POST') {
+    // [EOC_LEADS_V1] an EOC user adds a lead (its name and its password's verifier: the password is never sent here), or
+    // removes one (remove: true). The EOC user's own password says it is the EOC's.
+    $in = json_decode(file_get_contents('php://input'), true);
+    $app = $_GET['app'] ?? '';
+    if (!is_array($in) || !preg_match('/^[A-Za-z0-9_-]{1,40}$/', $app)) fail(400, 'app and a JSON body needed');
+    eoc_user($app, $in); $cfg = app_cfg($app);
+    $ld = (string)($in['lead'] ?? '');
+    if (!lead_ok($ld)) fail(400, "a user's name: letters, digits, . _ - (at most 40)");
+    if (isset($cfg['users'][$ld])) fail(409, "$ld is a user the admin configured");
+    if (!empty($in['remove'])) $bag = ['name' => $ld, 'removed' => true, 'by' => (string)$in['user'], 'at' => time()];
+    else {
+        $v = $in['verifier'] ?? null;
+        if (!is_array($v) || !preg_match('/^[0-9a-f]{16,128}$/', (string)($v['salt'] ?? '')) || !preg_match('/^[0-9a-f]{64}$/', (string)($v['hash'] ?? '')) || intval($v['n'] ?? 0) < 10000)
+            fail(400, "the user's password as a verifier (salt, n, hash): the password itself is never sent");
+        // the roles (the apps' views) this lead can run its team as: ["*"] for all, or a list (team, hospital, ambulance ...)
+        $roles = [];
+        foreach ((is_array($in['roles'] ?? null) ? $in['roles'] : []) as $r) { $r = strtolower(trim((string)$r)); if ($r === '*' || preg_match('/^[a-z0-9_-]{1,40}$/', $r)) $roles[] = $r; }
+        $roles = array_values(array_unique($roles));
+        if (!$roles) fail(400, 'roles: ["*"] for all, or the roles this lead can run');
+        if (in_array('*', $roles, true)) $roles = ['*'];
+        $bag = ['name' => $ld, 'verifier' => ['salt' => (string)$v['salt'], 'n' => intval($v['n']), 'hash' => (string)$v['hash']], 'roles' => $roles, 'by' => (string)$in['user'], 'at' => time()];
+    }
+    role_write(ctl_host(), 'fdf-app', 'lead', $app . '.' . $ld, $bag);
+    error_log('dc ram.php: [EOC_LEADS_V1] ' . $app . ': user ' . $ld . (empty($in['remove']) ? ' added' : ' removed') . ' by the EOC user ' . $in['user']);
+    echo json_encode(['ok' => true, 'lead' => $ld, 'removed' => !empty($in['remove']), 'door' => DOOR_BUILD]);
+} elseif ($op === 'leads') {
+    // [EOC_LEADS_V1] the users the EOC added and the team each created: names only, never a verifier
+    $app = $_GET['app'] ?? '';
+    if (!preg_match('/^[A-Za-z0-9_-]{1,40}$/', $app)) fail(400, 'app needed');
+    $o = [];
+    foreach (leads($app) as $n => $b) { $t = team_of_lead($app, $n);
+        $o[$n] = ['by' => (string)($b['by'] ?? ''), 'at' => intval($b['at'] ?? 0), 'roles' => $b['roles'] ?? ['*'], 'team' => $t, 'kind' => $t !== '' ? (string)((children($app)[$t] ?? [])['kind'] ?? '') : ''];
+    }
+    echo json_encode(['ok' => true, 'leads' => (object)$o, 'door' => DOOR_BUILD], JSON_UNESCAPED_SLASHES);
 } elseif ($op === 'whoami') {
     // [STATION_IS_HOSTNAME_V1] the asking device's host name, from its lease here; '' when it gave none (the device's
     // own name is then its name: the page asks for it). Nobody sees a station ID: it is the host or device name.
@@ -481,6 +553,29 @@ if ($op === 'read') {
     // [CHILDREN_JOIN_V1] a name the configuration does not have, with the app's join password: a new child (a team, named
     // by whoever joins it), or the one of that name again
     $cfg = app_cfg($app); $nm = (string)($in['user'] ?? '');
+    // [EOC_LEADS_V1] a lead the EOC added creates its team: its password, and the team's name it gives. A team another lead
+    // created is that lead's: no replacement. Its own team again (another device of the lead's): the same team.
+    $ld = ($op === 'enroll' && $nm !== '' && !isset($cfg['users'][$nm])) ? (leads($app)[$nm] ?? null) : null;
+    if (is_array($ld)) {
+        if (!verified($ld['verifier'] ?? null, $in['password'] ?? '')) fail(403, "that is not $nm's password");
+        $team = trim((string)($in['team'] ?? ''));
+        if ($team === '') fail(400, "give your team's name: you lead the team you name");
+        if (!child_ok($team)) fail(400, "a team's name: letters, digits, space . _ -, at most 40 (not general)");
+        $kind = preg_replace('/[^a-z0-9_-]/', '', strtolower((string)($in['kind'] ?? 'team'))) ?: 'team';
+        $can = $ld['roles'] ?? ['*'];
+        if (!in_array('*', $can, true) && !in_array($kind, $can, true)) fail(403, "$nm can run " . implode(', ', $can) . ", not $kind: the EOC gives a lead its roles (Leads)");
+        $kids = children($app); $was = $kids[$team] ?? null;
+        if (isset($cfg['users'][$team]) || isset($cfg['roles'][$team])) fail(409, "$team is a group the admin configured: name your team something else");
+        if (is_array($was) && (string)($was['lead'] ?? '') !== $nm) fail(409, "team $team is " . ((string)($was['lead'] ?? '') !== '' ? (string)$was['lead'] . "'s" : 'already on the network') . ': there is no replacement; name your team something else');
+        if (!is_array($was)) {
+            $b = ['name' => $team, 'kind' => $kind, 'lead' => $nm, 'at' => time(), 'from' => $_SERVER['REMOTE_ADDR'] ?? ''];
+            role_write(ctl_host(), 'fdf-app', 'child', $app . '.' . $team, $b);
+            error_log('dc ram.php: [EOC_LEADS_V1] ' . $app . ': ' . $b['kind'] . ' ' . $team . ' created by its lead ' . $nm . ' (' . $b['from'] . ')');
+        }
+        echo json_encode(['ok' => true, 'user' => $nm, 'role' => $team, 'kind' => is_array($was) ? (string)($was['kind'] ?? $kind) : $kind, 'lead' => true, 'child' => true, 'at' => '',
+                          'invite' => region_identity(ident_name([$app, $team])), 'door' => DOOR_BUILD], JSON_UNESCAPED_SLASHES);
+        exit;
+    }
     if ($op === 'enroll' && $nm !== '' && !isset($cfg['users'][$nm]) && is_array($cfg['join'] ?? null)) {
         if (!child_ok($nm)) fail(400, "a team's name: letters, digits, space . _ -, at most 40 (not general)");
         if (!verified($cfg['join'], $in['password'] ?? '')) fail(403, "that is not the EOC's teams password");
@@ -514,7 +609,13 @@ if ($op === 'read') {
     if (!is_array($in) || !preg_match('/^[A-Za-z0-9_-]{1,40}$/', $app)) fail(400, 'app and a JSON body needed');
     $cfg = app_cfg($app);
     $user = (string)($in['user'] ?? ''); $role = (string)($in['role'] ?? '');
-    if ($user !== '' && !isset($cfg['users'][$user]) && isset(children($app)[$user])) {
+    $ld = ($user !== '' && !isset($cfg['users'][$user])) ? (leads($app)[$user] ?? null) : null;
+    if (is_array($ld)) {
+        // [EOC_LEADS_V1] a lead the EOC added: its team is its role
+        if (!verified($ld['verifier'] ?? null, $in['password'] ?? '')) fail(403, "that user and password are not this app's");
+        $role = team_of_lead($app, $user);
+        if ($role === '') fail(403, "user $user has not created a team yet: scan the EOC's QR for $user and name the team");
+    } elseif ($user !== '' && !isset($cfg['users'][$user]) && isset(children($app)[$user])) {
         // [CHILDREN_JOIN_V1] a team that joined, its lead logging in with the EOC's teams password: the team is its role
         if (!verified($cfg['join'] ?? null, $in['password'] ?? '')) fail(403, "that user and password are not this app's");
         $role = $user;
@@ -560,5 +661,5 @@ if ($op === 'read') {
     if ($at === '') fail(503, "the app's general AppRam has no AppHost yet (" . svc_host($app, 'general') . "): nothing works until it has");
     echo ram('. ' . escapeshellarg(dirname(__DIR__, 2) . '/fdf.env') . ' && RINA_RAM=' . escapeshellarg($at) . ' exec "$FDF_BIN"/ram ', ['write', 'fdf-app', 'device', $app . '.' . $dev, json_encode($bag, JSON_UNESCAPED_SLASHES)]);
 } else {
-    fail(400, 'op is read, write, watch, announce, rams, roles, admin, whoami, login, device, enroll, identity or place');
+    fail(400, 'op is read, write, watch, announce, rams, roles, admin, whoami, login, device, enroll, identity, place, lead or leads');
 }

@@ -47,6 +47,35 @@ role's `act`/`req`, or `RT.button`). **A new view**: `RT.role(...)` in a layer's
 `RTA.panel(title, fn)` (none yet). Gates: `test/test_app.py` (32 checks; the Team and Public apps run with their own
 layers only), `test/test_team_host.py`, `android/typecheck.sh`.
 
+## r61: the EOC's Leads ([EOC_LEADS_V1], door dc-door-2026-11-09-leads1)
+
+John's words (2026-11-09):
+- "The EOC should just have a way for me to add users. When I scan the QR code it should take me to a filled in screen with my username filled in, but the team name blank. I fill in the team name, add my password, and hit the button to create the Team."
+- "The EOC needs to have a menu named Leads ... the name, password, and list of Roles the name can handle. The list of roles may be * for all roles, or a hand-entered list."
+
+How it works:
+
+1. **The EOC creates the lead.** **Leads** in the EOC app: the lead's name, a password, and its roles. The roles are `*`, or a list from team, hospital, ambulance, shelter, power, water and phone.
+   - The core sends the door only the password's verifier (`Enroll.verifier`).
+   - The door's `op=lead` checks the EOC user's own password, kept in the core's memory for that session only. It writes `(fdf-app, lead, openeoc.<name>) {name, verifier, roles, by, at}` in databasehost-control.
+2. **The EOC shows the lead's QR:** `fdfenroll1 http://<node>/dc/ram.php openeoc <name>`, with no password in it.
+3. **The lead scans it.** The connect screen shows the user filled in, the team's name blank and the password. **Create the Team** sends `op=enroll` with `{user, password, team, kind}`; `kind` is the view the app runs as.
+4. **The door creates the team**, a child `{name, kind, lead}`, and asks the region for its identity.
+   - A kind outside the lead's roles is refused.
+   - A team another lead created is refused: there is no replacement.
+   - The same lead again is the same team.
+5. **Afterwards:**
+   - The lead's login is its team's role (`op=login`).
+   - The lead's members are invited on the lead's own user and password (`op=identity`).
+   - Leads lists each lead with its roles and the team it created; Remove takes a lead away.
+6. **With no QR at hand:** **Create a team without the EOC's QR code**, under Manual login, asks for the same three things, with the user typed in.
+
+**Node update:** only `opt/fdf/www/dc/ram.php` changed (`dc-door-2026-11-09-leads1`).
+
+**Tests:**
+- `test/test_leads.py NODE_ROOT` runs the real EOC core and page and the Team page, against a node package's api.php and `fdf-app`, with this door, as root with MariaDB. It has 14 checks.
+- `test_enroll_page.py` steps 1, 2, 3 and 7 now check this flow. They replace the "Start a team" join-password flow.
+
 ## r60: the FEMA EOC function and EOCAdmin ([FEMA_EOC_V1])
 
 The EOC function as FEMA and NIMS describe it, and EOCAdmin, are built into the apps on the RAM (John 2026-11-09: "It needs to be an app, like it would in the real world"). They are not a separate preview: the r60 commit removed the browser-only `ui-preview/`.

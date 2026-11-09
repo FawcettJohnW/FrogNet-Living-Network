@@ -49,7 +49,7 @@ public final class AppCore {
 
     public static final String APP = "openeoc";
     public static final String API = "/FawcettInnovations.RINA.ram_interface.php";
-    public static final String BUILD = "openeoc-app-2026-11-09-r60";
+    public static final String BUILD = "openeoc-app-2026-11-09-r61";
 
     private final Ui ui;
     private String door = "", dev = "", name = "", role = "", team = "", user = "", mission = "";
@@ -75,6 +75,9 @@ public final class AppCore {
     private Map<String, Object> card = null;            // the lead's card for its members: team, door, join line
     private volatile Follower hostF;
     private volatile String leadVia = "";
+    /** [EOC_LEADS_V1] the EOC user's password, for this session only (memory: never written, never said): the door's check
+     *  that a lead is added by the EOC */
+    private volatile String eocPassword = "";
 
     /** every layer there is (the app with every view) */
     public AppCore(Ui ui) { this(ui, null); }
@@ -131,6 +134,9 @@ public final class AppCore {
             else if (op.equals("teamHost")) teamHost(m);
             else if (op.equals("teamPlace")) teamPlace(m);
             else if (op.equals("door")) redoor(Json.str(m.get("door")).trim());
+            else if (op.equals("leads")) leads();                       // [EOC_LEADS_V1]
+            else if (op.equals("leadAdd")) leadAdd(m);
+            else if (op.equals("leadRemove")) leadRemove(Json.str(m.get("lead")));
             else {                                          // [RT_LAYERS_V1] a layer's op
                 boolean done = false;
                 for (Layer l : layers) if (l.handle(op, m, here)) { done = true; break; }
@@ -168,6 +174,35 @@ public final class AppCore {
         return "HTTP " + LAST_STATUS.get() + " for ?" + q.replaceAll("&.*", "") + (hs.isEmpty() ? "" : " (" + hs + ")") + ": " + (t.length() > 200 ? t.substring(0, 200) + "…" : t);
     }
     private Map<String, Object> doorCall(String q, String body) throws Exception { return doorCall(q, body, 10000); }
+
+    // ------------------------------------------------------------------ [EOC_LEADS_V1] the EOC's leads
+    // (John 2026-11-09: "the EOC needs to have a menu named Leads ... the Lead creation screen, which has the name, password,
+    // and list of Roles the name can handle. The list of roles may be * for all roles, or a hand-entered list") a lead is
+    // added at the door by the EOC user (its own password, kept for this session); the lead's password goes as a
+    // verifier only. The lead then scans the EOC's QR for it, names its team, and creates it.
+    private void leads() throws Exception {
+        Map<String, Object> o = doorCall("op=leads&app=" + APP, null);
+        out("ev", "leads", "leads", Json.obj(o.get("leads")), "door", door);
+    }
+    private boolean eocLoggedIn() { return !user.isEmpty() && !eocPassword.isEmpty(); }
+    private void leadAdd(Map<String, Object> m) throws Exception {
+        if (!eocLoggedIn()) throw new Exception("only the EOC, logged in, adds leads");
+        String lead = Json.str(m.get("lead")).trim(), pw = Json.str(m.get("password"));
+        if (!lead.matches("[A-Za-z0-9][A-Za-z0-9._-]{0,39}")) throw new Exception("a lead's name: letters, digits, . _ - (at most 40)");
+        if (pw.length() < 4) throw new Exception("a password of at least 4 characters for " + lead);
+        java.util.List<Object> roles = new java.util.ArrayList<Object>();
+        for (Object r : Json.arr(m.get("roles"))) { String x = Json.str(r).trim().toLowerCase(); if (!x.isEmpty() && !roles.contains(x)) roles.add(x); }
+        if (roles.isEmpty()) throw new Exception("the roles " + lead + " can run: * for all, or a list");
+        doorCall("op=lead&app=" + APP, Json.write(Json.o("user", user, "password", eocPassword, "lead", lead, "roles", roles,
+                "verifier", net.frognet.ram.Enroll.verifier(pw))));
+        say("lead " + lead + " added (" + roles + "): " + lead + " scans the EOC's QR, names the team, and creates it");
+        leads();
+    }
+    private void leadRemove(String lead) throws Exception {
+        if (!eocLoggedIn()) throw new Exception("only the EOC, logged in, removes leads");
+        doorCall("op=lead&app=" + APP, Json.write(Json.o("user", user, "password", eocPassword, "lead", lead, "remove", true)));
+        say("lead " + lead + " removed"); leads();
+    }
     private Map<String, Object> doorCall(String q, String body, int readMs) throws Exception {
         String r;
         try { r = http(body == null ? "GET" : "POST", "http://" + door + "/dc/ram.php?" + q, body, readMs); }
@@ -278,6 +313,7 @@ public final class AppCore {
             }
             role = want;                                    // the admin's role name in any case ([RT_EOC_APP_V1])
             team = "";
+            eocPassword = Json.str(m.get("password"));      // [EOC_LEADS_V1] kept for adding leads, this session only
         } else if (v.connect.equals("team")) { role = want; team = Json.str(m.get("team")); user = ""; }
         else if (v.connect.equals("unit")) { role = want; team = Json.str(m.get("unit")); user = ""; }   // [RT_SUITE_APPS_V1] a unit's app
         else { role = want; team = ""; user = ""; }
