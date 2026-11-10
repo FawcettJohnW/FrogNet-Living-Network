@@ -47,6 +47,13 @@ role's `act`/`req`, or `RT.button`). **A new view**: `RT.role(...)` in a layer's
 `RTA.panel(title, fn)` (none yet). Gates: `test/test_app.py` (32 checks; the Team and Public apps run with their own
 layers only), `test/test_team_host.py`, `android/typecheck.sh`.
 
+## r75: the Node field is not a home router ([NODE_IS_THE_ASKED_GATEWAY_V1])
+
+r72 to r74 put any 10.x Wi-Fi gateway that is its network's .1 in the Node field at start (r72 stopped asking the
+gateway at start): a home router's 10.101.113.1 became the Node, and a phone off the node's network connected there.
+Now the Node field is the node used last (or the joined one), as before r72; at the connect the gateway is asked, and on
+a node's LAN a connect that names no node goes to that node. Android type-check passes; not run on a phone here.
+
 ## r74: the lead's host choices; teams on the SystemRam in Diagnostics; the door asked again when a lead's cell changes; no Sensors in EOCAdmin
 
 - **The lead's choices** ([LEAD_HOST_CHOICES_V1], John 2026-11-10), a second after the lead connects, nothing done

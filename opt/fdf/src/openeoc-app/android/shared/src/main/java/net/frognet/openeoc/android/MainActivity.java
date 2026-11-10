@@ -322,8 +322,16 @@ public final class MainActivity extends Activity implements LocationListener {
         // 10.101.113.1 "is not a FrogNet node ... through its own tunnel", then nothing; the door out of reach for 40 min)
         lastLan = nodeLan();
         if (!lan.isEmpty()) {                           // [ON_THE_LAN_NO_TUNNEL_V1] the node routes this phone already
-            final String line = pendingConnect; pendingConnect = null;
-            if (line == null) return;
+            String line0 = pendingConnect; pendingConnect = null;
+            if (line0 == null) return;
+            // [NODE_IS_THE_ASKED_GATEWAY_V1] on a node's LAN (its gateway answered as a FrogNet door just now) a connect that
+            // names no node goes to that node
+            String gwn = gwOf(lanShape());
+            try {
+                Map<String, Object> c = Json.obj(Json.parse(line0));
+                if (Json.str(c.get("door")).trim().isEmpty() && !gwn.isEmpty()) { c.put("door", gwn); line0 = Json.write(c); note("[NODE_IS_THE_ASKED_GATEWAY_V1] the node is " + gwn + ", whose LAN this is"); }
+            } catch (IllegalArgumentException ignored) { }
+            final String line = line0;
             note("[ON_THE_LAN_NO_TUNNEL_V1] " + lan + ": no FrogNet tunnel needed for this" + networks());
             new Thread(new Runnable() { public void run() {
                 core.handle(line);
@@ -522,9 +530,11 @@ public final class MainActivity extends Activity implements LocationListener {
         String gw = gateway();
         // on a node's Wi-Fi the node is the gateway: where this phone is now ([TEAM_HOST_V1] not on a team lead's hotspot,
         // whose gateway is the lead's phone: there the node is the one the lead's card names)
-        // [NOTHING_UNTIL_ASKED_V1] the gateway is not asked at start: a LAN shaped as a node's (10.x, its gateway x.y.z.1) is
-        // taken as the node's for the Node field; the connect asks the gateway ([GATEWAY_IS_A_NODE_V1]) before it is used
-        if (!gw.isEmpty() && (!nodeLan().isEmpty() || gw.equals(gwOf(lanShape())))) door = gw;
+        // [NOTHING_UNTIL_ASKED_V1] the gateway is not asked at start, so the Node field is the node this phone used last
+        // ([NODE_IS_THE_ASKED_GATEWAY_V1], found 2026-11-10: r72 to r74 took any 10.x Wi-Fi whose gateway is its .1 for a
+        // node's -- a home router's 10.101.113.1 was then the Node, and the connect went there); at the connect the gateway
+        // is asked ([GATEWAY_IS_A_NODE_V1]), and on a node's LAN that node is the one connected to (startMember)
+        if (!gw.isEmpty() && !nodeLan().isEmpty()) door = gw;
         // [RT_TEAM_APP_V1] an APK built for one role (the Team app: meta-data net.frognet.openeoc.ROLE = team) opens as it
         String lock = meta("net.frognet.openeoc.ROLE");
         return Json.o("dev", dev, "name", name, "door", door, "role", lock.isEmpty() ? prefs.getString("role", "team") : lock,
