@@ -47,6 +47,14 @@ role's `act`/`req`, or `RT.button`). **A new view**: `RT.role(...)` in a layer's
 `RTA.panel(title, fn)` (none yet). Gates: `test/test_app.py` (32 checks; the Team and Public apps run with their own
 layers only), `test/test_team_host.py`, `android/typecheck.sh`.
 
+## r72: a user who is not a Command Center user is told the admin tool's fix ([EOC_USER_SAYS_THE_FIX_V1])
+
+Found 2026-11-10: "connect: user EOCLead has role 'eochq' (category 1794191697412), not the EOCAdmin's: in the admin
+app, put eochq in the EOC category". The admin tool has had no categories since admin r16 (Teams and Command Center
+users only), so the message named a fix nobody could make. Now, for the Command Center and EOCAdmin: remove the user
+from its role (its ✕ under Teams), Apply, add it under Command Center users with its password, Apply. Test:
+`test_no_mission.py` step 5.
+
 ## r71: the update applier is in settings.gradle.kts ([UPDATE_IN_SETTINGS_V1])
 
 Found 2026-11-10: the full project opened in Android Studio stopped at "Could not read script ...\OpenEOC-Android-Studio\rt-update.settings.gradle.kts as it does not exist". The file was in the zip, but not in the folder Android Studio opened, so the build depended on a second file arriving.

@@ -49,7 +49,7 @@ public final class AppCore {
 
     public static final String APP = "openeoc";
     public static final String API = "/FawcettInnovations.RINA.ram_interface.php";
-    public static final String BUILD = "openeoc-app-2026-11-10-r71";
+    public static final String BUILD = "openeoc-app-2026-11-10-r72";
 
     private final Ui ui;
     private String door = "", dev = "", name = "", role = "", team = "", user = "", mission = "";
@@ -332,8 +332,13 @@ public final class AppCore {
                 String c = cat.toLowerCase().trim(), one = c.endsWith("s") ? c.substring(0, c.length() - 1) : c;
                 // [FEMA_EOC_V1] EOCAdmin is an EOC user's: a role in the EOC category opens it
                 if (!(c.equals(want) || one.equals(want) || (want.equals("eocadmin") && one.equals("eoc"))))
-                    throw new Exception("user " + user + " has role '" + r + "' (category " + (cat.isEmpty() ? "unknown: " + why : cat) + "), not the "
-                            + (want.equals("eoc") ? "Command Center" : want.equals("eocadmin") ? "EOCAdmin" : want) + "'s: in the admin app, put " + r + " in the " + (want.equals("eoc") || want.equals("eocadmin") ? "EOC" : cap(want)) + " category (" + BUILD + ")");   // the admin's category is named EOC
+                    // [EOC_USER_SAYS_THE_FIX_V1] (found 2026-11-10: "put eochq in the EOC category", which the admin tool has had
+                    // no way to do since admin r16: it has Teams and Command Center users, no categories) the fix the tool has
+                    throw new Exception(want.equals("eoc") || want.equals("eocadmin")
+                            ? "user " + user + " has role '" + r + "' (category " + (cat.isEmpty() ? "unknown: " + why : cat) + "), which is not in the EOC category, so "
+                              + user + " is not a Command Center user: in the admin app, remove " + user + " from " + r + " (the ✕ beside it under Teams), Apply, then add "
+                              + user + " under Command Center users with its password, Apply (" + BUILD + ")"
+                            : "user " + user + " has role '" + r + "' (category " + (cat.isEmpty() ? "unknown: " + why : cat) + "), not the " + want + "'s: in the admin app, put " + r + " in the " + cap(want) + " category (" + BUILD + ")");
             }
             role = want;                                    // the admin's role name in any case ([RT_EOC_APP_V1])
             team = "";
