@@ -80,7 +80,7 @@ a node's LAN a connect that names no node goes to that node. Android type-check 
 John 2026-11-10: "the comms-app is part of the bundle thrown down, but also such that there is only one on the device"
 (he chose one bundle for every app); "make Call available under the Chat menu as well. For now, just a single person".
 
-- **One bundle.** `desktop/package_windows.sh OUTDIR COMMS_DIST` makes `OpenEOC-windows-x64-<build>.zip`: one runtime,
+- **One bundle.** `desktop/package_windows.sh OUTDIR [COMMS_DIST]` makes `OpenEOC-windows-x64-<build>.zip`: one runtime,
   one lib, `ui`, `ui-admin`, `comms\` and a launcher per app (`OpenEOC-CommandCenter.cmd`, `OpenEOC-EOCAdmin.cmd`,
   `OpenEOC.cmd`, `OpenEOC-Admin.cmd`). It replaces the four zips (`admin`, `eoc`, `eocadmin` and the client). Each app
   keeps its own settings and loads its own layers (`--layers`), as before.

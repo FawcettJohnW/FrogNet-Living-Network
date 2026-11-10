@@ -15,8 +15,9 @@
 # path. Two pure-Java JDK modules JavaFX's web view needs and that runtime lacks (jdk.jsobject, jdk.xml.dom) are made
 # into jars from this machine's JDK 21. Needs: JDK 21, pip, curl, zip. Nothing is installed on Windows: unzip and run.
 set -eu
-D=$(cd "$(dirname "$0")/.." && pwd); OUT=${1:?usage: package_windows.sh OUTDIR COMMS_DIST}; CD=${2:?usage: package_windows.sh OUTDIR COMMS_DIST (the Communicator Windows dist folder)}
-[ -f "$CD/comms-app.exe" ] || { echo "package_windows.sh: $CD has no comms-app.exe: give the Communicator's Windows dist folder (build-windows.ps1's dist\\)"; exit 1; }
+D=$(cd "$(dirname "$0")/.." && pwd); OUT=${1:?usage: package_windows.sh OUTDIR [COMMS_DIST]}; CD=${2:-}
+# no COMMS_DIST: the bundle's comms\ is empty and says so (comms\README.txt); the Communicator's dist\ goes there, once
+[ -z "$CD" ] || [ -f "$CD/comms-app.exe" ] || { echo "package_windows.sh: $CD has no comms-app.exe: give the Communicator's Windows dist folder (build-windows.ps1's dist\\)"; exit 1; }
 mkdir -p "$OUT"; OUT=$(cd "$OUT" && pwd)
 BUILD=$(sed -n 's/.*BUILD = "\(openeoc-app-[^"]*\)".*/\1/p' $D/core/src/net/frognet/openeoc/AppCore.java)
 ABUILD=$(sed -n 's/.*BUILD = "\(openeoc-admin-[^"]*\)".*/\1/p' $D/core/src/net/frognet/openeoc/admin/AdminCore.java)
@@ -34,7 +35,9 @@ jimage extract --dir $T/x --include "regex:/(jdk.jsobject|jdk.xml.dom)/.*" "$JH/
 for m in jdk.jsobject jdk.xml.dom; do rm -f $T/x/$m/module-info.class; jar cf $R/lib/$m.jar -C $T/x/$m .; done
 cp $D/build/*.jar $R/lib/
 cp -r $D/ui $R/ui; cp -r $D/ui-admin $R/ui-admin; cp $D/brand/openeoc.ico $R/   # [OPENEOC_BRAND_V1] the icon, for a shortcut to a .cmd
-mkdir -p $R/comms && cp -r "$CD"/. $R/comms/                                      # [ONE_COMMUNICATOR_V1] the one Communicator
+mkdir -p $R/comms                                                                   # [ONE_COMMUNICATOR_V1] the one Communicator
+if [ -n "$CD" ]; then cp -r "$CD"/. $R/comms/
+else printf 'The FrogNet Communicator goes in this folder: comms-app.exe with its DLLs and Qt plugins (the dist folder\r\nthat the Communicator'"'"'s build-windows.ps1 makes, its contents). Every app in this bundle calls with it.\r\n' > $R/comms/README.txt; fi
 J='start "" "%%~dp0runtime\\bin\\javaw.exe" -cp "%%~dp0lib\\*"'
 printf "@echo off\r\nrem OpenEOC Command Center, powered by the FrogNet Living Network (%s)\r\n$J net.frognet.openeoc.desktop.Launcher --ui=\"%%~dp0ui\" --lock=eoc --layers=%s %%*\r\n" "$BUILD" "$CC" > $R/OpenEOC-CommandCenter.cmd
 printf "@echo off\r\nrem OpenEOC EOCAdmin, powered by the FrogNet Living Network (%s)\r\n$J net.frognet.openeoc.desktop.Launcher --ui=\"%%~dp0ui\" --lock=eocadmin --layers=%s %%*\r\n" "$BUILD" "$EA" > $R/OpenEOC-EOCAdmin.cmd
