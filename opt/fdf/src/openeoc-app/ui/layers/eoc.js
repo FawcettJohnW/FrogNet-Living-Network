@@ -5,7 +5,7 @@
 // Its acks and overview: the service requests it acknowledges (field), everything under way (other layers' sections).
 'use strict'
 RT.layer('eoc', (RT) => {
-  RT.role('eoc', { label: 'Command Center', title: 'OpenEOC Command Center', field: 'login', who: () => 'Command Center', kinds: 'all', teams: 'all',
+  RT.role('eoc', { label: 'Command Center', title: 'OpenEOC -- CommandCenter', field: 'login', who: () => 'Command Center', kinds: 'all', teams: 'all',
                    log: true, acks: true, overview: true, act: ['Actions', 'field'], req: ['Requests', 'requests'],
                    connected() { send({ op: 'compliance' }) } })
 

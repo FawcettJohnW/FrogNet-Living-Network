@@ -5,7 +5,7 @@
 // card, read on its hotspot.
 'use strict'
 RT.layer('team', (RT) => {
-  RT.role('team', { label: 'Team', title: 'OpenEOC Team', field: 'team', who: () => 'Team ' + S.team, kinds: ['team'], teams: 'own',
+  RT.role('team', { label: 'Team', title: 'OpenEOC -- Team', field: 'team', who: () => 'Team ' + S.team, kinds: ['team'], teams: 'own',
                     log: true, act: ['Actions', 'field'], req: ['Requests', 'requests'],
                     connected() {
                       $('#hostBtn').hidden = !(window.rtNative && window.rtNative.teamHost)

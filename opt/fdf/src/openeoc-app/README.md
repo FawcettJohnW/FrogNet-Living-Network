@@ -47,6 +47,18 @@ role's `act`/`req`, or `RT.button`). **A new view**: `RT.role(...)` in a layer's
 `RTA.panel(title, fn)` (none yet). Gates: `test/test_app.py` (32 checks; the Team and Public apps run with their own
 layers only), `test/test_team_host.py`, `android/typecheck.sh`.
 
+## r77: names follow the convention ([NAMES_ARE_THE_CONVENTION_V1])
+
+John 2026-11-10: "There is a convention: OpenEOC -- EOCAdmin, OpenEOC -- CommandCenterAdmin, OpenEOC -- TeamAdmin,
+OpenEOC -- HospitalAdmin"; the roles' instances across the network are configured by their one Admin. The windows and
+the Windows launchers now say:
+- `OpenEOC -- CommandCenterAdmin` (`OpenEOC-CommandCenterAdmin.cmd`): the admin tool (Teams, Command Center users,
+  Members; was "OpenEOC Admin (EOCCommandAdmin)", `OpenEOC-Admin.cmd`);
+- `OpenEOC -- EOCAdmin` (`OpenEOC-EOCAdmin.cmd`): the forms, IAP, after-action report;
+- `OpenEOC -- CommandCenter` (`OpenEOC-CommandCenter.cmd`); `OpenEOC -- Team`, `OpenEOC -- Hospital`, ... and
+  `OpenEOC -- Public` for the role views; `OpenEOC` (`OpenEOC.cmd`) asks which.
+TeamAdmin and HospitalAdmin are not apps yet: a team's or a hospital's configuration is its lead's (op=place).
+
 ## r76: the Communicator this computer has is used ([ONE_COMMUNICATOR_V1])
 
 r73 to r75 had the Windows apps use only the bundle's `comms\comms-app.exe` and dropped the path each app had been

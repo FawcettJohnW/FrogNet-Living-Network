@@ -282,27 +282,27 @@ with sync_playwright() as pw:
               {k: st.get(k) for k in ("camera", "mic", "speaker", "ram", "media")}, ring.replace("\n", " ")))
     # [RT_TEAM_APP_V1] [RT_PUBLIC_APP_V1] the Team app and the Public app on a phone's screen: one view each, no choice
     ta = open_dev("teamapp", 412, 860)
-    t_ok = ta.is_hidden("#roleSet") and ta.inner_text("#connect h1") == "OpenEOC Team" and "openeoc-app-" in ta.inner_text("#cstatus")
+    t_ok = ta.is_hidden("#roleSet") and ta.inner_text("#connect h1") == "OpenEOC -- Team" and "openeoc-app-" in ta.inner_text("#cstatus")
     ta.select_option("[name=team]", "Bravo"); ta.click("#connect button[type=submit]"); ta.wait_for_selector("#main:not([hidden])", timeout=8000)
     ta.wait_for_function("S.role==='team' && S.team==='Bravo' && Object.keys(S.markers).length >= 4", timeout=15000)
     tt2 = ta.evaluate("[...new Set(Object.keys(S.markers).filter(id=>!id.startsWith('gps:') && (S.pos[id]||{}).kind!=='host').map(id=>(S.pos[id]||{}).team))]")
     ta.click("#misBtn"); back1 = ta.evaluate("rtBack()"); closed = ta.is_hidden("#sheet"); back2 = ta.evaluate("rtBack()")
     tl = ta.evaluate("RT.loaded.join()")
     check(t_ok and tt2 == ["Bravo"] and back1 and closed and back2 is False and tl == "help,field,team",
-          "30 the Team app (layers " + tl + "): no view to choose (titled OpenEOC Team, its build on the first screen), opens on its own team (%s); Back closes the open sheet, then has nothing to close" % tt2)
+          "30 the Team app (layers " + tl + "): no view to choose (titled OpenEOC -- Team, its build on the first screen), opens on its own team (%s); Back closes the open sheet, then has nothing to close" % tt2)
     if SHOTS: ta.screenshot(path=os.path.join(SHOTS, "team-app-phone.png"))
     pa = open_dev("pubapp", 412, 860)
-    p_ok = pa.is_hidden("#roleSet") and pa.inner_text("#connect h1") == "OpenEOC Public" and pa.is_hidden(".for-team") and pa.is_hidden(".for-eoc")
+    p_ok = pa.is_hidden("#roleSet") and pa.inner_text("#connect h1") == "OpenEOC -- Public" and pa.is_hidden(".for-team") and pa.is_hidden(".for-eoc")
     pa.click("#connect button[type=submit]"); pa.wait_for_selector("#home:not([hidden])", timeout=8000)
     pa.click("[data-go=map]"); pb_back = pa.evaluate("rtBack()"); home_again = pa.is_visible("#home")
     pa.evaluate("setTimeout(()=>{ nosuchfunction() }, 0)"); time.sleep(0.3)
     err = pa.evaluate("S.errs.join(' | ')")                   # (the status line: whatever came last; the page error is in the said list)
     pl = pa.evaluate("RT.loaded.join()")
     check(p_ok and pb_back and home_again and "page error" in err and pl == "help,public",
-          "31 the Public app (layers " + pl + "): no view to choose (titled OpenEOC Public), opens on its home; Back from the map goes Home; a page error is said on the status line: '%s'" % err[:80])
+          "31 the Public app (layers " + pl + "): no view to choose (titled OpenEOC -- Public), opens on its home; Back from the map goes Home; a page error is said on the status line: '%s'" % err[:80])
     if SHOTS: pa.screenshot(path=os.path.join(SHOTS, "public-app-phone.png"))
     pk = dict(PICKED)
-    check(set(pk) == {"eoc1", "alpha9", "pub1", "hosp1", "med12"} and any(t.startswith("OpenEOC Command Center") for t in pk["eoc1"]) and len(pk["eoc1"]) >= 5,
+    check(set(pk) == {"eoc1", "alpha9", "pub1", "hosp1", "med12"} and any(t.startswith("OpenEOC -- CommandCenter") for t in pk["eoc1"]) and len(pk["eoc1"]) >= 5,
           "33 [RT_APP_PICKER_V1] the OpenEOC app asks which app first (%s); the Team and Public apps do not: asked on %s" % (pk.get("eoc1"), sorted(pk)))
     # [RT_DIAG_V1] the team member's Diagnostics: its followers up, its position written and in the positions RAM, its message back
     tm.evaluate("$('#sheet').hidden=true"); tm.click("#diagBtn"); tm.wait_for_function("/Where this device reads/.test($('#sheet').textContent) && /Last message/.test($('#sheet').textContent)", timeout=8000)

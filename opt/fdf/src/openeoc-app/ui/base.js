@@ -73,7 +73,8 @@ let map
 const RT = {
   roles: {}, screens: {}, sections: {}, evs: {}, hooks: {}, loaded: [], buttons: [],
   layer(name, fn) { RT.loaded.push(name); fn(RT) },
-  role(name, def) { RT.roles[name] = Object.assign({ name, label: cap(name), title: 'OpenEOC ' + cap(name), field: 'none', kinds: [], teams: 'none',
+  role(name, def) { RT.roles[name] = Object.assign({ name, label: cap(name), title: 'OpenEOC -- ' + cap(name).replace(/ /g, ''),   // [NAMES_ARE_THE_CONVENTION_V1] OpenEOC -- <Name>
+                                                      field: 'none', kinds: [], teams: 'none',
                                                       chat: true, sensors: true, mission: true }, def) },
   screen(name, fn) { RT.screens[name] = fn },
   open(name, ...a) { if (RT.screens[name]) RT.screens[name](...a) },
@@ -500,7 +501,7 @@ function connected(m) {
   if ($('#pick')) $('#pick').hidden = true     // [RT_APP_PICKER_V1] connected (an enrolled phone, a lead's card): the question is answered
   S.role = m.role; S.team = m.team || ''; S.connectedAt = Date.now(); S.autoConnect = false; $('#splash').classList.add('gone')
   // [WINDOW_SAYS_ITS_VIEW_V1] the title (the window's, on Windows) says the view this app is running as, and its team or unit
-  { const rr = RT.roles[m.role] || {}; document.title = (rr.title || 'OpenEOC ' + (rr.label || m.role)) + (S.team ? ' · ' + cap(S.team) : '') }
+  { const rr = RT.roles[m.role] || {}; document.title = (rr.title || 'OpenEOC -- ' + (rr.label || m.role)) + (S.team ? ' · ' + cap(S.team) : '') }
   const r = RT.me()
   $('#connect').hidden = true; $('#main').hidden = false
   $('#who').textContent = S.cfg.name + ' · ' + (r.who ? r.who() : r.label || S.role)

@@ -159,7 +159,7 @@ try:
             if rm.get("Lee Rescue") == "systemram": break
             time.sleep(0.2)
         title = lr.evaluate("document.title")
-        check(rm.get("Lee Rescue") == "systemram" and title == "OpenEOC Team · Lee Rescue", "15 Use SystemRam: the door says team Lee Rescue is %r; the lead's window title %r" % (rm.get("Lee Rescue"), title))
+        check(rm.get("Lee Rescue") == "systemram" and title == "OpenEOC -- Team · Lee Rescue", "15 Use SystemRam: the door says team Lee Rescue is %r; the lead's window title %r" % (rm.get("Lee Rescue"), title))
         pg.wait_for_function("() => true"); time.sleep(3)
         lr.evaluate("send({op: 'say', to: 'team:Lee Rescue', text: 'Lee Rescue on the SystemRam, over'})")
         try: pg.wait_for_function("S.msgs.some(m => m.text === 'Lee Rescue on the SystemRam, over')", timeout=30000); got = True

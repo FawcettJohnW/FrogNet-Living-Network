@@ -5,7 +5,7 @@
 #   OpenEOC-CommandCenter.cmd   the Command Center only (--lock=eoc)                     [RT_EOC_APP_V1][COMMAND_CENTER_V1]
 #   OpenEOC-EOCAdmin.cmd        the Command Center's paperwork only (--lock=eocadmin)     [FEMA_EOC_V1]
 #   OpenEOC.cmd                 every view, asked first (Team, Hospital, Ambulance, ...)  [RT_APP_DESKTOP_V1]
-#   OpenEOC-Admin.cmd           the admin tool (ui-admin)                                 [ADMIN_APP_V1]
+#   OpenEOC-CommandCenterAdmin.cmd  OpenEOC -- CommandCenterAdmin: Teams, Command Center users, Members (ui-admin) [ADMIN_APP_V1]
 # Each app keeps its own settings (%USERPROFILE%\.openeoc), loads its own layers (--layers) and calls with the one
 # Communicator, comms\comms-app.exe ([ONE_COMMUNICATOR_V1]). COMMS_DIST: the Communicator's Windows dist folder
 # (build-windows.ps1's dist\: comms-app.exe with its DLLs and Qt plugins), copied whole into comms\. No COMMS_DIST, or
@@ -39,10 +39,10 @@ mkdir -p $R/comms                                                               
 if [ -n "$CD" ]; then cp -r "$CD"/. $R/comms/
 else printf 'The FrogNet Communicator goes in this folder: comms-app.exe with its DLLs and Qt plugins (the dist folder\r\nthat the Communicator'"'"'s build-windows.ps1 makes, its contents). Every app in this bundle calls with it.\r\n' > $R/comms/README.txt; fi
 J='start "" "%%~dp0runtime\\bin\\javaw.exe" -cp "%%~dp0lib\\*"'
-printf "@echo off\r\nrem OpenEOC Command Center, powered by the FrogNet Living Network (%s)\r\n$J net.frognet.openeoc.desktop.Launcher --ui=\"%%~dp0ui\" --lock=eoc --layers=%s %%*\r\n" "$BUILD" "$CC" > $R/OpenEOC-CommandCenter.cmd
-printf "@echo off\r\nrem OpenEOC EOCAdmin, powered by the FrogNet Living Network (%s)\r\n$J net.frognet.openeoc.desktop.Launcher --ui=\"%%~dp0ui\" --lock=eocadmin --layers=%s %%*\r\n" "$BUILD" "$EA" > $R/OpenEOC-EOCAdmin.cmd
+printf "@echo off\r\nrem OpenEOC -- CommandCenter, powered by the FrogNet Living Network (%s)\r\n$J net.frognet.openeoc.desktop.Launcher --ui=\"%%~dp0ui\" --lock=eoc --layers=%s %%*\r\n" "$BUILD" "$CC" > $R/OpenEOC-CommandCenter.cmd
+printf "@echo off\r\nrem OpenEOC -- EOCAdmin, powered by the FrogNet Living Network (%s)\r\n$J net.frognet.openeoc.desktop.Launcher --ui=\"%%~dp0ui\" --lock=eocadmin --layers=%s %%*\r\n" "$BUILD" "$EA" > $R/OpenEOC-EOCAdmin.cmd
 printf "@echo off\r\nrem OpenEOC, powered by the FrogNet Living Network (%s)\r\n$J net.frognet.openeoc.desktop.Launcher --ui=\"%%~dp0ui\" %%*\r\n" "$BUILD" > $R/OpenEOC.cmd
-printf "@echo off\r\nrem OpenEOC Admin, powered by the FrogNet Living Network (%s)\r\n$J net.frognet.openeoc.desktop.AdminLauncher --ui=\"%%~dp0ui-admin\" %%*\r\n" "$ABUILD" > $R/OpenEOC-Admin.cmd
+printf "@echo off\r\nrem OpenEOC -- CommandCenterAdmin, powered by the FrogNet Living Network (%s)\r\n$J net.frognet.openeoc.desktop.AdminLauncher --ui=\"%%~dp0ui-admin\" %%*\r\n" "$ABUILD" > $R/OpenEOC-CommandCenterAdmin.cmd
 cat > $R/README.txt <<TXT
 OpenEOC for Windows ($BUILD; admin $ABUILD), powered by the FrogNet Living Network
 Unzip anywhere (e.g. C:\OpenEOC) and double-click the app's .cmd. Nothing is installed. Every app here shares this
@@ -51,7 +51,7 @@ folder's runtime and its one Communicator (comms\comms-app.exe), which Call open
   OpenEOC-EOCAdmin.cmd       the Command Center's paperwork: the ICS forms (201-221), the situation report, the Incident
                              Action Plan, the after-action report; printed on this computer's printer
   OpenEOC.cmd                every view, asked first: a Team, a Hospital, an Ambulance, ..., Public
-  OpenEOC-Admin.cmd          the admin tool: Node = any member with OpenEOC's door; App = openeoc; the admin user and
+  OpenEOC-CommandCenterAdmin.cmd  OpenEOC -- CommandCenterAdmin (Teams, Command Center users, Members): Node = any member with OpenEOC's door; App = openeoc; the admin user and
                              password set with  fdf-app config openeoc ... --admin USER:PASSWORD (checked here, never sent)
 Connect: this computer on a FrogNet node's Wi-Fi; Node = the node's address (filled in from this computer's gateway).
 Call needs the Communicator's servers on the node (comms-ram on 8800, comms-media on 8994: fdf-comms.sh).
