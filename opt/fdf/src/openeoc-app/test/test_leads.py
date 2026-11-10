@@ -210,7 +210,7 @@ try:
         try: dv.wait_for_function("S.roleConf && S.roleConf.ramhost === 'systemram'", timeout=45000); told = round(time.time() - t0, 1)
         except Exception: told = None
         saved = ta.inner_text("#rhSaid")
-        check(tah1 == "OpenEOC -- TeamAdmin" and "RAM host" in body and "Another machine" in body and "(Not Implemented)" in body and other
+        check(tah1 == "OpenEOC -- TeamAdmin" and "RAM host" in body and "role on another device" in body and "(Not Implemented)" in body and other
               and body.index("Reserved for future customization") > body.index("RAM host") and rc.get("ramhost") == "systemram" and rc.get("by") == "EOCAdmin"
               and told is not None and "every Team instance follows it" in saved,
               "17c TeamAdmin (%r): RAM host, Another machine not implemented %s, Reserved for future customization below it; Save: the door says %s; Dave's instance told in %s s; %r"

@@ -197,3 +197,6 @@ body.paperwide #sheet { width: min(900px, 100%); }
 /* [CHAT_CALL_TAB_V1] the chat's Call tab: one row per person, Call at its end */
 .calls { display: grid; gap: 6px; }
 .callrow { display: flex; justify-content: space-between; align-items: center; gap: 8px; padding: 6px 8px; border: 1px solid var(--bd); border-radius: 8px; }
+
+/* [LEAD_HOST_CHOICES_V1] a choice's warning */
+.warn { color: #ffb74d; font-weight: 600; }

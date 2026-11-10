@@ -556,23 +556,21 @@ function connected(m) {
 }
 
 // [LEAD_STARTS_ASKED_V1] the lead's start: the hotspot, and where its team lives when no one serves it
-// [LEAD_HOST_CHOICES_V1] (John 2026-11-10: "They should be: Host the hotspot and RAM on this phone / Host the Hotspot on
-// this phone and System RAM / Host the role on another machine (need IP) / Do not provide a host or RAM for this
-// instance") a second after the lead connects; nothing is done before the answer
+// [LEAD_HOST_CHOICES_V1] (John 2026-11-10, "in human interpretable form": "Host the hotspot and the role on this phone.
+// WARNING: Eats battery life / Host the Hotspot on this phone, but use the network for the role. / Host the network and
+// the role on another device") a second after the lead connects; nothing is done before the answer
 function leadStart(served) {
   const t = cap(S.team), n = window.rtNative
   if (!n.ensureHotspot && !n.teamHost && !n.teamPlace) return   // nothing to ask here (a computer: no hotspot)
-  sheet('leadStart', 'Team ' + t, `<div class="meta">${served ? 'Team ' + esc(t) + ' is served on the network now.' : 'Team ' + esc(t) + ' is served nowhere yet: its messages go nowhere until it is.'}</div>
+  sheet('leadStart', 'Team ' + t, `<div class="meta">${served ? 'Team ' + esc(t) + ' is running on the network now.' : 'Team ' + esc(t) + ' is not running anywhere yet: until it is, its messages go nowhere.'}</div>
     <div class="sens">
-      ${n.teamHost ? `<button type="button" id="lsHost"><b>Host the hotspot and RAM on this phone</b> <span class="meta">the team's Wi-Fi and its RAM here (the hotspot is turned on if it is off)</span></button>` : ''}
-      ${n.teamPlace && n.ensureHotspot ? `<button type="button" id="lsSys"><b>Host the hotspot on this phone and System RAM</b> <span class="meta">the team's Wi-Fi here; its RAM is the SystemRam's api.php</span></button>` : ''}
-      <button type="button" id="lsOther" disabled><b>Host the role on another machine</b> <span class="meta">(Not Implemented)</span></button>
-      <button type="button" id="lsNo"><b>Do not provide a host or RAM for this instance</b> <span class="meta">nothing is started</span></button></div>`)
+      ${n.teamHost ? `<button type="button" id="lsHost"><b>Host the hotspot and the role on this phone.</b> <span class="warn">WARNING: Eats battery life</span></button>` : ''}
+      ${n.teamPlace && n.ensureHotspot ? `<button type="button" id="lsSys"><b>Host the Hotspot on this phone, but use the network for the role.</b></button>` : ''}
+      <button type="button" id="lsOther" disabled><b>Host the network and the role on another device</b> <span class="meta">(Not Implemented)</span></button></div>`)
   const close = () => { $('#sheet').hidden = true; S.sheet = '' }
   const on = (id, f) => { const b = $('#' + id); if (b) b.onclick = () => { close(); f() } }
-  on('lsHost', () => { status('team ' + t + ': the hotspot and the RAM on this phone'); n.teamHost() })
-  on('lsSys', () => { status('team ' + t + ': the hotspot on this phone; its RAM is the SystemRam'); n.ensureHotspot(); n.teamPlace('systemram') })
-  on('lsNo', () => status('team ' + t + ': no host and no RAM provided'))
+  on('lsHost', () => { status('team ' + t + ': the hotspot and the role on this phone'); n.teamHost() })
+  on('lsSys', () => { status('team ' + t + ': the hotspot on this phone, the role on the network'); n.ensureHotspot(); n.teamPlace('systemram') })
 }
 
 // [ROLE_ADMIN_V1] an instance of a role: its Admin's configuration came (at its connect, and on every change: the core's

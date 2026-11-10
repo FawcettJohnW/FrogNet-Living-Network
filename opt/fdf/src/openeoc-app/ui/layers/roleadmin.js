@@ -7,10 +7,11 @@
 'use strict'
 RT.layer('roleadmin', (RT) => {
   const ROLES = [['team', 'Team'], ['hospital', 'Hospital'], ['ambulance', 'Ambulance'], ['shelter', 'Shelter'], ['power', 'Power'], ['water', 'Water'], ['telecom', 'Telecom']]
-  const HOSTS = [['device', 'Each instance on its own device', "the lead's phone (or computer) runs the RAM, its hotspot the instance's Wi-Fi"],
-                 ['systemram', 'The SystemRam', "no RAM of its own: everything through databasehost.frognet's api.php"],
-                 ['other', 'Another machine', '(Not Implemented)'],
-                 ['none', 'No host or RAM', 'each lead decides when it connects']]
+  // the lead's own choices ([LEAD_HOST_CHOICES_V1]), for every instance of the role
+  const HOSTS = [['device', "The hotspot and the role on each lead's phone.", 'WARNING: Eats battery life'],
+                 ['systemram', "The hotspot on each lead's phone, but the network for the role.", ''],
+                 ['other', 'The network and the role on another device', '(Not Implemented)'],
+                 ['none', 'Not set', 'each lead chooses when it connects']]
   const conf = {}
   for (const [r, L] of ROLES) {
     RT.role(r + 'admin', { label: L + 'Admin', title: 'OpenEOC -- ' + L + 'Admin', field: 'login', who: () => L + 'Admin', kinds: 'all', teams: 'all',

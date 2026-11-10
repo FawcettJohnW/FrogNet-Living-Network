@@ -47,6 +47,17 @@ role's `act`/`req`, or `RT.button`). **A new view**: `RT.role(...)` in a layer's
 `RTA.panel(title, fn)` (none yet). Gates: `test/test_app.py` (32 checks; the Team and Public apps run with their own
 layers only), `test/test_team_host.py`, `android/typecheck.sh`.
 
+## r81: the lead's choices in plain words ([LEAD_HOST_CHOICES_V1])
+
+John 2026-11-10: the r74 wording was "pure gibberish" to a normal person, and not what he asked for. The lead's three
+choices, as he gave them:
+- **Host the hotspot and the role on this phone.** WARNING: Eats battery life
+- **Host the Hotspot on this phone, but use the network for the role.**
+- **Host the network and the role on another device** (Not Implemented)
+
+The r74 fourth choice (no host) is gone; Close leaves without choosing. The role Admins' RAM host uses the same words.
+Tests: `test_enroll_page` 3b, `test_leads` 17c.
+
 ## r80: the OpenEOC Android app has its layers again ([LAYERS_LINE_READ_V1])
 
 r78 put a comment at the end of the app module's `val rtLayers = listOf(...)` line. `studio_project.sh` reads that line
