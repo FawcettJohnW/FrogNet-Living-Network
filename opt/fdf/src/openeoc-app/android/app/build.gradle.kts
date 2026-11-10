@@ -3,7 +3,9 @@
 plugins { id("com.android.application") }
 // [RT_LAYERS_V1] this app is the base (shared) and these layers: their pages (ui/layers/<name>.js, copied into this
 // app's own assets: no other app carries them) and their cores (the same names); the manifest says them (LAYERS)
-val rtLayers = listOf("help", "field", "eoc", "team", "medical", "units", "public", "ics", "fema", "paper", "roleadmin")   // [ROLE_ADMIN_V1] roleadmin: each role's Admin
+// [ROLE_ADMIN_V1] roleadmin: each role's Admin. (This line stays exactly `val rtLayers = listOf(...)`: studio_project.sh reads it
+// as that, and r78/r79 put a comment at its end -- the Studio project's OpenEOC app then had no layers, and an empty "Which app?")
+val rtLayers = listOf("help", "field", "eoc", "team", "medical", "units", "public", "ics", "fema", "paper", "roleadmin")
 val genLayers = layout.buildDirectory.dir("generated/openeoc-layers")   // openeoc-layers-copy
 val copyLayers = tasks.register<Copy>("copyLayers") { from(file("../../ui/layers")) { include(rtLayers.map { "$it.js" }) }; into(genLayers.map { it.dir("ui/layers") }) }   // openeoc-layers-copy
 android {
@@ -13,8 +15,8 @@ android {
         applicationId = "net.frognet.openeoc"
         minSdk = 29
         targetSdk = 34
-        versionCode = 54
-        versionName = "openeoc-app-2026-11-10-r79"
+        versionCode = 55
+        versionName = "openeoc-app-2026-11-10-r80"
         manifestPlaceholders["rtLayers"] = rtLayers.joinToString(",")
     }
     compileOptions { sourceCompatibility = JavaVersion.VERSION_17; targetCompatibility = JavaVersion.VERSION_17 }

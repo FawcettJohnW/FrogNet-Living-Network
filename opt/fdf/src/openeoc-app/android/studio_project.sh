@@ -18,6 +18,8 @@ mkdir -p $P/shared/src/main/assets; cp -r $APP/ui $P/shared/src/main/assets/ui  
 rm -rf $P/shared/src/main/assets/ui/layers
 for g in $P/*/build.gradle.kts; do
   m=$(dirname $g); L=$(sed -n 's/^val rtLayers = listOf(\(.*\))$/\1/p' $g | tr -d '" ' | tr ',' ' ')
+  # [LAYERS_LINE_READ_V1] a module that names layers in a line this cannot read is said, and nothing is exported
+  if [ -z "$L" ] && grep -q 'rtLayers' $g; then echo "studio_project.sh: $g: its rtLayers line is not 'val rtLayers = listOf(...)' alone: no layers would be exported" >&2; exit 1; fi
   [ -n "$L" ] || continue
   mkdir -p $m/src/main/assets/ui/layers; for n in $L; do cp $APP/ui/layers/$n.js $m/src/main/assets/ui/layers/; done
   sed -i '/openeoc-layers-copy/d' $g

@@ -47,6 +47,14 @@ role's `act`/`req`, or `RT.button`). **A new view**: `RT.role(...)` in a layer's
 `RTA.panel(title, fn)` (none yet). Gates: `test/test_app.py` (32 checks; the Team and Public apps run with their own
 layers only), `test/test_team_host.py`, `android/typecheck.sh`.
 
+## r80: the OpenEOC Android app has its layers again ([LAYERS_LINE_READ_V1])
+
+r78 put a comment at the end of the app module's `val rtLayers = listOf(...)` line. `studio_project.sh` reads that line
+only when it ends at `)`, so the r78 and r79 Studio exports gave the OpenEOC app (the `app` module) no layers, and their
+update zips listed its eleven layer files in REMOVED.txt: on the phone it opened on a bare "OpenEOC" connect screen, and
+"Other app" showed an empty "Which app?". The comment is above the line now; the export stops, saying which module, when a
+module names rtLayers in a line it cannot read; the r80 update zip carries all eleven of the app's layers.
+
 ## r79: the list of apps scrolls ([PICKER_SCROLLS_V1])
 
 With the seven role Admins, "Which app?" lists 17 apps, taller than a window or a phone. The list's card is at most the
