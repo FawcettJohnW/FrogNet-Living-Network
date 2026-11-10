@@ -67,20 +67,26 @@ with tempfile.TemporaryDirectory() as tmp, sync_playwright() as pw:
     check(c.get("door") == "10.170.170.1" and c.get("name") == "kim" and c.get("role") == "team" and c.get("team") == "Echo"
           and c.get("user") == "kim" and c.get("password") == "kim-2026" and c.get("invite") == "",
           "3 enrolled: the page connects as kim, Team Echo, at the door: %s" % {k: c.get(k) for k in ("door", "name", "role", "team", "user")})
-    # 3b [LEAD_STARTS_ASKED_V1] the lead connected, its team served nowhere: nothing done at once; a second later it is asked
-    #    (Host the team on this phone, Use SystemRam, Turn on the hotspot, Not now); Host and Use SystemRam do so
+    # 3b [LEAD_STARTS_ASKED_V1] [LEAD_HOST_CHOICES_V1] the lead connected: nothing done at once; a second later it is asked:
+    #    Host the hotspot and RAM on this phone / Host the hotspot on this phone and System RAM / Host the role on another
+    #    machine (Not Implemented) / Do not provide a host or RAM for this instance
     pg.evaluate("__sent.length = 0; S.leadAsked = false")
     pg.evaluate("rtDeliver(JSON.stringify({ev: 'connected', role: 'team', team: 'Echo', build: 'test', rams: {general: '10.170.170.1:61471'}}))")
     none = not [x for x in pg.evaluate("__sent") if x[0] in ("host", "place", "hotspot")]
     pg.wait_for_selector("#lsHost", timeout=3000)
-    asked = all(pg.is_visible(x) for x in ("#lsHost", "#lsSys", "#lsHot", "#lsNo"))
-    pg.click("#lsSys"); sysr = ["place", "systemram"] in pg.evaluate("__sent")
+    labels = pg.evaluate("[...document.querySelectorAll('#sheet .sens button b')].map(b => b.textContent)")
+    asked = labels == ["Host the hotspot and RAM on this phone", "Host the hotspot on this phone and System RAM", "Host the role on another machine", "Do not provide a host or RAM for this instance"]
+    other = pg.is_disabled("#lsOther") and "Not Implemented" in pg.inner_text("#lsOther")
+    pg.click("#lsSys"); sent3 = pg.evaluate("__sent"); sysr = ["place", "systemram"] in sent3 and ["hotspot"] in sent3
     pg.evaluate("__sent.length = 0; S.leadAsked = false")
-    pg.evaluate("rtDeliver(JSON.stringify({ev: 'connected', role: 'team', team: 'Echo', build: 'test', rams: {general: '10.170.170.1:61471', echo: '10.170.170.1:65355'}}))")
-    pg.wait_for_selector("#lsHot", timeout=3000)
-    kept = not pg.is_visible("#lsHost") and not pg.is_visible("#lsSys"); pg.click("#lsHot"); hot = ["hotspot"] in pg.evaluate("__sent")
-    check(none and asked and sysr and kept and hot, "3b the lead asked a second after connecting, nothing done before (%s): Host / Use SystemRam / hotspot / Not now %s; Use SystemRam places it %s; served already: only the hotspot is offered %s, and turns it on %s"
-          % (none, asked, sysr, kept, hot))
+    pg.evaluate("rtDeliver(JSON.stringify({ev: 'connected', role: 'team', team: 'Echo', build: 'test', rams: {general: '10.170.170.1:61471'}}))")
+    pg.wait_for_selector("#lsHost", timeout=3000); pg.click("#lsHost"); host = ["host"] in pg.evaluate("__sent")
+    pg.evaluate("__sent.length = 0; S.leadAsked = false")
+    pg.evaluate("rtDeliver(JSON.stringify({ev: 'connected', role: 'team', team: 'Echo', build: 'test', rams: {general: '10.170.170.1:61471'}}))")
+    pg.wait_for_selector("#lsNo", timeout=3000); pg.click("#lsNo"); nothing = [x for x in pg.evaluate("__sent") if x[0] in ("host", "place", "hotspot")] == []
+    check(none and asked and other and sysr and host and nothing,
+          "3b the lead asked a second after connecting, nothing done before (%s): %s; another machine is Not Implemented %s; hotspot and System RAM: the hotspot and the place %s; hotspot and RAM here: Host %s; no host: nothing done %s"
+          % (none, labels, other, sysr, host, nothing))
     btn = pg.evaluate("!document.querySelector('#membersBtn').hidden")   # (under ☰ on a phone: [RT_HEADER_MENU_V1])
     pg.click("#membersBtn")
     addrs = [{"label": "this phone's hotspot", "addr": "192.168.43.1"}, {"label": "FrogNet (the Internet)", "addr": "10.253.1.1"}]

@@ -8,6 +8,7 @@
 'use strict'
 RT.layer('paper', (RT) => {
   RT.role('eocadmin', { label: 'EOCAdmin', title: 'OpenEOC EOCAdmin', field: 'login', who: () => 'EOCAdmin', kinds: 'all', teams: 'all',
+                        sensors: false,   // [EOCADMIN_NO_SENSORS_V1] (John 2026-11-10: "get rid of the Sensor menu item")
                         overview: true, log: true, act: ['Forms', 'paper'], req: ['IAP', 'paper-iap'], connected() { document.body.classList.add('paperwide'); RT.open('paper') } })
   const F = RT.fema, B = RT.icsBoards
   B.forms = { title: 'Forms (EOCAdmin)', status: ['Draft', 'Final'], fields: [['form', 'Form', 'text', true], ['title', 'Title', 'text'], ['opPeriod', 'Operational period', 'number'], ['values', 'Its fields', 'area']],

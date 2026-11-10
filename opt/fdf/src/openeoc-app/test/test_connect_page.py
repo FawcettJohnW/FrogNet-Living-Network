@@ -55,9 +55,9 @@ with sync_playwright() as pw:
     # which turns the hotspot on itself -- test_enroll_page 3b)
     dl(pg, {"ev": "connected", "role": "team", "team": "Echo", "build": "t", "rams": {"general": "10.170.170.1:61471", "echo": "10.170.170.1:65355"}})
     gone = pg.evaluate("document.querySelector('#splash').classList.contains('gone')")
-    # [LEAD_STARTS_ASKED_V1] asked, a second after: Turn on the hotspot
-    pg.wait_for_selector("#lsHot", timeout=3000); pg.click("#lsHot")
-    check(sent(pg, "hotspot") == [["hotspot"]] and not pg.is_hidden("#main") and gone, "3 the lead's connect asks about its hotspot (Turn on the hotspot: %s); the splash gone %s" % (sent(pg, "hotspot"), gone))
+    # [LEAD_STARTS_ASKED_V1] [LEAD_HOST_CHOICES_V1] asked, a second after: the hotspot on this phone and System RAM
+    pg.wait_for_selector("#lsSys", timeout=3000); pg.click("#lsSys")
+    check(sent(pg, "hotspot") == [["hotspot"]] and not pg.is_hidden("#main") and gone, "3 the lead's connect asks about its hotspot (the hotspot here and System RAM: %s); the splash gone %s" % (sent(pg, "hotspot"), gone))
     # 2 a joined member whose connect is refused; 3 a member asks for no hotspot
     pg2, errs2 = page(br, NATIVE, {"enrolled": {"user": "W7NEW", "role": "echo", "lead": False, "door": "10.170.170.1"}})
     pg2.wait_for_timeout(2300); pg2.click("[data-pick=team]"); pg2.click("#saOld")

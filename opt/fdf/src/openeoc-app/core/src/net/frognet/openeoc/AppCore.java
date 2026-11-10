@@ -49,7 +49,7 @@ public final class AppCore {
 
     public static final String APP = "openeoc";
     public static final String API = "/FawcettInnovations.RINA.ram_interface.php";
-    public static final String BUILD = "openeoc-app-2026-11-10-r73";
+    public static final String BUILD = "openeoc-app-2026-11-10-r74";
 
     private final Ui ui;
     private String door = "", dev = "", name = "", role = "", team = "", user = "", mission = "";
@@ -456,6 +456,15 @@ public final class AppCore {
                 if (h.write("host", mine, Json.o("team", cap(team), "ram", hostAddr, "dev", dev, "name", name, "at", System.currentTimeMillis() / 1000), true))
                     say("[TEAM_HOST_V1] team " + cap(team) + "'s RAM is on this phone: the Command Center reaches it at " + hostAddr);
         }
+        // [TEAMS_FROM_THE_DOOR_V1] (found 2026-11-10 in John's demo: team Flying Monkeys' messages reached Dave and the phone,
+        // never the Command Center) the Command Center connected before the team existed, so its doorRams had no Flying
+        // Monkeys; it learnt of the team from the lead's host cell alone. The lead's cell is its own: it went when the
+        // phone's app stopped (the network switch), and the Command Center then dropped the team (doorRams lacked it), and
+        // nothing wrote the cell again (a team on the SystemRam is placed once). Now a lead's cell coming or going is the
+        // event that asks the door again: what the door serves now, which names a team on the SystemRam whether or not
+        // its lead is there.
+        try { Map<String, String> d = servedRams(); if (!d.equals(doorRams)) { say("[TEAMS_FROM_THE_DOOR_V1] the door serves now: " + d); doorRams = d; } }
+        catch (Exception e) { say("[TEAMS_FROM_THE_DOOR_V1] the door was not asked again (" + e.getMessage() + "): the teams it served at the connect stand"); }
         synchronized (this) {
             Map<String, String> now = withTeamRams(doorRams);
             if (now.equals(rams)) return;
@@ -625,7 +634,15 @@ public final class AppCore {
         if (said != null) { synchronized (seen) { said.put("cameBack", seen.containsKey(Json.str(said.get("id")))); } }
         out("ev", "diag", "build", BUILD, "door", door, "node", doorNode, "role", role, "view", view().connect, "team", team, "mission", mission, "name", name,
                 "layers", layerNames(), "rams", new HashMap<String, Object>(rams), "doorRams", new HashMap<String, Object>(doorRams),
-                "followers", fs, "me", me, "lastSay", said, "hosts", lastHosts, "at", System.currentTimeMillis());
+                "followers", fs, "me", me, "lastSay", said, "hosts", lastHosts, "teams", teamStates(), "at", System.currentTimeMillis());
+    }
+
+    /** [SYSTEMRAM_TEAMS_IN_DIAG_V1] every team this device follows and how: Diagnostics had only the RAM followers, so a team
+     *  on the SystemRam (no follower) was not in it at all */
+    private Map<String, Object> teamStates() {
+        Map<String, Object> o = new java.util.TreeMap<String, Object>();
+        synchronized (this) { for (Map.Entry<String, TeamStore> e : teams.entrySet()) o.put(e.getKey(), e.getValue().state()); }
+        return o;
     }
 
     private void world(Follower who, Object unused) {

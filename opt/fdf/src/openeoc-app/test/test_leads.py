@@ -78,7 +78,7 @@ try:
     from playwright.sync_api import sync_playwright
     def free():
         s = socket.socket(); s.bind(("127.0.0.1", 0)); p = s.getsockname()[1]; s.close(); return p
-    pe, pt, pl, p2 = free(), free(), free(), free()
+    pe, pt, pl, p2, p3 = free(), free(), free(), free(), free()
     os.makedirs("/run/frognet/held", exist_ok=True)
     procs.append(subprocess.Popen(["java", "-Drt.layers=help,field,eoc,medical,ics,fema", "-Duser.home=" + T, "-cp", CP, "DevHost", APP + "/ui", str(pe), "eoc1", "EOC Desk", "127.0.1.1:8088", "eoc", "", "eoc"],
                                   stdout=open(T + "/dev-eoc.log", "w"), stderr=subprocess.STDOUT))
@@ -88,6 +88,9 @@ try:
                                   stdout=open(T + "/dev-lr.log", "w"), stderr=subprocess.STDOUT))
     procs.append(subprocess.Popen(["java", "-Drt.layers=help,field,team,ics,fema", "-Duser.home=" + T, "-cp", CP, "DevHost", APP + "/ui", str(p2), "lr2", "Pat", "127.0.1.1:8088", "team", "Lee Rescue", "team"],
                                   stdout=open(T + "/dev-lr2.log", "w"), stderr=subprocess.STDOUT))
+    procs.append(subprocess.Popen(["java", "-Drt.layers=help,field,team,ics,fema", "-Duser.home=" + T, "-cp", CP, "DevHost", APP + "/ui", str(p3), "lr3", "Dave", "127.0.1.1:8088", "team", "Lee Rescue", "team"],
+                                  stdout=open(T + "/dev-lr3.log", "w"), stderr=subprocess.STDOUT))
+    LR = procs[2]   # the lead's core (lr1): stopped in 17b, as the phone's app was in John's demo
     time.sleep(2.5)
     with sync_playwright() as pw:
         br = pw.chromium.launch(); errs = []
@@ -168,6 +171,25 @@ try:
         try: lr.wait_for_function("S.msgs.some(m => m.text === 'EOC copies, Lee Rescue')", timeout=30000); back = True
         except Exception: back = False
         check(back, "17 the EOC's message to team Lee Rescue reaches the team's device through the SystemRam")
+        # 17b [TEAMS_FROM_THE_DOOR_V1] (John's demo, 2026-11-10) the lead's app stops (its own host cell goes with its session):
+        #   the Command Center keeps the team (the door still serves it on the SystemRam); a member that connects afterwards
+        #   (Dave) is heard by the Command Center, and hears it
+        LR.terminate(); LR.wait(10)
+        try: pg.wait_for_function("() => true"); time.sleep(4); kept = True
+        except Exception: kept = False
+        dv = br.new_page(viewport={"width": 412, "height": 860}); dv.on("pageerror", lambda e: errs.append("lr3: " + str(e)))
+        dv.goto("http://127.0.0.1:%d/" % p3); dv.wait_for_selector("#connect:not([hidden])", timeout=8000)
+        dv.evaluate("() => { const f = $('#connect'); if (![...f.team.options].some(o => o.value === 'Lee Rescue')) f.team.insertAdjacentHTML('beforeend', '<option>Lee Rescue</option>'); f.team.value = 'Lee Rescue' }")
+        dv.click("#connect button[type=submit]"); dv.wait_for_selector("#main:not([hidden])", timeout=20000); time.sleep(3)
+        dv.evaluate("send({op: 'say', to: 'team:Lee Rescue', text: 'Dave on Lee Rescue, lead gone'})")
+        try: pg.wait_for_function("S.msgs.some(m => m.text === 'Dave on Lee Rescue, lead gone')", timeout=30000); heard = True
+        except Exception: heard = False
+        pg.evaluate("send({op: 'say', to: 'team:Lee Rescue', text: 'EOC to Lee Rescue, still here'})")
+        try: dv.wait_for_function("S.msgs.some(m => m.text === 'EOC to Lee Rescue, still here')", timeout=30000); heard2 = True
+        except Exception: heard2 = False
+        elog = open(T + "/dev-eoc.log").read()
+        check(heard and heard2, "17b the lead's app stopped: the EOC still hears team Lee Rescue (%s) and is heard (%s); the EOC said: %s" % (heard, heard2,
+              [l[-160:] for l in elog.splitlines() if "TEAMS_FROM_THE_DOOR_V1" in l][-2:]))
         # [TEAM_DELETE_V1] the Command Center deletes team Lee Rescue: Delete, then Delete Lee Rescue: sure?
         pg.evaluate("$('#leadsBtn').click()"); pg.wait_for_selector("#sheet .tdel[data-t='Lee Rescue']", timeout=15000)
         pg.click("#sheet .tdel[data-t='Lee Rescue']"); asked = "sure?" in pg.inner_text("#sheet .tdel[data-t='Lee Rescue']")

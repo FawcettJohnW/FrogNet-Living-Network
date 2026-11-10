@@ -470,6 +470,7 @@ function diagSheet(d) {
   const body = `<div class="diag">
     <div><b>${esc(d.build)}</b> · view ${esc(d.role)} (${esc(d.view)})${d.team ? ' · team ' + esc(d.team) : ''} · mission ${esc(d.mission) || '<span class="bad">none</span>'} · ${esc(d.name)} · layers ${esc(d.layers)}</div>
     <div>Door <b>${esc(d.door) || '<span class="bad">none</span>'}</b>; the RAMs it says: ${j(d.doorRams)}; in use: ${j(d.rams)}</div>
+    <div>Teams followed (${Object.keys(d.teams || {}).length}): ${Object.entries(d.teams || {}).map(([t, x]) => '<b>' + esc(cap(t)) + '</b> on ' + esc(x.on) + (x.on === 'the SystemRam' ? ': ' + x.tuples + ' tuple(s), ' + x.reads + ' read(s)' + (x.failing ? ' <span class="bad">FAILING: ' + esc(x.failing) + '</span>' : '') + (x.stopped ? ' <span class="bad">stopped</span>' : '') : '')).join('; ') || '<span class="bad">none</span>'}</div>
     <h3>Where this device reads and writes</h3>
     <table class="dt"><tr><th>Follower</th><th>RAM at</th><th>State</th><th>Sessions</th><th>Writes</th><th>Holds</th></tr>${fs || '<tr><td colspan="6" class="bad">no followers: not connected</td></tr>'}</table>
     ${tun ? `<h3>FrogNet tunnel</h3>
@@ -553,20 +554,23 @@ function connected(m) {
 }
 
 // [LEAD_STARTS_ASKED_V1] the lead's start: the hotspot, and where its team lives when no one serves it
+// [LEAD_HOST_CHOICES_V1] (John 2026-11-10: "They should be: Host the hotspot and RAM on this phone / Host the Hotspot on
+// this phone and System RAM / Host the role on another machine (need IP) / Do not provide a host or RAM for this
+// instance") a second after the lead connects; nothing is done before the answer
 function leadStart(served) {
   const t = cap(S.team), n = window.rtNative
-  if (!n.ensureHotspot && (served || (!n.teamHost && !n.teamPlace))) return   // nothing to ask here (a computer: no hotspot)
-  sheet('leadStart', 'Team ' + t, `<div class="meta">${served ? 'Team ' + esc(t) + ' is served on the network.' : 'Team ' + esc(t) + ' is served nowhere yet: its messages go nowhere until it is.'}</div>
+  if (!n.ensureHotspot && !n.teamHost && !n.teamPlace) return   // nothing to ask here (a computer: no hotspot)
+  sheet('leadStart', 'Team ' + t, `<div class="meta">${served ? 'Team ' + esc(t) + ' is served on the network now.' : 'Team ' + esc(t) + ' is served nowhere yet: its messages go nowhere until it is.'}</div>
     <div class="sens">
-      ${served ? '' : `${n.teamHost ? `<button type="button" id="lsHost"><b>Host the team on this phone</b> <span class="meta">its RAM here; the hotspot is the team's Wi-Fi (turned on if it is off)</span></button>` : ''}
-      ${n.teamPlace ? `<button type="button" id="lsSys"><b>Use SystemRam</b> <span class="meta">no RAM of its own: everything through databasehost.frognet's api.php</span></button>` : ''}`}
-      ${n.ensureHotspot ? `<button type="button" id="lsHot"><b>Turn on the hotspot</b> <span class="meta">the team's Wi-Fi, for members to join</span></button>` : ''}
-      <button type="button" id="lsNo"><b>Not now</b> <span class="meta">Host team and Use SystemRam stay in the header</span></button></div>`)
-  const on = (id, f) => { const b = $('#' + id); if (b) b.onclick = () => { $('#sheet').hidden = true; S.sheet = ''; f() } }
-  on('lsHost', () => { status('hosting team ' + t + ' on this phone'); n.teamHost() })
-  on('lsSys', () => { status('team ' + t + ': no RAM of its own; everything through the SystemRam'); n.teamPlace('systemram') })
-  on('lsHot', () => n.ensureHotspot())
-  on('lsNo', () => {})
+      ${n.teamHost ? `<button type="button" id="lsHost"><b>Host the hotspot and RAM on this phone</b> <span class="meta">the team's Wi-Fi and its RAM here (the hotspot is turned on if it is off)</span></button>` : ''}
+      ${n.teamPlace && n.ensureHotspot ? `<button type="button" id="lsSys"><b>Host the hotspot on this phone and System RAM</b> <span class="meta">the team's Wi-Fi here; its RAM is the SystemRam's api.php</span></button>` : ''}
+      <button type="button" id="lsOther" disabled><b>Host the role on another machine</b> <span class="meta">(Not Implemented)</span></button>
+      <button type="button" id="lsNo"><b>Do not provide a host or RAM for this instance</b> <span class="meta">nothing is started</span></button></div>`)
+  const close = () => { $('#sheet').hidden = true; S.sheet = '' }
+  const on = (id, f) => { const b = $('#' + id); if (b) b.onclick = () => { close(); f() } }
+  on('lsHost', () => { status('team ' + t + ': the hotspot and the RAM on this phone'); n.teamHost() })
+  on('lsSys', () => { status('team ' + t + ': the hotspot on this phone; its RAM is the SystemRam'); n.ensureHotspot(); n.teamPlace('systemram') })
+  on('lsNo', () => status('team ' + t + ': no host and no RAM provided'))
 }
 
 // ------------------------------------------------------------ the map

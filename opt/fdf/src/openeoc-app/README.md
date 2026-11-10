@@ -47,6 +47,27 @@ role's `act`/`req`, or `RT.button`). **A new view**: `RT.role(...)` in a layer's
 `RTA.panel(title, fn)` (none yet). Gates: `test/test_app.py` (32 checks; the Team and Public apps run with their own
 layers only), `test/test_team_host.py`, `android/typecheck.sh`.
 
+## r74: the lead's host choices; teams on the SystemRam in Diagnostics; the door asked again when a lead's cell changes; no Sensors in EOCAdmin
+
+- **The lead's choices** ([LEAD_HOST_CHOICES_V1], John 2026-11-10), a second after the lead connects, nothing done
+  before the answer:
+  - **Host the hotspot and RAM on this phone** (Host team: the hotspot turned on if it is off, the team's RAM here);
+  - **Host the hotspot on this phone and System RAM** (the hotspot, and Use SystemRam);
+  - **Host the role on another machine** (Not Implemented: shown, disabled);
+  - **Do not provide a host or RAM for this instance** (nothing is started).
+- **Team chat in John's demo** (Flying Monkeys on the SystemRam: its messages reached Dave and the phone, not the
+  Command Center). Not reproduced here: `test_leads` 17b (the lead's app stopped, a member connecting afterwards; the
+  Command Center connected before the team existed) passes with and without the change below, so the cause is not
+  established. Two changes:
+  - [TEAMS_FROM_THE_DOOR_V1] a lead's host cell coming or going makes the core ask the door again what it serves (the
+    Command Center's served list was the one from its connect, before the team existed);
+  - [SYSTEMRAM_TEAMS_IN_DIAG_V1] Diagnostics lists every team the device follows and how: on its RAM, or on the
+    SystemRam with its tuples, reads and FAILING reason. A team on the SystemRam has no follower, so Diagnostics had
+    nothing on it. The Command Center's Diag says whether it follows a team and what its reads say.
+- **EOCAdmin has no Sensors** ([EOCADMIN_NO_SENSORS_V1], John: "get rid of the Sensor menu item").
+- Tests: `test_enroll_page` 3b (the four choices, the third disabled, each one's effect), `test_connect_page` 3,
+  `test_leads` 17b (new), `test_app`, `test_fema`, the page tests.
+
 ## r73: one Windows bundle, one Communicator; Call in the chat ([ONE_BUNDLE_V1], [ONE_COMMUNICATOR_V1], [CHAT_CALL_TAB_V1])
 
 John 2026-11-10: "the comms-app is part of the bundle thrown down, but also such that there is only one on the device"

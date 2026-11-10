@@ -23,6 +23,8 @@ abstract class TeamStore {
     abstract void stop();
     /** the Follower, for the diagnostics that list sessions (null for one on the SystemRam) */
     Follower follower() { return null; }
+    /** [SYSTEMRAM_TEAMS_IN_DIAG_V1] what this store is doing now, for Diagnostics */
+    Map<String, Object> state() { return Json.o("on", "its RAM"); }
 
     static TeamStore of(final Follower f) {
         return new TeamStore() {
@@ -55,7 +57,7 @@ abstract class TeamStore {
             while (!stopped) {
                 try {
                     Map<String, Object> o = door.call(q() + (first ? "" : "&after=" + last + "&wait=" + HOLD_S), null, (HOLD_S + 15) * 1000);
-                    long sig = (long) Json.num(o.get("last"));
+                    long sig = (long) Json.num(o.get("last")); reads++; lastSig = sig;
                     boolean changed = first || sig != last;
                     last = sig;
                     if (changed) {
@@ -94,6 +96,11 @@ abstract class TeamStore {
         }
         void again() { kick.release(); }
         void stop() { stopped = true; kick.release(); }
+        private volatile long reads = 0, lastSig = 0;
+        Map<String, Object> state() {
+            int n; synchronized (view) { n = view.size(); }
+            return Json.o("on", "the SystemRam", "tuples", n, "reads", reads, "last", lastSig, "failing", bad == null ? "" : bad, "stopped", stopped);
+        }
         private static String enc(String s) { try { return java.net.URLEncoder.encode(s, "UTF-8"); } catch (java.io.UnsupportedEncodingException e) { return s; } }
     }
 }
