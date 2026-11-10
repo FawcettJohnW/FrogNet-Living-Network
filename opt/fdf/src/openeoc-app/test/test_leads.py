@@ -166,6 +166,18 @@ try:
         try: lr.wait_for_function("S.msgs.some(m => m.text === 'EOC copies, Lee Rescue')", timeout=30000); back = True
         except Exception: back = False
         check(back, "17 the EOC's message to team Lee Rescue reaches the team's device through the SystemRam")
+        # [TEAM_DELETE_V1] the Command Center deletes team Lee Rescue: Delete, then Delete Lee Rescue: sure?
+        pg.evaluate("$('#leadsBtn').click()"); pg.wait_for_selector("#sheet .tdel[data-t='Lee Rescue']", timeout=15000)
+        pg.click("#sheet .tdel[data-t='Lee Rescue']"); asked = "sure?" in pg.inner_text("#sheet .tdel[data-t='Lee Rescue']")
+        pg.click("#sheet .tdel[data-t='Lee Rescue']")
+        pg.wait_for_function("S.leadTeams && !S.leadTeams['Lee Rescue']", timeout=15000)
+        ro2 = door("op=roles&app=openeoc").get("roles") or {}; rm2 = door("op=rams&app=openeoc").get("rams") or {}; ld2 = (door("op=leads&app=openeoc").get("leads") or {}).get("lee", {})
+        check(asked and "Lee Rescue" not in ro2 and "Lee Rescue" not in rm2 and ld2.get("team") == "" and "team Lee Rescue deleted" in pg.inner_text("#sheet .leadsay"),
+              "18 Delete (asked first: %s): Lee Rescue gone from the door's roles and RAMs, lee has no team (%r); the screen: %r" % (asked, ld2.get("team"), pg.inner_text("#sheet .leadsay")))
+        again = door("op=enroll&app=openeoc", {"user": "lee", "password": "lee-2026", "team": "Lee Rescue", "kind": "team"})
+        adm = door("op=teamdel&app=openeoc", {"user": "EOCAdmin", "password": "eoc-2026", "team": "alpha"})
+        check("did not give openeoc-lee_rescue an identity" in str(again.get("why")) and "admin configured" in str(adm.get("why")),
+              "19 lee creates Lee Rescue again (to the region step: %s); the admin's Team alpha is the admin tool's to remove: %s" % (str(again.get("why"))[:60], adm.get("why")))
         logs = open(T + "/php-door.log").read() + open(T + "/dev-eoc.log").read()
         check(not errs and "lee-2026" not in logs and "sam-2026" not in logs, "14 no page errors %s; no password in the door's or the core's log" % errs)
         br.close()

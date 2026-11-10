@@ -47,6 +47,23 @@ role's `act`/`req`, or `RT.button`). **A new view**: `RT.role(...)` in a layer's
 `RTA.panel(title, fn)` (none yet). Gates: `test/test_app.py` (32 checks; the Team and Public apps run with their own
 layers only), `test/test_team_host.py`, `android/typecheck.sh`.
 
+## r69: delete a team ([TEAM_DELETE_V1], door dc-door-2026-11-09-teamdel1)
+
+John 2026-11-09: "I need a way to delete a team."
+
+**Where.** The Command Center's Leads screen lists the teams created on the network: each one's kind, its lead, and where it lives. **Delete**, then **Delete X: sure?**, deletes one.
+
+**What the door does** (`op=teamdel`, for a Command Center user only):
+- marks the team's record (`fdf-app child`) removed;
+- marks its place (Use SystemRam) removed;
+- leaves the lead's login, so the lead can create a team again.
+
+**What it refuses.** A Team the admin configured is the admin tool's to remove (its ✕, then Apply), and the door says so.
+
+**Not deleted.** Tuples the team wrote to the SystemRam stay until their writer is gone.
+
+**Tests.** `test_leads.py` steps 18 and 19.
+
 ## r68: the Leads screen says its answer ([LEAD_SAYS_ITS_ANSWER_V1])
 
 Found by John on 2026-11-09: "I hit Create The Lead in the Command Center tool and nothing happened."

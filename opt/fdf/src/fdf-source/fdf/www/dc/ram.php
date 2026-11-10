@@ -49,7 +49,7 @@
 // the network, typed by nobody. A device this node gave no lease has none here, and is told so.
 header('Content-Type: application/json');
 // [DOOR_SAYS_ITS_BUILD_V1] every answer says which door answered: the header, and "door" in the admin and roles answers
-const DOOR_BUILD = 'dc-door-2026-11-09-cc1';   // [COMMAND_CENTER_V1] the EOC is the Command Center in what it says   // [ROLES_ON_API_V1] [EOC_LEADS_V1] [TEAM_ON_SYSTEMRAM_V1]
+const DOOR_BUILD = 'dc-door-2026-11-09-teamdel1';   // [COMMAND_CENTER_V1] the EOC is the Command Center in what it says   // [ROLES_ON_API_V1] [EOC_LEADS_V1] [TEAM_ON_SYSTEMRAM_V1]
 // [SENSORS_BY_THE_DOOR_V1] the sensor store (api.php on databasehost.frognet) by the address this node's /etc/hosts gives
 // it: an app through the tunnel has no .frognet names (the phone's DNS is its carrier's), the address routes
 function door_sensors() {
@@ -223,7 +223,10 @@ function app_tuple($app) {
         $i = (string)($c['instance'] ?? ''); $b = $c['bag'] ?? null;
         if (!is_array($b) || !$b) continue;
         if ($i === $app && ($bag === null || intval($b['seq'] ?? 0) > intval($bag['seq'] ?? 0))) $bag = $b;
-        elseif (strpos($i, $app . '.') === 0) $places[substr($i, strlen($app) + 1)] = $b;
+        elseif (strpos($i, $app . '.') === 0) {
+            if (($b['at'] ?? '') === 'removed') unset($places[substr($i, strlen($app) + 1)]);   // [TEAM_DELETE_V1]
+            else $places[substr($i, strlen($app) + 1)] = $b;
+        }
     }
     $cfg = null;
     if (is_array($bag)) {
@@ -272,7 +275,9 @@ function children($app) {
     $o = [];
     foreach (array_reverse(role_read(ctl_host(), 'fdf-app', 'child')['rows']) as $c) {      // oldest first: the newest stands
         $i = (string)($c['instance'] ?? ''); $b = $c['bag'] ?? null;
-        if (is_array($b) && $b && strpos($i, $app . '.') === 0) $o[substr($i, strlen($app) + 1)] = $b;
+        if (!is_array($b) || !$b || strpos($i, $app . '.') !== 0) continue;
+        if (!empty($b['removed'])) unset($o[substr($i, strlen($app) + 1)]);   // [TEAM_DELETE_V1] deleted by the Command Center
+        else $o[substr($i, strlen($app) + 1)] = $b;
     }
     return $o;
 }
@@ -546,10 +551,30 @@ if ($op === 'read') {
     $app = $_GET['app'] ?? '';
     if (!preg_match('/^[A-Za-z0-9_-]{1,40}$/', $app)) fail(400, 'app needed');
     $o = [];
+    // [TEAM_DELETE_V1] every team created on the network (by a lead, or by the old teams password), for the Command Center
+    $teams = [];
+    foreach (children($app) as $t => $b) $teams[$t] = ['lead' => (string)($b['lead'] ?? ''), 'kind' => (string)($b['kind'] ?? 'team'), 'at' => intval($b['at'] ?? 0),
+                                                      'place' => (string)(((app_tuple($app)['places'] ?? [])[$t] ?? [])['at'] ?? '')];
     foreach (leads($app) as $n => $b) { $t = team_of_lead($app, $n);
         $o[$n] = ['by' => (string)($b['by'] ?? ''), 'at' => intval($b['at'] ?? 0), 'roles' => $b['roles'] ?? ['*'], 'team' => $t, 'kind' => $t !== '' ? (string)((children($app)[$t] ?? [])['kind'] ?? '') : ''];
     }
-    echo json_encode(['ok' => true, 'leads' => (object)$o, 'door' => DOOR_BUILD], JSON_UNESCAPED_SLASHES);
+    echo json_encode(['ok' => true, 'leads' => (object)$o, 'teams' => (object)$teams, 'door' => DOOR_BUILD], JSON_UNESCAPED_SLASHES);
+} elseif ($op === 'teamdel' && $_SERVER['REQUEST_METHOD'] === 'POST') {
+    // [TEAM_DELETE_V1] (John 2026-11-09: "I need a way to delete a team") the Command Center deletes a team created on the
+    // network: its record (a child) and its place go; its lead keeps its login and can create a team again. A Team the
+    // admin configured is the admin tool's to remove.
+    $in = json_decode(file_get_contents('php://input'), true);
+    $app = $_GET['app'] ?? '';
+    if (!is_array($in) || !preg_match('/^[A-Za-z0-9_-]{1,40}$/', $app)) fail(400, 'app and a JSON body needed');
+    eoc_user($app, $in); $cfg = app_cfg($app);
+    $t = (string)($in['team'] ?? '');
+    if (isset($cfg['roles'][$t]) || in_array($t, $cfg['rams'] ?? [], true)) fail(409, "Team $t is one the admin configured: remove it in the admin tool (its ✕, then Apply)");
+    $kid = children($app)[$t] ?? null;
+    if (!is_array($kid)) fail(404, "there is no team $t on the network");
+    role_write(ctl_host(), 'fdf-app', 'child', $app . '.' . $t, ['name' => $t, 'removed' => true, 'by' => (string)$in['user'], 'at' => time()]);
+    if (isset((app_tuple($app)['places'] ?? [])[$t])) role_write(ctl_host(), 'fdf-app', 'config', $app . '.' . $t, ['at' => 'removed', 'by' => (string)$in['user'], 'seq' => (int)(microtime(true) * 1000)]);
+    error_log('dc ram.php: [TEAM_DELETE_V1] ' . $app . ': team ' . $t . ' (lead ' . (string)($kid['lead'] ?? '') . ') deleted by the Command Center user ' . $in['user']);
+    echo json_encode(['ok' => true, 'team' => $t, 'deleted' => true, 'door' => DOOR_BUILD], JSON_UNESCAPED_SLASHES);
 } elseif ($op === 'team') {
     // [TEAM_ON_SYSTEMRAM_V1] a Team on the SystemRam: its service's tuples, read at databasehost.frognet's api.php;
     // &after=LAST&wait=W: held there (role_hold_wait: api.php fires this door's held socket) until they are not LAST
@@ -698,5 +723,5 @@ if ($op === 'read') {
     if ($at === '') fail(503, "the app's general AppRam has no AppHost yet (" . svc_host($app, 'general') . "): nothing works until it has");
     echo ram('. ' . escapeshellarg(dirname(__DIR__, 2) . '/fdf.env') . ' && RINA_RAM=' . escapeshellarg($at) . ' exec "$FDF_BIN"/ram ', ['write', 'fdf-app', 'device', $app . '.' . $dev, json_encode($bag, JSON_UNESCAPED_SLASHES)]);
 } else {
-    fail(400, 'op is read, write, watch, announce, rams, roles, admin, whoami, login, device, enroll, identity, place, lead, leads, team or teamwrite');
+    fail(400, 'op is read, write, watch, announce, rams, roles, admin, whoami, login, device, enroll, identity, place, lead, leads, team, teamwrite or teamdel');
 }

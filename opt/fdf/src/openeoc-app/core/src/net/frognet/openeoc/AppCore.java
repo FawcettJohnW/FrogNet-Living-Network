@@ -49,7 +49,7 @@ public final class AppCore {
 
     public static final String APP = "openeoc";
     public static final String API = "/FawcettInnovations.RINA.ram_interface.php";
-    public static final String BUILD = "openeoc-app-2026-11-09-r68";
+    public static final String BUILD = "openeoc-app-2026-11-09-r69";
 
     private final Ui ui;
     private String door = "", dev = "", name = "", role = "", team = "", user = "", mission = "";
@@ -135,6 +135,12 @@ public final class AppCore {
             else if (op.equals("teamPlace")) teamPlace(m);
             else if (op.equals("door")) redoor(Json.str(m.get("door")).trim());
             else if (op.equals("leads")) leads();                       // [EOC_LEADS_V1]
+            else if (op.equals("teamDelete")) {                     // [TEAM_DELETE_V1]
+                try { teamDelete(Json.str(m.get("team"))); }
+                catch (Exception e) { String why = e.getMessage() == null ? e.toString() : e.getMessage();
+                    if (why.contains("op is read")) why = "this node's door cannot delete teams yet (it answered: " + why + "): put dc-door-2026-11-09-teamdel1 on the node";
+                    out("ev", "leadSaid", "ok", false, "text", why); throw new Exception(why); }
+            }
             else if (op.equals("leadAdd") || op.equals("leadRemove")) {
                 // [LEAD_SAYS_ITS_ANSWER_V1] (found 2026-11-09: "I hit Create the Lead ... and nothing happened") the answer, or
                 // why not, on the Leads screen itself, not only the status line
@@ -190,7 +196,7 @@ public final class AppCore {
     // verifier only. The lead then scans the EOC's QR for it, names its team, and creates it.
     private void leads() throws Exception {
         Map<String, Object> o = doorCall("op=leads&app=" + APP, null);
-        out("ev", "leads", "leads", Json.obj(o.get("leads")), "door", door);
+        out("ev", "leads", "leads", Json.obj(o.get("leads")), "teams", Json.obj(o.get("teams")), "door", door);
     }
     private boolean eocLoggedIn() { return !user.isEmpty() && !eocPassword.isEmpty(); }
     private void leadAdd(Map<String, Object> m) throws Exception {
@@ -205,6 +211,14 @@ public final class AppCore {
                 "verifier", net.frognet.ram.Enroll.verifier(pw))));
         say("lead " + lead + " added (" + roles + "): " + lead + " scans the Command Center's QR, names the team, and creates it");
         out("ev", "leadSaid", "ok", true, "text", "lead " + lead + " created (" + roles + "): its QR is below");
+        leads();
+    }
+    /** [TEAM_DELETE_V1] (John 2026-11-09: "I need a way to delete a team") a team created on the network, deleted at the door */
+    private void teamDelete(String t) throws Exception {
+        if (!eocLoggedIn()) throw new Exception("only the Command Center, logged in, deletes teams");
+        if (t.trim().isEmpty()) throw new Exception("which team?");
+        doorCall("op=teamdel&app=" + APP, Json.write(Json.o("user", user, "password", eocPassword, "team", t)));
+        say("team " + t + " deleted"); out("ev", "leadSaid", "ok", true, "text", "team " + t + " deleted: its lead can create a team again");
         leads();
     }
     private void leadRemove(String lead) throws Exception {

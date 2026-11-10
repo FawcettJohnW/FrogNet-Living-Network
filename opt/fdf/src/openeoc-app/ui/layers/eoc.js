@@ -41,7 +41,7 @@ RT.layer('eoc', (RT) => {
   // scans it, sees its name filled in, names its team, gives its password, and creates the team (as one of its roles).
   const VIEWS = ['team', 'hospital', 'ambulance', 'shelter', 'power', 'water', 'phone']
   S.leads = null
-  RT.on('leads', (m) => { S.leads = m.leads || {}; S.leadsDoor = m.door || ''; refreshSheet('leads') })
+  RT.on('leads', (m) => { S.leads = m.leads || {}; S.leadTeams = m.teams || {}; S.leadsDoor = m.door || ''; refreshSheet('leads') })
   RT.hook('refresh', (what) => { if (what === 'leads' && S.sheet === 'leads') RT.open('leads') })
   const doorUrl = () => 'http://' + String(S.leadsDoor || $('#connect').door.value || '').replace(/^https?:\/\//, '').replace(/\/.*/, '') + '/dc/ram.php'
   RT.screen('leads', (qr) => {
@@ -59,9 +59,20 @@ RT.layer('eoc', (RT) => {
       <h3>Leads</h3>${ls === null ? '<div class="meta">asking the node…</div>' : `<table class="ics"><tr><th>Lead</th><th>Roles</th><th>Team</th><th></th></tr>
       ${Object.entries(ls).sort().map(([n, l]) => `<tr><td><b>${esc(n)}</b></td><td>${esc((l.roles || ['*']).join(', '))}</td><td>${l.team ? esc(l.team) + (l.kind ? ' <span class="meta">(' + esc(l.kind) + ')</span>' : '') : '<span class="meta">not created yet</span>'}</td>
         <td><button type="button" onclick="RT.open('leads','${esc(n)}')">QR</button> <button type="button" onclick="send({op:'leadRemove',lead:'${esc(n)}'})">Remove</button></td></tr>`).join('') || '<tr><td colspan="4" class="meta">none yet</td></tr>'}</table>`}
+      <h3>Teams created on the network</h3>${ls === null ? '' : `<table class="ics"><tr><th>Team</th><th>Kind</th><th>Lead</th><th>Lives</th><th></th></tr>
+      ${Object.entries(S.leadTeams || {}).sort().map(([t, x]) => `<tr><td><b>${esc(t)}</b></td><td>${esc(x.kind || 'team')}</td><td>${esc(x.lead || '')}</td>
+        <td>${x.place === 'systemram' ? 'on the SystemRam' : x.place === 'here' ? "on its lead's phone" : '<span class="meta">its lead hosts it</span>'}</td>
+        <td><button type="button" class="tdel" data-t="${esc(t)}">${S.teamDelSure === t ? 'Delete ' + esc(t) + ': sure?' : 'Delete'}</button></td></tr>`).join('') || '<tr><td colspan="5" class="meta">none yet</td></tr>'}</table>
+      <div class="meta">Teams the admin configured are removed in the admin tool.</div>`}
       ${qr ? `<div class="card leadqr"><b>${esc(qr)}</b> scans this on the Command Center's Wi-Fi, names the team, gives their password, and creates it.<div class="qrbox">${FrogQR.svg(FrogQR.enrollLine(doorUrl(), 'openeoc', qr), { px: 300 })}</div>
         <div class="meta">${esc(doorUrl())} · the password is not in the code</div></div>` : ''}`)
     if (was) { const f = document.querySelector('#sheet .leadform'); for (const k in keep) f[k].value = keep[k] }
+    // [TEAM_DELETE_V1] Delete, then Delete X: sure? (asked on the screen: no browser dialog)
+    document.querySelectorAll('#sheet .tdel').forEach(b => b.onclick = () => {
+      const t = b.dataset.t
+      if (S.teamDelSure !== t) { S.teamDelSure = t; b.textContent = 'Delete ' + t + ': sure?'; return }
+      S.teamDelSure = ''; S.leadSay = { ok: true, text: 'deleting team ' + t + '…' }; status('deleting team ' + t + '…'); send({ op: 'teamDelete', team: t })
+    })
     document.querySelector('#sheet .leadform').onsubmit = (e) => {
       e.preventDefault(); const x = e.target
       // [LEAD_SAYS_ITS_ANSWER_V1] every refusal said on this screen (a form's own "required" says nothing in a desktop web view)
