@@ -1,21 +1,28 @@
 #!/bin/bash
-# package_windows.sh OUTDIR [admin|eoc] -- [RT_EOC_APP_V1] eoc: OpenEOC-EOC-windows-x64-<build>.zip, the EOC app (the
-# same app, opening as the EOC only: OpenEOC-EOC.cmd passes --lock=eoc); [RT_APP_DESKTOP_V1] OpenEOC-windows-x64-<build>.zip: the app, its page, JavaFX for
-# Windows and a Java runtime, in one folder; OpenEOC.cmd starts it. Nothing is installed: unzip and run.
+# package_windows.sh OUTDIR COMMS_DIST -- [ONE_BUNDLE_V1] (John 2026-11-10: "the comms-app is part of the bundle thrown down,
+# but also such that there is only one on the device"; he chose one bundle for every app) OpenEOC-windows-x64-<build>.zip:
+# one folder, one Java runtime, one lib, one Communicator, and a launcher per app:
+#   OpenEOC-CommandCenter.cmd   the Command Center only (--lock=eoc)                     [RT_EOC_APP_V1][COMMAND_CENTER_V1]
+#   OpenEOC-EOCAdmin.cmd        the Command Center's paperwork only (--lock=eocadmin)     [FEMA_EOC_V1]
+#   OpenEOC.cmd                 every view, asked first (Team, Hospital, Ambulance, ...)  [RT_APP_DESKTOP_V1]
+#   OpenEOC-CommandCenterAdmin.cmd  OpenEOC -- CommandCenterAdmin: Teams, Command Center users, Members (ui-admin) [ADMIN_APP_V1]
+# Each app keeps its own settings (%USERPROFILE%\.openeoc), loads its own layers (--layers) and calls with the one
+# Communicator, comms\comms-app.exe ([ONE_COMMUNICATOR_V1]). COMMS_DIST: the Communicator's Windows dist folder
+# (build-windows.ps1's dist\: comms-app.exe with its DLLs and Qt plugins), copied whole into comms\. No COMMS_DIST, or
+# one without comms-app.exe: nothing is made.
 # The runtime: OpenJDK 21 for Windows x64 from pypi's jdk4py wheel (as the FD&F Windows bridge gets its runtime: no JDK
 # download site is reachable from the build machine). JavaFX 21.0.5's Windows jars from Maven Central, on the class
 # path. Two pure-Java JDK modules JavaFX's web view needs and that runtime lacks (jdk.jsobject, jdk.xml.dom) are made
-# into jars from this machine's JDK 21. Needs: JDK 21, pip, curl, zip.
-# admin: [ADMIN_APP_V1] OpenEOC-Admin-windows-x64-<admin build>.zip instead, the standalone admin app (ui-admin,
-# OpenEOC-Admin.cmd), the same runtime and jars.
+# into jars from this machine's JDK 21. Needs: JDK 21, pip, curl, zip. Nothing is installed on Windows: unzip and run.
 set -eu
-D=$(cd "$(dirname "$0")/.." && pwd); OUT=${1:?usage: package_windows.sh OUTDIR}; mkdir -p "$OUT"
-ADMIN=${2:-}
+D=$(cd "$(dirname "$0")/.." && pwd); OUT=${1:?usage: package_windows.sh OUTDIR [COMMS_DIST]}; CD=${2:-}
+# no COMMS_DIST: the bundle's comms\ is empty and says so (comms\README.txt); the Communicator's dist\ goes there, once
+[ -z "$CD" ] || [ -f "$CD/comms-app.exe" ] || { echo "package_windows.sh: $CD has no comms-app.exe: give the Communicator's Windows dist folder (build-windows.ps1's dist\\)"; exit 1; }
+mkdir -p "$OUT"; OUT=$(cd "$OUT" && pwd)
 BUILD=$(sed -n 's/.*BUILD = "\(openeoc-app-[^"]*\)".*/\1/p' $D/core/src/net/frognet/openeoc/AppCore.java)
-NAME=OpenEOC
-LOCK=""; LAYERS=""; [ "$ADMIN" = eoc ] && { NAME=OpenEOC-EOC; LOCK=eoc; LAYERS=help,field,eoc,medical,ics; }   # [RT_LAYERS_V1] the EOC app's layers
-if [ "$ADMIN" = admin ]; then BUILD=$(sed -n 's/.*BUILD = "\(openeoc-admin-[^"]*\)".*/\1/p' $D/core/src/net/frognet/openeoc/admin/AdminCore.java); NAME=OpenEOC-Admin; fi
-T=$(mktemp -d); R=$T/$NAME; mkdir -p $R/lib $T/fx
+ABUILD=$(sed -n 's/.*BUILD = "\(openeoc-admin-[^"]*\)".*/\1/p' $D/core/src/net/frognet/openeoc/admin/AdminCore.java)
+CC=help,field,eoc,medical,ics,fema; EA=help,medical,ics,fema,paper          # [RT_LAYERS_V1] the Command Center's, EOCAdmin's layers
+NAME=OpenEOC; T=$(mktemp -d); R=$T/$NAME; mkdir -p $R/lib $T/fx
 "$D/build.sh" >/dev/null
 mkdir -p $D/build/fx-win      # kept between builds; Maven Central answers 429 when asked too fast, so each fetch retries
 for m in base graphics controls web media; do f=$D/build/fx-win/javafx-$m-21.0.5-win.jar
@@ -27,41 +34,33 @@ JH=$(dirname "$(dirname "$(readlink -f "$(which java)")")")
 jimage extract --dir $T/x --include "regex:/(jdk.jsobject|jdk.xml.dom)/.*" "$JH/lib/modules"
 for m in jdk.jsobject jdk.xml.dom; do rm -f $T/x/$m/module-info.class; jar cf $R/lib/$m.jar -C $T/x/$m .; done
 cp $D/build/*.jar $R/lib/
-if [ "$ADMIN" = admin ]; then
-cp -r $D/ui-admin $R/ui-admin; cp $D/brand/openeoc.ico $R/   # [OPENEOC_BRAND_V1] the icon, for a shortcut to the .cmd
-printf '@echo off\r\nrem OpenEOC Admin, powered by the FrogNet Living Network (%s)\r\nstart "" "%%~dp0runtime\\bin\\javaw.exe" -cp "%%~dp0lib\\*" net.frognet.openeoc.desktop.AdminLauncher --ui="%%~dp0ui-admin" %%*\r\n' "$BUILD" > $R/OpenEOC-Admin.cmd
+cp -r $D/ui $R/ui; cp -r $D/ui-admin $R/ui-admin; cp $D/brand/openeoc.ico $R/   # [OPENEOC_BRAND_V1] the icon, for a shortcut to a .cmd
+mkdir -p $R/comms                                                                   # [ONE_COMMUNICATOR_V1] the one Communicator
+if [ -n "$CD" ]; then cp -r "$CD"/. $R/comms/
+else printf 'The FrogNet Communicator goes in this folder: comms-app.exe with its DLLs and Qt plugins (the dist folder\r\nthat the Communicator'"'"'s build-windows.ps1 makes, its contents). Every app in this bundle calls with it.\r\n' > $R/comms/README.txt; fi
+J='start "" "%%~dp0runtime\\bin\\javaw.exe" -cp "%%~dp0lib\\*"'
+printf "@echo off\r\nrem OpenEOC -- CommandCenter, powered by the FrogNet Living Network (%s)\r\n$J net.frognet.openeoc.desktop.Launcher --ui=\"%%~dp0ui\" --lock=eoc --layers=%s %%*\r\n" "$BUILD" "$CC" > $R/OpenEOC-CommandCenter.cmd
+printf "@echo off\r\nrem OpenEOC -- EOCAdmin, powered by the FrogNet Living Network (%s)\r\n$J net.frognet.openeoc.desktop.Launcher --ui=\"%%~dp0ui\" --lock=eocadmin --layers=%s %%*\r\n" "$BUILD" "$EA" > $R/OpenEOC-EOCAdmin.cmd
+printf "@echo off\r\nrem OpenEOC, powered by the FrogNet Living Network (%s)\r\n$J net.frognet.openeoc.desktop.Launcher --ui=\"%%~dp0ui\" %%*\r\n" "$BUILD" > $R/OpenEOC.cmd
+# [ROLE_ADMIN_V1] each role's Admin: OpenEOC -- TeamAdmin ... (a Command Center user logs in; the RAM host its instances follow)
+for ra in Team Hospital Ambulance Shelter Power Water Telecom; do l=$(echo $ra | tr A-Z a-z)admin
+printf "@echo off\r\nrem OpenEOC -- ${ra}Admin, powered by the FrogNet Living Network (%s)\r\n$J net.frognet.openeoc.desktop.Launcher --ui=\"%%~dp0ui\" --lock=$l --layers=help,roleadmin %%*\r\n" "$BUILD" > $R/OpenEOC-${ra}Admin.cmd; done
+printf "@echo off\r\nrem OpenEOC -- CommandCenterAdmin, powered by the FrogNet Living Network (%s)\r\n$J net.frognet.openeoc.desktop.AdminLauncher --ui=\"%%~dp0ui-admin\" %%*\r\n" "$ABUILD" > $R/OpenEOC-CommandCenterAdmin.cmd
 cat > $R/README.txt <<TXT
-OpenEOC Admin for Windows ($BUILD), powered by the FrogNet Living Network
-Unzip anywhere (e.g. C:\OpenEOC-Admin) and double-click OpenEOC-Admin.cmd. Nothing is installed.
-Connect: Node = any member with OpenEOC's door; App = openeoc; the admin user and password set on the members
-with  fdf-app config openeoc ... --admin USER:PASSWORD. The password is checked on this computer and never sent.
-Teams and roles, users (passwords become verifiers here), login and partition behaviour; Apply sends the whole
-configuration, signed with the admin key; every member checks it and says adopted or why not (Members).
-It keeps the node, the app and the user name in %USERPROFILE%\.openeoc\admin.json; never the password.
-TXT
-(cd $T && zip -qr "$OUT/$NAME-windows-x64-$BUILD.zip" $NAME); ls -la "$OUT/$NAME-windows-x64-$BUILD.zip"; rm -rf $T; exit 0
-fi
-cp -r $D/ui $R/ui; cp $D/brand/openeoc.ico $R/   # [OPENEOC_BRAND_V1] the icon, for a shortcut to the .cmd
-# [RT_LAYERS_V1] an app carries its own layers only (the client: every one)
-if [ -n "$LAYERS" ]; then for f in $R/ui/layers/*.js; do n=$(basename $f .js); case ",$LAYERS," in *",$n,"*) ;; *) rm $f;; esac; done; fi
-if [ "$LOCK" = eoc ]; then
-printf '@echo off\r\nrem OpenEOC EOC, powered by the FrogNet Living Network (%s)\r\nstart "" "%%~dp0runtime\\bin\\javaw.exe" -cp "%%~dp0lib\\*" net.frognet.openeoc.desktop.Launcher --ui="%%~dp0ui" --lock=eoc --layers=%s %%*\r\n' "$BUILD" "$LAYERS" > $R/OpenEOC-EOC.cmd
-cat > $R/README.txt <<TXT
-OpenEOC EOC for Windows ($BUILD), powered by the FrogNet Living Network
-Unzip anywhere (e.g. C:\OpenEOC-EOC) and double-click OpenEOC-EOC.cmd. Nothing is installed.
-Connect: this computer on a FrogNet node's Wi-Fi; Node = the node's address (filled in from this computer's gateway);
-the EOC's user and password (a user the admin gave the role eoc). It opens as the EOC only: every team, unit, request
-and report the EOC's network can see. Settings this computer keeps: %USERPROFILE%\.openeoc
+OpenEOC for Windows ($BUILD; admin $ABUILD), powered by the FrogNet Living Network
+Unzip anywhere (e.g. C:\OpenEOC) and double-click the app's .cmd. Nothing is installed. Every app here shares this
+folder's runtime and its one Communicator (comms\comms-app.exe), which Call opens.
+  OpenEOC-CommandCenter.cmd  the Command Center: a Command Center user and password (a user the admin gave the role eoc)
+  OpenEOC-EOCAdmin.cmd       the Command Center's paperwork: the ICS forms (201-221), the situation report, the Incident
+                             Action Plan, the after-action report; printed on this computer's printer
+  OpenEOC.cmd                every view, asked first: a Team, a Hospital, an Ambulance, ..., Public
+  OpenEOC-TeamAdmin.cmd, -HospitalAdmin, -AmbulanceAdmin, -ShelterAdmin, -PowerAdmin, -WaterAdmin, -TelecomAdmin
+                             each role's Admin (a Command Center user): the RAM host every instance of the role follows
+  OpenEOC-CommandCenterAdmin.cmd  OpenEOC -- CommandCenterAdmin (Teams, Command Center users, Members): Node = any member with OpenEOC's door; App = openeoc; the admin user and
+                             password set with  fdf-app config openeoc ... --admin USER:PASSWORD (checked here, never sent)
+Connect: this computer on a FrogNet node's Wi-Fi; Node = the node's address (filled in from this computer's gateway).
+Call needs the Communicator's servers on the node (comms-ram on 8800, comms-media on 8994: fdf-comms.sh).
+Settings each app keeps: %USERPROFILE%\.openeoc (the admin tool: admin.json, never the password).
 The map's background comes from OpenStreetMap over the Internet; without it the map is plain and everything is on it.
 TXT
-(cd $T && zip -qr "$OUT/$NAME-windows-x64-$BUILD.zip" $NAME); ls -la "$OUT/$NAME-windows-x64-$BUILD.zip"; rm -rf $T; exit 0
-fi
-printf '@echo off\r\nrem OpenEOC, powered by the FrogNet Living Network (%s)\r\nstart "" "%%~dp0runtime\\bin\\javaw.exe" -cp "%%~dp0lib\\*" net.frognet.openeoc.desktop.Launcher --ui="%%~dp0ui" %%*\r\n' "$BUILD" > $R/OpenEOC.cmd
-cat > $R/README.txt <<TXT
-OpenEOC for Windows ($BUILD), powered by the FrogNet Living Network
-Unzip anywhere (e.g. C:\OpenEOC) and double-click OpenEOC.cmd. Nothing is installed.
-Connect: this computer on a FrogNet node's Wi-Fi; Node = the node's address (filled in from this computer's gateway);
-the view: EOC (its user and password), a Team, or Public. Settings this computer keeps: %USERPROFILE%\.openeoc
-The map's background comes from OpenStreetMap over the Internet; without it the map is plain and everything is on it.
-TXT
-(cd $T && zip -qr "$OUT/OpenEOC-windows-x64-$BUILD.zip" OpenEOC); ls -la "$OUT/OpenEOC-windows-x64-$BUILD.zip"; rm -rf $T
+(cd $T && zip -qr "$OUT/$NAME-windows-x64-$BUILD.zip" $NAME); ls -la "$OUT/$NAME-windows-x64-$BUILD.zip"; rm -rf $T

@@ -10,7 +10,7 @@ import java.util.LinkedHashMap;
 import java.util.Map;
 
 /**
- * [ENROLL_V1] what enrolling left on this phone, in this app's private preferences ("rt-enroll"): who the user is in the
+ * [ENROLL_V1] what enrolling left on this phone, in this app's private preferences ("openeoc-enroll"): who the user is in the
  * app (its user, its role, whether it leads its team), the door it enrolled through, and the user's password (the app
  * logs in with it, and a lead asks the door for its members' invitations with it). The invitation itself is the
  * FrogNet member's, compiled into this app (Member: Identity keeps it). A lead's members are kept here as verifiers only (Enroll.verifier), never their passwords.
@@ -22,7 +22,7 @@ final class Enrolled {
         app = p.getString("app", ""); user = p.getString("user", ""); password = p.getString("password", "");
         role = p.getString("role", ""); door = p.getString("door", ""); lead = p.getBoolean("lead", false);
     }
-    static SharedPreferences prefs(Context c) { return c.getSharedPreferences("rt-enroll", Context.MODE_PRIVATE); }
+    static SharedPreferences prefs(Context c) { return c.getSharedPreferences("openeoc-enroll", Context.MODE_PRIVATE); }
     static Enrolled of(Context c) { return new Enrolled(prefs(c)); }
     boolean any() { return !user.isEmpty(); }
 

@@ -17,18 +17,20 @@ import java.util.Set;
  * state WebEOC guides: Palm Beach, Broward, Miami-Dade, Tampa, San Diego, New Hampshire, Washington EMD, Texas STAR, and
  * Juvare's own): the incident, the activity log and significant events, resource requests (ICS-213RR), situation
  * reports, shelters, road closures, damage assessment, position logs (ICS-214), press releases, sign-in/out.
- * One family: (rt-ics, <mission>.<board>, <record id>) is a record as its writer filed it, not own (it stays: a record
- * is never deleted, as on WebEOC); (rt-ics, <mission>.<board>.act, <record id>~<dev>~<ms>) each update to it -- a
+ * One family: (openeoc-ics, <mission>.<board>, <record id>) is a record as its writer filed it, not own (it stays: a record
+ * is never deleted, as on WebEOC); (openeoc-ics, <mission>.<board>.act, <record id>~<dev>~<ms>) each update to it -- a
  * status, a comment, an approval, a deployment -- so its history is every update, in order.
  */
 public final class IcsLayer extends Layer {
     public static final Set<String> BOARDS = new HashSet<String>(Arrays.asList(
-            "incident", "events", "rr", "sitrep", "shelters", "roads", "damage", "ics214", "press", "signin"));
+            "incident", "events", "rr", "sitrep", "shelters", "roads", "damage", "ics214", "press", "signin",
+            // [FEMA_EOC_V1] the FEMA EOC function's boards (ui/layers/fema.js) and EOCAdmin's paperwork (ui/layers/paper.js)
+            "objectives", "assign", "staff", "lifelines", "forms", "aar", "ip"));
     private volatile Follower f;
     public String name() { return "ics"; }
 
     public void start(final Here h) {
-        f = h.follow("ics", "rt-ics", null, new Runnable() { public void run() {
+        f = h.follow("ics", "openeoc-ics", null, new Runnable() { public void run() {
             Follower x = f; if (x == null) return;
             Map<String, Object> rec = new HashMap<String, Object>(), act = new HashMap<String, Object>();
             for (String b : BOARDS) {

@@ -1,6 +1,6 @@
-# RangerTrak's suite, mapped
+# OpenEOC's suite, mapped
 
-RangerTrak `b6745f49`, 137 spec files, 1,344 `it` blocks (1,440 executed: some are table-driven). Each file is
+OpenEOC `b6745f49`, 137 spec files, 1,344 `it` blocks (1,440 executed: some are table-driven). Each file is
 applicable as it is, applicable with its setup changed (the service under it becomes a held view; its assertions stand),
 or not applicable because the machinery it asserts is removed (`PLAN.md`, *What is thrown away*); those are mapped, not
 deleted, with the reason. Decided here before phase 1 step 4; `QUESTION-3.md` takes any red that does not fit.

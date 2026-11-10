@@ -88,7 +88,7 @@ to *alias network* (`AliasNet` in the code). From here on, "island" means only a
 
 It holds no application data. **John:** "The ram manager owns the actual data, but that is not the droplet."
 
-**Found:** the radio log pages write their cells (`rt-mission`, `rt-log`, `rt-handled`, `rt-roster`) to `RINA_RAM`.
+**Found:** the radio log pages write their cells (`openeoc-mission`, `openeoc-log`, `openeoc-handled`, `openeoc-roster`) to `RINA_RAM`.
 That is the MRM, so they break this rule. `ram.php` proxies to whatever `fdf.env`'s `RINA_RAM` names. Section 10
 moves them.
 
@@ -341,15 +341,14 @@ of its own.
 > **John** (rev 2, section 4): the LAN's machines from the highest IP (databasehost-control) down; "a machine is never
 > without a RAM manager".
 
-**Proposed:**
+**Decided (Q1, John 2026-11-07: "Drop to LAN-only: run runMerge"), `[SPLIT_IS_LAN_ONLY_V1]`:**
 
-- The partition's facts live on its `databasehost_control`: the highest live `.1` on the LAN, running `fdf-ram` on
-  port 8841 (`[LAN_RAM_ALWAYS_V1]`). This is the LAN's own route state, not an MRM: it reaches no WAN and covers only
-  its LAN.
-- Members write their facts there and plan from there (LAN routes only; no hub channel, no WireGuard).
-- What goes is the *walk* across a list. There is no list. There is the MRM, or there is the LAN's control host.
-
-**Open (Q1):** this is the design's largest decision.
+- A split is a network event. The member withdraws the region's routes, names and tunnels and runs `runMerge`: the
+  partition is LAN-only FrogNet (discovery, the elections, `/etc/hosts`), as a node with no region is.
+- Its facts and roles are the LAN's own: `databasehost_control.frognet` and `databasehost.frognet` are the hosts the
+  LAN's elections name, each that host's `api.php` on port 80 (`[ROLES_ON_API_V1]`). There is no LAN RAM manager, no
+  `fdf-ram` on 8841 and no walk list (`[LAN_RAM_ALWAYS_V1]` and `lan-rams.json` are gone).
+- The member keeps a standing session to every entry on the region's list; one answering is the event that rejoins.
 
 **Roles.** The partition elects every role again over its own alive members' capability facts. If an island's host is
 inside the partition, the incumbent is held and nothing moves. If it is outside, the partition elects a host of its own
@@ -471,8 +470,8 @@ An app's add-in declares its islands. **Proposed:** in its `apps.json` entry:
 
 ```json
 "islands": {
-  "rt-eoc":      { "select": "rt_islands.py:Eoc",      "persist": true,  "access": "rt_islands.py:EocAccess" },
-  "rt-hospital": { "select": "rt_islands.py:Hospital", "persist": true,  "access": "rt_islands.py:HospitalAccess" }
+  "openeoc-eoc":      { "select": "rt_islands.py:Eoc",      "persist": true,  "access": "rt_islands.py:EocAccess" },
+  "openeoc-hospital": { "select": "rt_islands.py:Hospital", "persist": true,  "access": "rt_islands.py:HospitalAccess" }
 }
 ```
 
@@ -572,7 +571,7 @@ Its public half is in the device's login record, and a node's is also in its rec
   read and holds one connection to whoever the cell names. When the cell changes, it reconnects, re-arms the app's
   reads and calls the app's handler, which writes its own truth again. There are no candidate lists, no standing
   sessions to standbys and no fallback list. The app's selection code is the only chooser.
-- **Node-served pages** (`/rt/`, `ram.php`). `ram.php` takes `service` → island from the add-in (`rt-*` → `rt-eoc`
+- **Node-served pages** (`/openeoc/`, `ram.php`). `ram.php` takes `service` → island from the add-in (`openeoc-*` → `openeoc-eoc`
   for the EOC post) and proxies to the island's host from the where cell, not to `RINA_RAM`. Its answer's `ram` field
   (`[RAM_IS_SAID_V1]`) is the island host, so a page that sees it change already reads everything and writes its own
   entries again (`[OWN_TRUTH_AGAIN_V1]`). That code does not change.
@@ -614,7 +613,7 @@ Its public half is in the device's login record, and a node's is also in its rec
 | `region.py` | Keeps `own_dot1`, `ensure_lan_ram` (the control host's), `follow`. `lan_fallback` → `control_host()` (the highest live `.1`) |
 | `discovery/elect.py`, `discovery/hosts.py`, `core/frognet_service_hosts.py`, `core/database_handler.py` | `[ROLE_INCUMBENT_FROM_WHERE_V1]`: `evaluate(candidates, incumbents)` |
 | `core/role_registry.py` | Loads the installed apps' island handlers beside `databasehost` |
-| The role host | Starts and stops an island's `fdf-ram`, and writes its where cell (new: `fdf-island`, a child of the tunnel daemon, as `ensure_lan_ram` is) |
+| The role host | Starts and stops an island's `fdf-ram`, and writes its where cell (new: `fdf-island`, a child of the tunnel daemon) |
 | `fdf-org serve` | Reach to island ports from where cells and level grants |
 | `fdfspace.py`, `Space.kt` | → `Island` |
 | `ram.php` | Island host from the where cell |
@@ -625,7 +624,8 @@ Its public half is in the device's login record, and a node's is also in its rec
 - `system-space.json`.
 - `region.Standing`, `answers`, `_probe_up` and `fdfsp<N>`.
 - `system_managers` as a list.
-- `save_lan` as a walk list (`lan-rams.json`).
+- `save_lan` as a walk list (`lan-rams.json`). Done 2026-11-07 (`[ROLES_ON_API_V1]`), with `ensure_lan_ram` and the
+  LAN RAM port.
 - `fdf-org space`, `level --space`, the space ports, spaces in the login answer, `line --with`.
 - `SpaceAt` and `loginAll` across managers in `Join.kt`.
 - `fdfspace.from_login`.
@@ -636,7 +636,7 @@ The incumbent tests decide: `simulation/run_all.py` tiers, `discovery/sim/servic
 `databasehost_convergence_check.py`, `test_service_host_consistency_oracle.py`, `role_registry_lxmlfree_check.py`
 (which asserts one role, so it changes when island roles are added; that change is to be named in its commit),
 `fdf/lib/python/fdf_graph_oracle.py`, `internet_tunnels_v3/tests/graph_apply_oracle.py`, `test_region_oracle.py` and
-`test_rt_pages.py`. Each change runs them before and after.
+`test_openeoc_pages.py`. Each change runs them before and after.
 
 | Test | Status |
 | --- | --- |
@@ -645,7 +645,7 @@ The incumbent tests decide: `simulation/run_all.py` tiers, `discovery/sim/servic
 | `netns-space-test.sh`, `netns-spaces-test.sh` | Become `netns-island-test.sh`: two islands, selection keeps them apart; the host killed → re-elected, the app re-writes; a stronger node joins → nothing moves; heal with two incumbents → one |
 | `netns-join-kt-test.sh` | One MRM; the Kotlin `Island` |
 | New: the challenge | A member's key passes; a LAN host with no member key and a revoked member fail |
-| `test_rt_pages.py` | Cells on the island host, none on the MRM (asserted by reading the MRM) |
+| `test_openeoc_pages.py` | Cells on the island host, none on the MRM (asserted by reading the MRM) |
 
 ## 14. Order of work (proposed)
 
@@ -655,13 +655,12 @@ The incumbent tests decide: `simulation/run_all.py` tiers, `discovery/sim/servic
 4. The split onto the control host and the merge (8), with `netns-split-test.sh`.
 5. Island roles, the role host, where cells (7.3, 9.1–9.2).
 6. The challenge and the app's access (9.3).
-7. `Island` in Python and Kotlin; `ram.php`; the radio log on `rt-eoc` / `rt-hospital`.
+7. `Island` in Python and Kotlin; `ram.php`; the radio log on `openeoc-eoc` / `openeoc-hospital`.
 
 ## 15. Open questions for John
 
-1. **The split's facts.** Does a partition hold its facts on the LAN's `databasehost_control` (the highest live `.1`,
-   `fdf-ram` 8841), as section 8.1 proposes? Or should region mode on a split drop to LAN-only FrogNet discovery
-   (runMerge and the store at control)? Today the tree has both, in two modes.
+1. **The split's facts.** Settled (section 8.1, John 2026-11-07): region mode on a split drops to LAN-only FrogNet;
+   `runMerge` runs and the LAN's own roles (api.php on port 80) take over.
 2. **The egress route.** The applier owns only the /32 to the MRM via the exit, and FrogNet's default fixer is told when
    it moves (section 6.2). Is that the right split of ownership?
 3. **Island access during a split.** Settled (section 9.0): the signed login record, checked locally.

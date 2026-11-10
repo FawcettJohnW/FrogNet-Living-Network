@@ -76,7 +76,7 @@ chmod 0440 /etc/sudoers.d/frognet-snapshot && visudo -cf /etc/sudoers.d/frognet-
 # the node's Apache. The vhost we install must be valid -- a bad one stops the install. But applying it to the running
 # Apache, and the web view itself, are independent of region membership: a node is a member whether or not its local
 # /fdf/ dashboard renders. So a failed apply is logged and the join goes ahead; the view catches up on the next restart.
-a2enconf -q fdf-dc    # [ONE_FILE_UPDATE_V1] the DisasterComm pages and their door (/dc/, /rt/) ship in this bundle
+a2enconf -q fdf-dc    # [ONE_FILE_UPDATE_V1] the DisasterComm pages and their door (/dc/, /openeoc/) ship in this bundle
 apache2ctl configtest >/dev/null 2>&1 || { echo "fdf-install: apache2ctl configtest refuses the vhost:"; apache2ctl configtest; exit 1; }
 # restart, not reload: `apachectl graceful` builds a transient mount namespace that systemd refuses on a long-up box
 # (status=226/NAMESPACE); a restart recreates the service with a fresh namespace. One mechanism, applied once.

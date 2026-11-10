@@ -14,13 +14,13 @@ R=OpenEOC-Android-Studio; N=$R-$BUILD; T=$(mktemp -d); P=$T/$R; mkdir -p $P
 cp -r $APP/core/src $P/shared/src/core; cp -r $APP/../frognet-ram-java/src $P/shared/src/ram
 mkdir -p $P/shared/src/main/assets; cp -r $APP/ui $P/shared/src/main/assets/ui     # the page: plain assets, no copy step
 # [RT_LAYERS_V1] the base page in shared; each app's own layers in its own assets (as its build.gradle.kts lists them),
-# its copy step gone (the lines marked rt-layers-copy)
+# its copy step gone (the lines marked openeoc-layers-copy)
 rm -rf $P/shared/src/main/assets/ui/layers
 for g in $P/*/build.gradle.kts; do
   m=$(dirname $g); L=$(sed -n 's/^val rtLayers = listOf(\(.*\))$/\1/p' $g | tr -d '" ' | tr ',' ' ')
   [ -n "$L" ] || continue
   mkdir -p $m/src/main/assets/ui/layers; for n in $L; do cp $APP/ui/layers/$n.js $m/src/main/assets/ui/layers/; done
-  sed -i '/rt-layers-copy/d' $g
+  sed -i '/openeoc-layers-copy/d' $g
 done
 # [APP_IS_SELF_CONTAINED_V1] the FrogNet member and its Communicator, from frognet-android, as the repository's shared
 # module compiles them: every app carries its own membership; nothing else is installed
@@ -59,7 +59,7 @@ plugins { id("com.android.application") }
 android {
     namespace = "net.frognet.openeoc.admin.android"
     compileSdk = 34
-    defaultConfig { applicationId = "net.frognet.openeoc.admin"; minSdk = 29; targetSdk = 34; versionCode = 9; versionName = "openeoc-admin-2026-11-09-r16" }
+    defaultConfig { applicationId = "net.frognet.openeoc.admin"; minSdk = 29; targetSdk = 34; versionCode = 13; versionName = "openeoc-admin-2026-11-09-r20" }
     compileOptions { sourceCompatibility = JavaVersion.VERSION_17; targetCompatibility = JavaVersion.VERSION_17 }
     buildTypes { release { isMinifyEnabled = false } }
 }

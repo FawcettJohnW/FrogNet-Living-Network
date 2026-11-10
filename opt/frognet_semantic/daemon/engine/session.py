@@ -179,6 +179,28 @@ _response_references: Dict[Tuple[str, int, str], Optional[Dict[str, Any]]] = {}
 _ref_lock = threading.RLock()
 
 
+
+# [DIAG-REF] (Seattle7 2026-11-08: "DIFF decode failed: a splice without its reference string (row.UpdatedAt, absent
+# from the reference)", 31 since boot; Seattle5 0) every move of a response reference, on both ends, with the same
+# fingerprint: the instance, the keys, a hash of the values, who moved it and why. The first line where the two ends'
+# hashes for one instance part is the cause.
+import sys as _dr_sys, time as _dr_time, hashlib as _dr_hl, threading as _dr_th
+def _diag_ref(side, peer, opcode, inst, action, ref, extra=""):
+    try:
+        f = _dr_sys._getframe(2)
+        who = "%s:%d<%s:%d" % (f.f_code.co_name, f.f_lineno, f.f_back.f_code.co_name if f.f_back else "?", f.f_back.f_lineno if f.f_back else 0)
+        if ref is None:
+            keys, h = "-", "none"
+        else:
+            keys = ",".join(sorted(str(k) for k in ref))
+            h = _dr_hl.sha1(json.dumps(ref, sort_keys=True, default=repr).encode("utf-8", "replace")).hexdigest()[:10]
+        _dr_sys.stderr.write("[DIAG-REF] t=%.3f side=%s peer=%s opcode=%s inst=%r action=%s hash=%s keys=[%s] by=%s thr=%s %s\n"
+                             % (_dr_time.time(), side, peer, opcode, inst, action, h, keys, who, _dr_th.current_thread().name, extra))
+        _dr_sys.stderr.flush()
+    except Exception as _e:
+        _dr_sys.stderr.write("[DIAG-REF] log failed: %r\n" % (_e,))
+
+
 def _get_response_reference(peer_ip: str, opcode: int, inst: str) -> Optional[Dict[str, Any]]:
     with _ref_lock:
         ref = _response_references.get((peer_ip, opcode, inst))
@@ -188,12 +210,14 @@ def _get_response_reference(peer_ip: str, opcode: int, inst: str) -> Optional[Di
 def _set_response_reference(peer_ip: str, opcode: int, inst: str, ref: Dict[str, Any]) -> None:
     with _ref_lock:
         _response_references[(peer_ip, opcode, inst)] = ref.copy()
+    _diag_ref("daemon", peer_ip, opcode, inst, "set", ref)
 
 
 def _clear_response_reference(peer_ip: str, opcode: int, inst: str) -> None:
     """Clear response ref on REQ_FULL so diff-encode sends all fields."""
     with _ref_lock:
         _response_references.pop((peer_ip, opcode, inst), None)
+    _diag_ref("daemon", peer_ip, opcode, inst, "clear", None)
 # ====================================================================
 # REQUEST COALESCING (cross-session)
 # ====================================================================
@@ -452,6 +476,7 @@ def _diff_encode_response(
     """
     codec = _get_codec()
     ref = _get_response_reference(peer_ip, opcode, inst)
+    _diag_ref("daemon", peer_ip, opcode, inst, "encode-against", ref, "fields=%s" % ",".join(k for k, _v in (dynamic_vals or [])))
 
     try:
         diff_bytes, new_ref, is_identical = codec.encode_reply_diff(
@@ -555,6 +580,8 @@ class SemanticSession:
     def __init__(self, recv_sock: socket.socket, peer_ip: str, resolver, http_client=None, return_ip=None):
         self._encode_lock = threading.Lock()             # [REFERENCES_MOVE_IN_WIRE_ORDER_V1]
         self.peer_ip = peer_ip
+        self.established = False      # [WRITER_GONE_V1] set once the RETURN channel is up (the permanent socket pair)
+        self.on_established = None    # the server's count of live sessions per peer
         self.resolver = resolver
         self._recv_sock = recv_sock
         self._send_sock: Optional[socket.socket] = None
@@ -657,6 +684,10 @@ class SemanticSession:
         # [RETURN_ONLY_V1] Wait for RETURN channel before starting threads.
         try:
             self._send_sock = self._open_send_sock()
+            # [WRITER_GONE_V1] the permanent socket pair is up: this peer is on the network through us
+            self.established = True
+            if self.on_established is not None:
+                self.on_established()
         except Exception as e:
             trace(f"[Daemon] [RETURN_ONLY_V1] no RETURN from {self.peer_ip}: {e!r}")
             try:

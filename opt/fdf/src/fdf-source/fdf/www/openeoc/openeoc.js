@@ -2,19 +2,19 @@
 //  Copyright (C) 2016-2026 Fawcett Innovations LLC           //
 //  SPDX-License-Identifier: GPL-2.0-only                     //
 ////////////////////////////////////////////////////////////////
-// rt.js -- [RT_PAGES_V1] the radio log app, served by the post's node: what every page shares.
+// openeoc.js -- [RT_PAGES_V1] the radio log app, served by the post's node: what every page shares.
 //
 // The cells (DESIGN.md, the truth table), through the node's ram.php (the DisasterComm add-in door, ../dc/ram.php):
-//   (rt-mission, settings, <mission>)            latest   the scribe who started it: name, event, op period
-//   (rt-log, <mission>.<op>, <dev>.<seq>)        distinct one cell per entry, written once by the device that logged it
-//   (rt-handled, <mission>, <entry>.<dev>)       latest   [MARK_PER_HANDLER_V1] each handler's own mark on an entry; the
+//   (openeoc-mission, settings, <mission>)            latest   the scribe who started it: name, event, op period
+//   (openeoc-log, <mission>.<op>, <dev>.<seq>)        distinct one cell per entry, written once by the device that logged it
+//   (openeoc-handled, <mission>, <entry>.<dev>)       latest   [MARK_PER_HANDLER_V1] each handler's own mark on an entry; the
 //                                                         mark shown is derived: the newest across handlers (markOf)
-//   (rt-who, <mission>, <dev>)                   latest   the device: name, station (its hostname), team
-//   (rt-msg, <mission>, <dev>.<ms>)              distinct an announcement, to everyone
-//   (rt-dm, <mission>.<to station>, <dev>.<ms>)  distinct a direct message (the addressee reads its own variable)
-//   (rt-team@<team>, <mission>, <dev>.<ms>)      distinct a team message, in the team's own RAM [TEAM_RAM_V1]
-//   (rt-notes, <mission>, <dev>.<ms>)            distinct an ICS-214 activity line or an after-action note [RT_214_V1]
-//   (rt-pos, <mission>, <dev>)                   latest   [DEVICE_POSITION_V1] the device's own current fix; the map is
+//   (openeoc-who, <mission>, <dev>)                   latest   the device: name, station (its hostname), team
+//   (openeoc-msg, <mission>, <dev>.<ms>)              distinct an announcement, to everyone
+//   (openeoc-dm, <mission>.<to station>, <dev>.<ms>)  distinct a direct message (the addressee reads its own variable)
+//   (openeoc-team@<team>, <mission>, <dev>.<ms>)      distinct a team message, in the team's own RAM [TEAM_RAM_V1]
+//   (openeoc-notes, <mission>, <dev>.<ms>)            distinct an ICS-214 activity line or an after-action note [RT_214_V1]
+//   (openeoc-pos, <mission>, <dev>)                   latest   [DEVICE_POSITION_V1] the device's own current fix; the map is
 //                                                         a query over them. Never derived from the log: a position in a
 //                                                         log entry is the scribe's record of what was said
 // <dev> is this browser's own id (kept in localStorage, made once). [STATION_IS_HOSTNAME_V1] Its station ID is its host
@@ -172,7 +172,7 @@ export function setDevice(name) { const d = { ...device(), name }; d.station = s
 // [TEAM_RAM_V1] the app's RAMs served now: { general: host:port, <team>: host:port, ... }
 export async function rams() { return (await call(RAM + '?op=rams&app=openeoc')).rams || {} }
 // this device in the mission's directory: who it is, its station, its team (its own cell; DMs are addressed by station)
-export async function present(m) { const d = device(); return write('rt-who', m.id, d.id, { name: d.name || shownName(d), host: d.host || '', station: d.station, team: d.team || '' }) }
+export async function present(m) { const d = device(); return write('openeoc-who', m.id, d.id, { name: d.name || shownName(d), host: d.host || '', station: d.station, team: d.team || '' }) }
 // what this device sent, from its own store: [variable, instance, bag] of every family s it owns whose variable starts so
 export function sent(s, prefix) {
   const out = []
@@ -220,7 +220,7 @@ export function markOf(cells) {
 }
 export async function mark(m, entry, shown) {
   const d = device()
-  return write('rt-handled', m.id, entry + '.' + d.id, { entry, mark: D.nextMark(shown), by: d.name || d.id, atMs: Date.now() })
+  return write('openeoc-handled', m.id, entry + '.' + d.id, { entry, mark: D.nextMark(shown), by: d.name || d.id, atMs: Date.now() })
 }
 export function currentMission() { return kept('mission') }
 export function setMission(m) { kept('mission', m) }
@@ -231,7 +231,7 @@ export function sharePosition(m) {
   if (!navigator.geolocation) { note('this device gives no position'); return () => {} }
   const d = device()
   const id = navigator.geolocation.watchPosition(
-    (p) => write('rt-pos', m.id, d.id, { name: d.name || d.id, lat: p.coords.latitude, lng: p.coords.longitude,
+    (p) => write('openeoc-pos', m.id, d.id, { name: d.name || d.id, lat: p.coords.latitude, lng: p.coords.longitude,
                                          acc: p.coords.accuracy, alt: p.coords.altitude, at: Math.round(p.timestamp / 1000) })   // Meshtastic's Position has the same
              .catch((e) => note('position not written: ' + e.message)),
     (e) => note('no position from this device (' + e.message + ')'), { enableHighAccuracy: true, maximumAge: 10000 })
@@ -254,7 +254,7 @@ export async function logEntry(m, entries, form) {
   const bag = { uid: d.id + '.' + msgNo.seq, callsign: form.callsign.trim(), status: form.status, location: D.parseLocation(form.location || ''),
                 notes: form.notes.trim(), date: new Date().toISOString(), msgNo, dev: d.id, by: d.name || d.id,
                 ...(form.f213 ? { generates213: true, ...form.f213 } : {}) }   // [RT_213_V1] opt-in per entry
-  await write('rt-log', logVariable(m), d.id + '.' + msgNo.seq, bag)
+  await write('openeoc-log', logVariable(m), d.id + '.' + msgNo.seq, bag)
   return bag
 }
 export { D }

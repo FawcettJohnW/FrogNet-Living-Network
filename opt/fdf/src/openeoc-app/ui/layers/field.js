@@ -38,7 +38,7 @@ RT.layer('field', (RT) => {
         <label>Note<input name="note" placeholder="mounted on the pole at the corner"></label><button class="go">Deploy here</button></form>
       <h3>Request services</h3><form class="ff" data-what="service"><label>Service<select name="type">${opts(SERVICES)}</select></label>
         <label>Priority<select name="priority"><option>Routine</option><option>Priority</option><option>Urgent</option></select></label>
-        <label>Details<input name="note" placeholder="how many, how much, for whom"></label><button class="go">Send to the EOC</button></form>
+        <label>Details<input name="note" placeholder="how many, how much, for whom"></label><button class="go">Send to the Command Center</button></form>
       <h3>Mark a hazard</h3><form class="ff" data-what="hazard"><label>Hazard<select name="type">${opts(HAZARDS)}</select></label>
         <label>Note<input name="note"></label><button class="go">Mark it here</button></form>
       <h3>Area searched</h3><form class="ff" data-what="search"><label>Result<select name="type"><option>Searched, no one found</option><option>Searched, people found</option><option>Partially searched</option><option>Unsafe to enter</option></select></label>

@@ -906,23 +906,9 @@ def _values_raw(service: str, dbhost: str = DEFAULT_DBHOST,
         #
         # LIKE with no wildcard is an exact match, so that caller is unaffected.
         q += f"&SensorName__like={urllib.parse.quote(name_like)}"
-    # [ASK_ONCE_AND_WAIT_V1] Let the store hold the question open rather
-    # than asking it again. A store that does not implement this ignores the
-    # parameters and answers immediately, so the caller's own loop still
-    # works and nothing breaks against a store that has not been updated.
-    if wait_s > 0 and min_rows > 0:
-        q += f"&wait_s={float(wait_s):.3f}&min_rows={int(min_rows)}"
-        # No socket timeout on a blocking read. A client timeout racing the
-        # server's wait turns the long poll back into polling with extra
-        # steps: the socket dies, the caller retries, and the round trip it
-        # was meant to remove comes straight back. The SERVER decides when
-        # the answer is worth returning and bounds its own wait; the client
-        # waits for it.
-        #
-        # This does not hang on a dead store. urlopen without a timeout
-        # blocks on a live socket, and a store that dies closes it -- which
-        # raises, and is classified like any other store failure.
-        timeout = None
+    # [HELD_READ_IN_API_V1 - John 2026-11-07] wait_s/min_rows are no longer sent:
+    # api.php answers values once. A reader that waits holds a read (get_all ->
+    # frognet_held.wait_rows), and the next matching write fires it.
     if fresh_s:
         # [ENVELOPE_TS_V1] the STORE decides freshness, on its own clock
         q += f"&fresh_s={int(fresh_s)}"
@@ -1083,9 +1069,14 @@ def get_all(service: str, dbhost: str = DEFAULT_DBHOST,
     # see A_PATTERN_IS_NOT_A_NAME_V1 there. It sent plain SensorName until
     # 2026-09-15, so this coordinate matched nothing for a day.
     if wait_s > 0 and min_rows > 0:
-        rows = _values_raw(service, dbhost, name_like=name_like,
-                           fresh_s=fresh_s, timeout=timeout,
-                           wait_s=wait_s, min_rows=min_rows)
+        # [HELD_READ_IN_API_V1 - John 2026-11-07] A wait is a held read at the role's
+        # api.php: hold, get the current rows, and on the next matching write the
+        # host fires this process; hold again. No asking twice, no spinning.
+        # wait_s is the caller's bound on how long it will wait. fresh_s does not
+        # apply to a hold: a held read is about the cell's current value.
+        import frognet_held
+        rows = frognet_held.wait_rows(service, dbhost, name_like=name_like,
+                                      min_rows=min_rows, wait_s=wait_s)
     else:
         rows = _values_raw(service, dbhost, name_like=name_like,
                            fresh_s=fresh_s, timeout=timeout)
