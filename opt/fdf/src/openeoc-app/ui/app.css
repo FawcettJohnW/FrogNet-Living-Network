@@ -140,7 +140,8 @@ table.rl td { padding: 5px 6px; border-bottom: 1px solid #1f2a24; vertical-align
 
 /* [RT_APP_PICKER_V1] which app: one button per view */
 #pick { position: fixed; inset: 0; display: grid; place-items: center; background: rgba(0,0,0,.6); z-index: 9000; padding: 16px; }
-#pick .pick-card { background: var(--pn); border: 1px solid var(--bd); border-radius: 14px; padding: 20px; width: min(380px, 100%); }
+#pick .pick-card { background: var(--pn); border: 1px solid var(--bd); border-radius: 14px; padding: 20px; width: min(380px, 100%);
+  max-height: calc(100vh - 32px); overflow-y: auto; box-sizing: border-box; }   /* [PICKER_SCROLLS_V1] more apps than the window is tall: it scrolls */
 #pick h2 { margin: 0 0 12px; font-size: 22px; }
 #pick .pick-list { display: grid; gap: 8px; }
 #pick .pick-list button { font-size: 17px; padding: 12px 14px; text-align: left; border-radius: 9px; border: 1px solid var(--bd); background: #0b130e; color: var(--fg); display: flex; justify-content: space-between; align-items: center; cursor: pointer; }

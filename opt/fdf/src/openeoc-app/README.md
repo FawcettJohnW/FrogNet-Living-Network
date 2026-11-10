@@ -47,6 +47,11 @@ role's `act`/`req`, or `RT.button`). **A new view**: `RT.role(...)` in a layer's
 `RTA.panel(title, fn)` (none yet). Gates: `test/test_app.py` (32 checks; the Team and Public apps run with their own
 layers only), `test/test_team_host.py`, `android/typecheck.sh`.
 
+## r79: the list of apps scrolls ([PICKER_SCROLLS_V1])
+
+With the seven role Admins, "Which app?" lists 17 apps, taller than a window or a phone. The list's card is at most the
+window's height and scrolls (checked in Chromium at 600 px: 17 apps, the last reached by scrolling).
+
 ## r78: each role's Admin; instances hold a read on it ([ROLE_ADMIN_V1]); a held read ends with the rows now ([HOLD_ENDS_WITH_NOW_V1]); door dc-door-2026-11-10-roleadmin1
 
 John 2026-11-10: "Create -Admin roles for everything that has a non-admin version. For now, it's just the RAM host, but
