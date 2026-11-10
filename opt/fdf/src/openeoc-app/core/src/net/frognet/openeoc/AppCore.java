@@ -49,7 +49,7 @@ public final class AppCore {
 
     public static final String APP = "openeoc";
     public static final String API = "/FawcettInnovations.RINA.ram_interface.php";
-    public static final String BUILD = "openeoc-app-2026-11-10-r77";
+    public static final String BUILD = "openeoc-app-2026-11-10-r78";
 
     private final Ui ui;
     private String door = "", dev = "", name = "", role = "", team = "", user = "", mission = "";
@@ -135,6 +135,7 @@ public final class AppCore {
             else if (op.equals("teamPlace")) teamPlace(m);
             else if (op.equals("door")) redoor(Json.str(m.get("door")).trim());
             else if (op.equals("leads")) leads();                       // [EOC_LEADS_V1]
+            else if (op.equals("roleConf")) roleConf(m);                // [ROLE_ADMIN_V1]
             else if (op.equals("teamDelete")) {                     // [TEAM_DELETE_V1]
                 try { teamDelete(Json.str(m.get("team"))); }
                 catch (Exception e) { String why = e.getMessage() == null ? e.toString() : e.getMessage();
@@ -320,7 +321,9 @@ public final class AppCore {
             String r = Json.str(o.get("role")); user = Json.str(m.get("user"));
             // [RT_CATEGORY_IS_THE_VIEW_V1] the user's role is this view's when it is the view's name, or when the admin put it
             // in the view's category (eochq in the category EOC is an EOC): the door's op=roles says each role's category
-            if (!r.equalsIgnoreCase(want) && !(want.equals("eocadmin") && r.equalsIgnoreCase("eoc"))) {
+            // [ROLE_ADMIN_V1] EOCAdmin and every role's Admin (TeamAdmin ...) are a Command Center user's, as the Command Center is
+            final boolean cc = want.equals("eoc") || want.equals("eocadmin") || want.endsWith("admin");
+            if (!r.equalsIgnoreCase(want) && !(cc && r.equalsIgnoreCase("eoc"))) {
                 String cat = "", why = "";
                 try {
                     Map<String, Object> rs = Json.obj(doorCall("op=roles&app=" + APP, null).get("roles"));
@@ -331,10 +334,10 @@ public final class AppCore {
                 } catch (Exception e) { why = "the door's roles not read: " + e.getMessage(); }
                 String c = cat.toLowerCase().trim(), one = c.endsWith("s") ? c.substring(0, c.length() - 1) : c;
                 // [FEMA_EOC_V1] EOCAdmin is an EOC user's: a role in the EOC category opens it
-                if (!(c.equals(want) || one.equals(want) || (want.equals("eocadmin") && one.equals("eoc"))))
+                if (!(c.equals(want) || one.equals(want) || (cc && one.equals("eoc"))))
                     // [EOC_USER_SAYS_THE_FIX_V1] (found 2026-11-10: "put eochq in the EOC category", which the admin tool has had
                     // no way to do since admin r16: it has Teams and Command Center users, no categories) the fix the tool has
-                    throw new Exception(want.equals("eoc") || want.equals("eocadmin")
+                    throw new Exception(cc
                             ? "user " + user + " has role '" + r + "' (category " + (cat.isEmpty() ? "unknown: " + why : cat) + "), which is not in the EOC category, so "
                               + user + " is not a Command Center user: in the admin app, remove " + user + " from " + r + " (the ✕ beside it under Teams), Apply, then add "
                               + user + " under Command Center users with its password, Apply (" + BUILD + ")"
@@ -388,10 +391,46 @@ public final class AppCore {
     private static String[] hp(String a) { int c = a.lastIndexOf(':'); return new String[]{a.substring(0, c), a.substring(c + 1)}; }
 
     private void stopAll() {
+        roleWatch = null; roleKick.release();             // [ROLE_ADMIN_V1]
         for (Follower f : new Follower[]{general, mis, dm, positions, msgs, callF, logF, hostF}) if (f != null) f.stop();
         for (TeamStore f : teams.values()) f.stop();
         for (Follower f : layerF) f.stop();
         teams.clear(); layerF.clear(); general = mis = dm = positions = msgs = callF = logF = hostF = null;
+    }
+
+    // ------------------------------------------------------------------ [ROLE_ADMIN_V1] a role's one configuration
+    /** a role's Admin: op roleConf {role} reads it, {role, ramhost} sets it (this Command Center user's password, kept for
+     *  the session); either way the page is told (ev roleConf) */
+    private void roleConf(Map<String, Object> m) throws Exception {
+        String r = Json.str(m.get("role")).toLowerCase(), h = Json.str(m.get("ramhost"));
+        Map<String, Object> o = h.isEmpty() ? doorCall("op=roleconf&app=" + APP + "&role=" + r, null)
+                : doorCall("op=roleconf&app=" + APP, Json.write(Json.o("user", user, "password", eocPassword, "role", r, "ramhost", h)));
+        if (!h.isEmpty()) say("[ROLE_ADMIN_V1] " + cap(r) + "'s RAM host is " + h + " now: every " + r + " instance holds a read on it");
+        out("ev", "roleConf", "role", r, "conf", Json.obj(o.get("conf")), "set", !h.isEmpty());
+    }
+    /** an instance of a role (a team or a unit): a held read on its role's configuration at the door, from its connect until
+     *  it stops; each change is said to the page (ev roleConf), which brings this instance's own tuples to match. A read
+     *  that fails is said and held again on the next event (a lead's cell, the door again) */
+    private volatile Thread roleWatch; private final java.util.concurrent.Semaphore roleKick = new java.util.concurrent.Semaphore(0);
+    private void watchRole(final String r) {
+        final Thread t = new Thread(new Runnable() { public void run() {
+            long last = 0; boolean first = true; String bad = null;
+            while (roleWatch == Thread.currentThread()) {
+                try {
+                    Map<String, Object> o = doorCall("op=roleconf&app=" + APP + "&role=" + r + (first ? "" : "&after=" + last + "&wait=20"), null, 35000);
+                    long sig = (long) Json.num(o.get("last"));
+                    if (first || sig != last) out("ev", "roleConf", "role", r, "conf", Json.obj(o.get("conf")), "set", false);
+                    last = sig; first = false; if (bad != null) { say("[ROLE_ADMIN_V1] " + cap(r) + "Admin's configuration read again"); bad = null; }
+                } catch (Exception e) {
+                    if (roleWatch != Thread.currentThread()) return;
+                    String why = e.getMessage() == null ? e.toString() : e.getMessage();
+                    if (!why.equals(bad)) say("[ROLE_ADMIN_V1] " + cap(r) + "Admin's configuration not read (" + why + "): read again on the next event");
+                    bad = why; first = true;
+                    try { roleKick.acquire(); roleKick.drainPermits(); } catch (InterruptedException x) { return; }
+                }
+            }
+        } }, "roleconf-" + r);
+        roleWatch = t; t.setDaemon(true); t.start();
     }
 
     /** the followers, on the RAMs where they are served now; ours go with them */
@@ -404,6 +443,7 @@ public final class AppCore {
         if (pub()) return;   // the public reads the world only (no chat)
         hostF = new Follower("team hosts", g[0], Integer.parseInt(g[1]), API, "openeoc-team-host", lg, null, new Runnable() { public void run() { onHosts(); } });
         startTeams();
+        if (java.util.Arrays.asList(net.frognet.openeoc.layer.RoleAdminLayer.ROLES).contains(role)) watchRole(role);   // [ROLE_ADMIN_V1] an instance
     }
 
     /** the team followers: each on where its RAM is now */
@@ -449,6 +489,7 @@ public final class AppCore {
     private void onHosts() {
         Follower h = hostF; if (h == null) return;
         for (TeamStore t : teams.values()) t.again();     // [EVENTS_NOT_TIMERS_V1] a lead's cell written: its RAM is there (again)
+        roleKick.release();                               // [ROLE_ADMIN_V1] the role's configuration read again, if its read failed
         String mine = team.toLowerCase();
         if (!hosting.isEmpty()) {
             Map<String, Object> c = h.family("host").get(mine);

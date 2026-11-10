@@ -78,7 +78,7 @@ try:
     from playwright.sync_api import sync_playwright
     def free():
         s = socket.socket(); s.bind(("127.0.0.1", 0)); p = s.getsockname()[1]; s.close(); return p
-    pe, pt, pl, p2, p3 = free(), free(), free(), free(), free()
+    pe, pt, pl, p2, p3, p4 = free(), free(), free(), free(), free(), free()
     os.makedirs("/run/frognet/held", exist_ok=True)
     procs.append(subprocess.Popen(["java", "-Drt.layers=help,field,eoc,medical,ics,fema", "-Duser.home=" + T, "-cp", CP, "DevHost", APP + "/ui", str(pe), "eoc1", "EOC Desk", "127.0.1.1:8088", "eoc", "", "eoc"],
                                   stdout=open(T + "/dev-eoc.log", "w"), stderr=subprocess.STDOUT))
@@ -90,6 +90,8 @@ try:
                                   stdout=open(T + "/dev-lr2.log", "w"), stderr=subprocess.STDOUT))
     procs.append(subprocess.Popen(["java", "-Drt.layers=help,field,team,ics,fema", "-Duser.home=" + T, "-cp", CP, "DevHost", APP + "/ui", str(p3), "lr3", "Dave", "127.0.1.1:8088", "team", "Lee Rescue", "team"],
                                   stdout=open(T + "/dev-lr3.log", "w"), stderr=subprocess.STDOUT))
+    procs.append(subprocess.Popen(["java", "-Drt.layers=help,roleadmin", "-Duser.home=" + T, "-cp", CP, "DevHost", APP + "/ui", str(p4), "ta1", "Team Admin Desk", "127.0.1.1:8088", "teamadmin", "", "teamadmin"],
+                                  stdout=open(T + "/dev-ta.log", "w"), stderr=subprocess.STDOUT))   # [ROLE_ADMIN_V1]
     LR = procs[2]   # the lead's core (lr1): stopped in 17b, as the phone's app was in John's demo
     time.sleep(2.5)
     with sync_playwright() as pw:
@@ -190,6 +192,31 @@ try:
         elog = open(T + "/dev-eoc.log").read()
         check(heard and heard2, "17b the lead's app stopped: the EOC still hears team Lee Rescue (%s) and is heard (%s); the EOC said: %s" % (heard, heard2,
               [l[-160:] for l in elog.splitlines() if "TEAMS_FROM_THE_DOOR_V1" in l][-2:]))
+        # 17c [ROLE_ADMIN_V1] OpenEOC -- TeamAdmin: a Command Center user logs in; the RAM host (Another machine: Not
+        #   Implemented), and Reserved for future customization below it; Save sets the SystemRam at the door; Dave's
+        #   instance (a Team, connected since 17b) holds a read on it and is told at once
+        ta = br.new_page(viewport={"width": 1100, "height": 900}); ta.on("pageerror", lambda e: errs.append("teamadmin: " + str(e)))
+        ta.goto("http://127.0.0.1:%d/" % p4); ta.wait_for_selector("#connect:not([hidden])", timeout=8000)
+        tah1 = ta.inner_text("#connect h1")
+        ta.fill("[name=user]", "EOCAdmin"); ta.fill("[name=password]", "eoc-2026"); ta.click("#connect button[type=submit]")
+        ta.wait_for_selector("#rhSave", timeout=20000); ta.wait_for_function("!document.querySelector('#sheet').innerText.includes('reading')", timeout=15000)
+        body = ta.inner_text("#sheet"); other = ta.is_disabled("[name=rhost][value=other]")
+        t0 = time.time(); ta.check("[name=rhost][value=systemram]"); ta.click("#rhSave")
+        rc = {}
+        for _ in range(100):
+            rc = door("op=roleconf&app=openeoc&role=team").get("conf") or {}
+            if rc.get("ramhost") == "systemram": break
+            time.sleep(0.1)
+        try: dv.wait_for_function("S.roleConf && S.roleConf.ramhost === 'systemram'", timeout=45000); told = round(time.time() - t0, 1)
+        except Exception: told = None
+        saved = ta.inner_text("#rhSaid")
+        check(tah1 == "OpenEOC -- TeamAdmin" and "RAM host" in body and "Another machine" in body and "(Not Implemented)" in body and other
+              and body.index("Reserved for future customization") > body.index("RAM host") and rc.get("ramhost") == "systemram" and rc.get("by") == "EOCAdmin"
+              and told is not None and "every Team instance follows it" in saved,
+              "17c TeamAdmin (%r): RAM host, Another machine not implemented %s, Reserved for future customization below it; Save: the door says %s; Dave's instance told in %s s; %r"
+              % (tah1, other, {k: rc.get(k) for k in ("ramhost", "by")}, told, saved))
+        nt = door("op=roleconf&app=openeoc", {"user": "kim", "password": "kim-2026", "role": "team", "ramhost": "device"})
+        check("not a Command Center user" in str(nt.get("why")), "17d a team's user cannot set a role's configuration: " + str(nt.get("why")))
         # [TEAM_DELETE_V1] the Command Center deletes team Lee Rescue: Delete, then Delete Lee Rescue: sure?
         pg.evaluate("$('#leadsBtn').click()"); pg.wait_for_selector("#sheet .tdel[data-t='Lee Rescue']", timeout=15000)
         pg.click("#sheet .tdel[data-t='Lee Rescue']"); asked = "sure?" in pg.inner_text("#sheet .tdel[data-t='Lee Rescue']")

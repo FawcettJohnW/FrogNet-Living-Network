@@ -150,7 +150,7 @@ RT.on('roles', (m) => {
 // ------------------------------------------------------------ start: the native side calls rtInit once the page loads
 // [RT_LAYERS_V1] the app's layers first (cfg.layers, in that order; every one there is when it names none), then the
 // connect screen with the views they add
-const ALL_LAYERS = ['help', 'field', 'eoc', 'team', 'medical', 'units', 'public', 'ics', 'fema', 'paper']   // [FEMA_EOC_V1] fema, paper: after ics (they add to its boards)
+const ALL_LAYERS = ['help', 'field', 'eoc', 'team', 'medical', 'units', 'public', 'ics', 'fema', 'paper', 'roleadmin']   // [FEMA_EOC_V1] fema, paper: after ics (they add to its boards)
 window.rtInit = function (cfg) {
   S.cfg = cfg || {}
   const names = (S.cfg.layers && S.cfg.layers.length ? S.cfg.layers : ALL_LAYERS).filter(n => /^[a-z0-9_-]+$/.test(n))
@@ -428,6 +428,7 @@ window.rtDeliver = function (line) {
   else if (m.ev === 'connected') connected(m)
   else if (m.ev === 'enrollScan') enrollScan(m)
   else if (m.ev === 'enrolled') enrolled(m)
+  else if (m.ev === 'roleConf' && !String(S.role || '').endsWith('admin')) roleConfHere(m)   // [ROLE_ADMIN_V1] an instance
   else if (m.ev === 'enrollFailed') { $('#enrollGo').disabled = false; $('#cstatus').textContent = '⚠ ' + m.text; status('⚠ ' + m.text) }
   else if (m.ev === 'mission') { $('#mission').textContent = m.name || m.id; RT.fire('mission', m)
     const changed = S.mission && S.mission.id !== m.id
@@ -499,7 +500,7 @@ function connected(m) {
   S.doorNode = m.node || ''                            // [DOOR_SAYS_ITS_NODE_V1] the node the door is (dc-door r16 on)
   if ($('#startAs')) $('#startAs').hidden = true
   if ($('#pick')) $('#pick').hidden = true     // [RT_APP_PICKER_V1] connected (an enrolled phone, a lead's card): the question is answered
-  S.role = m.role; S.team = m.team || ''; S.connectedAt = Date.now(); S.autoConnect = false; $('#splash').classList.add('gone')
+  S.role = m.role; S.team = m.team || ''; S.rams = m.rams || {}; S.connectedAt = Date.now(); S.autoConnect = false; $('#splash').classList.add('gone')
   // [WINDOW_SAYS_ITS_VIEW_V1] the title (the window's, on Windows) says the view this app is running as, and its team or unit
   { const rr = RT.roles[m.role] || {}; document.title = (rr.title || 'OpenEOC -- ' + (rr.label || m.role)) + (S.team ? ' · ' + cap(S.team) : '') }
   const r = RT.me()
@@ -572,6 +573,24 @@ function leadStart(served) {
   on('lsHost', () => { status('team ' + t + ': the hotspot and the RAM on this phone'); n.teamHost() })
   on('lsSys', () => { status('team ' + t + ': the hotspot on this phone; its RAM is the SystemRam'); n.ensureHotspot(); n.teamPlace('systemram') })
   on('lsNo', () => status('team ' + t + ': no host and no RAM provided'))
+}
+
+// [ROLE_ADMIN_V1] an instance of a role: its Admin's configuration came (at its connect, and on every change: the core's
+// held read). The lead brings its own tuples to match: the SystemRam is a place it writes itself; its own device needs its
+// hotspot, which is never started without being asked ([NOTHING_UNTIL_ASKED_V1]): it is said, and Host is the lead's
+function roleConfHere(m) {
+  const c = m.conf || {}, h = c.ramhost || '', t = cap(S.team || ''), n = window.rtNative || {}
+  S.roleConf = c
+  if (!h || !S.team) return
+  const lead = !!(S.cfg.enrolled && S.cfg.enrolled.lead), mine = String(S.team).toLowerCase()
+  const onSys = Object.entries(S.rams || {}).some(([k, v]) => k.toLowerCase() === mine && v === 'systemram')
+  const who = cap(m.role) + 'Admin'
+  if (h === 'systemram' && S.role !== 'team') status(who + ': the RAM host is the SystemRam (a ' + m.role + ' instance does not move its RAM there yet)')
+  else if (h === 'systemram') {
+    if (lead && !onSys && n.teamPlace) { status(who + ': the RAM host is the SystemRam: team ' + t + ' moves there'); n.teamPlace('systemram') }
+    else if (!onSys) status(who + ': the RAM host is the SystemRam (its lead moves team ' + t + ' there)')
+  } else if (h === 'device') status(who + ": the RAM host is each instance's own device" + (lead ? ': Host the hotspot and RAM on this phone' : ' (its lead hosts it)'))
+  else if (h === 'none') status(who + ': no host or RAM is provided for ' + t)
 }
 
 // ------------------------------------------------------------ the map

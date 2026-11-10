@@ -42,6 +42,9 @@ J='start "" "%%~dp0runtime\\bin\\javaw.exe" -cp "%%~dp0lib\\*"'
 printf "@echo off\r\nrem OpenEOC -- CommandCenter, powered by the FrogNet Living Network (%s)\r\n$J net.frognet.openeoc.desktop.Launcher --ui=\"%%~dp0ui\" --lock=eoc --layers=%s %%*\r\n" "$BUILD" "$CC" > $R/OpenEOC-CommandCenter.cmd
 printf "@echo off\r\nrem OpenEOC -- EOCAdmin, powered by the FrogNet Living Network (%s)\r\n$J net.frognet.openeoc.desktop.Launcher --ui=\"%%~dp0ui\" --lock=eocadmin --layers=%s %%*\r\n" "$BUILD" "$EA" > $R/OpenEOC-EOCAdmin.cmd
 printf "@echo off\r\nrem OpenEOC, powered by the FrogNet Living Network (%s)\r\n$J net.frognet.openeoc.desktop.Launcher --ui=\"%%~dp0ui\" %%*\r\n" "$BUILD" > $R/OpenEOC.cmd
+# [ROLE_ADMIN_V1] each role's Admin: OpenEOC -- TeamAdmin ... (a Command Center user logs in; the RAM host its instances follow)
+for ra in Team Hospital Ambulance Shelter Power Water Telecom; do l=$(echo $ra | tr A-Z a-z)admin
+printf "@echo off\r\nrem OpenEOC -- ${ra}Admin, powered by the FrogNet Living Network (%s)\r\n$J net.frognet.openeoc.desktop.Launcher --ui=\"%%~dp0ui\" --lock=$l --layers=help,roleadmin %%*\r\n" "$BUILD" > $R/OpenEOC-${ra}Admin.cmd; done
 printf "@echo off\r\nrem OpenEOC -- CommandCenterAdmin, powered by the FrogNet Living Network (%s)\r\n$J net.frognet.openeoc.desktop.AdminLauncher --ui=\"%%~dp0ui-admin\" %%*\r\n" "$ABUILD" > $R/OpenEOC-CommandCenterAdmin.cmd
 cat > $R/README.txt <<TXT
 OpenEOC for Windows ($BUILD; admin $ABUILD), powered by the FrogNet Living Network
@@ -51,6 +54,8 @@ folder's runtime and its one Communicator (comms\comms-app.exe), which Call open
   OpenEOC-EOCAdmin.cmd       the Command Center's paperwork: the ICS forms (201-221), the situation report, the Incident
                              Action Plan, the after-action report; printed on this computer's printer
   OpenEOC.cmd                every view, asked first: a Team, a Hospital, an Ambulance, ..., Public
+  OpenEOC-TeamAdmin.cmd, -HospitalAdmin, -AmbulanceAdmin, -ShelterAdmin, -PowerAdmin, -WaterAdmin, -TelecomAdmin
+                             each role's Admin (a Command Center user): the RAM host every instance of the role follows
   OpenEOC-CommandCenterAdmin.cmd  OpenEOC -- CommandCenterAdmin (Teams, Command Center users, Members): Node = any member with OpenEOC's door; App = openeoc; the admin user and
                              password set with  fdf-app config openeoc ... --admin USER:PASSWORD (checked here, never sent)
 Connect: this computer on a FrogNet node's Wi-Fi; Node = the node's address (filled in from this computer's gateway).

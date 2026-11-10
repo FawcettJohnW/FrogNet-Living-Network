@@ -49,7 +49,7 @@
 // the network, typed by nobody. A device this node gave no lease has none here, and is told so.
 header('Content-Type: application/json');
 // [DOOR_SAYS_ITS_BUILD_V1] every answer says which door answered: the header, and "door" in the admin and roles answers
-const DOOR_BUILD = 'dc-door-2026-11-09-teamdel2';   // [COMMAND_CENTER_V1] the EOC is the Command Center in what it says   // [ROLES_ON_API_V1] [EOC_LEADS_V1] [TEAM_ON_SYSTEMRAM_V1]
+const DOOR_BUILD = 'dc-door-2026-11-10-roleadmin1';   // [ROLE_ADMIN_V1]   // [COMMAND_CENTER_V1] the EOC is the Command Center in what it says   // [ROLES_ON_API_V1] [EOC_LEADS_V1] [TEAM_ON_SYSTEMRAM_V1]
 // [SENSORS_BY_THE_DOOR_V1] the sensor store (api.php on databasehost.frognet) by the address this node's /etc/hosts gives
 // it: an app through the tunnel has no .frognet names (the phone's DNS is its carrier's), the address routes
 function door_sensors() {
@@ -171,9 +171,11 @@ function role_hold_wait($host, $svc, $var, $inst, $seen, $wait) {
             $rows = $j['rows'] ?? [];
             if (role_sig($rows) !== $seen) return $rows;
             $left = $end - microtime(true);
-            if ($left <= 0) return $rows;
+            // [HOLD_ENDS_WITH_NOW_V1] (found 2026-11-10: a held read that timed out handed back the rows it had when it began,
+            // so a write in between, whose fire did not arrive, was missed for one more hold) the end of the wait reads again
+            if ($left <= 0) return role_rows($host, $svc, $var, $inst);
             $r = [$sock]; $w = null; $e = null;
-            if (!@stream_select($r, $w, $e, intval($left), intval(fmod($left, 1) * 1e6))) return $rows;
+            if (!@stream_select($r, $w, $e, intval($left), intval(fmod($left, 1) * 1e6))) return role_rows($host, $svc, $var, $inst);
             @stream_socket_recvfrom($sock, 65536);                 // the fire: hold again; its reply is the current rows
         }
     } finally { fclose($sock); @unlink($path); }
@@ -584,6 +586,37 @@ if ($op === 'read') {
     if (isset((app_tuple($app)['places'] ?? [])[$t])) role_write(ctl_host(), 'fdf-app', 'config', $app . '.' . $t, ['at' => 'removed', 'by' => (string)$in['user'], 'seq' => (int)(microtime(true) * 1000)]);
     error_log('dc ram.php: [TEAM_DELETE_V1] ' . $app . ': team ' . $t . ' (lead ' . (string)($kid['lead'] ?? '') . ') deleted by the Command Center user ' . $in['user']);
     echo json_encode(['ok' => true, 'team' => $t, 'deleted' => true, 'door' => DOOR_BUILD], JSON_UNESCAPED_SLASHES);
+} elseif ($op === 'roleconf') {
+    // [ROLE_ADMIN_V1] (John 2026-11-10: "Create -Admin roles for everything that has a non-admin version. For now, it's just
+    // the RAM host"; "they have a held read on the configuration tuples of the current <App>Admin so that they get called
+    // when there is a change") a role's one configuration, written by its Admin (a Command Center user), read and held by
+    // every instance of the role: (fdf-app, roleconf, <app>.<role>) {ramhost, by, seq, at} in databasehost-control.
+    //   GET  ?app&role                    its configuration now ({} when its Admin has set none)
+    //   GET  ?app&role&after=SIG&wait=W   held (role_hold_wait) until it is not SIG, at most W s
+    //   POST ?app {user, password, role, ramhost}   its Admin sets it
+    $app = $_GET['app'] ?? '';
+    if (!preg_match('/^[A-Za-z0-9_-]{1,40}$/', $app)) fail(400, 'app needed');
+    $hosts = ['device' => 1, 'systemram' => 1, 'none' => 1];
+    if ($_SERVER['REQUEST_METHOD'] === 'POST') {
+        $in = json_decode(file_get_contents('php://input'), true);
+        if (!is_array($in)) fail(400, 'a JSON body needed');
+        $r = strtolower((string)($in['role'] ?? ''));
+        if (!preg_match('/^[a-z][a-z0-9_-]{0,39}$/', $r)) fail(400, 'role needed');
+        $h = (string)($in['ramhost'] ?? '');
+        if (!isset($hosts[$h])) fail(400, "ramhost: device, systemram or none (another machine is not implemented)");
+        eoc_user($app, $in);
+        $bag = ['role' => $r, 'ramhost' => $h, 'by' => (string)$in['user'], 'seq' => (int)(microtime(true) * 1000), 'at' => time()];
+        role_write(ctl_host(), 'fdf-app', 'roleconf', $app . '.' . $r, $bag);
+        error_log('dc ram.php: [ROLE_ADMIN_V1] ' . $app . ' role ' . $r . ': RAM host ' . $h . ' (by ' . $bag['by'] . ')');
+        echo json_encode(['ok' => true, 'conf' => $bag, 'door' => DOOR_BUILD], JSON_UNESCAPED_SLASHES); exit;
+    }
+    $r = strtolower((string)($_GET['role'] ?? ''));
+    if (!preg_match('/^[a-z][a-z0-9_-]{0,39}$/', $r)) fail(400, 'role needed');
+    $rows = isset($_GET['after']) ? role_hold_wait(ctl_host(), 'fdf-app', 'roleconf', $app . '.' . $r, intval($_GET['after']), max(0, min(25, intval($_GET['wait'] ?? 20))))
+                                  : role_rows(ctl_host(), 'fdf-app', 'roleconf', $app . '.' . $r);
+    $c = role_cells($rows); $conf = (object)[];
+    foreach ($c as $x) { if (is_array($x['bag'] ?? null) && $x['bag']) { $conf = $x['bag']; break; } }   // the newest first
+    echo json_encode(['ok' => true, 'conf' => $conf, 'last' => role_sig($rows), 'door' => DOOR_BUILD], JSON_UNESCAPED_SLASHES);
 } elseif ($op === 'team') {
     // [TEAM_ON_SYSTEMRAM_V1] a Team on the SystemRam: its service's tuples, read at databasehost.frognet's api.php;
     // &after=LAST&wait=W: held there (role_hold_wait: api.php fires this door's held socket) until they are not LAST

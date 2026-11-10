@@ -14,8 +14,8 @@ android {
         applicationId = "net.frognet.openeoc.ambulance"
         minSdk = 29
         targetSdk = 34
-        versionCode = 52
-        versionName = "openeoc-app-2026-11-10-r77"
+        versionCode = 53
+        versionName = "openeoc-app-2026-11-10-r78"
         manifestPlaceholders["rtLayers"] = rtLayers.joinToString(",")
     }
     compileOptions { sourceCompatibility = JavaVersion.VERSION_17; targetCompatibility = JavaVersion.VERSION_17 }

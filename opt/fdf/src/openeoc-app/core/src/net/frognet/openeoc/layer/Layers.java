@@ -9,7 +9,7 @@ import java.util.List;
 
 /** [RT_LAYERS_V1] the core's layers by name, as an app lists them (the page's ui/layers/<name>.js are the same names) */
 public final class Layers {
-    public static final String ALL = "help,field,eoc,team,medical,units,public,ics,fema,paper";
+    public static final String ALL = "help,field,eoc,team,medical,units,public,ics,fema,paper,roleadmin";
     public static List<Layer> of(String names) {
         List<Layer> out = new ArrayList<Layer>();
         for (String n : (names == null || names.trim().isEmpty() ? ALL : names).split(",")) {
@@ -24,6 +24,7 @@ public final class Layers {
             else if (n.equals("ics")) out.add(new IcsLayer());
             else if (n.equals("fema")) { }                   // [FEMA_EOC_V1] a page layer on the ics boards: no core of its own
             else if (n.equals("paper")) out.add(new PaperLayer());
+            else if (n.equals("roleadmin")) out.add(new RoleAdminLayer());   // [ROLE_ADMIN_V1]
             else if (!n.isEmpty()) throw new IllegalArgumentException("no layer " + n + " (the layers: " + ALL + ")");
         }
         return out;

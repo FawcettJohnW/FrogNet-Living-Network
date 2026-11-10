@@ -47,6 +47,30 @@ role's `act`/`req`, or `RT.button`). **A new view**: `RT.role(...)` in a layer's
 `RTA.panel(title, fn)` (none yet). Gates: `test/test_app.py` (32 checks; the Team and Public apps run with their own
 layers only), `test/test_team_host.py`, `android/typecheck.sh`.
 
+## r78: each role's Admin; instances hold a read on it ([ROLE_ADMIN_V1]); a held read ends with the rows now ([HOLD_ENDS_WITH_NOW_V1]); door dc-door-2026-11-10-roleadmin1
+
+John 2026-11-10: "Create -Admin roles for everything that has a non-admin version. For now, it's just the RAM host, but
+add 'Reserved for future customization' below that"; "the Roles are installed and become services across the network
+... they have a held read on the configuration tuples of the current <App>Admin ... When that happens, they need to update
+their own tuples to match. There may be many instances of a role on the network. One Admin configures them all."
+
+- **The Admins:** OpenEOC -- TeamAdmin, -- HospitalAdmin, -- AmbulanceAdmin, -- ShelterAdmin, -- PowerAdmin,
+  -- WaterAdmin, -- TelecomAdmin (page `ui/layers/roleadmin.js`, core `RoleAdminLayer`; Windows `OpenEOC-<Role>Admin.cmd`;
+  on Android in the OpenEOC app's first screen). A Command Center user logs in. Its one screen: **RAM host** (each
+  instance on its own device / the SystemRam / another machine (Not Implemented) / no host or RAM), Save; below it
+  **Reserved for future customization**. (The Command Center's Admin is OpenEOC -- CommandCenterAdmin, the admin tool.)
+- **The role's one configuration:** `(fdf-app, roleconf, openeoc.<role>) {role, ramhost, by, seq, at}` in
+  databasehost-control, through the door's new `op=roleconf` (GET; GET held with after/wait; POST by a Command Center user).
+- **Every instance holds a read on it:** a Team or unit app's core holds `op=roleconf` from its connect (ev roleConf on
+  every change). A Team's lead brings its own tuples to match: the SystemRam is a place it writes itself; its own device
+  needs its hotspot, which is never started unasked ([NOTHING_UNTIL_ASKED_V1]), so that is said. A unit's instance is told
+  and says so; moving a unit's RAM is not built.
+- **[HOLD_ENDS_WITH_NOW_V1]:** the door's held read, at the end of its wait, handed back the rows it had when it began, so
+  a write in between whose fire did not arrive waited one more hold. It now reads again at the end. (Found by 17c: in the
+  test's stand-in node the fires to the door did not arrive; the instance was told at the end of the wait, 17 s.)
+- **Tests:** `test_leads` 17c (TeamAdmin's screen, Save, the door, Dave's instance told), 17d (a team's user cannot set
+  it); `test_app`, `test_fema`, `test_no_mission`, the page tests, the Android type-check.
+
 ## r77: names follow the convention ([NAMES_ARE_THE_CONVENTION_V1])
 
 John 2026-11-10: "There is a convention: OpenEOC -- EOCAdmin, OpenEOC -- CommandCenterAdmin, OpenEOC -- TeamAdmin,
