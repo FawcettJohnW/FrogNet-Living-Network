@@ -47,6 +47,16 @@ role's `act`/`req`, or `RT.button`). **A new view**: `RT.role(...)` in a layer's
 `RTA.panel(title, fn)` (none yet). Gates: `test/test_app.py` (32 checks; the Team and Public apps run with their own
 layers only), `test/test_team_host.py`, `android/typecheck.sh`.
 
+## r71: the update applier is in settings.gradle.kts ([UPDATE_IN_SETTINGS_V1])
+
+Found 2026-11-10: the full project opened in Android Studio stopped at "Could not read script ...\OpenEOC-Android-Studio\rt-update.settings.gradle.kts as it does not exist". The file was in the zip, but not in the folder Android Studio opened, so the build depended on a second file arriving.
+
+`settings.gradle.kts` now carries the update applier itself, and `rt-update.settings.gradle.kts` is gone. An r71 update zip applied to an older project removes it through REMOVED.txt, after that old file has applied the update.
+
+Checked with Gradle 8.9 on the exported project:
+- the r71 settings say "OpenEOC: building openeoc-app-2026-11-10-r71";
+- an r70 project with the r71 update zip beside it applies the update (73 files) and then builds from the new settings.
+
 ## r70: a deleted team is refused; a lead removed takes its team
 
 John 2026-11-09: "I already deleted the leads. I need to remove it so that I get an error on the phone when it tries to use it ... say that we are deleting the current lead for a role." This is part of [TEAM_DELETE_V1], with door dc-door-2026-11-09-teamdel2.
@@ -274,7 +284,7 @@ app with these names.
 
 - The phone's own preferences are `openeoc-enroll` (were `rt-enroll`): a phone that joined on r55 to r57 joins again
   once after r58.
-- Kept: `android/rt-update.settings.gradle.kts` keeps its name (the other branch named it `openeoc-update...`). It is the
+- Kept (until r71, which folded it into settings.gradle.kts): `android/rt-update.settings.gradle.kts` kept its name (the other branch named it `openeoc-update...`). It is the
   script an open Android Studio project runs first to apply an update; renaming it from inside an update is a change
   that has not been tried.
 - History keeps its names: builds made as `rt-app-...` and `rt-admin-...` are named so where the record says them.
