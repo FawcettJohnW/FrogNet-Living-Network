@@ -41,6 +41,8 @@ class Door(BaseHTTPRequestHandler):
     def do_GET(self):
         q = parse_qs(urlparse(self.path).query)
         if q.get("op") == ["rams"]: self.answer({"ok": True, "rams": {"general": GEN, "alpha": ALPHA}})
+        # the door's roles, as the real door answers them ([TEAM_DELETE_V1]: a team connects only when the door names it)
+        elif q.get("op") == ["roles"]: self.answer({"ok": True, "roles": {"eoc": {"category": "EOC"}, "alpha": {"category": "Teams", "ram": True}}})
         else: self.answer({"ok": False, "error": "op"})
     def do_POST(self):
         b = json.loads(self.rfile.read(int(self.headers["Content-Length"])))
@@ -123,6 +125,7 @@ class Door2(Door):
     def do_GET(self):
         q = parse_qs(urlparse(self.path).query)
         if q.get("op") == ["rams"]: self.answer({"ok": True, "rams": {"general": GEN2}})
+        elif q.get("op") == ["roles"]: self.answer({"ok": True, "roles": {"eoc": {"category": "EOC"}, "alpha": {"category": "Teams", "ram": True}}})
         else: self.answer({"ok": False, "error": "op"})
 dp2 = free(); srv2 = ThreadingHTTPServer(("127.0.0.1", dp2), Door2); threading.Thread(target=srv2.serve_forever, daemon=True).start()
 DOOR2 = "127.0.0.1:%d" % dp2

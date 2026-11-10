@@ -78,7 +78,7 @@ try:
     from playwright.sync_api import sync_playwright
     def free():
         s = socket.socket(); s.bind(("127.0.0.1", 0)); p = s.getsockname()[1]; s.close(); return p
-    pe, pt, pl = free(), free(), free()
+    pe, pt, pl, p2 = free(), free(), free(), free()
     os.makedirs("/run/frognet/held", exist_ok=True)
     procs.append(subprocess.Popen(["java", "-Drt.layers=help,field,eoc,medical,ics,fema", "-Duser.home=" + T, "-cp", CP, "DevHost", APP + "/ui", str(pe), "eoc1", "EOC Desk", "127.0.1.1:8088", "eoc", "", "eoc"],
                                   stdout=open(T + "/dev-eoc.log", "w"), stderr=subprocess.STDOUT))
@@ -86,6 +86,8 @@ try:
                                   stdout=open(T + "/dev-team.log", "w"), stderr=subprocess.STDOUT))
     procs.append(subprocess.Popen(["java", "-Drt.layers=help,field,team,ics,fema", "-Duser.home=" + T, "-cp", CP, "DevHost", APP + "/ui", str(pl), "lr1", "Lee", "127.0.1.1:8088", "team", "Lee Rescue", "team"],
                                   stdout=open(T + "/dev-lr.log", "w"), stderr=subprocess.STDOUT))
+    procs.append(subprocess.Popen(["java", "-Drt.layers=help,field,team,ics,fema", "-Duser.home=" + T, "-cp", CP, "DevHost", APP + "/ui", str(p2), "lr2", "Pat", "127.0.1.1:8088", "team", "Lee Rescue", "team"],
+                                  stdout=open(T + "/dev-lr2.log", "w"), stderr=subprocess.STDOUT))
     time.sleep(2.5)
     with sync_playwright() as pw:
         br = pw.chromium.launch(); errs = []
@@ -178,6 +180,17 @@ try:
         adm = door("op=teamdel&app=openeoc", {"user": "EOCAdmin", "password": "eoc-2026", "team": "alpha"})
         check("did not give openeoc-lee_rescue an identity" in str(again.get("why")) and "admin configured" in str(adm.get("why")),
               "19 lee creates Lee Rescue again (to the region step: %s); the admin's Team alpha is the admin tool's to remove: %s" % (str(again.get("why"))[:60], adm.get("why")))
+        # [TEAM_DELETE_V1] removing lead lee takes its team with it; a device connecting as Lee Rescue is refused, said
+        pg.evaluate("$('#leadsBtn').click()"); pg.wait_for_selector("#sheet tr:has-text('lee') button:has-text('Remove')", timeout=15000)
+        pg.click("#sheet tr:has-text('lee') button:has-text('Remove')")
+        pg.wait_for_function("S.leads && !S.leads.lee && S.leadTeams && !S.leadTeams['Lee Rescue']", timeout=15000)
+        p2g = br.new_page(viewport={"width": 412, "height": 860}); p2g.on("pageerror", lambda e: errs.append("lr2: " + str(e)))
+        p2g.goto("http://127.0.0.1:%d/" % p2); p2g.wait_for_selector("#connect:not([hidden])", timeout=8000)
+        p2g.evaluate("() => { const f = $('#connect'); if (![...f.team.options].some(o => o.value === 'Lee Rescue')) f.team.insertAdjacentHTML('beforeend', '<option>Lee Rescue</option>'); f.team.value = 'Lee Rescue' }")
+        p2g.click("#connect button[type=submit]")
+        p2g.wait_for_function("document.querySelector('#cstatus').textContent.includes('not on this network') || document.querySelector('#status').textContent.includes('not on this network')", timeout=20000)
+        why = p2g.inner_text("#cstatus") + " | " + p2g.inner_text("#status")
+        check(p2g.is_hidden("#main") and "the Command Center deleted it" in why, "20 lead lee removed takes Lee Rescue with it; a device connecting as Lee Rescue is refused: %r" % why[:200])
         logs = open(T + "/php-door.log").read() + open(T + "/dev-eoc.log").read()
         check(not errs and "lee-2026" not in logs and "sam-2026" not in logs, "14 no page errors %s; no password in the door's or the core's log" % errs)
         br.close()

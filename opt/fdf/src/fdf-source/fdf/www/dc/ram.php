@@ -49,7 +49,7 @@
 // the network, typed by nobody. A device this node gave no lease has none here, and is told so.
 header('Content-Type: application/json');
 // [DOOR_SAYS_ITS_BUILD_V1] every answer says which door answered: the header, and "door" in the admin and roles answers
-const DOOR_BUILD = 'dc-door-2026-11-09-teamdel1';   // [COMMAND_CENTER_V1] the EOC is the Command Center in what it says   // [ROLES_ON_API_V1] [EOC_LEADS_V1] [TEAM_ON_SYSTEMRAM_V1]
+const DOOR_BUILD = 'dc-door-2026-11-09-teamdel2';   // [COMMAND_CENTER_V1] the EOC is the Command Center in what it says   // [ROLES_ON_API_V1] [EOC_LEADS_V1] [TEAM_ON_SYSTEMRAM_V1]
 // [SENSORS_BY_THE_DOOR_V1] the sensor store (api.php on databasehost.frognet) by the address this node's /etc/hosts gives
 // it: an app through the tunnel has no .frognet names (the phone's DNS is its carrier's), the address routes
 function door_sensors() {
@@ -530,7 +530,16 @@ if ($op === 'read') {
     $ld = (string)($in['lead'] ?? '');
     if (!lead_ok($ld)) fail(400, "a user's name: letters, digits, . _ - (at most 40)");
     if (isset($cfg['users'][$ld])) fail(409, "$ld is a user the admin configured");
-    if (!empty($in['remove'])) $bag = ['name' => $ld, 'removed' => true, 'by' => (string)$in['user'], 'at' => time()];
+    if (!empty($in['remove'])) {
+        $bag = ['name' => $ld, 'removed' => true, 'by' => (string)$in['user'], 'at' => time()];
+        // [TEAM_DELETE_V1] (John 2026-11-09: "say that we are deleting the current lead for a role") a lead removed takes the
+        // team it created with it: its phone, and its members', are refused when they next connect as it
+        foreach (children($app) as $t => $kb) if ((string)($kb['lead'] ?? '') === $ld) {
+            role_write(ctl_host(), 'fdf-app', 'child', $app . '.' . $t, ['name' => $t, 'removed' => true, 'by' => (string)$in['user'], 'at' => time(), 'with' => 'its lead ' . $ld]);
+            if (isset((app_tuple($app)['places'] ?? [])[$t])) role_write(ctl_host(), 'fdf-app', 'config', $app . '.' . $t, ['at' => 'removed', 'by' => (string)$in['user'], 'seq' => (int)(microtime(true) * 1000)]);
+            error_log('dc ram.php: [TEAM_DELETE_V1] ' . $app . ': team ' . $t . ' deleted with its lead ' . $ld);
+        }
+    }
     else {
         $v = $in['verifier'] ?? null;
         if (!is_array($v) || !preg_match('/^[0-9a-f]{16,128}$/', (string)($v['salt'] ?? '')) || !preg_match('/^[0-9a-f]{64}$/', (string)($v['hash'] ?? '')) || intval($v['n'] ?? 0) < 10000)

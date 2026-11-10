@@ -47,7 +47,21 @@ role's `act`/`req`, or `RT.button`). **A new view**: `RT.role(...)` in a layer's
 `RTA.panel(title, fn)` (none yet). Gates: `test/test_app.py` (32 checks; the Team and Public apps run with their own
 layers only), `test/test_team_host.py`, `android/typecheck.sh`.
 
-## r69: delete a team ([TEAM_DELETE_V1], door dc-door-2026-11-09-teamdel1)
+## r70: a deleted team is refused; a lead removed takes its team
+
+John 2026-11-09: "I already deleted the leads. I need to remove it so that I get an error on the phone when it tries to use it ... say that we are deleting the current lead for a role." This is part of [TEAM_DELETE_V1], with door dc-door-2026-11-09-teamdel2.
+
+**A lead removed takes its team.** Removing a lead (Leads › Remove) marks every team it created removed, with that team's place.
+
+**A deleted team is refused.** A device connecting as a team (a lead or a member) asks the door for its roles. A team the door does not name is refused, and the device says: "team X is not on this network: the Command Center deleted it, or it was never created".
+
+**A team whose lead was removed earlier.** Leads removed with an older door left their teams on the network. Those teams are listed under "Teams created on the network", where Delete removes them.
+
+**Tests.**
+- `test_leads.py` step 20.
+- `test_team_host.py`'s door stand-in now answers `op=roles`, as the real door does.
+
+## r69: delete a team ([TEAM_DELETE_V1], door dc-door-2026-11-09-teamdel2)
 
 John 2026-11-09: "I need a way to delete a team."
 

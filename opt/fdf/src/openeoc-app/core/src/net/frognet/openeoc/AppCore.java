@@ -49,7 +49,7 @@ public final class AppCore {
 
     public static final String APP = "openeoc";
     public static final String API = "/FawcettInnovations.RINA.ram_interface.php";
-    public static final String BUILD = "openeoc-app-2026-11-09-r69";
+    public static final String BUILD = "openeoc-app-2026-11-09-r70";
 
     private final Ui ui;
     private String door = "", dev = "", name = "", role = "", team = "", user = "", mission = "";
@@ -138,7 +138,7 @@ public final class AppCore {
             else if (op.equals("teamDelete")) {                     // [TEAM_DELETE_V1]
                 try { teamDelete(Json.str(m.get("team"))); }
                 catch (Exception e) { String why = e.getMessage() == null ? e.toString() : e.getMessage();
-                    if (why.contains("op is read")) why = "this node's door cannot delete teams yet (it answered: " + why + "): put dc-door-2026-11-09-teamdel1 on the node";
+                    if (why.contains("op is read")) why = "this node's door cannot delete teams yet (it answered: " + why + "): put dc-door-2026-11-09-teamdel2 on the node";
                     out("ev", "leadSaid", "ok", false, "text", why); throw new Exception(why); }
             }
             else if (op.equals("leadAdd") || op.equals("leadRemove")) {
@@ -338,7 +338,15 @@ public final class AppCore {
             role = want;                                    // the admin's role name in any case ([RT_EOC_APP_V1])
             team = "";
             eocPassword = Json.str(m.get("password"));      // [EOC_LEADS_V1] kept for adding leads, this session only
-        } else if (v.connect.equals("team")) { role = want; team = Json.str(m.get("team")); user = ""; }
+        } else if (v.connect.equals("team")) {
+            role = want; team = Json.str(m.get("team")); user = "";
+            // [TEAM_DELETE_V1] (John 2026-11-09: "I need to remove it so that I get an error on the phone when it tries to use
+            // it") a team the Command Center deleted, or that was never created, is not on the door's roles: refused, said
+            Map<String, Object> rs = Json.obj(doorCall("op=roles&app=" + APP, null).get("roles"));
+            boolean there = false; for (String k : rs.keySet()) if (k.equalsIgnoreCase(team.trim())) there = true;
+            if (!there) throw new Exception("team " + cap(team) + " is not on this network: the Command Center deleted it, or it was never created ("
+                    + (rs.isEmpty() ? "the door names no teams" : "its teams: " + String.join(", ", rs.keySet())) + ")");
+        }
         else if (v.connect.equals("unit")) { role = want; team = Json.str(m.get("unit")); user = ""; }   // [RT_SUITE_APPS_V1] a unit's app
         else { role = want; team = ""; user = ""; }
         teamRam = Json.str(m.get("teamRam")).trim();
