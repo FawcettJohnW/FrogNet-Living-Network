@@ -47,6 +47,31 @@ role's `act`/`req`, or `RT.button`). **A new view**: `RT.role(...)` in a layer's
 `RTA.panel(title, fn)` (none yet). Gates: `test/test_app.py` (32 checks; the Team and Public apps run with their own
 layers only), `test/test_team_host.py`, `android/typecheck.sh`.
 
+## r72: the phone does nothing until told ([NOTHING_UNTIL_ASKED_V1])
+
+John 2026-11-10: "on the phone, what I want is for it NOT to ... start the hotspot or do any connections or login or
+anything like that until I tell it to ... When the phone comes up, I should have the option to start as a team,
+ambulance, etc. before anything else. If I start as a team, it should ask me if I want to connect as the existing team
+or start a new one."
+
+- **The first screen is which app** (OpenEOC: Team, Hospital, Ambulance, …; an app built for one view goes on to that
+  view). Nothing is sent before it: no connect, no roles asked of the node, and the phone no longer asks its gateway
+  at start (`[GATEWAY_IS_A_NODE_V1]` asks it at the connect the user makes). The Node field takes a gateway shaped as a
+  node's (10.x, its .1) without asking it.
+- **A team or a unit (Hospital, Ambulance, …) then asks:**
+  - **Connect as the existing team**: the one this phone joined as, named with its user (and "its lead"), connects
+    when pressed; a phone that has joined none is shown the scan for the team's QR.
+  - **Start a new team**: the scan is offered even on a phone that has joined, for the lead QR the Command Center
+    shows; then the team's name and the password, Create the Team.
+  - **Other app** goes back to the first screen.
+- **Replaced:** `[JOINED_IS_DONE_V1]` (a joined phone connected by itself 1.8 s after start).
+- **Unchanged:** the Command Center, EOCAdmin and Public views go to their connect screen; a computer asks the node for
+  the admin's teams at start, as before; after a lead connects, its phone still asks (host / Use SystemRam / hotspot /
+  Not now) and does nothing before the answer.
+- **Tests:** `test_connect_page` 1 (nothing sent at start or after the pick; the question; the existing team connects;
+  not joined: the scan; a new one: the scan), `test_enroll_page`, `test_header_page`, `test_kinds_page`,
+  `test_nogps_page`, `test_admin_page`, `test_app` (36), `test_no_mission`, the Android type-check.
+
 ## r72: a user who is not a Command Center user is told the admin tool's fix ([EOC_USER_SAYS_THE_FIX_V1])
 
 Found 2026-11-10: "connect: user EOCLead has role 'eochq' (category 1794191697412), not the EOCAdmin's: in the admin

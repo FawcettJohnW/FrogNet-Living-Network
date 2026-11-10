@@ -43,7 +43,7 @@ with tempfile.TemporaryDirectory() as tmp, sync_playwright() as pw:
     pg.add_init_script(STUB)
     pg.goto("file://" + os.path.join(APP, "ui", "index.html"))
     pg.evaluate("rtInit({dev: 'p1', name: 'Pixel', door: '', role: 'team', team: 'Alpha', platform: 'android', lock: '', build: 'test', invited: '', lan: '', enrolled: {}})")
-    pg.wait_for_selector("#pick:not([hidden])", timeout=5000); pg.click("[data-pick=team]")   # [RT_APP_PICKER_V1]
+    pg.wait_for_selector("#pick:not([hidden])", timeout=5000); pg.click("[data-pick=team]"); pg.click("#saNew")   # [RT_APP_PICKER_V1] [NOTHING_UNTIL_ASKED_V1]
     pg.wait_for_selector("#connect:not([hidden])", timeout=5000)
     first = pg.evaluate("!!(document.querySelector('#qrSec').compareDocumentPosition(document.querySelector('#manual')) & Node.DOCUMENT_POSITION_FOLLOWING)")
     closed = not pg.evaluate("$('#manual').open"); hid = not pg.is_visible("#joinEoc") and not pg.is_visible("[name=door]")
@@ -139,7 +139,7 @@ with tempfile.TemporaryDirectory() as tmp, sync_playwright() as pw:
     # 5 a refused enrollment (a fresh page)
     pg.goto("file://" + os.path.join(APP, "ui", "index.html"))
     pg.evaluate("rtInit({dev: 'p2', name: 'P', door: '', role: 'team', team: 'Alpha', platform: 'android', lock: '', build: 'test', invited: '', lan: '', enrolled: {}})")
-    pg.wait_for_selector("#pick:not([hidden])", timeout=5000); pg.click("[data-pick=team]")   # [RT_APP_PICKER_V1]
+    pg.wait_for_selector("#pick:not([hidden])", timeout=5000); pg.click("[data-pick=team]"); pg.click("#saNew")   # [RT_APP_PICKER_V1] [NOTHING_UNTIL_ASKED_V1]
     pg.wait_for_selector("#connect:not([hidden])", timeout=5000)
     pg.evaluate("l => rtDeliver(JSON.stringify({ev: 'enrollScan', line: l, url: 'http://192.168.43.1:21801/enroll', app: 'openeoc', user: 'ann'}))", "fdfenroll1 http://192.168.43.1:21801/enroll openeoc ann")
     pg.fill("#enrollPw", "wrong"); pg.click("#enrollGo")

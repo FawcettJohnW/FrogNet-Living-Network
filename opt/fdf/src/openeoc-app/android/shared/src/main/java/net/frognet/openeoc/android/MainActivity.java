@@ -501,7 +501,8 @@ public final class MainActivity extends Activity implements LocationListener {
         web.loadUrl("file:///android_asset/ui/index.html");
         askForLocation();
         watchNetworks();
-        gatewayUnknown(new Runnable() { public void run() { } });   // [GATEWAY_IS_A_NODE_V1] asked at once, so the first screen knows
+        // [NOTHING_UNTIL_ASKED_V1] (John 2026-11-10: no "connections or login or anything like that until I tell it to") the
+        // gateway is not asked at start ([GATEWAY_IS_A_NODE_V1] asks it at the connect the user makes); nothing else is started
     }
 
     private Map<String, Object> settings() {
@@ -521,7 +522,9 @@ public final class MainActivity extends Activity implements LocationListener {
         String gw = gateway();
         // on a node's Wi-Fi the node is the gateway: where this phone is now ([TEAM_HOST_V1] not on a team lead's hotspot,
         // whose gateway is the lead's phone: there the node is the one the lead's card names)
-        if (!gw.isEmpty() && !nodeLan().isEmpty()) door = gw;
+        // [NOTHING_UNTIL_ASKED_V1] the gateway is not asked at start: a LAN shaped as a node's (10.x, its gateway x.y.z.1) is
+        // taken as the node's for the Node field; the connect asks the gateway ([GATEWAY_IS_A_NODE_V1]) before it is used
+        if (!gw.isEmpty() && (!nodeLan().isEmpty() || gw.equals(gwOf(lanShape())))) door = gw;
         // [RT_TEAM_APP_V1] an APK built for one role (the Team app: meta-data net.frognet.openeoc.ROLE = team) opens as it
         String lock = meta("net.frognet.openeoc.ROLE");
         return Json.o("dev", dev, "name", name, "door", door, "role", lock.isEmpty() ? prefs.getString("role", "team") : lock,

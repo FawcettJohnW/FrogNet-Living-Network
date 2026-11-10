@@ -2,8 +2,9 @@
 # Copyright (C) 2016-2026 Fawcett Innovations LLC. SPDX-License-Identifier: GPL-2.0-only
 # test_connect_page.py -- John's four changes of 2026-11-09 to the phone's page (ui/), in Chromium, the Android side stood
 # in for by a recording rtNative:
-#   1 [JOINED_IS_DONE_V1] a phone that has joined (cfg.enrolled) opens on the map: no picker, no connect screen; it
-#     connects as what joining made it (Team Echo, its user, the node it joined through), no password
+#   1 [NOTHING_UNTIL_ASKED_V1] a phone that has joined (cfg.enrolled) sends nothing at start (no connect, no roles): it asks
+#     which app first, then, as a Team, the existing team (Echo, as its lead KJ7ABC) or a new one; the existing one connects
+#     as what joining made it (Team Echo, its user, the node it joined through), no password; a new one offers the scan
 #   2 that connect refused: the connect screen, saying why (not a blank screen); the scan is not offered to it
 #   3 [LEAD_STARTS_ASKED_V1] a lead's connect asks, a second after, about its hotspot (Turn on the hotspot: rtNative.ensureHotspot); a member's does not
 #   4 [APP_EXIT_V1] Exit, on the connect screen and in the header (☰ on a phone), calls rtNative.exit; with no exit on
@@ -39,14 +40,17 @@ with sync_playwright() as pw:
     # 1, 3 a joined lead
     pg, errs = page(br, NATIVE, {"enrolled": {"user": "KJ7ABC", "role": "echo", "lead": True, "door": "10.170.170.1"}})
     pg.wait_for_timeout(2300)
+    before = [x for x in pg.evaluate("__sent") if x[0] != 'send' or x[1].get("op") in ("connect", "roles")]
+    picked = pg.is_visible("#pick") and not pg.is_visible("#connect")
+    pg.click("[data-pick=team]"); pg.wait_for_selector("#startAs:not([hidden])", timeout=3000)
+    asks = pg.inner_text("#startAs"); still = [x for x in pg.evaluate("__sent") if x[0] != 'send' or x[1].get("op") in ("connect", "roles")]
+    pg.click("#saOld")
     conn = [x[1] for x in sent(pg, "send") if x[1].get("op") == "connect"]; c = conn[-1] if conn else {}
-    shown = pg.evaluate("[!document.querySelector('#connect').hidden, !!document.querySelector('#pick') && !document.querySelector('#pick').hidden]")
-    dl(pg, {"ev": "status", "text": "[APP_IS_SELF_CONTAINED_V1] waiting for the FrogNet tunnel"})
-    splash = pg.evaluate("[!document.querySelector('#splash').classList.contains('gone'), document.querySelector('#splash').innerText]")
-    check(len(conn) == 1 and c.get("role") == "team" and c.get("team") == "Echo" and c.get("user") == "KJ7ABC" and c.get("door") == "10.170.170.1"
-          and c.get("name") == "KJ7ABC" and c.get("password") == "" and shown == [False, False] and splash[0] and "KJ7ABC: connecting as Team, lead of Echo" in splash[1]
-          and "waiting for the FrogNet tunnel" in splash[1] and not errs,
-          "1 a joined phone connects by itself, as %s; connect screen / picker shown %s; the splash up, saying %r; errors %s" % ({k: c.get(k) for k in ("role", "team", "user", "door", "name")}, shown, splash, errs))
+    check(before == [] and still == [] and picked and "Connect as the existing team" in asks and "Echo, as its lead KJ7ABC" in asks and "Start a new team" in asks
+          and len(conn) == 1 and c.get("role") == "team" and c.get("team") == "Echo" and c.get("user") == "KJ7ABC" and c.get("door") == "10.170.170.1"
+          and c.get("name") == "KJ7ABC" and c.get("password") == "" and not errs,
+          "1 a joined phone: nothing sent at start %s or after Team %s; the picker first %s; asked %r; Connect as the existing team connects as %s; errors %s"
+          % (before, still, picked, asks, {k: c.get(k) for k in ("role", "team", "user", "door", "name")}, errs))
     # (its team served: the door's RAMs name echo. [LEAD_HOSTS_ITS_TEAM_V1] served nowhere, the lead hosts it: Host team,
     # which turns the hotspot on itself -- test_enroll_page 3b)
     dl(pg, {"ev": "connected", "role": "team", "team": "Echo", "build": "t", "rams": {"general": "10.170.170.1:61471", "echo": "10.170.170.1:65355"}})
@@ -56,7 +60,7 @@ with sync_playwright() as pw:
     check(sent(pg, "hotspot") == [["hotspot"]] and not pg.is_hidden("#main") and gone, "3 the lead's connect asks about its hotspot (Turn on the hotspot: %s); the splash gone %s" % (sent(pg, "hotspot"), gone))
     # 2 a joined member whose connect is refused; 3 a member asks for no hotspot
     pg2, errs2 = page(br, NATIVE, {"enrolled": {"user": "W7NEW", "role": "echo", "lead": False, "door": "10.170.170.1"}})
-    pg2.wait_for_timeout(2300)
+    pg2.wait_for_timeout(2300); pg2.click("[data-pick=team]"); pg2.click("#saOld")
     dl(pg2, {"ev": "error", "text": "the node at 10.170.170.1 is not reachable"})
     check(pg2.is_visible("#connect") and "not reachable" in pg2.inner_text("#cstatus") and pg2.is_visible("[name=door]") and not pg2.is_visible("#scanTeam")
           and not pg2.is_visible("#joinEoc") and not errs2,
@@ -67,6 +71,10 @@ with sync_playwright() as pw:
     # 4 Exit: on the connect screen of a phone that has not joined, then in the header
     pg3, errs3 = page(br, NATIVE, {})
     pg3.wait_for_selector("#pick:not([hidden])", timeout=5000); pg3.click("[data-pick=team]")
+    # [NOTHING_UNTIL_ASKED_V1] a phone that has not joined: the existing team is joined by its QR; a new one offers the scan too
+    noneSay = pg3.inner_text("#saOld"); pg3.click("#saNew")
+    newScan = pg3.is_visible("#scanTeam") and "Command Center" in pg3.inner_text("#cstatus")
+    check("scan its QR code" in noneSay and newScan, "1 not joined: the existing team says %r; Start a new team offers the scan %s (%r)" % (noneSay, newScan, pg3.inner_text("#cstatus")))
     onConnect = pg3.is_visible("#cexit"); pg3.click("#cexit")
     dl(pg3, {"ev": "connected", "role": "team", "team": "Alpha", "build": "t"}); pg3.wait_for_timeout(200)
     inHeader = pg3.evaluate("!document.querySelector('#exitBtn').hidden")

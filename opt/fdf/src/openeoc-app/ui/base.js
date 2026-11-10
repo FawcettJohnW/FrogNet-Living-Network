@@ -190,31 +190,68 @@ function start() {
   const first = RT.roles[S.cfg.role] ? S.cfg.role : (RT.roles.team ? 'team' : Object.keys(RT.roles)[0])
   if (first) f.querySelector(`[name=role][value=${first}]`).checked = true
   RT.fire('init', S.cfg)
-  roleFields(); askRoles()
+  roleFields()
+  // [NOTHING_UNTIL_ASKED_V1] a phone asks the node nothing until its user says (its roles: at Node, or the connect); a computer
+  // asks for the teams the admin made, for its connect screen, as before
+  if (S.cfg.platform !== 'android') askRoles()
   if (!$('#qrSec').hidden) $('#manual').open = false      // [CONNECT_QR_FIRST_V1] the QR code is the way in; Manual login a tap away
-  // [JOINED_IS_DONE_V1] (John 2026-11-09: "once joined and authenticated the first time, they are done") a phone that has
-  // joined opens on the map: no picker, no connect screen. It connects as what joining made it (its user, its team or
-  // view, the node it joined through); the connect screen shows only if that connect fails, and says why.
-  const joined = joinedView()
+  // [NOTHING_UNTIL_ASKED_V1] (John 2026-11-10: "NOT start the hotspot or do any connections or login or anything like that
+  // until I tell it to ... When the phone comes up, I should have the option to start as a team, ambulance, etc. before
+  // anything else. If I start as a team, it should ask me if I want to connect as the existing team or start a new one.")
+  // It replaces [JOINED_IS_DONE_V1] (the joined phone connected by itself) and the roles asked of the node at start: the
+  // first screen is which app this starts as; a joined phone connects only when its user says so.
   S.ready = true; for (const m of early.splice(0)) window.rtDeliver(m)
   setTimeout(() => {
-    if (joined) {          // the splash stays, saying who is connecting, until the map (or the connect screen, saying why)
-      S.autoConnect = true
-      const t = S.cfg.enrolled.user + ': connecting as ' + (RT.roles[joined] || {}).label + (S.cfg.enrolled.lead ? ', lead of ' + cap(S.cfg.enrolled.role) : ' in ' + cap(S.cfg.enrolled.role))
-      $('#splash').insertAdjacentHTML('beforeend', `<div class="joining">${esc(t)}</div>`); $('#cstatus').textContent = t
-      f.requestSubmit(); return
-    }
     $('#splash').classList.add('gone')
-    if (lock || Object.keys(RT.roles).length < 2) f.hidden = false; else pickApp()
+    if (lock) { S.lockedApp = true; startAs(lock.name) }
+    else if (Object.keys(RT.roles).length < 2) { S.lockedApp = true; startAs(Object.keys(RT.roles)[0]) }
+    else pickApp()
   }, 1800)
+}
+// [NOTHING_UNTIL_ASKED_V1] a phone's team or unit (the Team app, an Ambulance ...): the existing one (this phone's, by
+// what it joined as; or one to join, by its QR) or a new one (the lead's QR the Command Center shows, then its name)
+const teamLike = (r) => r && (r.field === 'team' || r.field === 'unit')
+function startAs(name) {
+  const r = RT.roles[name], f = $('#connect'); if (!r) { f.hidden = false; return }
+  const rb = f.querySelector(`[name=role][value=${r.name}]`); if (rb) rb.checked = true
+  S.fresh = false; roleFields()
+  if (!(S.cfg.platform === 'android' && teamLike(r))) { f.hidden = false; return }
+  const e = S.cfg.enrolled || {}, mine = e.user && joinedViewOf(e) === r.name
+  const what = r.field === 'team' ? 'team' : (r.unitLabel || r.label).toLowerCase()
+  const has = mine ? (e.lead ? cap(e.role) + ', as its lead ' : cap(e.role) + ', as ') + e.user : ''
+  f.hidden = true
+  if (!$('#startAs')) document.body.insertAdjacentHTML('beforeend', '<div id="startAs" hidden><div class="pick-card"><h2></h2><div class="pick-list"></div></div></div>')
+  $('#startAs h2').textContent = r.title || 'OpenEOC ' + r.label
+  $('#startAs .pick-list').innerHTML = `
+      <button type="button" id="saOld"><span><b>Connect as the existing ${esc(what)}</b><br><span class="pick-last">${mine ? esc(has) : 'scan its QR code (its lead shows it)'}</span></span></button>
+      <button type="button" id="saNew"><span><b>Start a new ${esc(what)}</b><br><span class="pick-last">scan the lead QR code the Command Center shows you, then name it</span></span></button>
+      ${S.lockedApp ? '' : '<button type="button" id="saBack"><span>Other app</span></button>'}`
+  $('#startAs').hidden = false
+  const go = () => { $('#startAs').hidden = true; f.hidden = false }
+  if ($('#saBack')) $('#saBack').onclick = () => { $('#startAs').hidden = true; pickApp() }
+  $('#saOld').onclick = () => {
+    go()
+    if (!mine) { S.fresh = true; roleFields(); $('#cstatus').textContent = 'scan the QR code the ' + what + "'s lead shows you"; return }
+    joinedView(); const t = e.user + ': connecting as ' + r.label + (e.lead ? ', lead of ' + cap(e.role) : ' in ' + cap(e.role))
+    $('#cstatus').textContent = t; S.autoConnect = true; f.requestSubmit()
+  }
+  $('#saNew').onclick = () => {
+    go(); S.fresh = true; roleFields()             // the scan offered even on a phone that has joined: a new one is made by it
+    $('#cstatus').textContent = 'scan the lead QR code the Command Center shows you; then type the ' + what + "'s name and your password"
+  }
 }
 // [JOINED_IS_DONE_V1] what joining made this phone: the view it connects as, with its fields filled ('' : not joined, or
 // joined as a view this app does not have)
+// the view what joining made this phone connects as ('' : not joined, or joined as a view this app does not have)
+function joinedViewOf(e) {
+  if (!e || !e.user) return ''
+  const rl = String(e.role || '').toLowerCase()
+  // an app built for one view (the Ambulance app ...) connects as that view; else the view by the role's name, else a team
+  return S.cfg.lock && RT.roles[S.cfg.lock] ? S.cfg.lock : RT.roles[rl] && rl !== 'team' ? rl : RT.roles.team ? 'team' : ''
+}
 function joinedView() {
   const e = S.cfg.enrolled || {}; if (!e.user) return ''
-  const f = $('#connect'), rl = String(e.role || '').toLowerCase()
-  // an app built for one view (the Ambulance app ...) connects as that view; else the view by the role's name, else a team
-  const view = S.cfg.lock && RT.roles[S.cfg.lock] ? S.cfg.lock : RT.roles[rl] && rl !== 'team' ? rl : RT.roles.team ? 'team' : ''
+  const f = $('#connect'), view = joinedViewOf(e)
   if (!view) return ''
   if (e.door) f.door.value = e.door
   if (!S.cfg.nameGiven || !f.name.value) f.name.value = e.user
@@ -239,10 +276,9 @@ function pickApp() {
   $('#pick .pick-list').innerHTML = Object.values(RT.roles).map(r => `<button type="button" data-pick="${esc(r.name)}">${esc(r.title || 'OpenEOC ' + r.label)}${r.name === last ? '<span class="pick-last">last used</span>' : ''}</button>`).join('')
   $('#pick').querySelectorAll('[data-pick]').forEach(b => b.onclick = () => {
     const r = RT.roles[b.dataset.pick], f = $('#connect')
-    f.querySelector(`[name=role][value=${r.name}]`).checked = true; roleFields()
     const t = r.title || 'OpenEOC ' + r.label
     f.querySelector('h1').textContent = t; document.title = t
-    $('#pick').hidden = true; f.hidden = false
+    $('#pick').hidden = true; startAs(r.name)       // [NOTHING_UNTIL_ASKED_V1] a team or unit: the existing one or a new one
   })
   $('#connect').hidden = true; $('#pick').hidden = false
 }
@@ -251,7 +287,7 @@ function roleFields() {
   // [TEAM_HOST_V1] a team member's phone joins its lead's hotspot by scanning the hotspot's QR code
   // [ENROLL_V1] any view: the frog QR the admin (or the team's lead) shows, then the password
   // [CONNECT_QR_FIRST_V1] the QR code first, on a phone that can scan and has not joined yet; joined, it is done
-  const joined = !!(S.cfg.enrolled && S.cfg.enrolled.user)
+  const joined = !!(S.cfg.enrolled && S.cfg.enrolled.user) && !S.fresh     // [NOTHING_UNTIL_ASKED_V1] Start a new one: the scan again
   $('#qrSec').hidden = joined || !(S.cfg.platform === 'android' && window.rtNative && window.rtNative.scanTeam)
   $('#joinEoc').hidden = joined || !(S.cfg.platform === 'android' && window.rtNative && window.rtNative.enroll)
   document.querySelectorAll('[data-field]').forEach(e => { e.hidden = e.dataset.field !== r.field })
@@ -459,6 +495,7 @@ function refreshSheet(what) { if (!$('#sheet').hidden) RT.fire('refresh', what) 
 
 function connected(m) {
   S.doorNode = m.node || ''                            // [DOOR_SAYS_ITS_NODE_V1] the node the door is (dc-door r16 on)
+  if ($('#startAs')) $('#startAs').hidden = true
   if ($('#pick')) $('#pick').hidden = true     // [RT_APP_PICKER_V1] connected (an enrolled phone, a lead's card): the question is answered
   S.role = m.role; S.team = m.team || ''; S.connectedAt = Date.now(); S.autoConnect = false; $('#splash').classList.add('gone')
   // [WINDOW_SAYS_ITS_VIEW_V1] the title (the window's, on Windows) says the view this app is running as, and its team or unit
