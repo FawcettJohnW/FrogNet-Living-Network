@@ -588,6 +588,7 @@ function world(who, pos) {
   const kinds = [...new Set(Object.values(pos).filter(Boolean).map(b => b.kind))].sort().join()
   if (kinds !== S.kindsSeen) { S.kindsSeen = kinds; if (map && !more) legend() }
   if (Object.keys(who).join() !== before && map) toList()
+  if (Object.keys(who).join() !== before && S.tab === 'call') callList()   // [CHAT_CALL_TAB_V1] who is there now
   redraw()
 }
 // [TEAM_VIEW_IS_THE_TEAM_V1] which teams are drawn: a team member starts with their own; the EOC with all
@@ -714,7 +715,8 @@ function legend() {
 function teamsHere() { return RT.me().teams === 'all' ? knownTeams().map(cap) : (S.team ? [S.team] : []) }
 function tabs() {
   const t = $('#tabs'); t.innerHTML = ''
-  for (const [k, n] of [['all', 'Everyone']].concat(teamsHere().map(x => ['team:' + x, x])).concat([['dev', 'Direct']])) {
+  // [CHAT_CALL_TAB_V1] (John 2026-11-10: "make Call available under the Chat menu as well. For now, just a single person")
+  for (const [k, n] of [['all', 'Everyone']].concat(teamsHere().map(x => ['team:' + x, x])).concat([['dev', 'Direct'], ['call', 'Call']])) {
     const b = document.createElement('button'); b.textContent = n; b.className = S.tab === k ? 'on' : ''
     b.onclick = () => { S.tab = k; tabs(); showLog() }; t.appendChild(b)
   }
@@ -742,7 +744,22 @@ function msgHtml(m) {
   const tag = t ? `<span class="tag" style="background:${tc}">${esc(t)}</span> ` : m.to.startsWith('dev:') ? '<span class="tag dm">direct</span> ' : ''
   return `<div class="m${mine ? ' mine' : ''}${kind}"${style}><div class="h">${tag}${esc(m.name)}${esc(where)} · ${at}</div>${esc(m.text)}</div>`
 }
-function showLog() { const l = $('#log'); l.innerHTML = S.msgs.filter(inTab).map(msgHtml).join(''); l.scrollTop = l.scrollHeight }
+function showLog() {
+  const l = $('#log')
+  if (S.tab === 'call') { callList(); return }
+  $('#sayForm').hidden = false
+  l.innerHTML = S.msgs.filter(inTab).map(msgHtml).join(''); l.scrollTop = l.scrollHeight
+}
+// [CHAT_CALL_TAB_V1] the Call tab: every person present now (as the To list has them), each with Call: one person a call
+function callList() {
+  const l = $('#log'); $('#sayForm').hidden = true
+  const people = Object.entries(S.who).filter(([id, b]) => b && id !== S.cfg.dev && talkable(id, b) && !b.sim)
+    .map(([id, b]) => [id, b.name, b.team ? 'Team ' + b.team : b.kind === 'eoc' ? 'Command Center' : (b.kind || '')])
+    .sort((x, y) => String(x[1]).localeCompare(String(y[1])))
+  l.innerHTML = people.length ? '<div class="calls">' + people.map(([id, n, w]) => `<div class="callrow"><span><b>${esc(n)}</b> <span class="meta">${esc(w)}</span></span><button type="button" data-call="${esc(id)}">Call</button></div>`).join('') + '</div>'
+    : '<div class="meta">No one to call: nobody else is on the network now.</div>'
+  l.querySelectorAll('[data-call]').forEach(btn => btn.onclick = () => { const b = S.who[btn.dataset.call] || {}; send({ op: 'call', to: btn.dataset.call, peerName: b.name || '' }) })
+}
 function message(m) {
   if (S.seen[m.id]) return; S.seen[m.id] = 1
   S.msgs.push(m); S.msgs.sort((a, b) => (a.at || 0) - (b.at || 0))

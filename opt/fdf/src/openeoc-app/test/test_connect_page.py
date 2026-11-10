@@ -113,5 +113,18 @@ with sync_playwright() as pw:
     dl(pm, {"ev": "world", "who": {}, "pos": {"a1": P("alpha", "Al", 47.5), "c1": P("Charlie", "Cy", 47.55)}}); l6 = pm.evaluate(LEGEND)
     check([l1, l2, l3, l4, l5, l6] == ["Alpha", "AlphaEcho", "AlphaEcho", "Alpha", "", "Charlie"] and not errse and not errsm,
           "6 the legend: Alpha %r; Echo joins %r; Echo's last known position %r; expired %r; Alpha off %r; Charlie's member %r" % (l1, l2, l3, l4, l5, l6))
+    # 7 [CHAT_CALL_TAB_V1] the chat's Call tab: each person present with Call; Call calls that one person
+    pc, errsc = page(br, DESK, {"platform": ""}, 1280)
+    pc.wait_for_selector("#pick:not([hidden])", timeout=5000); pc.click("[data-pick=eoc]")
+    dl(pc, {"ev": "connected", "role": "eoc", "team": "", "build": "t"})
+    dl(pc, {"ev": "world", "who": {"a1": {"name": "Al", "team": "Alpha", "kind": "team"}, "e1": {"name": "Ed", "team": "Echo", "kind": "team"}}, "pos": {}})
+    pc.click("#chatBtn"); pc.locator("#tabs button", has_text="Call").click()
+    rows = pc.evaluate("[...document.querySelectorAll('#log .callrow')].map(r => r.innerText.replace(/\\s+/g, ' ').trim())")
+    formHidden = pc.evaluate("document.querySelector('#sayForm').hidden")
+    pc.click("[data-call=e1]")
+    calls = [x[1] for x in sent(pc, "send") if x[1].get("op") == "call"]
+    pc.locator("#tabs button", has_text="Everyone").click(); back = not pc.evaluate("document.querySelector('#sayForm').hidden")
+    check(rows == ["Al Team Alpha Call", "Ed Team Echo Call"] and formHidden and calls == [{"op": "call", "to": "e1", "peerName": "Ed"}] and back and not errsc,
+          "7 the chat's Call tab: %s (the message box hidden %s); Call sends %s; Everyone brings the message box back %s; errors %s" % (rows, formHidden, calls, back, errsc))
     br.close()
 print("RESULT", "PASS" if not FAILS else "FAIL: %d" % len(FAILS)); sys.exit(1 if FAILS else 0)

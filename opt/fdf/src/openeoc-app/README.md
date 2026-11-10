@@ -47,6 +47,24 @@ role's `act`/`req`, or `RT.button`). **A new view**: `RT.role(...)` in a layer's
 `RTA.panel(title, fn)` (none yet). Gates: `test/test_app.py` (32 checks; the Team and Public apps run with their own
 layers only), `test/test_team_host.py`, `android/typecheck.sh`.
 
+## r73: one Windows bundle, one Communicator; Call in the chat ([ONE_BUNDLE_V1], [ONE_COMMUNICATOR_V1], [CHAT_CALL_TAB_V1])
+
+John 2026-11-10: "the comms-app is part of the bundle thrown down, but also such that there is only one on the device"
+(he chose one bundle for every app); "make Call available under the Chat menu as well. For now, just a single person".
+
+- **One bundle.** `desktop/package_windows.sh OUTDIR COMMS_DIST` makes `OpenEOC-windows-x64-<build>.zip`: one runtime,
+  one lib, `ui`, `ui-admin`, `comms\` and a launcher per app (`OpenEOC-CommandCenter.cmd`, `OpenEOC-EOCAdmin.cmd`,
+  `OpenEOC.cmd`, `OpenEOC-Admin.cmd`). It replaces the four zips (`admin`, `eoc`, `eocadmin` and the client). Each app
+  keeps its own settings and loads its own layers (`--layers`), as before.
+- **One Communicator.** `COMMS_DIST` is the Communicator's Windows `dist\` (`build-windows.ps1`: `comms-app.exe`, its DLLs
+  and Qt plugins), copied whole into `comms\`; without it nothing is made. Every app calls with that one
+  (`comms\comms-app.exe`, beside the `ui` folder): no file dialog, and the path r71 and before saved (`commsApp`) is
+  no longer read or kept. A bundle without it says so at Call.
+- **Call in the chat.** The chat has a **Call** tab: every person present now, each with **Call**, one person a call
+  (the To list's Call beside Send stays).
+- Tests: `test_connect_page` 7 (the Call tab: its people, Call sends the call for that one, Everyone gives the message
+  box back); the bundle built with a stand-in `comms-app.exe` and its layout checked.
+
 ## r72: the phone does nothing until told ([NOTHING_UNTIL_ASKED_V1])
 
 John 2026-11-10: "on the phone, what I want is for it NOT to ... start the hotspot or do any connections or login or
@@ -902,7 +920,7 @@ joining, the lead's sponsor enrolling a member who joins with her own key), `tes
     python3 test/test_admin.py                   # the admin app: leads, the QR, save and restore
     python3 test/test_frogqr.py                  # the frog QR reads (zxing core 3.4.1)
     python3 test/test_enroll_page.py             # the phone's enrollment page
-    ./desktop/package_windows.sh OUTDIR          # the Windows zip
+    ./desktop/package_windows.sh OUTDIR COMMS_DIST   # the Windows bundle (COMMS_DIST: the Communicator's Windows dist\)
 
 `test/test_app.py` drives the real core and page (through `test/DevHost.java`) against real fdf-ram RAMs and openeoc-sim:
 23 checks (the EOC's world moving, announcements, team and direct messages, a GPS fix on the EOC's map, the public view,

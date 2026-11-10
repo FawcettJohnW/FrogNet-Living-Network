@@ -192,3 +192,7 @@ body.paperwide #sheet { width: min(900px, 100%); }
 .leadform input { font-size: 16px; padding: 7px; border-radius: 6px; border: 1px solid var(--bd); background: #0b130e; color: var(--fg); }
 .leadqr .qrbox { background: #fff; display: inline-block; padding: 8px; border-radius: 6px; margin: 8px 0; }   /* [EOC_LEADS_V1] */
 .leadsay { font-size: 14px; min-height: 1.3em; color: var(--ac); } .leadsay.bad { color: #ff8a80; }   /* [LEAD_SAYS_ITS_ANSWER_V1] */
+
+/* [CHAT_CALL_TAB_V1] the chat's Call tab: one row per person, Call at its end */
+.calls { display: grid; gap: 6px; }
+.callrow { display: flex; justify-content: space-between; align-items: center; gap: 8px; padding: 6px 8px; border: 1px solid var(--bd); border-radius: 8px; }
