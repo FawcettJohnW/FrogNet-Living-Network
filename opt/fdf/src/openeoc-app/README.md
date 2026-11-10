@@ -47,6 +47,14 @@ role's `act`/`req`, or `RT.button`). **A new view**: `RT.role(...)` in a layer's
 `RTA.panel(title, fn)` (none yet). Gates: `test/test_app.py` (32 checks; the Team and Public apps run with their own
 layers only), `test/test_team_host.py`, `android/typecheck.sh`.
 
+## r76: the Communicator this computer has is used ([ONE_COMMUNICATOR_V1])
+
+r73 to r75 had the Windows apps use only the bundle's `comms\comms-app.exe` and dropped the path each app had been
+given, so a computer whose Communicator was elsewhere lost its calls (John: "It has been working"). Now one Communicator
+per computer, for every OpenEOC app on it: the bundle's `comms\` when it carries one; else the one this computer was told,
+kept in `%USERPROFILE%\.openeoc\communicator.json` (one file for every app; an app's saved `commsApp` is taken into
+it); else asked once and kept there.
+
 ## r75: the Node field is not a home router ([NODE_IS_THE_ASKED_GATEWAY_V1])
 
 r72 to r74 put any 10.x Wi-Fi gateway that is its network's .1 in the Node field at start (r72 stopped asking the
