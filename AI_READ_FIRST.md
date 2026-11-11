@@ -605,6 +605,10 @@ reconciled. The procedure is in `opt/fdf/docs/APP-SETUP-AND-OPERATION.md`.
    ControlRam) are IP addresses the merge's elections write in `/etc/hosts`; the role is that host's default
    `api.php`. There is no separate RAM manager for them, no RAM port (`ram_port`, 8841, `--ram-port`,
    `FDF_LAN_RAM_PORT`, `ensure_lan_ram`, `lan-rams.json` are gone) and no LAN fallback list.
+   Two kinds (John, 2026-11-10): **independent**, where every node holds its own and nothing is selected (the
+   FrogNetHost role, installed by `setup_lillypad` and kept by `frognet-host serve`), and **floating**, where one host
+   among the machines that can see each other holds it and selection moves it on a split or merge (the SystemRam,
+   the ControlRam, and the app roles `<app>Host.frognet` / `<team>Host.<app>`). Magnum Croakus §17a.
 2. **Port 80 only**, except services (an AppRam, the region's RAM manager on 8840: each keeps its own port). A role
    may add an optional `<Role>_api.php` beside `api.php`.
 3. **Tuples on api.php:** SensorType = service, SensorName = `<variable>.<instance>`, SensorAddress = the writer (the
