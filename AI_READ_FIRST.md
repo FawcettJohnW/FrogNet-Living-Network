@@ -358,6 +358,19 @@ answer exists; nothing is ever re-asked").
 
 ---
 
+# FD&F IS THE ARCHITECTURE. CROAKOS IS THE IMPLEMENTATION.
+
+**FD&F** (Farinacci, Day & Fawcett) names the architecture: RINA names, LISP locates,
+Ribbit holds the state, and every member reaches the others only through the shared
+RAM. **CroakOS** is the distributed operating system that implements it: an
+Internet-crossing operating system that offers memory and scheduling (held reads)
+instead of messaging between computers. Say "FD&F" for the design and "CroakOS"
+for the software that runs: its binaries, installers, commands, regions and roles
+(John, 2026-11-10). The code keeps the `fdf` name in its paths and commands
+(`opt/fdf`, `fdf-app`, `fdf-region-join`, `fdf_version.hpp`); do not rename them.
+
+---
+
 # A HELD READ IS A READ, NOT A NOTIFICATION SERVICE
 
 FrogNet Memory exposes state, and a read can wait for it: **a held read**. It is
@@ -384,7 +397,7 @@ semantics. Topology is the fabric's business, so the fabric reports it. What a
 value means, and when a change to it matters, is the application's business, so
 the fabric does not interpret it.
 
-**How the FD&F code keeps this** (`[EVENTS_NOT_TIMERS_V1]`, `[MEMBER_IS_A_TUPLE_V1]`, 2026-11-03; details in
+**How the CroakOS code keeps this** (`[EVENTS_NOT_TIMERS_V1]`, `[MEMBER_IS_A_TUPLE_V1]`, 2026-11-03; details in
 `opt/fdf/docs/FDF-TECHNICAL-DESIGN.md` §G.5a). Each member writes its own truth, `(pond, member, <ns>)`, and every
 program that needs the members holds a read on that family: no relay turns the region's notices into lines (that was
 `fdf-events`), no service copies one writer's cells into another's (that was the chat service), no id is claimed from a
