@@ -385,6 +385,8 @@ Appendix E.3 has every kind, and Appendix E.7 what exists at startup.
 **Principle.** FD&F owns no permission system of its own.
 - The RAM manager does no authorization. It is an ordinary Linux process and inherits that machine's protection: file ownership, firewall, accounts.
 - Finer policy belongs in the region owner's API, because each region is a vendor-owned piece of the address space with its own API (`PLAN-FROGNET-ON-FDF.md:257`).
+- **Authorization is by role, on the machine.** Every service is a role, held by one machine at a time. A role comes up when its lead logs into the app's admin app on the same network as the parent role, which can be across the Internet when the device already has a tunnel (the door's `enroll` op in `fdf/www/dc/ram.php` has no LAN check: it needs a door whose ControlRam holds the parent's configuration). The role is authenticated by network membership, plus a challenge when it connects to the machine holding the role (`ORGANIZATIONS.md` §9.3), and enforced by that machine's protection. A child can take on its parent's authorization transparently, but is not required to.
+- **Reach is not authorization.** What a device can get to at all is set by its admission level and by the hub (contracts 1 and 3 below), whatever roles it holds.
 
 **Where security lives.** "Security lives in enrollment (RINA), in signed registration (LISP), and in which memory a record lives in (Ribbit)" (`PLAN-FROGNET-ON-FDF.md:257-259`):
 - **Enrollment (RINA).** Each DIF is a shared RAM. A machine sees a DIF's records only if it is enrolled in that DIF, so a monitor on a DIF sees only that DIF's machines.
@@ -2075,7 +2077,7 @@ Measured on loopback, one machine:
 | Replication | One copy at the RAM manager: replication of degree one. Day's RIB is "a partially replicated database" for most DAFs. |
 | RIB in each member | A member's RIB is a reference to the one shared copy: reads and writes execute at the RAM manager. The exception is a working set (§S.5): a read cache of declared names, refreshed by held reads, whose local reads can trail the copy by the time a change takes to arrive (1.2 ms measured). Writes always go to the copy. |
 | Partitions | Each island keeps its own copy. Rejoining is an explicit `export` and `merge`, given the time of the split. Session state is rebuilt by re-assertion, never merged. |
-| Who may read cells | `op=daf` enforces membership and object sets. The generic memory itself does no authorization, by design (§9.1, R-S1), so anything that reaches the RAM port can read service `daf` directly. Private secrets live in `#daf`, which the network cannot read. |
+| Who may read cells | `op=daf` enforces membership and object sets. The generic memory itself does no authorization, by design (§9.1, R-S1): authorization is the role's, on the machine that holds it. Reach is separate: a process that reaches the RAM port can read service `daf` directly, and admission and the hub decide what can reach it. Private secrets live in `#daf`, which the network cannot read. |
 | START | A restricted script (from a name: filter, a fact, count, sum, min, max, avg or list), once, periodic or on change. Not arbitrary code. |
 | DIF Allocator: create | Creates a new DAF on one RAM host once all owners approve. It does not start a new RAM manager. |
 | Authentication | Modules `null` and `key` (HMAC-SHA-256 with nonce, replay refused). Sessions are not encrypted (§9.2). |

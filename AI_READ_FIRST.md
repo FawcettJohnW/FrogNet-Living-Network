@@ -724,6 +724,18 @@ where a description slides back into the conventional model.
   write-then-read-back, sessions. All compile; each gives back the property the
   model removes. The test: does the pattern require another program to exist,
   respond, or agree? (spec 10.3b)
+- **Authorization is by role, on the machine. Reach is a separate question.** Do
+  not describe "write your own truth" as an unenforced convention, and do not treat
+  "anything that reaches the RAM port" as a statement about authorization. Every
+  service is a role, held by one machine at a time. A role comes up when its lead
+  logs into the app's admin app on the same network as the parent role, which can be
+  across the Internet when the device already has a tunnel. The role is authenticated
+  by network membership, plus a challenge when it connects to the machine holding the
+  role, and authorization is set on that machine (accounts, file ownership,
+  firewall). A child can take on its parent's authorization transparently, but is not
+  required to. What a device can reach at all is set by its admission level and the
+  hub. (`opt/fdf/docs/FDF-TECHNICAL-DESIGN.md` §9.1, `ORGANIZATIONS.md` §9.3,
+  `ribbit/RIBBIT.md`)
 
 ---
 
