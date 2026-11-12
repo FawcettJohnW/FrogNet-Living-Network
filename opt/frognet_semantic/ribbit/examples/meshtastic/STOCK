@@ -1,0 +1,6 @@
+meshtastic/firmware 332b5b0a2c4fec2896de3c5fa63f46d5cd05ea98 (2.8.2.332b5b0, Wed Oct 28 2026)
+meshtastic/protobufs 8d0ed0c135f91ad1d6f9c60bc341277d64946bce (the firmware's submodule pin; generated code is in front/src/mesh/generated)
+meshtastic/python 0a1835760c2437314a2d3544bbdd8b6fead559bc (the CLI and its smokevirt/smokemesh suites)
+meshtastic/meshtastic-mcp 6ced9fa11675b9b5a03526a4a2f1658b61a9697b
+ScotMesh/RepeaterTastic 768a030998b8e3cac18e059bb6eb2a73ad4d1dc6
+front/ is the firmware at the pin above, modified; each change carries its tag ([MT_...]). Stock is the same commit, unmodified.

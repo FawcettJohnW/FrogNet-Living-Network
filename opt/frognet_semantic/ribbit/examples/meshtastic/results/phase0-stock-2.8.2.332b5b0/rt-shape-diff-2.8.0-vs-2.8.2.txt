@@ -1,0 +1,16 @@
+only in 2.8.0.47db0e3: ['nodeinfo_reply']
+only in 2.8.2.332b5b0: []
+SAME dm_text
+SAME nodeinfo_broadcast
+SAME position_request
+SAME routing_ack
+SAME routing_ack_zero_hop
+SAME routing_nak
+SAME telemetry_reply
+SAME telemetry_request
+SAME text_broadcast
+DIFF text_broadcast_relayed
+     priority_name: 'RELIABLE' -> 'HIGH'
+SAME traceroute_reply
+SAME traceroute_request
+12 common, 1 with shape differences

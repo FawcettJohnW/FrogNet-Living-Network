@@ -1,0 +1,82 @@
+{
+ "S1_views": {
+  "pass": true,
+  "seconds": 21.12,
+  "views": {
+   "!d984b951": [
+    "!28fd51c1",
+    "!b275284f",
+    "!ccc7290a"
+   ],
+   "!b275284f": [
+    "!28fd51c1",
+    "!ccc7290a",
+    "!d984b951"
+   ],
+   "!28fd51c1": [
+    "!b275284f",
+    "!ccc7290a",
+    "!d984b951"
+   ],
+   "!ccc7290a": [
+    "!28fd51c1",
+    "!b275284f",
+    "!d984b951"
+   ]
+  }
+ },
+ "S2_broadcast": {
+  "pass": true,
+  "received": {
+   "!d984b951": [
+    "BD-28fd51c1",
+    "BD-b275284f",
+    "BD-ccc7290a"
+   ],
+   "!b275284f": [
+    "BD-28fd51c1",
+    "BD-ccc7290a",
+    "BD-d984b951"
+   ],
+   "!28fd51c1": [
+    "BD-b275284f",
+    "BD-ccc7290a",
+    "BD-d984b951"
+   ],
+   "!ccc7290a": [
+    "BD-28fd51c1",
+    "BD-b275284f",
+    "BD-d984b951"
+   ]
+  }
+ },
+ "S3_dm_ack": {
+  "pass": true,
+  "error": "NONE",
+  "seconds": 0.04,
+  "from": "!b275284f"
+ },
+ "S4_kill": {
+  "pass": false,
+  "seconds": 30.46
+ },
+ "S5_dm_dead": {
+  "observed": "MAX_RETRANSMIT",
+  "seconds": 39.28,
+  "from": "!d984b951",
+  "pass": true
+ },
+ "S6_restart": {
+  "pass": true,
+  "seconds": 0.33
+ },
+ "S7_malformed": {
+  "pass": true,
+  "answering": {
+   "!d984b951": true,
+   "!b275284f": true,
+   "!28fd51c1": true,
+   "!ccc7290a": true
+  }
+ }
+}
