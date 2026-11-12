@@ -473,7 +473,8 @@ class PsychedelicBackend(_base.FrogNetBackend):
         T.put("%s.rv.%s" % (SERVICE, self._group), _scope(self._rank),
               _scope(self._rank),
               {"host": self._server_host, "port": self._server.port,
-               "inc": self._incarnation},
+               "inc": self._incarnation, "build": BUILD.split(" (")[0],
+               "node": __import__("socket").gethostname()},
               dbhost=self._dbhost, own=False)
         deadline = time.time() + self._timeout_s
         found: Dict[int, Any] = {}
@@ -500,6 +501,24 @@ class PsychedelicBackend(_base.FrogNetBackend):
                 except ValueError:
                     pass
             if set(range(self._size)).issubset(found):
+                # [ONE_BUILD_PER_GROUP_V1] Every rank says what it runs, and
+                # a group whose ranks run different code does not start: it
+                # says which rank, at which address, runs what. A rank too
+                # old to say has no "build" and is named as such.
+                mine = BUILD.split(" (")[0]
+                seen = {r: (d.get("build") or "unknown (a build before 20261112)")
+                        for r, d in sorted(found.items())}
+                print("[DIAG-PSY] RANKS " + " ".join(
+                    "r%d=%s:%s/%s" % (r, d.get("host"), d.get("port"), seen[r])
+                    for r, d in sorted(found.items())), flush=True)
+                odd = {r: b for r, b in seen.items() if b != mine}
+                if odd:
+                    raise RuntimeError(
+                        "psychedelic: rank %d runs %s, and %s. Install the same "
+                        "build on every node."
+                        % (self._rank, mine, "; ".join(
+                            "rank %d at %s runs %s" % (r, found[r].get("host"), b)
+                            for r, b in sorted(odd.items()))))
                 self._peers = found
                 return found
         raise RuntimeError(
@@ -2212,7 +2231,7 @@ def _create(store, rank, size, timeout):
 
 
 #: Said once per process, so a run's own log shows which code is running.
-BUILD = ("psychedelic 20261112-september-family-link-r5 (the September tensor path; "
+BUILD = ("psychedelic 20261112-september-family-link-r6 (the September tensor path; "
          "one held read per peer on the family it writes for this rank; the write fires it "
          "and the bytes go on one permanent link, without pause; "
          "control cells in the one RAM; PyTorch 2.15 port)")
