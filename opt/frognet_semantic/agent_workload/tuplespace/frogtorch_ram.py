@@ -24,7 +24,9 @@ rank reaches the same answer with no vote and no messages.
 Wire: the framing tensor_plane already speaks (<!Q len><payload>), so TensorClient reads a region unchanged.
 
   tensor read   {name, gen, mode, have, want, inc, wait_s, verify}            -> SAME|DATA|GONE, as TensorServer
-  tensor write  {"op":"tput", name, gen, inc}  then one frame of bytes          -> OKAY {gen}
+  tensor write  {"op":"tput", name, gen, inc, life?}  then one frame of bytes   -> OKAY {gen}
+                (life="session": the cell goes when the writer's session closes -- AIConnect's objects)
+  counters      {"op":"stats"}                                                 -> OKAY {bytes_in, tputs, held_bytes, ...}
   cell write    {"op":"cput", service, var, scope, value, life}                -> OKAY {id}
   cell read     {"op":"cget", service, var?, min_rows, wait_s, after?}          -> OKAY {rows:[...]}
   cell remove   {"op":"cdel", id} / {"op":"cdelvar", service, var}             -> OKAY {removed}
@@ -50,7 +52,7 @@ from agent_workload.aiconnect.service import BULK_LEN_FMT
 from .tensor_plane import (GONE_NEVER_PUBLISHED, GONE_SUPERSEDED, GONE_WAIT_EXPIRED, MAX_SERVER_WAIT_S,
                            READ_BY_IDENTITY, REPLY_DATA, REPLY_GONE, REPLY_SAME, _digest, _recv_frame, _send_frame)
 
-BUILD = "frogtorch_ram 20261111-r1 [ALL_IN_THE_REGION_V1]"
+BUILD = "frogtorch_ram 20261111-r2 [ALL_IN_THE_REGION_V1] [SESSION_TENSORS_V1]"
 #: Capability tuples live in the SystemRam (AI_READ_FIRST 10): every election reads capability there.
 SYSTEM_RAM = os.environ.get("FROGTORCH_SYSTEM_RAM", "databasehost.frognet")
 REPLY_OKAY = b"OKAY"
@@ -74,6 +76,8 @@ class Region:
         self._tensors: Dict[str, _Key] = {}           # name -> (gen, bytes, inc, digest-or-None)
         self._services: Dict[str, _Key] = {}          # service -> {(var, scope): row}
         self._next_id = 0
+        self._session_tensors: Dict[str, set] = {}    # [SESSION_TENSORS_V1] session -> names it holds
+        self.tputs = 0
         self.bytes_in = self.bytes_out = 0
         self.same_replies = self.data_replies = 0
 
@@ -84,12 +88,21 @@ class Region:
             k = self._tensors[name] = _Key(self._lock)
         return k
 
-    def tput(self, name: str, gen: int, blob: bytes, inc) -> None:
+    def tput(self, name: str, gen: int, blob: bytes, inc, life: str = "data", session: str = "") -> None:
         with self._lock:
             k = self._tkey(name)
             k.value = (int(gen), blob, inc, None)
             self.bytes_in += len(blob)
+            self.tputs += 1
+            if life == "session":
+                self._session_tensors.setdefault(session, set()).add(name)
             k.cond.notify_all()
+
+    def stats(self) -> Dict[str, Any]:
+        with self._lock:
+            held = sum(len(k.value[1]) for k in self._tensors.values() if k.value is not None)
+            return {"bytes_in": self.bytes_in, "bytes_out": self.bytes_out, "tputs": self.tputs,
+                    "tensors": sum(1 for k in self._tensors.values() if k.value is not None), "held_bytes": held}
 
     def tget(self, name: str, want_gen, wait_s: float):
         """The current value, once it has reached want_gen (held until then, up to wait_s)."""
@@ -140,13 +153,13 @@ class Region:
                 rows = [r for (v, _s), r in k.value.items() if var is None or v == var]
                 ready = (len(rows) >= min_rows and (after < 0 or any(r["id"] > after for r in rows))
                          and (unlike is None or {r["id"] for r in rows} != set(unlike)))
-                if ready or wait_s <= 0:
+                left = deadline - time.monotonic()
+                # [A_READ_THAT_EXPIRES_STILL_SAYS_WHAT_IS_THERE_V1] satisfied or not, the answer is what is there:
+                # an expired read returned [] and a reader could not tell "nothing there" from "nothing new"
+                if ready or wait_s <= 0 or left <= 0:
                     now = time.time()
                     return [{"id": r["id"], "var": r["var"], "scope": r["scope"], "value": r["value"],
-                             "age_s": now - r["t"], "ts_env": r["t"]} for r in rows]
-                left = deadline - time.monotonic()
-                if left <= 0:
-                    return []
+                             "life": r["life"], "age_s": now - r["t"], "ts_env": r["t"]} for r in rows]
                 k.cond.wait(left)
 
     def cdel(self, row_id: int) -> int:
@@ -219,6 +232,11 @@ class Region:
     def session_gone(self, session: str) -> None:
         """[WRITER_GONE_V1] A writer's session cells go with its session; its data cells stay."""
         with self._lock:
+            for name in self._session_tensors.pop(session, ()):
+                k = self._tensors.pop(name, None)
+                if k is not None:
+                    k.value = None
+                    k.cond.notify_all()
             for k in self._services.values():
                 gone = [key for key, r in k.value.items() if r["life"] == "session" and r["session"] == session]
                 for key in gone:
@@ -237,6 +255,8 @@ class RamServer:
         self.sock.bind((bind, port))
         self.sock.listen(1024)
         self.port = self.sock.getsockname()[1]
+        self.accepts = 0          # connections ever accepted
+        self.sessions = 0         # connections open now
         self._t = threading.Thread(target=self._accept, daemon=True, name="frogtorch-ram-%d" % self.port)
         self._t.start()
 
@@ -247,11 +267,13 @@ class RamServer:
             except OSError:
                 return
             conn.setsockopt(socket.IPPROTO_TCP, socket.TCP_NODELAY, 1)
+            self.accepts += 1
             threading.Thread(target=self._serve, args=(conn, peer), daemon=True).start()
 
     def _serve(self, conn, peer):
         session = "%s:%d#%d" % (peer[0], peer[1], id(conn))
         R = self.region
+        self.sessions += 1
         try:
             while True:
                 req = json.loads(bytes(_recv_frame(conn)).decode())
@@ -260,7 +282,7 @@ class RamServer:
                     self._tensor_read(conn, req)
                 elif op == "tput":
                     blob = bytes(_recv_frame(conn))
-                    R.tput(req["name"], req["gen"], blob, req.get("inc"))
+                    R.tput(req["name"], req["gen"], blob, req.get("inc"), req.get("life", "data"), session)
                     _send_frame(conn, REPLY_OKAY, json.dumps({"gen": req["gen"]}).encode())
                 elif op == "cput":
                     i = R.cput(req["service"], req["var"], req["scope"], req.get("value"),
@@ -287,6 +309,11 @@ class RamServer:
                     _send_frame(conn, REPLY_OKAY, json.dumps({"value": v, "ok": ok}).encode())
                 elif op == "qlen":
                     _send_frame(conn, REPLY_OKAY, json.dumps({"n": R.qlen(req["service"], req["var"])}).encode())
+                elif op == "stats":
+                    st = R.stats()
+                    st["sessions"] = self.sessions
+                    st["accepts"] = self.accepts
+                    _send_frame(conn, REPLY_OKAY, json.dumps(st).encode())
                 elif op == "version":
                     _send_frame(conn, REPLY_OKAY, json.dumps({"build": BUILD}).encode())
                 else:
@@ -294,6 +321,7 @@ class RamServer:
         except (ConnectionError, OSError, ValueError):
             pass
         finally:
+            self.sessions -= 1
             R.session_gone(session)
             try:
                 conn.close()

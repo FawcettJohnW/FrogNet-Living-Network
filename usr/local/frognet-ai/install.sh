@@ -254,7 +254,9 @@ for m in ("core.frognet_tuples",
           "agent_workload.tuplespace.torch_backend",
           "agent_workload.tuplespace.psychedelic_backend",
           "agent_workload.tuplespace.frogtorch_ram",
-          "agent_workload.tuplespace.frogtorch_ram_client"):
+          "agent_workload.tuplespace.frogtorch_ram_client",
+          "agent_workload.aiconnect.service",
+          "agent_workload.aiconnect.producer"):
     try:
         __import__(m)
     except Exception as e:

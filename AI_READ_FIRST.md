@@ -585,6 +585,22 @@ installed AppHost on that side (the code still offers a "fail" setting, which th
 At a merge the same selection, run over the merged tuples, gives one answer. Owners reassert; nothing is moved or
 reconciled. The procedure is in `opt/fdf/docs/APP-SETUP-AND-OPERATION.md`.
 
+## 10a. FrogTorch and AIConnect live in FrogTorch's own RAM
+
+FrogTorch (PyTorch distributed on FrogNet, `agent_workload/tuplespace`) and AIConnect (`agent_workload/aiconnect`) use
+**the FrogTorch RAM**: one region per machine (`frogtorch_ram.py`, the `frogtorch-ram` service, its port picked at
+random into `/etc/frognet/frogtorch-ram.env`), announced by a session-held capability tuple
+`(frogtorch, can, ip:port)` in the SystemRam (`[ALL_IN_THE_REGION_V1]`). A rank writes its cells into its own
+machine's region and reads by holding a read on the cell it needs; the owner's write answers it. There are no peer
+links, no master address, no acknowledgements and no polling; `frognet://<ns>` replaces TCPStore/MASTER_ADDR.
+Membership and claims are session cells (`life="session"`): they go when their writer's session does.
+An AIConnect receiver is a session-held cell `(AIConnect, receiver, <machine>)` in its own machine's region; a
+producer finds receivers by reading that cell in every region and transfers by WRITING each object into the
+receiver's region as one session-held tensor cell per sender thread (`[AICONNECT_IN_THE_REGION_V1]`). The region's
+acknowledgement is delivery. A transfer occupies the receiver's memory, so the ramp checks threads x object size
+against it before it starts. Do not reintroduce MachineReady / ConnectionRequest / BulkReady, a socket receiver, a
+TensorServer in the rank's process, or a re-asking loop: those are what was removed.
+
 ---
 
 # WHAT AN APPLICATION CANNOT DO

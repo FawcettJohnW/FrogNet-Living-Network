@@ -14,30 +14,27 @@ PARTICULAR PURPOSE.  See the GNU General Public License for details.
 See COPYRIGHT and LICENSE at the root of this tree.
 
 ------------------------------------------------------------------------------
-AIConnect producer — rendezvous through RAM, bulk over the data plane, ramped
-to saturation across every machine in /etc/hosts.
+AIConnect producer -- objects written into the receivers' memory, ramped to saturation.
 
-THE SEQUENCE, and every step of it is a tuple until the bytes move:
+[AICONNECT_IN_THE_REGION_V1 - John 2026-11-11] "Why would I deliberately disadvantage my architecture?"
 
-    1. read  (AIConnect, MachineReady, *)   which machines exist and are up
-    2. write (AIConnect, ConnectionRequest, <peer>)   "I want a connection"
-    3. peer opens a receiving socket and writes
-       (AIConnect, BulkReady, <peer>) = {BulkReady:1, port:N}
-    4. read  (AIConnect, BulkReady, *)      which machines are primed
-    5. connect to the advertised port and STREAM THE BULK -- data plane
-    6. when the data is exhausted, write BulkReady = 0 -- control plane
+    1. read (AIConnect, receiver, *) in each FrogTorch region   which machines are receivers, and where their memory is
+                                                                 (a session-held cell each: there is a receiver
+                                                                 exactly while its service is)
+    2. each sender thread writes its object, again and again, as one tensor cell in the receiver's region:
+       aic.<me>.<thread>, held by the thread's own session (life="session"), so it goes when the link closes
+    3. the region's acknowledgement of the write is delivery: the bytes are in the receiver's memory
 
-Nobody is addressed until step 5, and by then the address came out of shared
-memory rather than out of configuration. Steps 1-4 and 6 are small facts; only
-step 5 carries volume, and it never touches a tuple.
+No request, no "ready" flag, no port handed around, no poll, no done signal. Before this: MachineReady ->
+ConnectionRequest -> BulkReady polled every 0.3 s -> a socket to a sharded receiver -> BulkReady = 0.
 
-RAMP. Threads are added every --step-seconds, doubling, spread across every
-peer found in /etc/hosts, so many transfers run to different hosts at once.
-It stops on a measured condition and names it: CPU average above the threshold,
-interface errors or drops (WireGuard counted separately from physical, because
-a tunnel drop and a NIC drop mean different things), disk approaching its
-limit, memory floor, or transfers failing. There is no preset thread ceiling --
-if the network keeps absorbing it, it keeps ramping.
+The rest8080 and semantic80 arms are kept as they were: HTTP POSTs to Apache and through the FrogNet proxy -- the
+stock comparison, not this architecture.
+
+RAMP. Threads are added every --step-seconds, doubling, spread across every receiver, so many transfers run to
+different machines at once. It stops on a measured condition and names it: CPU average above the threshold,
+interface errors or drops (WireGuard counted separately from physical), disk approaching its limit, memory floor, or
+transfers failing. There is no preset thread ceiling beyond --max-threads.
 """
 
 from __future__ import annotations
@@ -59,12 +56,12 @@ _TREE = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__
 if _TREE not in sys.path:
     sys.path.insert(0, _TREE)
 
-from core.frognet_tuples import get_all, put  # noqa: E402
 from core.frognet_diag import diag, diag_exc  # noqa: E402
 from core.codec import MAX_WIRE_FIELD_BYTES  # noqa: E402
 from agent_workload.aiconnect.service import (  # noqa: E402
-    DATA_PLANE_DBHOST, SERVICE, VAR_BULK, VAR_READY, VAR_REQUEST,
-    bulk_frame, bulk_header, machine_name, scope_for)
+    BUILD, SERVICE, VAR_RECEIVER, machine_name, parse_region)
+from agent_workload.tuplespace.frogtorch_ram_client import _Session, discover_regions  # noqa: E402
+from agent_workload.tuplespace.tensor_plane import MAX_SERVER_WAIT_S, _recv_frame, _send_frame  # noqa: E402
 from agent_workload.aiconnect.resources import (  # noqa: E402
     cpu_idle_pct, disk_free_mb, loadavg_per_core, mem_available_mb,
     net_counters, net_delta, link_capacity, link_summary, peer_routes, softnet_drops, wire_overhead_ratio, carrier_of, iface_table)
@@ -106,170 +103,63 @@ SEMANTIC_MAX_OBJECT = MAX_WIRE_FIELD_BYTES
 DEFAULT_MAX_THREADS = 2048
 
 
-def hosts_from_etc(path: str = "/etc/hosts") -> List[str]:
-    """Every FrogNet machine this node knows about.
+class Receivers:
+    """Step 1: which machines are receivers, and where their memory is. All of it read from the regions."""
 
-    /etc/hosts is the merged view discovery maintains, so it IS the roster --
-    reading it needs no broker and no probe. Only 10/8 is taken, and the
-    synthetic transit (10.253) and chorus (10.254) planes are excluded: they
-    are infrastructure, not machines that run a service.
-    """
-    out = []
-    with open(path) as f:
-        for line in f:
-            line = line.split("#", 1)[0].strip()
-            if not line:
-                continue
-            parts = line.split()
-            ip = parts[0]
-            if not ip.startswith("10."):
-                continue
-            octets = ip.split(".")
-            if len(octets) != 4 or octets[1] in ("253", "254"):
-                continue
-            if ip not in out:
-                out.append(ip)
-    return out
-
-
-class Rendezvous:
-    """Steps 1-4 and 6. All control plane, all tuples."""
-
-    def __init__(self, dbhost: str, timeout_s: float = 30.0):
-        self.dbhost = dbhost
+    def __init__(self, regions: Optional[List[Tuple[str, int]]] = None, timeout_s: float = 30.0,
+                 me: Optional[str] = None):
         self.timeout_s = timeout_s
-        self.me = machine_name()
+        self.me = me or machine_name()
+        self.regions = regions if regions is not None else discover_regions()
+        self._seen: Dict[str, Dict[str, Any]] = {}
 
-    def _rows(self) -> List[Dict[str, Any]]:
-        return get_all(SERVICE, dbhost=self.dbhost, timeout=self.timeout_s)
+    def _rows(self, hp, wait_s=0.0, unlike=None) -> List[Dict[str, Any]]:
+        return _Session(*hp).call({"op": "cget", "service": SERVICE, "var": VAR_RECEIVER, "min_rows": 0,
+                                   "wait_s": wait_s, "unlike": unlike}).get("rows", [])
 
-    @staticmethod
-    def _machine_of(scope: str) -> str:
-        """host:<ip>:<var> -> <ip>. The scope carries the var so each var gets
-        its own template; the machine is the middle field."""
-        parts = scope.split(":")
-        return parts[1] if len(parts) >= 3 and parts[0] == "host" else scope
+    def receivers(self, want: int = 0) -> Dict[str, Dict[str, Any]]:
+        """{machine: its receiver cell's value}. want > 0: hold a read on every region until that many are there
+        (a receiver that starts later is seen when it writes), or the timeout."""
+        found: Dict[str, Dict[str, Any]] = {}
+        lock = threading.Condition()
 
-    def ready_machines(self) -> List[str]:
-        """Step 1: who is up. Derived from the set, nobody asked."""
-        out = []
-        rows = self._rows()
-        diag("DIAG-RDV", "ready scan", rows=len(rows))
-        for row in rows:
-            if row.get("var") != VAR_READY:
-                continue
-            v = (row.get("value") or {})
-            v = v.get("v", v)
-            m = self._machine_of(row.get("scope"))
-            # age_s/ts_env are the STORE's clock on the row, and the payload
-            # carries a ts of its own written by the peer. When those two
-            # disagree the difference is the peer's clock skew, and it is only
-            # visible if both are printed. [ENVELOPE_TS_V1]
-            diag("DIAG-RDV", "ready row", machine=m,
-                 available=v.get("available"), age_s=row.get("age_s"),
-                 ts_env=row.get("ts_env"), payload_ts=v.get("ts"),
-                 addr=row.get("addr"), taken=bool(v.get("available")))
-            if v.get("available"):
-                out.append(m)
-        return out
+        def take(hp, rows):
+            for r in rows:
+                v = r.get("value") or {}
+                if v.get("machine") and v["machine"] != self.me:
+                    v = dict(v, region=tuple(parse_region(v["region"])) if isinstance(v.get("region"), str)
+                             else tuple(v["region"]))
+                    found[v["machine"]] = v
+            diag("DIAG-RDV", "receivers", region="%s:%d" % hp, rows=len(rows))
 
-    def request_connection(self, peer: str) -> None:
-        """Step 2. A tuple addressed to the peer's scope, not a call to it.
+        for hp in self.regions:
+            take(hp, self._rows(hp))
+        if want and len(found) < want:
+            deadline = time.time() + self.timeout_s
 
-        [PROVE_THE_REQUEST_LANDED_V1]
-        put() returning True means the store accepted the write, not that the
-        row is readable as the tuple the consumer looks for. Those are
-        different claims, and when a peer "never primed" there was no way to
-        tell whether the request was never written, written under a scope the
-        consumer does not match, or written and simply not acted on.
+            def hold(hp):
+                ids = sorted(r["id"] for r in self._rows(hp))
+                while time.time() < deadline:
+                    rows = self._rows(hp, wait_s=max(0.1, min(MAX_SERVER_WAIT_S, deadline - time.time())),
+                                      unlike=ids)
+                    ids = sorted(r["id"] for r in rows)
+                    with lock:
+                        take(hp, rows)
+                        lock.notify_all()
+                        if len(found) >= want:
+                            return
+            ts = [threading.Thread(target=hold, args=(hp,), daemon=True) for hp in self.regions]
+            for t in ts:
+                t.start()
+            with lock:
+                lock.wait_for(lambda: len(found) >= want, timeout=self.timeout_s)
+        self._seen = found
+        return found
 
-        So the write is read back through the same path the consumer uses. If
-        it is not there, the producer says so immediately rather than waiting
-        out a 20-second timeout and blaming the peer.
-        """
-        diag("DIAG-RDV", "request write", peer=peer, frm=self.me,
-             scope=scope_for(peer, VAR_REQUEST), dbhost=self.dbhost)
-        ok = put(SERVICE, VAR_REQUEST, scope_for(peer, VAR_REQUEST),
-                 {"want": 1, "from": self.me, "ts": int(time.time())},
-                 dbhost=self.dbhost, timeout=self.timeout_s, own=False)
-        diag("DIAG-RDV", "request write result", peer=peer, ok=ok)
-        if not ok:
-            raise RuntimeError("could not write ConnectionRequest for %s" % peer)
-
-        seen = None
-        want_scope = scope_for(peer, VAR_REQUEST)
-        for row in self._rows():
-            if row.get("var") == VAR_REQUEST and row.get("scope") == want_scope:
-                seen = row
-                break
-        if seen is None:
-            scopes = sorted({"%s/%s" % (r.get("var"), r.get("scope"))
-                             for r in self._rows()})
-            raise RuntimeError(
-                "wrote ConnectionRequest for %r but cannot read it back. The "
-                "store holds: %s" % (peer, ", ".join(scopes) or "(nothing)"))
-        v = seen.get("value")
-        v = v.get("v", v) if isinstance(v, dict) else v
-        if not (isinstance(v, dict) and v.get("want")):
-            raise RuntimeError(
-                "ConnectionRequest for %s reads back as %r -- the consumer "
-                "tests value['want'] and will not match this" % (peer, v))
-
-    def primed_machines(self) -> Dict[str, int]:
-        """Step 4: {machine: bulk_port} for everyone showing BulkReady.
-
-        [DIAG-RDV] A BulkReady row is the last value anybody wrote, not proof
-        of a live listener. Memory holds current state and never history, and
-        signal_done() -- the only thing that ever set BulkReady back to 0 --
-        has had no caller since [NO_RENDEZVOUS_PER_TRANSFER_V1]. So a port
-        written once stays advertised through every restart of the service
-        that opened it.
-
-        Every row is logged with the store's age for the row and the peer's
-        own ts inside the payload. If the age is larger than the current
-        service's uptime on that peer, the port in it is from a previous
-        process and nothing is listening on it.
-        """
-        out = {}
-        rows = self._rows()
-        for row in rows:
-            if row.get("var") != VAR_BULK:
-                continue
-            v = (row.get("value") or {})
-            v = v.get("v", v)
-            m = self._machine_of(row.get("scope"))
-            diag("DIAG-RDV", "bulk row", machine=m,
-                 BulkReady=v.get("BulkReady"), port=v.get("port"),
-                 age_s=row.get("age_s"), ts_env=row.get("ts_env"),
-                 payload_ts=v.get("ts"),
-                 payload_age_s=(int(time.time()) - int(v["ts"]))
-                 if str(v.get("ts", "")).isdigit() else None,
-                 scope=row.get("scope"), addr=row.get("addr"),
-                 taken=bool(v.get("BulkReady") and v.get("port")))
-            if v.get("BulkReady") and v.get("port"):
-                out[m] = int(v["port"])
-        diag("DIAG-RDV", "primed", ports=out)
-        return out
-
-    def bulk_row_ages(self) -> Dict[str, Any]:
-        """{machine: seconds since its BulkReady row was written}.
-
-        [PRIMED_MEANS_NOTHING_WITHOUT_AN_AGE_V1] The store's own clock, not the
-        payload's, so a peer with a skewed clock cannot fake being fresh.
-        A peer that has not restarted its aiconnect since the last deploy
-        keeps the row it wrote before it, and the age is the only thing in the
-        run that says so.
-        """
-        out: Dict[str, Any] = {}
-        for row in self._rows():
-            if row.get("var") != VAR_BULK:
-                continue
-            age = row.get("age_s")
-            try:
-                out[self._machine_of(row.get("scope"))] = float(age)
-            except (TypeError, ValueError):
-                out[self._machine_of(row.get("scope"))] = None
-        return out
+    def ages(self) -> Dict[str, Any]:
+        """{machine: seconds since its receiver started} -- [PRIMED_MEANS_NOTHING_WITHOUT_AN_AGE_V1]."""
+        now = time.time()
+        return {m: (now - float(v["started"])) if v.get("started") else None for m, v in self._seen.items()}
 
     @staticmethod
     def probe_rtt(peer: str, port: int, timeout: float = 3.0) -> Optional[float]:
@@ -349,12 +239,6 @@ class Rendezvous:
                      ms=round((time.time() - t0) * 1000, 1))
             return "%s: %s" % (type(e).__name__, e)
 
-    def signal_done(self, peer: str) -> None:
-        """Step 6: BulkReady -> 0. The receiver tears its socket down on this."""
-        put(SERVICE, VAR_BULK, scope_for(peer, VAR_BULK),
-            {"BulkReady": 0, "port": 0, "machine": peer, "ts": int(time.time())},
-            dbhost=self.dbhost, timeout=self.timeout_s, own=False)
-
 
 def send_rest(peer: str, port: int, total_bytes: int, chunk: int = 1 << 16,
               json_body: bool = False, sender: str = "?", thread_id: int = 0) -> int:
@@ -427,74 +311,53 @@ def send_rest(peer: str, port: int, total_bytes: int, chunk: int = 1 << 16,
 _LINK_TIMEOUT = [30.0]
 
 
-class BulkLink:
-    """One PERMANENT connection to one peer, owned by one sender thread.
+class RegionLink:
+    """One sender thread's PERMANENT session with one receiver's region ([THE_LINK_IS_PERMANENT_V1]).
 
-    [THE_LINK_IS_PERMANENT_V1]
-    send_bulk() opened a socket, sent one object and closed it, so every
-    transfer paid a full TCP setup and teardown and the receiver paid an
-    accept and a close to match. At 64 KB objects and 454 transfers/s that is
-    454 connections a second, and what the bulk arm measured was mostly
-    connection establishment. The link was always meant to be permanent.
+    send() writes one object as the thread's cell, aic.<sender>.<thread>, into that region, overwriting the last
+    one, and returns when the region has it. The cell is held by this session (life="session"): it goes when the
+    link closes, so a run leaves nothing in the receiver's memory. The object is sent from one block, repeated, so
+    an object of any size needs no buffer of that size here.
 
-    It is opened once and reused for the life of the run. Each object is sent
-    as a length prefix followed by its bytes, because with the close no longer
-    ending the object the boundary has to be on the wire.
-    [PERSISTENT_LINK_NEEDS_FRAMING_V1]
-
-    A link that breaks is NOT silently re-established inside send(): the
-    exception reaches the worker, which drops the link so the next attempt
-    builds a fresh one, and the failure is counted and named. A reconnect
-    hidden here would turn a peer that resets every object into a peer that
-    merely looks slow. [NO FALLBACKS]
+    A link that breaks is not re-established inside send(): the exception reaches the worker, which drops the link
+    and counts the failure. [NO FALLBACKS]
     """
 
-    def __init__(self, peer: str, port: int, sender: str, thread_id: int,
-                 chunk: int = 1 << 16, connect_timeout: float = 30.0,
-                 timeout: float = None):
-        self.peer, self.port = peer, port
+    def __init__(self, machine: str, region: Tuple[str, int], sender: str, thread_id: int,
+                 chunk: int = 1 << 16, connect_timeout: float = 30.0, timeout: float = None):
+        self.peer, self.region = machine, region
         self.sender, self.thread_id = sender, thread_id
         self.chunk = chunk
         self.objects = 0
         self.bytes = 0
+        self.gen = 0
         self.opened = time.time()
-        self._block = os.urandom(chunk)
-        # [THE_TIMEOUT_IS_SHAPING_THE_DATA_V1] This was a hardcoded 30s used
-        # for the connect AND left in place for every send. Measured
-        # 2026-09-05: every TimeoutError age clustered on an exact multiple of
-        # 30 -- 30.3, 35.1, 60.6, 61.9, 90.0, 94.9, 120.5, 150.6, 157.1, 179.4.
-        # Those are not network durations, they are this constant firing,
-        # dropping the link, and the replacement blocking for another full
-        # interval. The number that decides how long a stall looks has to be
-        # visible and settable or the failure data is an artifact of it.
+        self.name = "aic.%s.%d" % (sender, thread_id)
+        self._block = memoryview(os.urandom(chunk))
+        # [THE_TIMEOUT_IS_SHAPING_THE_DATA_V1] the connect timeout, then --link-timeout for every write
         self.timeout = connect_timeout if timeout is None else timeout
         self.sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
         self.sock.settimeout(connect_timeout)
-        self.sock.connect((peer, port))
+        self.sock.connect(region)
         self.sock.settimeout(self.timeout)
         self.sock.setsockopt(socket.IPPROTO_TCP, socket.TCP_NODELAY, 1)
-        # The identity header goes once, when the link opens -- not once per
-        # object, which is what it used to mean.
-        self.sock.sendall(bulk_header(sender, thread_id))
-        diag("DIAG-PROD", "link opened", peer=peer, port=port,
+        diag("DIAG-PROD", "link opened", peer=machine, region="%s:%d" % region,
              thread_id=thread_id, timeout_s=self.timeout)
 
     def send(self, total_bytes: int) -> int:
-        """One object down the existing link. Returns bytes of payload sent.
-
-        The payload is generated, not held: an object of any size needs no
-        buffer of that size at either end, which is what makes a
-        datacenter-scale volume testable on ordinary hardware.
-        """
-        self.sock.sendall(bulk_frame(total_bytes))
-        sent = 0
-        while sent < total_bytes:
-            n = min(self.chunk, total_bytes - sent)
-            self.sock.sendall(self._block[:n])
-            sent += n
+        self.gen += 1
+        _send_frame(self.sock, json.dumps({"op": "tput", "name": self.name, "gen": self.gen, "inc": None,
+                                           "life": "session"}).encode())
+        full, tail = divmod(int(total_bytes), self.chunk)
+        parts = [self._block] * full + ([self._block[:tail]] if tail else [])
+        _send_frame(self.sock, *(parts or [b""]))
+        reply = bytes(_recv_frame(self.sock))
+        if reply[:4] != b"OKAY":
+            raise ConnectionError("region %s:%d refused the write: %r" % (self.region[0], self.region[1],
+                                                                            reply[:120]))
         self.objects += 1
-        self.bytes += sent
-        return sent
+        self.bytes += total_bytes
+        return total_bytes
 
     def close(self) -> None:
         try:
@@ -677,6 +540,30 @@ class Stats:
         return "         failures: " + "; ".join(parts) + "  [share " + share + "]"
 
 
+def _check_memory_budget(max_threads: int, obj_bytes: int, receivers: Dict[str, Dict[str, Any]],
+                         transport: str) -> None:
+    """[A_TRANSFER_IS_MEMORY_V1] Will the receivers' memory survive the ramp?
+
+    Each sender thread holds one cell in every receiver it has written to, so at the last rung a receiver can hold
+    max_threads objects from this producer. Refused up front with the arithmetic, like the descriptor budget, rather
+    than discovered when a receiver runs out. [NO FALLBACKS] -- it does not quietly lower the ceiling.
+    """
+    if transport != "region":
+        return
+    need_mb = max_threads * obj_bytes / 1048576.0
+    for m, v in sorted(receivers.items()):
+        have = float(v.get("mem_available_mb") or 0)
+        print("  memory budget  : %s holds up to %.0f MB (%d threads x %.1f MB) of %.0f MB available"
+              % (m, need_mb, max_threads, obj_bytes / 1048576.0, have))
+        if need_mb > have / 2:
+            raise SystemExit(
+                "this ramp could put %.0f MB into %s's memory (%d threads x %.1f MB objects), more than half of the "
+                "%.0f MB it had available when its receiver started. Lower --max-threads to %d or --object-bytes "
+                "to %d, or run on receivers with more memory."
+                % (need_mb, m, max_threads, obj_bytes / 1048576.0, have,
+                   int(have / 2 * 1048576 // max(1, obj_bytes)), int(have / 2 * 1048576 // max(1, max_threads))))
+
+
 def _check_fd_budget(max_threads: int, n_peers: int, transport: str) -> None:
     """[CEILING_RAISED_V2] Will the descriptor limit survive the ramp?
 
@@ -689,7 +576,7 @@ def _check_fd_budget(max_threads: int, n_peers: int, transport: str) -> None:
     Refuses up front with the arithmetic rather than failing at rung 1024.
     [NO FALLBACKS] -- it does not quietly lower the ceiling to fit.
     """
-    if transport != "bulk":
+    if transport != "region":
         return
     try:
         soft, hard = resource.getrlimit(resource.RLIMIT_NOFILE)
@@ -769,9 +656,9 @@ def should_extend(d_x: int, d_f: int, inflight: int,
     return now < deadline
 
 
-def worker(rv: Rendezvous, peers: List[str], obj_bytes: int,
-           ports: Dict[str, int], stop: threading.Event, stats: Stats,
-           transport: str = "bulk", thread_id: int = 0,
+def worker(rv: "Receivers", peers: List[str], obj_bytes: int,
+           ports: Dict[str, Tuple[str, int]], stop: threading.Event, stats: Stats,
+           transport: str = "region", thread_id: int = 0,
            gate: "RungGate" = None) -> None:
     """One transfer thread: pick a primed peer and send. Repeat until stopped.
 
@@ -786,7 +673,7 @@ def worker(rv: Rendezvous, peers: List[str], obj_bytes: int,
     ONCE, before the ramp starts, and every thread sends to the same port for
     as long as the run lasts. A transfer is a connect and a send. Nothing else.
     """
-    links: Dict[str, BulkLink] = {}
+    links: Dict[str, RegionLink] = {}
     try:
         _worker_loop(rv, peers, obj_bytes, transport, stats, stop, thread_id,
                      ports, links, gate)
@@ -802,7 +689,7 @@ def _prewarm(rv, peers, ports, transport, stats, thread_id, links) -> None:
     window ever contains a connect. A link that cannot be built is reported and
     left absent; the worker fails against that peer on its first pick, which is
     a real failure and is counted as one."""
-    if transport != "bulk":
+    if transport != "region":
         return
     for peer in peers:
         if peer in links:
@@ -811,8 +698,8 @@ def _prewarm(rv, peers, ports, transport, stats, thread_id, links) -> None:
         if not port:
             continue
         try:
-            links[peer] = BulkLink(peer, port, rv.me, thread_id,
-                                   timeout=_LINK_TIMEOUT[0])
+            links[peer] = RegionLink(peer, port, rv.me, thread_id,
+                                     timeout=_LINK_TIMEOUT[0])
         except Exception as e:
             diag_exc("DIAG-PROD", "prewarm failed", e, peer=peer, port=port,
                      thread_id=thread_id)
@@ -838,16 +725,16 @@ def _one_attempt(rv, peers, obj_bytes, transport, stats, thread_id,
     peer = random.choice(peers)
     port = ports.get(peer)
     if not port:
-        stats.fail("%s has no bulk port" % peer, peer=peer, port=0)
-        diag("DIAG-PROD", "no bulk port for peer", peer=peer,
+        stats.fail("%s has no region" % peer, peer=peer, port=0)
+        diag("DIAG-PROD", "no region for peer", peer=peer,
              known_ports=ports, thread_id=thread_id)
         return
     stats.start(thread_id)
     try:
-        if transport == "bulk":
+        if transport == "region":
             lk = links.get(peer)
             if lk is None:
-                lk = links[peer] = BulkLink(peer, port, rv.me, thread_id)
+                lk = links[peer] = RegionLink(peer, port, rv.me, thread_id, timeout=_LINK_TIMEOUT[0])
             n = lk.send(obj_bytes)
         else:
             n = send_rest(peer, 8080 if transport == "rest8080" else 80,
@@ -868,7 +755,7 @@ def _one_attempt(rv, peers, obj_bytes, transport, stats, thread_id,
             lk.close()
         stats.fail("%s: %s: %s" % (peer, type(e).__name__, e),
                    peer=peer,
-                   port=(port if transport == "bulk"
+                   port=(port[1] if transport == "region"
                          else (8080 if transport == "rest8080" else 80)),
                    exc=e)
     finally:
@@ -877,18 +764,20 @@ def _one_attempt(rv, peers, obj_bytes, transport, stats, thread_id,
 
 def main(argv=None) -> int:
     p = argparse.ArgumentParser(description="AIConnect ramp across the mesh")
-    p.add_argument("--dbhost", default=DATA_PLANE_DBHOST)
+    p.add_argument("--receivers", type=int, default=0,
+                   help="hold reads on the regions until this many receivers are there (0: those there now)")
+    p.add_argument("--regions", default="",
+                   help="host:port,... of the FrogTorch RAMs (default: those announced in the SystemRam)")
     p.add_argument("--step-seconds", type=float, default=4.0,
                    help="how long each rung runs before threads double")
     p.add_argument("--start-threads", type=int, default=1)
     p.add_argument("--object-bytes", type=int, default=4 << 20)
-    p.add_argument("--transport", default="bulk",
-                   choices=["bulk", "rest8080", "semantic80"],
-                   help="how the object moves. bulk: a socket the receiver "
-                        "opened (data plane). rest8080: HTTP straight to "
-                        "Apache, semantic path bypassed. semantic80: HTTP "
-                        "through the FrogNet proxy -- CONTROL-PLANE SIZES "
-                        "ONLY, see --object-bytes.")
+    p.add_argument("--transport", default="region",
+                   choices=["region", "rest8080", "semantic80"],
+                   help="how the object moves. region: written into the receiver's FrogTorch RAM "
+                        "([AICONNECT_IN_THE_REGION_V1]). rest8080: HTTP straight to Apache (stock). "
+                        "semantic80: HTTP through the FrogNet proxy -- CONTROL-PLANE SIZES ONLY, see "
+                        "--object-bytes.")
     p.add_argument("--max-threads", type=int, default=DEFAULT_MAX_THREADS,
                    help="ceiling on the ramp. [THE_DRIVER_IS_NOT_THE_SUBJECT_V1] "
                         "Without one the ramp doubled to 2048 sender threads in "
@@ -930,7 +819,6 @@ def main(argv=None) -> int:
                         "want the ramp to stop on client queue depth.")
     p.add_argument("--mem-floor-mb", type=float, default=256.0)
     p.add_argument("--disk-floor-mb", type=float, default=1024.0)
-    p.add_argument("--hosts-file", default="/etc/hosts")
     p.add_argument("--results-dir",
                    default=os.path.join(_TREE, "agent_workload", "results"))
     p.add_argument("--run-id", default=None)
@@ -955,88 +843,51 @@ def main(argv=None) -> int:
             "largest object it can carry -- a %.1f MB object is refused outright "
             "('invalid frame size'), and even 65536 fails, by one byte. Use "
             "--object-bytes %d or less for the REST-vs-semantic comparison, or "
-            "--transport bulk to move volume."
+            "--transport region to move volume."
             % (a.object_bytes, SEMANTIC_MAX_OBJECT,
                a.object_bytes / 1048576.0, SEMANTIC_MAX_OBJECT))
 
-    me = machine_name()
-    peers = [h for h in hosts_from_etc(a.hosts_file) if h != me]
-    if not peers:
-        raise SystemExit("no FrogNet peers in %s -- nothing to ramp against"
-                         % a.hosts_file)
-
     # The results directory is used as a disk-space probe on every rung and
-    # written at the end, so it must exist before the first reading -- not at
-    # write time. The aiconnect tarball ships only its own package, so on a
-    # machine that carries nothing else of the workload this path does not
-    # exist yet.
+    # written at the end, so it must exist before the first reading.
     os.makedirs(a.results_dir, exist_ok=True)
 
-    rv = Rendezvous(a.dbhost, a.store_timeout)
-    up = rv.ready_machines()
-    targets = [h for h in peers if h in up]
-    if not targets:
+    regions = [parse_region(x) for x in a.regions.split(",") if x.strip()] or None
+    rv = Receivers(regions, a.store_timeout)
+    me = rv.me
+    found = rv.receivers(a.receivers)
+    if not found or len(found) < a.receivers:
         raise SystemExit(
-            "none of %d peers in %s is asserting MachineReady. Start the "
-            "AIConnect service on them: they are in /etc/hosts but not in RAM."
-            % (len(peers), a.hosts_file))
+            "%d AIConnect receiver(s) in %d FrogTorch region(s) (%s), %s. Start the AIConnect service on the "
+            "machines that should receive: it writes its receiver cell into its own machine's region."
+            % (len(found), len(rv.regions), " ".join("%s:%d" % hp for hp in rv.regions),
+               "wanted %d" % a.receivers if a.receivers else "wanted at least one"))
+    # machine -> the region its memory is in (host, port)
+    ports: Dict[str, Tuple[str, int]] = {m: tuple(v["region"]) for m, v in found.items()}
+    targets = sorted(ports)
 
-    # Prime each target ONCE. The receiver stays open for the whole run, so
-    # every thread sends to the same port -- no per-transfer rendezvous.
-    ports: Dict[str, int] = {}
-    for peer in targets:
-        rv.request_connection(peer)
-    deadline = time.time() + 30.0
-    while time.time() < deadline and len(ports) < len(targets):
-        ports.update({m: p for m, p in rv.primed_machines().items()
-                      if m in targets})
-        if len(ports) < len(targets):
-            time.sleep(0.3)
-    missing = [t for t in targets if t not in ports]
-    if missing:
-        raise SystemExit(
-            "these machines never primed within 30s: %s. They asserted "
-            "MachineReady but did not open a bulk receiver -- check "
-            "'journalctl -u aiconnect' on them." % " ".join(missing))
-    targets = list(ports)
-
-    # [PROVE_THE_PORT_IS_LIVE_V1] Only for the bulk arm -- rest8080/semantic80
-    # dial Apache and the proxy, not a port out of the tuple store.
-    if a.transport == "bulk":
+    # [PROVE_THE_PORT_IS_LIVE_V1] a receiver cell exists only while its service's session does, but the region
+    # itself must also take connections from HERE
+    if a.transport == "region":
         dead = {}
-        for m in sorted(ports):
-            why = rv.probe(m, ports[m])
+        for m in targets:
+            why = rv.probe(*ports[m])
             if why:
-                dead[m] = "%d (%s)" % (ports[m], why)
+                dead[m] = "%s:%d (%s)" % (ports[m][0], ports[m][1], why)
         if dead:
-            raise SystemExit(
-                "%d of %d peers advertise a bulk port that refuses "
-                "connections: %s.\n"
-                "BulkReady is the last value anybody wrote, not proof of a "
-                "listener -- nothing has cleared it since the per-transfer "
-                "done signal was removed, so a port survives the service that "
-                "opened it. Check 'systemctl status aiconnect' and "
-                "'journalctl -u aiconnect' on %s; a restart loop there leaves "
-                "exactly this.\n"
-                "Running anyway would not have failed: with %d peers chosen at "
-                "random the failure rate would sit near %.0f%% and the ramp "
-                "would climb until that constant crossed a stop threshold and "
-                "reported it as a capacity limit."
-                % (len(dead), len(targets),
-                   ", ".join("%s:%s" % (m, v) for m, v in sorted(dead.items())),
-                   " ".join(sorted(dead)), len(targets),
-                   100.0 * len(dead) / max(1, len(targets))))
+            raise SystemExit("%d of %d receivers' regions refuse connections from here: %s"
+                             % (len(dead), len(targets), ", ".join("%s=%s" % kv for kv in sorted(dead.items()))))
 
     _LINK_TIMEOUT[0] = a.link_timeout
     if a.stall_seconds <= 0:
         a.stall_seconds = 4.0 * a.step_seconds
 
     _check_fd_budget(a.max_threads, len(targets), a.transport)
+    _check_memory_budget(a.max_threads, a.object_bytes, found, a.transport)
 
     run_id = a.run_id or "aiconnect-%d" % int(time.time())
-    print("AIConnect ramp from %s" % me)
-    print("  peers in hosts : %d" % len(peers))
-    print("  asserting ready: %d  %s" % (len(targets), " ".join(targets)))
+    print("AIConnect ramp from %s  (%s)" % (me, BUILD))
+    print("  regions        : %s" % " ".join("%s:%d" % hp for hp in rv.regions))
+    print("  receivers      : %d  %s" % (len(targets), " ".join(targets)))
     print("  transport      : %s" % a.transport)
     print("  object size    : %.1f MB, doubling threads every %.0fs"
           % (a.object_bytes / 1048576.0, a.step_seconds))
@@ -1047,22 +898,22 @@ def main(argv=None) -> int:
     # is how long since that peer last opened a receiver -- a large number
     # means its aiconnect has not restarted since, whatever you have copied
     # onto it.
-    _ages = {m: r for m, r in (rv.bulk_row_ages() or {}).items()}
+    _ages = rv.ages()
     # [A_PEER_IS_ALSO_A_PATH_V1] The egress interface per peer, from
     # /proc/net/route. Two peers behaving differently under identical load may
     # simply be two different paths, and the run printed only addresses.
     _routes = peer_routes(sorted(ports))
-    print("  primed         : %s"
-          % " ".join("%s:%d(%s via %s)"
-                     % (m, p, _fmt_age(_ages.get(m)), _routes.get(m) or "route?")
+    print("  receiver memory: %s"
+          % " ".join("%s=%s:%d(%s via %s)"
+                     % (m, p[0], p[1], _fmt_age(_ages.get(m)), _routes.get(m) or "route?")
                      for m, p in sorted(ports.items())))
     # [A_RELAYED_PEER_IS_NOT_A_SECOND_PEER_V1] Latency and hop distance per
     # peer, measured with sockets only. A peer reached THROUGH another target
     # is not a second target: it doubles the load on the one in between.
     _rtt, _onlink = {}, {}
     for _m in sorted(ports):
-        _rtt[_m] = rv.probe_rtt(_m, ports[_m])
-        _onlink[_m] = (rv.is_on_link(_m, ports[_m])
+        _rtt[_m] = rv.probe_rtt(*ports[_m])
+        _onlink[_m] = (rv.is_on_link(*ports[_m])
                        if _rtt[_m] is not None else None)
     print("  path per peer  : %s"
           % " ".join("%s=%s/%s" % (

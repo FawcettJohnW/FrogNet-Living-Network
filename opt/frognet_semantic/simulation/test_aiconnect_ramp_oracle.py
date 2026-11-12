@@ -66,6 +66,7 @@ import resource
 import selectors
 import json
 import socket
+import subprocess
 import sys
 import tempfile
 import threading
@@ -83,16 +84,39 @@ from agent_workload.aiconnect import producer, service  # noqa: E402
 _FAILURES = []
 
 
-def open_receiver(shards):
-    """Construct a receiver, or report the old single-threaded shape as a
-    FAILED CHECK rather than crashing the run and hiding every later
-    assertion. [REUSEPORT_SHARDS_V1]"""
-    try:
-        return service.BulkReceiver("127.0.0.1", shards=shards)
-    except TypeError as e:
-        check("the receiver accepts a shard count", False,
-              "%s -- a single-threaded receiver has no width to set" % e)
-        return None
+class _Region:
+    """[AICONNECT_IN_THE_REGION_V1] A FrogTorch RAM on loopback, with a receiver cell in it held by its own session:
+    what the AIConnect service writes on a machine."""
+
+    def __init__(self, machine="127.0.0.1", receiver=True):
+        from agent_workload.tuplespace.frogtorch_ram import RamServer
+        from agent_workload.tuplespace.frogtorch_ram_client import _Session
+        self.srv = RamServer("127.0.0.1", 0)
+        self.port = self.srv.port
+        self.hp = ("127.0.0.1", self.port)
+        self.held = None
+        if receiver:
+            self.held = _Session(*self.hp)
+            self.held.call({"op": "cput", "service": service.SERVICE, "var": service.VAR_RECEIVER,
+                            "scope": machine, "life": "session",
+                            "value": {"machine": machine, "region": "127.0.0.1:%d" % self.port,
+                                      "build": service.BUILD, "mem_available_mb": 4096, "started": time.time()}})
+
+    @property
+    def accepts(self):
+        return self.srv.accepts - (1 if self.held else 0)
+
+    def stats(self):
+        return self.srv.region.stats()
+
+    def close(self):
+        if self.held:
+            self.held.sk.close()
+        self.srv.close()
+
+
+def open_receiver(shards=None):
+    return _Region()
 
 
 def check(name, cond, detail=""):
@@ -131,13 +155,13 @@ def test_driver_ceiling():
         _soft, _ = _res.getrlimit(_res.RLIMIT_NOFILE)
         ok = True
         try:
-            producer._check_fd_budget(8, 2, "bulk")
+            producer._check_fd_budget(8, 2, "region")
         except SystemExit:
             ok = False
         check("a ramp that fits is allowed", ok)
         refused = False
         try:
-            producer._check_fd_budget(_soft * 4, 8, "bulk")
+            producer._check_fd_budget(_soft * 4, 8, "region")
         except SystemExit:
             refused = True
         check("a ramp that cannot fit is refused up front", refused,
@@ -268,8 +292,8 @@ def test_receiver_age_is_reported():
     120.5, 150.6, 179.4. Those are the constant firing, not the network."""
     print("[5] receiver age and link timeout are visible")
 
-    check("Rendezvous exposes the row ages",
-          hasattr(producer.Rendezvous, "bulk_row_ages"),
+    check("Receivers exposes the receivers' ages",
+          hasattr(producer.Receivers, "ages"),
           "without it the header cannot say when each receiver was created")
     check("age formatting is human-readable",
           producer._fmt_age(2364) == "39m" and producer._fmt_age(45) == "45s"
@@ -290,7 +314,7 @@ def test_receiver_age_is_reported():
     check("workers use the configured value",
           "_LINK_TIMEOUT[0] = a.link_timeout" in src)
 
-    lsrc = inspect.getsource(producer.BulkLink.__init__)
+    lsrc = inspect.getsource(producer.RegionLink.__init__)
     check("the send timeout is set separately from the connect timeout",
           lsrc.count("settimeout") >= 2,
           "leaving the connect timeout in place makes every send inherit it")
@@ -439,10 +463,10 @@ def test_relayed_peer_is_detected():
     """
     print("[9] a relayed peer is detected, not treated as a second peer")
 
-    check("probe_rtt() exists", hasattr(producer.Rendezvous, "probe_rtt"))
-    check("is_on_link() exists", hasattr(producer.Rendezvous, "is_on_link"))
-    if not (hasattr(producer.Rendezvous, "probe_rtt")
-            and hasattr(producer.Rendezvous, "is_on_link")):
+    check("probe_rtt() exists", hasattr(producer.Receivers, "probe_rtt"))
+    check("is_on_link() exists", hasattr(producer.Receivers, "is_on_link"))
+    if not (hasattr(producer.Receivers, "probe_rtt")
+            and hasattr(producer.Receivers, "is_on_link")):
         return
 
     srv = socket.socket()
@@ -463,14 +487,14 @@ def test_relayed_peer_is_detected():
     t = threading.Thread(target=accept_loop, daemon=True)
     t.start()
     try:
-        rtt = producer.Rendezvous.probe_rtt("127.0.0.1", port)
+        rtt = producer.Receivers.probe_rtt("127.0.0.1", port)
         check("a reachable port yields a latency",
               rtt is not None and rtt >= 0.0, repr(rtt))
         check("an unreachable port yields None, not zero",
-              producer.Rendezvous.probe_rtt("127.0.0.1", 1) is None,
+              producer.Receivers.probe_rtt("127.0.0.1", 1) is None,
               "a failed probe must not read as an instant one")
         check("loopback is one hop",
-              producer.Rendezvous.is_on_link("127.0.0.1", port) is True,
+              producer.Receivers.is_on_link("127.0.0.1", port) is True,
               "IP_TTL=1 must still reach a host on this machine")
     finally:
         stop.set()
@@ -695,21 +719,21 @@ def test_rung_is_n_simultaneous():
         me = "10.0.0.1"
 
     peers = ["127.0.0.1"]
-    ports = {"127.0.0.1": rx.port}
+    ports = {"127.0.0.1": rx.hp}
     first_send = {}
-    real_send = producer.BulkLink.send
+    real_send = producer.RegionLink.send
 
     def timed_send(self, nb):
         first_send.setdefault(self.thread_id, time.time())
         return real_send(self, nb)
 
-    producer.BulkLink.send = timed_send
+    producer.RegionLink.send = timed_send
     ts = []
     try:
         for i in range(n):
             t = threading.Thread(
                 target=producer.worker,
-                args=(_RV(), peers, 4096, ports, stop, stats, "bulk", i, gate),
+                args=(_RV(), peers, 4096, ports, stop, stats, "region", i, gate),
                 daemon=True)
             t.start()
             ts.append(t)
@@ -753,7 +777,7 @@ def test_rung_is_n_simultaneous():
                   "%.3fs between the first and last thread's first send"
                   % spread)
     finally:
-        producer.BulkLink.send = real_send
+        producer.RegionLink.send = real_send
         stop.set()
         gate.release()
         rx.close()
@@ -907,239 +931,144 @@ def test_extend_window():
 
 # -------------------------------------------------------- 3. receiver silence
 
-def test_reuseport_shards():
-    """[REUSEPORT_SHARDS_V1] N processes, one port, kernel-balanced."""
-    print("[13] SO_REUSEPORT shards")
-
-    check("SO_REUSEPORT is available on this platform",
-          hasattr(socket, "SO_REUSEPORT"),
-          "without it there is no sharing and no sharding")
-    if not hasattr(socket, "SO_REUSEPORT"):
-        return
-
-    rx = open_receiver(4)
-    if rx is None:
-        return
+def test_the_region_is_the_receiver():
+    """[AICONNECT_IN_THE_REGION_V1] A transfer is a write into the receiver's memory. One permanent session per
+    sender thread; the thread's one cell is overwritten object by object; the cell goes with the session."""
+    print("[14] the region is the receiver")
+    rx = open_receiver()
     try:
-        check("the receiver reports its width", rx.shards == 4,
-              "shards=%r" % (rx.shards,))
-        check("every shard is alive", rx.live_shards() == 4,
-              "%d of 4 alive: %r" % (rx.live_shards(), rx.error))
-        check("the shards are separate processes",
-              len({p.pid for p in rx._procs}) == 4,
-              "a shard per process is what escapes the GIL")
-        check("no shard is this process",
-              os.getpid() not in {p.pid for p in rx._procs})
-        check("one port serves them all", isinstance(rx.port, int)
-              and rx.port > 0)
-
-        # The port really is shareable: a fifth listener must be able to join.
-        extra = None
-        try:
-            extra = service._bulk_listener("127.0.0.1", rx.port)
-            joined = True
-        except OSError as e:
-            joined = False
-            detail = "%s: %s" % (type(e).__name__, e)
-        finally:
-            if extra is not None:
-                extra.close()
-        check("another listener can bind the same port", joined,
-              detail if not joined else "")
+        n_obj, obj_bytes = 40, 300000            # not a multiple of the 64 KB block: the tail is sent too
+        lk = producer.RegionLink("127.0.0.1", rx.hp, "10.0.0.1", 7)
+        for _ in range(n_obj):
+            lk.send(obj_bytes)
+        st = rx.stats()
+        check("every object landed in the region", st["tputs"] == n_obj and st["bytes_in"] == n_obj * obj_bytes,
+              repr(st))
+        check("a permanent link is one session", rx.accepts == 1, "%d accepts" % rx.accepts)
+        check("the thread holds ONE cell, overwritten", st["tensors"] == 1 and st["held_bytes"] == obj_bytes,
+              repr(st))
+        lk.close()
+        _dl = time.time() + 5
+        while time.time() < _dl and rx.stats()["tensors"]:
+            time.sleep(0.02)
+        check("its cell goes with its session: a run leaves nothing in the receiver's memory",
+              rx.stats()["held_bytes"] == 0, repr(rx.stats()))
     finally:
         rx.close()
-
-
-def test_permanent_link_framing():
-    """[THE_LINK_IS_PERMANENT_V1] + [PERSISTENT_LINK_NEEDS_FRAMING_V1]
-
-    The measurable consequence: many objects, ONE accept. On the old code
-    every object was its own connection, so accepts equalled transfers and
-    the bulk arm was measuring TCP setup.
-    """
-    print("[14] the link is permanent and objects are framed")
-
-    n_obj, obj_bytes = 50, 4096
-    rx = open_receiver(2)
-    if rx is None:
-        return
-    try:
-        lk = producer.BulkLink("127.0.0.1", rx.port, "10.0.0.1", 7)
-        try:
-            for _ in range(n_obj):
-                lk.send(obj_bytes)
-        finally:
-            lk.close()
-
-        deadline = time.time() + 15.0
-        while time.time() < deadline and rx.transfers < n_obj:
-            if rx.error is not None:
-                break
-            time.sleep(0.05)
-
-        check("no shard failed", rx.error is None, repr(rx.error))
-        check("%d objects arrive as %d transfers" % (n_obj, n_obj),
-              rx.transfers == n_obj,
-              "counted %d -- the length prefix is what separates them"
-              % rx.transfers)
-        check("exactly ONE accept for %d objects" % n_obj,
-              rx.accepts == 1,
-              "%d accepts -- a permanent link opens once" % rx.accepts)
-        check("payload bytes match the sender exactly",
-              rx.bytes_received == n_obj * obj_bytes,
-              "receiver counted %d, sender sent %d; a mismatch of "
-              "32 + 8*objects means the framing is being counted as payload"
-              % (rx.bytes_received, n_obj * obj_bytes))
-        check("the link reports what it carried",
-              lk.objects == n_obj and lk.bytes == n_obj * obj_bytes,
-              "objects=%d bytes=%d" % (lk.objects, lk.bytes))
-    finally:
-        rx.close()
-
-
-def test_framing_survives_split_fields():
-    """[FRAME_WITHOUT_COPYING_THE_PAYLOAD_V1] The shard walks each received
-    block in place and carries only a partial header or length prefix. That
-    hand-rolled boundary handling is the risk the copying version did not
-    have, so drive it with fields deliberately split across recv calls."""
-    print("[15] framing across recv boundaries")
-
-    rx = open_receiver(1)
-    if rx is None:
-        return
-    n_obj, obj_bytes = 40, 3000
-    try:
-        sk = socket.create_connection(("127.0.0.1", rx.port), timeout=10)
-        try:
-            sk.setsockopt(socket.IPPROTO_TCP, socket.TCP_NODELAY, 1)
-            stream = service.bulk_header("10.0.0.1", 3)
-            for _ in range(n_obj):
-                stream += service.bulk_frame(obj_bytes) + b"q" * obj_bytes
-            # Three bytes at a time: every header and every length prefix is
-            # split, and most objects straddle several writes.
-            for i in range(0, len(stream), 3):
-                sk.sendall(stream[i:i + 3])
-
-            deadline = time.time() + 30.0
-            while time.time() < deadline and rx.transfers < n_obj:
-                if rx.error is not None:
-                    break
-                time.sleep(0.02)
-        finally:
-            sk.close()
-
-        check("no shard failed on split fields", rx.error is None,
-              repr(rx.error))
-        check("all %d objects framed from 3-byte writes" % n_obj,
-              rx.transfers == n_obj,
-              "counted %d -- a partial length prefix was mishandled"
-              % rx.transfers)
-        check("payload bytes exact across the splits",
-              rx.bytes_received == n_obj * obj_bytes,
-              "got %d want %d" % (rx.bytes_received, n_obj * obj_bytes))
-    finally:
-        rx.close()
-
-
-def test_drain_is_bounded():
-    """[DRAIN_MUST_BE_FAIR_V1] A permanent link never stops sending, so a
-    drain loop that runs until EWOULDBLOCK never yields the shard. The budget
-    is what makes the loop give the other connections a turn."""
-    print("[16] the per-connection drain is bounded")
-
-    check("DRAIN_BUDGET_BYTES exists",
-          hasattr(service, "DRAIN_BUDGET_BYTES"),
-          "an unbounded drain lets one sender hold a shard indefinitely")
-    if not hasattr(service, "DRAIN_BUDGET_BYTES"):
-        return
-    check("the budget is a real bound",
-          0 < service.DRAIN_BUDGET_BYTES <= (64 << 20),
-          "is %r" % (service.DRAIN_BUDGET_BYTES,))
-
-    src = inspect.getsource(service._shard_main)
-    check("the read loop tests the budget",
-          "while drained < DRAIN_BUDGET_BYTES" in src,
-          "the loop must stop on the budget, not only on EWOULDBLOCK")
-    check("payload bytes are not buffered",
-          'st["buf"] += b' not in src,
-          "concatenating every received block copies the whole run twice")
 
 
 def test_many_concurrent_links():
-    """The descriptor limit is now the only limit -- select()'s FD_SETSIZE of
-    1024 was the old ceiling and epoll has none. Held concurrently, because it
-    is simultaneity that allocates high descriptors."""
-    print("[17] concurrent links past FD_SETSIZE")
-
-    want = 1200
-    soft, _hard = resource.getrlimit(resource.RLIMIT_NOFILE)
-    headroom = soft - len(os.listdir("/proc/self/fd")) - 64
-    if headroom < want:
-        check("descriptor limit allows the test", False,
-              "RLIMIT_NOFILE soft=%d leaves room for %d, need %d"
-              % (soft, headroom, want))
-        return
-
-    rx = open_receiver(2)
-    if rx is None:
-        return
-    links = []
+    print("[15] many links at once")
+    rx = open_receiver()
+    want = 64
+    links, errs = [], []
     try:
         for i in range(want):
-            links.append(producer.BulkLink("127.0.0.1", rx.port,
-                                           "10.0.0.%d" % (i % 250 + 1), i))
-        for lk in links:
-            lk.send(512)
+            links.append(producer.RegionLink("127.0.0.1", rx.hp, "10.0.0.1", i))
 
-        deadline = time.time() + 30.0
-        while time.time() < deadline and rx.transfers < want:
-            if rx.error is not None:
-                break
-            time.sleep(0.05)
-
-        check("no shard died under %d concurrent links" % want,
-              rx.error is None, repr(rx.error))
-        check("all %d links were accepted" % want, rx.accepts == want,
-              "accepted %d" % rx.accepts)
-        check("all %d objects were framed" % want, rx.transfers == want,
-              "counted %d" % rx.transfers)
-        check("descriptors past FD_SETSIZE were reached",
-              want > 1024, "the test must actually cross 1024")
+        def go(lk):
+            try:
+                lk.send(65536)
+            except Exception as e:
+                errs.append(repr(e))
+        ts = [threading.Thread(target=go, args=(lk,)) for lk in links]
+        for t in ts:
+            t.start()
+        for t in ts:
+            t.join(timeout=20)
+        st = rx.stats()
+        check("no write failed", not errs, "; ".join(errs[:3]))
+        check("all %d links were accepted" % want, rx.accepts == want, "accepted %d" % rx.accepts)
+        check("one cell per sender thread", st["tensors"] == want and st["tputs"] == want, repr(st))
     finally:
         for lk in links:
             lk.close()
         rx.close()
 
 
-def test_a_dead_shard_is_not_silent():
-    """A receiver quietly running at a fraction of its width is exactly the
-    failure this change exists to end, so a shard that dies must show."""
-    print("[18] a dead shard is visible")
-
-    rx = open_receiver(2)
-    if rx is None:
-        return
+def test_receivers_come_from_memory():
+    """A receiver is a session-held cell in its machine's region: found by reading, gone with its service."""
+    print("[16] receivers come from memory")
+    rx = open_receiver()
+    bare = _Region(receiver=False)
     try:
-        check("healthy receiver reports no error", rx.error is None,
-              repr(rx.error))
-        victim = rx._procs[0]
-        victim.terminate()
-        victim.join(timeout=5.0)
+        rv = producer.Receivers([rx.hp, bare.hp], timeout_s=5.0, me="10.0.0.1")
+        got = rv.receivers()
+        check("the receiver is found in its region", set(got) == {"127.0.0.1"}
+              and tuple(got["127.0.0.1"]["region"]) == rx.hp, repr(got))
+        check("its age is reported", rv.ages().get("127.0.0.1") is not None, repr(rv.ages()))
+        own = producer.Receivers([rx.hp], timeout_s=5.0, me="127.0.0.1").receivers()
+        check("a producer does not send to itself", own == {}, repr(own))
+        # a receiver that starts later is seen by a held read, not a poll
+        from agent_workload.tuplespace.frogtorch_ram_client import _Session
+        late = []
 
-        deadline = time.time() + 5.0
-        while time.time() < deadline and rx.error is None:
-            time.sleep(0.05)
-
-        check("the loss is reported", rx.error is not None,
-              "a shard exited and the receiver still claimed to be healthy")
-        check("live_shards() shows the reduced width", rx.live_shards() == 1,
-              "live=%d" % rx.live_shards())
-        check("stats() carries it too",
-              rx.stats().get("error") is not None
-              and rx.stats().get("live_shards") == 1,
-              repr(rx.stats()))
+        def start_late():
+            time.sleep(0.5)
+            s = _Session(*bare.hp)
+            s.call({"op": "cput", "service": service.SERVICE, "var": service.VAR_RECEIVER, "scope": "127.0.0.9",
+                    "life": "session", "value": {"machine": "127.0.0.9", "region": "127.0.0.1:%d" % bare.port,
+                                                 "started": time.time()}})
+            late.append(s)
+        threading.Thread(target=start_late, daemon=True).start()
+        t0 = time.time()
+        got = producer.Receivers([rx.hp, bare.hp], timeout_s=10.0, me="10.0.0.1").receivers(want=2)
+        check("a receiver that starts later is picked up by the held read",
+              set(got) == {"127.0.0.1", "127.0.0.9"} and time.time() - t0 < 5, "%r in %.1fs"
+              % (sorted(got), time.time() - t0))
+        for s_ in late:
+            s_.sk.close()
+        rx.held.sk.close()
+        rx.held = None
+        _dl = time.time() + 5
+        while time.time() < _dl and producer.Receivers([rx.hp], 5.0, me="10.0.0.1").receivers():
+            time.sleep(0.02)
+        check("a receiver whose service has gone is gone",
+              producer.Receivers([rx.hp], 5.0, me="10.0.0.1").receivers() == {})
     finally:
         rx.close()
+        bare.close()
+
+
+def test_the_service_holds_its_cell():
+    print("[17] the AIConnect service: one session-held cell, gone when it stops")
+    from agent_workload.tuplespace.frogtorch_ram import RamServer
+    srv = RamServer("127.0.0.1", 0)
+    try:
+        p = subprocess.Popen([sys.executable, "-m", "agent_workload.aiconnect.service", "--region",
+                              "127.0.0.1:%d" % srv.port, "--machine", "127.0.0.5"], cwd=_PARENT,
+                             stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True)
+        line = p.stdout.readline()
+        rows = srv.region.cget(service.SERVICE, service.VAR_RECEIVER, 1, 5.0)
+        check("it writes its receiver cell", len(rows) == 1 and rows[0]["value"]["machine"] == "127.0.0.5"
+              and rows[0]["life"] == "session", "%r / %r" % (line, rows))
+        check("and says which build it is", service.BUILD in line, line)
+        p.terminate()
+        p.wait(timeout=10)
+        _dl = time.time() + 5
+        while time.time() < _dl and srv.region.cget(service.SERVICE, service.VAR_RECEIVER, 0, 0.0):
+            time.sleep(0.02)
+        check("its cell goes when it stops", srv.region.cget(service.SERVICE, service.VAR_RECEIVER, 0, 0.0) == [])
+    finally:
+        srv.close()
+
+
+def test_memory_budget():
+    """[A_TRANSFER_IS_MEMORY_V1] a ramp that would fill a receiver's memory is refused before it starts."""
+    print("[18] the memory budget is checked up front")
+    refused = False
+    try:
+        producer._check_memory_budget(2048, 4 << 20, {"r": {"mem_available_mb": 4096}}, "region")
+    except SystemExit as e:
+        refused = "Lower --max-threads" in str(e)
+    check("8 GB into a 4 GB receiver is refused", refused)
+    ok = True
+    try:
+        producer._check_memory_budget(64, 4 << 20, {"r": {"mem_available_mb": 4096}}, "region")
+        producer._check_memory_budget(2048, 4 << 20, {"r": {"mem_available_mb": 1}}, "rest8080")
+    except SystemExit:
+        ok = False
+    check("256 MB fits, and the HTTP arms are not held to it", ok)
 
 
 def test_main_runs_end_to_end():
@@ -1157,38 +1086,10 @@ def test_main_runs_end_to_end():
     """
     print("[19] the ramp runs end to end")
 
-    rx = open_receiver(2)
-    if rx is None:
-        return
-
-    hosts = os.path.join(tempfile.mkdtemp(), "hosts")
-    with open(hosts, "w") as f:
-        f.write("127.0.0.1 peer.frognet\n")
+    rx = open_receiver()
     results = tempfile.mkdtemp()
-
-    real_rv = producer.Rendezvous
-    real_hosts = producer.hosts_from_etc
     real_machine = producer.machine_name
-
-    class _RV(producer.Rendezvous):
-        def __init__(self, *a, **k):
-            self.dbhost, self.timeout_s, self.me = "x", 5.0, "10.0.0.1"
-
-        def ready_machines(self):
-            return ["127.0.0.1"]
-
-        def request_connection(self, peer):
-            pass
-
-        def primed_machines(self):
-            return {"127.0.0.1": rx.port}
-
-        def bulk_row_ages(self):
-            return {"127.0.0.1": 12.0}
-
     try:
-        producer.Rendezvous = _RV
-        producer.hosts_from_etc = lambda path="/etc/hosts": ["127.0.0.1"]
         producer.machine_name = lambda: "10.0.0.1"
         # Caught, not allowed to propagate: a ramp that dies mid-run must be
         # reported as a FAILED CHECK with its exception, or it aborts the
@@ -1197,10 +1098,10 @@ def test_main_runs_end_to_end():
         rc, exc = None, None
         try:
             rc = producer.main([
-                "--transport", "bulk", "--object-bytes", "8192",
+                "--transport", "region", "--object-bytes", "8192",
                 "--step-seconds", "1", "--max-threads", "4",
                 "--cpu-max-pct", "100", "--results-dir", results,
-                "--hosts-file", hosts, "--saturation-rungs", "0",
+                "--regions", "127.0.0.1:%d" % rx.port, "--saturation-rungs", "0",
                 "--run-id", "oracle-e2e"])
         except BaseException as e:
             exc = "%s: %s" % (type(e).__name__, e)
@@ -1244,8 +1145,6 @@ def test_main_runs_end_to_end():
                   or all(l["mb_per_s"] == 0 for l in doc["levels"]),
                   "identical columns would mean the counters were not read")
     finally:
-        producer.Rendezvous = real_rv
-        producer.hosts_from_etc = real_hosts
         producer.machine_name = real_machine
         rx.close()
 
@@ -1265,12 +1164,11 @@ def main(argv=None):
     test_rung_is_n_simultaneous()
     test_load_is_reported_not_enforced()
     test_semantic_ceiling()
-    test_reuseport_shards()
-    test_permanent_link_framing()
-    test_framing_survives_split_fields()
-    test_drain_is_bounded()
+    test_the_region_is_the_receiver()
     test_many_concurrent_links()
-    test_a_dead_shard_is_not_silent()
+    test_receivers_come_from_memory()
+    test_the_service_holds_its_cell()
+    test_memory_budget()
     test_main_runs_end_to_end()
     print("=" * 60)
     if _FAILURES:
