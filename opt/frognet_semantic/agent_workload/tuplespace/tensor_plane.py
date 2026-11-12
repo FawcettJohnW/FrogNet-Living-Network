@@ -527,6 +527,31 @@ STREAM_DIAG = os.environ.get("FROGNET_STREAM_DIAG", "1") not in ("0", "no")
 # per-cell diagnostics off.
 STREAM_SLOW_MS = float(os.environ.get("FROGNET_STREAM_SLOW_MS", "2000"))
 _REC = struct.Struct(">IIII")
+# [SHORT_QUEUES_ON_THE_DATA_LINK_V1 - 2026-11-12] Congestion control for the
+# sending side of every data link. ddp5434 measured the default (loss-based)
+# control at 1.3-2.2 MB/s per WAN link with 400-1150 retransmits, and on the
+# Seattle3B->Seattle7 path (relayed by Seattle5 on wlan1) rtt inflated to
+# 1.6 s, rto to 15 s, and single records blocked 13-19 s. BBR paces to the
+# measured bottleneck instead of filling the queue until it drops.
+STREAM_CC = os.environ.get("FROGNET_STREAM_CC", "bbr")
+
+
+def set_cc(sk) -> str:
+    """Put STREAM_CC on this socket and return what the kernel actually uses,
+    so the log says it rather than assuming it."""
+    err = ""
+    if STREAM_CC:
+        try:
+            sk.setsockopt(socket.IPPROTO_TCP, socket.TCP_CONGESTION,
+                          STREAM_CC.encode())
+        except OSError as e:
+            err = " (asked for %s: %s)" % (STREAM_CC, e.strerror or e)
+    try:
+        cur = sk.getsockopt(socket.IPPROTO_TCP, socket.TCP_CONGESTION, 16)
+        cur = cur.split(b"\0", 1)[0].decode()
+    except OSError:
+        cur = "?"
+    return cur + err
 
 
 def _sdiag(line: str) -> None:
@@ -712,14 +737,15 @@ class StreamSubscription:
         self.family = list(family)
         _send_frame(sk, json.dumps({"op": "subscribe", "from": me,
                                     "family": self.family}).encode())
-        json.loads(bytes(_recv_frame(sk)).decode())
+        ack = json.loads(bytes(_recv_frame(sk)).decode())
+        set_cc(sk)
         try:
             local = "%s:%s" % sk.getsockname()[:2]
         except OSError:
             local = "?"
-        _sdiag("LINK %s to %s:%d local=%s connect_ms=%.1f family=%s route=%s"
+        _sdiag("LINK %s to %s:%d local=%s connect_ms=%.1f owner_cc=%s family=%s route=%s"
                % (label, host, self.port, local, (time.time() - t0) * 1000.0,
-                  self.family, _route(host)))
+                  ack.get("cc"), self.family, _route(host)))
         self._t = threading.Thread(target=self._run, daemon=True,
                                    name="plane-land-%s" % label)
         self._t.start()
@@ -1134,10 +1160,11 @@ class TensorServer:
             for tp, n, g, b, i in snap:
                 sub.push(n, g, i, b, self._pinned.get(n), tp, sub.t_family)
             self._subs.append(sub)
+        cc = set_cc(conn)
         _send_frame(conn, json.dumps({"ok": 1, "port": self.port,
-                                      "already": len(snap)}).encode())
-        _sdiag("LINK UP port=%d reader=%s at=%s family=%s already=%d"
-               % (self.port, sub.reader, who, sub.family, len(snap)))
+                                      "already": len(snap), "cc": cc}).encode())
+        _sdiag("LINK UP port=%d reader=%s at=%s family=%s already=%d cc=%s"
+               % (self.port, sub.reader, who, sub.family, len(snap), cc))
         if req.get("want"):
             self._want(sub, req["want"])
 

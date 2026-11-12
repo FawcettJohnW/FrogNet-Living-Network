@@ -2231,7 +2231,7 @@ def _create(store, rank, size, timeout):
 
 
 #: Said once per process, so a run's own log shows which code is running.
-BUILD = ("psychedelic 20261112-september-family-link-r6 (the September tensor path; "
+BUILD = ("psychedelic 20261112-september-family-link-r7 (the September tensor path; "
          "one held read per peer on the family it writes for this rank; the write fires it "
          "and the bytes go on one permanent link, without pause; "
          "control cells in the one RAM; PyTorch 2.15 port)")
