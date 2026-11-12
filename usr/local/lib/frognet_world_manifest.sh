@@ -211,6 +211,9 @@ FROGNET_THIRD_PARTY=(
     # LICENSE.txt and NOTICE.md; the GPL notice is never stamped on them.
     opt/frognet_semantic/ribbit/examples/mqtt/stock
     opt/frognet_semantic/ribbit/examples/mqtt/front
+    # Meshtastic firmware (Meshtastic LLC et al.), GPL-3.0, vendored for the Meshtastic example: front/ the firmware the
+    # example builds on the RAM. It carries its own LICENSE; the GPL-2.0-only notice is never stamped on it.
+    opt/frognet_semantic/ribbit/examples/meshtastic/front
 )
 
 FROGNET_NEVER_SHIP=(
