@@ -1,0 +1,368 @@
+"""frogtorch_ram.py -- FrogTorch's RAM: the memory every rank writes into and reads from.
+
+[ALL_IN_THE_REGION_V1 - John 2026-11-11] "Make it all memory and role based, using whatever ram regions make sense."
+
+Before this, every rank served its own tensors from its own process (tensor_plane.TensorServer), and every reader
+opened a link to each peer and asked it: a conversation per (reader, writer), gloo's topology with reads in place of
+sends. Because the bytes lived in the producer, the producer could not leave until its readers said they were done
+(the `.done` acknowledgement, `linger`). That is messaging, and it is gone.
+
+Now the memory is a service of its own, a FrogTorch RAM host, and the ranks are its clients:
+
+  * A rank WRITES its own cells into a region: tensor cells (bytes, a generation) and control cells (JSON values).
+    Every cell has one writer, its owner, and the owner's identity is part of its address.
+  * A rank READS by holding a read on the cells it needs: the region parks the read and the owner's write answers it.
+    There is no request to another rank, no acknowledgement, no polling and no retry.
+  * The memory outlives the writer. A rank that has written its last cell may exit; its cells stay until it writes
+    them again. Membership cells (life="session") are removed when the writer's session closes, which is how a
+    departed rank stops being a member.
+
+Which regions exist is a ROLE question (frogtorch_ram_client.Regions): every machine that runs this service writes
+its capability tuple; every rank reads the capability family and applies the same deterministic placement, so every
+rank reaches the same answer with no vote and no messages.
+
+Wire: the framing tensor_plane already speaks (<!Q len><payload>), so TensorClient reads a region unchanged.
+
+  tensor read   {name, gen, mode, have, want, inc, wait_s, verify}            -> SAME|DATA|GONE, as TensorServer
+  tensor write  {"op":"tput", name, gen, inc}  then one frame of bytes          -> OKAY {gen}
+  cell write    {"op":"cput", service, var, scope, value, life}                -> OKAY {id}
+  cell read     {"op":"cget", service, var?, min_rows, wait_s, after?}          -> OKAY {rows:[...]}
+  cell remove   {"op":"cdel", id} / {"op":"cdelvar", service, var}             -> OKAY {removed}
+  in the memory {"op":"ccas", service, var, expected, desired}                -> OKAY {value}
+                {"op":"qpush"|"qpop"|"qlen", service, var, value?, wait_s?}   -> OKAY {...}
+
+Run:  python3 -m agent_workload.tuplespace.frogtorch_ram --port <port> [--bind 0.0.0.0]
+"""
+from __future__ import annotations
+
+import argparse
+import json
+import os
+import socket
+import struct
+import sys
+import threading
+import time
+from typing import Any, Dict, List, Optional, Tuple
+
+from agent_workload.aiconnect.service import BULK_LEN_FMT
+
+from .tensor_plane import (GONE_NEVER_PUBLISHED, GONE_SUPERSEDED, GONE_WAIT_EXPIRED, MAX_SERVER_WAIT_S,
+                           READ_BY_IDENTITY, REPLY_DATA, REPLY_GONE, REPLY_SAME, _digest, _recv_frame, _send_frame)
+
+BUILD = "frogtorch_ram 20261111-r1 [ALL_IN_THE_REGION_V1]"
+#: Capability tuples live in the SystemRam (AI_READ_FIRST 10): every election reads capability there.
+SYSTEM_RAM = os.environ.get("FROGTORCH_SYSTEM_RAM", "databasehost.frognet")
+REPLY_OKAY = b"OKAY"
+
+
+class _Key:
+    """One address's value and the reads parked on it. The lock is the region's; the condition is this address's
+    alone, so a write wakes only the reads waiting on what it wrote."""
+    __slots__ = ("cond", "value")
+
+    def __init__(self, lock):
+        self.cond = threading.Condition(lock)
+        self.value = None
+
+
+class Region:
+    """The memory: tensor cells by name, control cells by (service, var, scope)."""
+
+    def __init__(self):
+        self._lock = threading.Lock()
+        self._tensors: Dict[str, _Key] = {}           # name -> (gen, bytes, inc, digest-or-None)
+        self._services: Dict[str, _Key] = {}          # service -> {(var, scope): row}
+        self._next_id = 0
+        self.bytes_in = self.bytes_out = 0
+        self.same_replies = self.data_replies = 0
+
+    # ---- tensors --------------------------------------------------------------------------------------------
+    def _tkey(self, name: str) -> _Key:
+        k = self._tensors.get(name)
+        if k is None:
+            k = self._tensors[name] = _Key(self._lock)
+        return k
+
+    def tput(self, name: str, gen: int, blob: bytes, inc) -> None:
+        with self._lock:
+            k = self._tkey(name)
+            k.value = (int(gen), blob, inc, None)
+            self.bytes_in += len(blob)
+            k.cond.notify_all()
+
+    def tget(self, name: str, want_gen, wait_s: float):
+        """The current value, once it has reached want_gen (held until then, up to wait_s)."""
+        deadline = time.monotonic() + min(wait_s, MAX_SERVER_WAIT_S)
+        with self._lock:
+            k = self._tkey(name)
+            while True:
+                v = k.value
+                if v is not None and (want_gen is None or v[0] >= int(want_gen)):
+                    return v, True
+                left = deadline - time.monotonic()
+                if left <= 0:
+                    return v, False
+                k.cond.wait(left)
+
+    def digest_of(self, name: str):
+        with self._lock:
+            v = self._tensors[name].value
+            if v[3] is None:
+                v = (v[0], v[1], v[2], _digest(v[1]))
+                self._tensors[name].value = v
+            return v
+
+    # ---- control cells --------------------------------------------------------------------------------------
+    def _skey(self, service: str) -> _Key:
+        k = self._services.get(service)
+        if k is None:
+            k = self._services[service] = _Key(self._lock)
+            k.value = {}
+        return k
+
+    def cput(self, service, var, scope, value, life, session) -> int:
+        with self._lock:
+            k = self._skey(service)
+            self._next_id += 1
+            k.value[(var, scope)] = {"id": self._next_id, "var": var, "scope": scope, "value": value,
+                                     "t": time.time(), "life": life, "session": session}
+            k.cond.notify_all()
+            return self._next_id
+
+    def cget(self, service, var, min_rows: int, wait_s: float, after: int = -1) -> List[Dict[str, Any]]:
+        """Held until at least min_rows cells match and, with after >= 0, one of them is newer than after."""
+        deadline = time.monotonic() + min(wait_s, MAX_SERVER_WAIT_S)
+        with self._lock:
+            k = self._skey(service)
+            while True:
+                rows = [r for (v, _s), r in k.value.items() if var is None or v == var]
+                ready = len(rows) >= min_rows and (after < 0 or any(r["id"] > after for r in rows))
+                if ready or wait_s <= 0:
+                    now = time.time()
+                    return [{"id": r["id"], "var": r["var"], "scope": r["scope"], "value": r["value"],
+                             "age_s": now - r["t"], "ts_env": r["t"]} for r in rows]
+                left = deadline - time.monotonic()
+                if left <= 0:
+                    return []
+                k.cond.wait(left)
+
+    def cdel(self, row_id: int) -> int:
+        with self._lock:
+            for k in self._services.values():
+                for key, r in list(k.value.items()):
+                    if r["id"] == row_id:
+                        del k.value[key]
+                        k.cond.notify_all()
+                        return 1
+        return 0
+
+    # ---- operations that run IN the memory ([REGION_OPS_RUN_IN_THE_MEMORY_V1]) ----------------------------------
+    # c10d's Store contract has primitives that are not "write your own cell": compare-and-set and a queue. They are
+    # done here, in one call, against the memory itself -- the region's own API, as every vendor region does -- not
+    # by a conversation between ranks.
+    def ccas(self, service, var, expected, desired, session):
+        with self._lock:
+            k = self._skey(service)
+            rows = [r for (v, _s), r in k.value.items() if v == var]
+            cur = max(rows, key=lambda r: r["id"])["value"] if rows else None
+            if (cur is None and expected in (None, "")) or cur == expected:
+                for key in [key for key in k.value if key[0] == var]:
+                    del k.value[key]
+                self._next_id += 1
+                k.value[(var, "")] = {"id": self._next_id, "var": var, "scope": "", "value": desired,
+                                      "t": time.time(), "life": "data", "session": session}
+                k.cond.notify_all()
+                return desired
+            return cur
+
+    def cdelvar(self, service, var) -> int:
+        with self._lock:
+            k = self._skey(service)
+            gone = [key for key in k.value if key[0] == var]
+            for key in gone:
+                del k.value[key]
+            if gone:
+                k.cond.notify_all()
+            return len(gone)
+
+    def qpush(self, service, var, value, session) -> int:
+        with self._lock:
+            k = self._skey(service)
+            self._next_id += 1
+            k.value[(var, "q%020d" % self._next_id)] = {"id": self._next_id, "var": var, "scope": "q",
+                                                         "value": value, "t": time.time(), "life": "data",
+                                                         "session": session}
+            k.cond.notify_all()
+            return self._next_id
+
+    def qpop(self, service, var, wait_s: float):
+        deadline = time.monotonic() + min(wait_s, MAX_SERVER_WAIT_S)
+        with self._lock:
+            k = self._skey(service)
+            while True:
+                items = sorted(key for key in k.value if key[0] == var and k.value[key]["scope"] == "q")
+                if items:
+                    return k.value.pop(items[0])["value"], True
+                left = deadline - time.monotonic()
+                if left <= 0:
+                    return None, False
+                k.cond.wait(left)
+
+    def qlen(self, service, var) -> int:
+        with self._lock:
+            k = self._skey(service)
+            return sum(1 for key in k.value if key[0] == var and k.value[key]["scope"] == "q")
+
+    def session_gone(self, session: str) -> None:
+        """[WRITER_GONE_V1] A writer's session cells go with its session; its data cells stay."""
+        with self._lock:
+            for k in self._services.values():
+                gone = [key for key, r in k.value.items() if r["life"] == "session" and r["session"] == session]
+                for key in gone:
+                    del k.value[key]
+                if gone:
+                    k.cond.notify_all()
+
+
+class RamServer:
+    """One region on one port. A thread per client session; sessions are permanent connections."""
+
+    def __init__(self, bind: str = "0.0.0.0", port: int = 0):
+        self.region = Region()
+        self.sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+        self.sock.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+        self.sock.bind((bind, port))
+        self.sock.listen(1024)
+        self.port = self.sock.getsockname()[1]
+        self._t = threading.Thread(target=self._accept, daemon=True, name="frogtorch-ram-%d" % self.port)
+        self._t.start()
+
+    def _accept(self):
+        while True:
+            try:
+                conn, peer = self.sock.accept()
+            except OSError:
+                return
+            conn.setsockopt(socket.IPPROTO_TCP, socket.TCP_NODELAY, 1)
+            threading.Thread(target=self._serve, args=(conn, peer), daemon=True).start()
+
+    def _serve(self, conn, peer):
+        session = "%s:%d#%d" % (peer[0], peer[1], id(conn))
+        R = self.region
+        try:
+            while True:
+                req = json.loads(bytes(_recv_frame(conn)).decode())
+                op = req.get("op")
+                if op is None:
+                    self._tensor_read(conn, req)
+                elif op == "tput":
+                    blob = bytes(_recv_frame(conn))
+                    R.tput(req["name"], req["gen"], blob, req.get("inc"))
+                    _send_frame(conn, REPLY_OKAY, json.dumps({"gen": req["gen"]}).encode())
+                elif op == "cput":
+                    i = R.cput(req["service"], req["var"], req["scope"], req.get("value"),
+                               req.get("life", "data"), session)
+                    _send_frame(conn, REPLY_OKAY, json.dumps({"id": i}).encode())
+                elif op == "cget":
+                    rows = R.cget(req["service"], req.get("var"), int(req.get("min_rows", 0)),
+                                  float(req.get("wait_s", 0.0)), int(req.get("after", -1)))
+                    _send_frame(conn, REPLY_OKAY, json.dumps({"rows": rows}).encode())
+                elif op == "cdel":
+                    _send_frame(conn, REPLY_OKAY, json.dumps({"removed": R.cdel(int(req["id"]))}).encode())
+                elif op == "ccas":
+                    v = R.ccas(req["service"], req["var"], req.get("expected"), req.get("desired"), session)
+                    _send_frame(conn, REPLY_OKAY, json.dumps({"value": v}).encode())
+                elif op == "cdelvar":
+                    _send_frame(conn, REPLY_OKAY,
+                                json.dumps({"removed": R.cdelvar(req["service"], req["var"])}).encode())
+                elif op == "qpush":
+                    _send_frame(conn, REPLY_OKAY, json.dumps(
+                        {"id": R.qpush(req["service"], req["var"], req.get("value"), session)}).encode())
+                elif op == "qpop":
+                    v, ok = R.qpop(req["service"], req["var"], float(req.get("wait_s", 0.0)))
+                    _send_frame(conn, REPLY_OKAY, json.dumps({"value": v, "ok": ok}).encode())
+                elif op == "qlen":
+                    _send_frame(conn, REPLY_OKAY, json.dumps({"n": R.qlen(req["service"], req["var"])}).encode())
+                elif op == "version":
+                    _send_frame(conn, REPLY_OKAY, json.dumps({"build": BUILD}).encode())
+                else:
+                    raise ValueError("unknown op %r" % op)
+        except (ConnectionError, OSError, ValueError):
+            pass
+        finally:
+            R.session_gone(session)
+            try:
+                conn.close()
+            except OSError:
+                pass
+
+    def _tensor_read(self, conn, req):
+        """TensorServer's read contract, answered from the region."""
+        R = self.region
+        name, want_gen, mode = req.get("name"), req.get("gen"), req.get("mode", READ_BY_IDENTITY)
+        have, want_digest, want_inc = req.get("have"), req.get("want"), req.get("inc")
+        v, ok = R.tget(name, want_gen, float(req.get("wait_s") or 0.0))
+        if v is None and not ok and float(req.get("wait_s") or 0.0) <= 0:
+            _send_frame(conn, REPLY_GONE, json.dumps({"reason": GONE_NEVER_PUBLISHED}).encode())
+            return
+        if not ok:
+            _send_frame(conn, REPLY_GONE, json.dumps({"reason": GONE_WAIT_EXPIRED,
+                                                      "gen": None if v is None else v[0],
+                                                      "want_gen": want_gen}).encode())
+            return
+        need_digest = want_digest is not None or have is not None or bool(req.get("verify", True))
+        gen, blob, inc, digest = R.digest_of(name) if need_digest else v
+        if mode == READ_BY_IDENTITY and ((want_inc is not None and inc is not None and want_inc != inc)
+                                         or (want_digest is not None and want_digest != digest)
+                                         or (want_gen is not None and int(want_gen) != int(gen))):
+            _send_frame(conn, REPLY_GONE, json.dumps({"reason": GONE_SUPERSEDED, "gen": gen,
+                                                      "digest": digest, "inc": inc}).encode())
+            return
+        if have is not None and have == digest:
+            R.same_replies += 1
+            _send_frame(conn, REPLY_SAME, json.dumps({"gen": gen, "digest": digest, "inc": inc}).encode())
+            return
+        R.data_replies += 1
+        R.bytes_out += len(blob)
+        head = json.dumps({"gen": gen, "digest": digest, "inc": inc}).encode()
+        _send_frame(conn, REPLY_DATA, struct.pack(BULK_LEN_FMT, len(head)), head, blob)
+
+    def close(self):
+        try:
+            self.sock.close()
+        except OSError:
+            pass
+
+
+def _announce(port: int) -> None:
+    """[CAPABILITY_ANNOUNCED_V1] This machine can hold FrogTorch regions: a capability tuple in the SystemRam,
+    written by this service and gone with it."""
+    from core import frognet_tuples as T
+    me = T.my_ip()
+    try:
+        mem_mb = os.sysconf("SC_PAGE_SIZE") * os.sysconf("SC_PHYS_PAGES") // (1 << 20)
+    except (ValueError, OSError, AttributeError):
+        mem_mb = 0
+    T.put("frogtorch", "can", "%s:%d" % (me, port),
+          {"host": me, "port": port, "mem_mb": int(mem_mb), "build": BUILD},
+          dbhost=SYSTEM_RAM, own=True)
+
+
+def main(argv=None) -> int:
+    ap = argparse.ArgumentParser(description="FrogTorch RAM host")
+    ap.add_argument("--port", type=int, required=True)
+    ap.add_argument("--bind", default="0.0.0.0")
+    ap.add_argument("--no-announce", action="store_true",
+                    help="do not write the capability tuple (a test runs its regions from FROGTORCH_RAMS)")
+    a = ap.parse_args(argv)
+    srv = RamServer(a.bind, a.port)
+    print("[frogtorch-ram] %s listening on %s:%d" % (BUILD, a.bind, srv.port), flush=True)
+    if not a.no_announce:
+        _announce(srv.port)
+    threading.Event().wait()
+    return 0
+
+
+if __name__ == "__main__":
+    sys.exit(main())

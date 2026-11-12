@@ -86,7 +86,8 @@ from typing import Any, Dict, List, Optional
 import torch
 import torch.distributed as dist
 
-from core import frognet_tuples as T
+from . import frogtorch_ram_client as T  # [ALL_IN_THE_REGION_V1] FrogTorch's own RAM
+from .frogtorch_ram_client import Placement, RegionPlane
 
 from . import torch_backend as _base
 from .tensor_plane import READ_CURRENT, TensorClient, TensorServer
@@ -258,18 +259,6 @@ def op_of(name: str) -> str:
 #: It does NOT fix the general case -- a departed PROCESS still takes its
 #: bytes -- and it deliberately adds no acknowledgement, so nobody waits for
 #: anybody.
-_PLANES = {}
-_PLANES_LOCK = threading.Lock()
-
-
-def _shared_plane(host: str) -> TensorServer:
-    with _PLANES_LOCK:
-        srv = _PLANES.get(host)
-        if srv is None:
-            srv = _PLANES[host] = TensorServer(host)
-        return srv
-
-
 class PsychedelicBackend(_base.FrogNetBackend):
     """Same collectives, same results, FrogNet's own transport.
 
@@ -284,11 +273,11 @@ class PsychedelicBackend(_base.FrogNetBackend):
                  timeout: datetime.timedelta = datetime.timedelta(seconds=300),
                  group: str = "default", dbhost: Optional[str] = None):
         super().__init__(store, rank, size, timeout, group, dbhost)
-        host = os.environ.get("FROGNET_PSY_HOST", "127.0.0.1")
-        # The plane's cell names carry the group incarnation too, so a new
-        # group cannot read a dead group's tensors.
-        self._server = _shared_plane(host)
-        self._server_host = host
+        # [ALL_IN_THE_REGION_V1] This rank no longer serves anything. It writes its tensors into the region on its
+        # own machine and reads every other rank's from theirs, by owner. The memory outlives the rank.
+        # The cell names still carry the group incarnation, so a new group cannot read a dead group's tensors.
+        self._ram = T.ram()
+        self._server = RegionPlane(self._ram, rank, where=self._my_region)
         self._client = TensorClient("psy-r%d" % rank)
         self._gen = 0
         #: [ONE_NUMBER_IS_THE_IDENTITY_V1, second half]
@@ -316,6 +305,7 @@ class PsychedelicBackend(_base.FrogNetBackend):
         self._inbox: Dict[Any, torch.Tensor] = {}
         self._inbox_cv = threading.Condition()
         self._prefetching = False
+        self._pf_fault: Optional[BaseException] = None
         self._pf_threads: List[threading.Thread] = []
         #: [A_PREFETCHER_IS_BOUND_TO_A_SHAPE_V1] Which generation of
         #: prefetchers is current, and how many of them are still alive.
@@ -467,45 +457,18 @@ class PsychedelicBackend(_base.FrogNetBackend):
             return self._rendezvous_locked()
 
     def _rendezvous_locked(self) -> Dict[int, Any]:
-        # The descriptor says WHICH incarnation this address belongs to. A
-        # cell left by a previous group is then visibly not ours.
-        T.put("%s.rv.%s" % (SERVICE, self._group), _scope(self._rank),
-              _scope(self._rank),
-              {"host": self._server_host, "port": self._server.port,
-               "inc": self._incarnation},
-              dbhost=self._dbhost, own=False)
-        deadline = time.time() + self._timeout_s
-        found: Dict[int, Any] = {}
-        while time.time() < deadline:
-            for row in T.get_all("%s.rv.%s" % (SERVICE, self._group),
-                                 dbhost=self._dbhost,
-                                 wait_s=min(5.0, self._timeout_s),
-                                 min_rows=self._size):
-                v = row.get("var", "")
-                d = row.get("value")
-                if not (v.startswith("r") and isinstance(d, dict)):
-                    continue
-                # [AN_ADDRESS_MEANS_NOTHING_WITHOUT_AN_INCARNATION_V1]
-                # A cell from an earlier group carries an earlier
-                # incarnation. Skipping it means this rank keeps waiting for
-                # the peer that is actually here, rather than completing the
-                # rendezvous against an address that will refuse the
-                # connection. A cell with no incarnation at all predates this
-                # and is also not ours.
-                if d.get("inc") != self._incarnation:
-                    continue
-                try:
-                    found[int(v[1:])] = d
-                except ValueError:
-                    pass
-            if set(range(self._size)).issubset(found):
-                self._peers = found
-                return found
-        raise RuntimeError(
-            "psychedelic backend: rendezvous incomplete after %.0fs -- "
-            "ranks %s never published an address"
-            % (self._timeout_s,
-               sorted(set(range(self._size)) - set(found))))
+        """[ALL_IN_THE_REGION_V1] Where each rank's cells live. Every rank writes its own member cell (held by its
+        session) and holds ONE read until all `size` are there; the placement is derived, not exchanged."""
+        pl = Placement(self._ram, "%s.%s" % (self._group, self._incarnation), self._rank, self._size,
+                       self._timeout_s)
+        found = {r: {"host": pl.region(r)[0], "port": pl.region(r)[1]} for r in range(self._size)}
+        self._server.region = pl.region(self._rank)
+        self._peers = found
+        return found
+
+    def _my_region(self):
+        d = self._rendezvous()[self._rank]
+        return (d["host"], int(d["port"]))
 
     def _pool(self):
         """[BLAST_IT_ALL_AT_RAM_V1] Made once, on first use.
@@ -657,7 +620,9 @@ class PsychedelicBackend(_base.FrogNetBackend):
         should be done with a measurement, not an inference. Mine was an
         inference and it was wrong.
         """
-        return max(1.0, min(self.PEER_WAIT_S, self._timeout_s))
+        # [ONE_HELD_READ_V1] A read on a region is held by the region until the owner writes. Its bound is the
+        # collective's own deadline; there is no shorter wait to retry after.
+        return float(self._timeout_s)
 
     #: [A_DIGEST_IS_COMPUTED_WHEN_IT_IS_ASKED_FOR_V1] Verify slice payloads?
     #:
@@ -859,6 +824,7 @@ class PsychedelicBackend(_base.FrogNetBackend):
         copies once, into `dst`.
         """
         d = self._rendezvous()[r]
+        name = RegionPlane.key(name, r)
         _t0 = time.perf_counter()
         try:
             # [DIAG_PSY_STALL_V1] One registered wait per slice read. A read
@@ -1118,6 +1084,8 @@ class PsychedelicBackend(_base.FrogNetBackend):
                 got = self._inbox.pop((r, seq), None)
                 if got is not None:
                     return got.reshape(like.shape).to(like.dtype)
+                if self._pf_fault is not None:
+                    raise self._pf_fault
                 if not self._prefetching:
                     break
                 # [A_SAFETY_NET_IS_NOT_A_SCHEDULE_V1] This waited 0.05 s.
@@ -1126,8 +1094,11 @@ class PsychedelicBackend(_base.FrogNetBackend):
                 # granularity turned it into the schedule: profiled at 16 K
                 # elements, time.sleep was 21% of an all_reduce, the single
                 # largest line, above the socket read and the arithmetic.
-                self._inbox_cv.wait(0.0005)
-        # No prefetcher, or it has not got there: do it directly.
+                self._inbox_cv.wait(max(0.0, deadline - time.time()))
+            if self._prefetching:
+                raise RuntimeError("psychedelic backend: rank %d waited %.0fs for rank %d's ar.%d and the "
+                                   "prefetcher never delivered it" % (self._rank, timeout_s, r, seq))
+        # No prefetcher for this shape: this read is the only one.
         return self._read_peer(
             r, "%s.%s.%d" % (self._peer_inc(r), "ar", seq), seq, like,
             wait_s=self._peer_wait())
@@ -1215,7 +1186,7 @@ class PsychedelicBackend(_base.FrogNetBackend):
                            and epoch == self._pf_epoch
                            and seq >= self._want + self.LOOKAHEAD):
                         # Woken by _inbox_get when the application advances.
-                        self._inbox_cv.wait(0.002)
+                        self._inbox_cv.wait()      # every change to _want, the epoch or the inbox notifies
                     if epoch != self._pf_epoch:
                         return
                 if self._stop.is_set():
@@ -1226,12 +1197,12 @@ class PsychedelicBackend(_base.FrogNetBackend):
                         r, "%s.%s.%d" % (self._peer_inc(r), "ar", seq), seq,
                         like, wait_s=self._peer_wait(), channel="pf",
                         retain=True)
-                except Exception:
-                    # A peer that stops publishing ends this prefetcher. The
-                    # collective path reads directly and reports the real
-                    # failure there, where a caller is waiting to hear it --
-                    # which only works if `_prefetching` is cleared, and it
-                    # is, in the finally below.
+                except Exception as e:
+                    # [NO_FALLBACK_V1] A failed read ends this prefetcher and the collective hears why. It does
+                    # not read the same cell again.
+                    with self._inbox_cv:
+                        self._pf_fault = e
+                        self._inbox_cv.notify_all()
                     return
                 with self._inbox_cv:
                     # The shape may have changed while this read was in
@@ -1316,6 +1287,7 @@ class PsychedelicBackend(_base.FrogNetBackend):
         # That costs nothing for a caller whose content changes every
         # round, and every caller here is one.
         d = self._rendezvous()[r]
+        name = RegionPlane.key(name, r)
         peer = "r%d" % r
         cli = self._peer_client(r)
         # `retain` says the caller keeps the tensor past its next read on
@@ -1391,10 +1363,11 @@ class PsychedelicBackend(_base.FrogNetBackend):
         # Two sources, and both are used below: `t` here, written by the
         # producer, and the store's own envelope (`ts_env`, `age_s`), which
         # costs nothing because get_all already returns it.
-        self._put(op, seq, {"host": self._server_host,
-                            "port": self._server.port,
-                            # Same number the plane was published under.
-                            "name": name, "gen": seq,
+        _hp = self._my_region()
+        self._put(op, seq, {"host": _hp[0],
+                            "port": _hp[1],
+                            # Same number the plane was published under; the owner is part of the address.
+                            "name": RegionPlane.key(name, self._rank), "gen": seq,
                             "t": time.time(),
                             "shape": list(t.shape), "dtype": str(t.dtype)})
         # [DO_NOT_WRITE_WHAT_NOBODY_READS_V1] `self._mark_done(op, seq)`
@@ -1403,67 +1376,6 @@ class PsychedelicBackend(_base.FrogNetBackend):
         # experiment, kept after it was rejected. It measured 32.1 -> 50.4 ms
         # when it was tried, and every broadcast and reduce has been paying
         # a store round trip for it since.
-
-    def _consumed(self, op: str, seq: int) -> None:
-        """Mark that this rank has taken what it needed from the plane."""
-        T.put(self._service(op + ".done", seq), _scope(self._rank),
-              _scope(self._rank), {"n": 1}, dbhost=self._dbhost, own=False)
-
-    def _await_consumers(self, op: str, seq: int) -> None:
-        """[A_PRODUCER_ON_A_PLANE_OUTLIVES_ITS_READERS_V1]
-        Do not leave until everyone has taken it.
-
-        With payload in the SPACE, a contribution outlived its producer --
-        the cell was simply still there. With payload on the PLANE it lives
-        in the producer's process, so a root that published and returned
-        could be torn down while a peer was still fetching:
-
-            ConnectionRefusedError: [Errno 111] Connection refused
-              tensor_plane.read -> _link -> create_connection
-
-        That is lifecycle invariant 4 in a new form, and it is the price of
-        taking payload off the control plane. It is paid here, once, by the
-        producer waiting for presence of a small consumed-marker per reader
-        -- flat cells, one read per poll, no payload. Not an acknowledgement
-        protocol: the reader publishes that it is done, and absence is what
-        the producer waits on, as everywhere else.
-        """
-        want = set(r for r in range(self._size) if r != self._rank)
-        if not want:
-            return
-        deadline = time.time() + self._timeout_s
-        wait = 0.00005
-        seen = set()
-        while time.time() < deadline:
-            # [ASK_ONCE_AND_WAIT_V1 - John 2026-09-14] Same spin as broadcast
-            # had: a 2 ms ceiling asking whether the readers are done yet.
-            #
-            # min_rows is len(want) -- every rank EXCEPT this one publishes a
-            # consumed-marker, so the producer is waiting for W-1 rows, not W.
-            # Asking for W would never be satisfied and the read would hold for
-            # the full wait on every pass.
-            _left = deadline - time.time()
-            # [DIAG_PSY_STALL_V1 - John 2026-09-14] This wait was NOT
-            # registered, which is why a rank sitting here printed nothing at
-            # all while every reader and server thread showed idle. A producer
-            # waiting on its readers is exactly what a deadlock looks like, and
-            # it was the one state with no line.
-            with _PsyWait(phase="await_consumers", rank=self._rank, seq=seq,
-                          op=op, want=sorted(want), have=sorted(seen),
-                          missing=sorted(want - seen),
-                          min_rows=len(want), _be=self):
-                seen = set(self._read_all(
-                    op + ".done", seq,
-                    wait_s=min(_left, _base.BLOCK_CAP) if _left > 0 else 0.0,
-                    min_rows=len(want)).keys())
-            if want.issubset(seen):
-                return
-            time.sleep(wait)
-            wait = min(wait * 2.0, 0.002)
-        raise RuntimeError(
-            "psychedelic backend: %s seq %d -- rank %d still holds bytes "
-            "nobody collected; readers %s never reported consuming them"
-            % (op, seq, self._rank, sorted(want - seen)))
 
     def _seed_have(self, peer: str, host: str, port: int, name: str,
                    cli=None, channel: str = "d") -> None:
@@ -1498,56 +1410,6 @@ class PsychedelicBackend(_base.FrogNetBackend):
         if ck not in c._cache:
             c._cache[ck] = prev
 
-    def _read_fresh(self, op: str, seq: int, since: float,
-                    wait_s: float = 0.0) -> Dict[int, Any]:
-        """[WHEN_IS_PART_OF_WHAT_V1] Cells for this round, written since it
-        began -- not merely cells that exist.
-
-        Checks both clocks and takes the stricter. The producer's own `t` is
-        authoritative about when it published; the envelope's `ts_env` is
-        the store's, at one-second resolution, and is there whether or not a
-        producer bothered to stamp its value. A cell that fails either is
-        not this round's.
-        """
-        out: Dict[int, Any] = {}
-        # [ASK_ONCE_AND_WAIT_V1] Let the store hold the question open until
-        # every rank has published, instead of asking again every couple of
-        # milliseconds. Measured before: 2-5 polls per collective, 5-10 ms,
-        # a third of a small all_reduce spent on the question rather than
-        # the work.
-        #
-        # `min_rows` is the world size because a collective needs every
-        # rank. A store that does not implement waiting answers immediately
-        # and the caller's loop below still runs, so this degrades to
-        # polling rather than breaking.
-        for r in T.get_all(self._service(op, seq), dbhost=self._dbhost,
-                           wait_s=wait_s, min_rows=self._size):
-            v = r.get("var", "")
-            if not v.startswith("r"):
-                continue
-            val = r.get("value")
-            if not isinstance(val, dict):
-                continue
-            # [WHEN_IS_PART_OF_WHAT_V1] The producer's own clock is not
-            # evidence. `wrote` is time.time() on the machine that published;
-            # `since` is time.time() here. Comparing them makes a peer whose
-            # clock runs a second slow look stale to everyone, and the
-            # collective then waits out its timeout reporting peers that
-            # never published -- which is not what happened.
-            #
-            # frognet_tuples.get_all already fixed exactly this by moving to
-            # the store's envelope, which is one clock for all writers. That
-            # is the timestamp to judge by, and it is already applied above.
-            # This second check re-imported the defect on the reduce path.
-            ts = r.get("ts_env")
-            if ts is not None and ts + 1 < int(since):
-                continue                      # store agrees it is older
-            try:
-                out[int(v[1:])] = val
-            except ValueError:
-                continue
-        return out
-
     def _gather_tensors(self, op: str, seq: int,
                         like: torch.Tensor) -> List[torch.Tensor]:
         """Descriptors first -- that is the barrier, and it costs a flat
@@ -1556,27 +1418,15 @@ class PsychedelicBackend(_base.FrogNetBackend):
         # THIS round, judged by when the cell was written rather than by
         # whether one exists. `since` is taken before this rank publishes,
         # so its own contribution is inside the window too.
-        since = self._round_started.pop((op, seq), time.time())
-        deadline = time.time() + self._timeout_s
-        wait = 0.00005
-        seen: Dict[int, Any] = {}
+        # [ONE_HELD_READ_V1] The round's cells are named by incarnation and seq, so every cell under this name
+        # is this round's: one read, held until all `size` are there, answers it. No clock, no re-asking.
+        self._round_started.pop((op, seq), None)
         want = set(range(self._size))
-        while time.time() < deadline:
-            self.polls += 1
-            _t0 = time.perf_counter()
-            # First ask blocks until the set is complete; if the store does
-            # not wait, the loop falls back to asking again.
-            _blk = os.environ.get("FROGNET_PSY_BLOCKREAD", "1") != "0"
-            seen = self._read_fresh(
-                op, seq, since,
-                wait_s=min(2.0, self._timeout_s) if _blk else 0.0)
-            self.poll_s += time.perf_counter() - _t0
-            # [COMPLETION_IS_A_RANK_SET_NOT_A_COUNT_V1]
-            if want.issubset(seen.keys()):
-                break
-            time.sleep(wait)
-            wait = min(wait * 2.0, 0.002)
-        else:
+        self.polls += 1
+        _t0 = time.perf_counter()
+        seen = self._read_all(op, seq, wait_s=self._timeout_s, min_rows=self._size)
+        self.poll_s += time.perf_counter() - _t0
+        if not want.issubset(seen.keys()):
             raise RuntimeError(
                 "psychedelic backend: %s seq %d incomplete after %.0fs -- "
                 "ranks %s published nothing since this round began. A "
@@ -1690,63 +1540,19 @@ class PsychedelicBackend(_base.FrogNetBackend):
 
 
     def broadcast(self, tensors, opts=None):
+        """[ALL_IN_THE_REGION_V1] The root writes its tensor into its region; every other rank holds a read on
+        that cell. The root returns as soon as its write is queued: the memory, not the root, keeps the bytes, so
+        nobody has to say they are done with them."""
         root = getattr(opts, "rootRank", 0)
         for t in tensors:
             seq = self._next_seq()
+            name = "%s.%s.%d" % (self._incarnation, "bc", seq)
             if self._rank == root:
-                self._publish_tensor("bc", seq, t)
-            deadline = time.time() + self._timeout_s
-            wait = 0.00005
-            while time.time() < deadline:
-                # [ASK_ONCE_AND_WAIT_V1 - John 2026-09-14] Let the store hold
-                # the question open instead of asking again every 2 ms.
-                #
-                # This loop called _read_all() with no wait_s, so it spun at up
-                # to 500 asks/second for a descriptor exactly one rank writes.
-                # Measured on Seattle5 during ddp1921: 649 requests in 11.5 s
-                # for a single key, max 1 in flight, so the proxy's coalescing
-                # had nothing to join -- serial polls cannot coalesce. The
-                # blocking read reached the collective path (torch_backend:559)
-                # and never reached broadcast.
-                #
-                # min_rows is 1, NOT self._size: a broadcast has one producer,
-                # the root. Waiting for W rows on a key only the root ever
-                # writes is a condition that can never be satisfied, so the
-                # store would hold for the full wait and return empty every
-                # time -- slower than the spin it replaced.
-                #
-                # A store that does not implement waiting answers immediately
-                # and the backoff below still runs, so this degrades to polling
-                # rather than breaking.
-                _left = deadline - time.time()
-                # [DIAG_PSY_STALL_V1] Registered for the same reason as
-                # _await_consumers: a rank waiting on the root's descriptor
-                # otherwise sits silent with every thread idle.
-                with _PsyWait(phase="broadcast", rank=self._rank, seq=seq,
-                              op="bc", root=root, min_rows=1, _be=self):
-                    d = self._read_all(
-                        "bc", seq,
-                        wait_s=min(_left, _base.BLOCK_CAP) if _left > 0 else 0.0,
-                        min_rows=1).get(root)
-                if d is not None:
-                    if self._rank != root:
-                        got, _n, _same = self._client.read(
-                            "r%d" % root, d["host"], int(d["port"]),
-                            d["name"], int(d["gen"]), d["shape"], d["dtype"],
-                            mode=READ_CURRENT)
-                        t.copy_(got.reshape(t.shape).to(t.dtype))
-                        self._consumed("bc", seq)
-                    break
-                time.sleep(wait)
-                wait = min(wait * 2.0, 0.002)
-            else:
-                raise RuntimeError(
-                    "psychedelic backend: broadcast seq %d -- root %d never "
-                    "published a descriptor" % (seq, root))
-            if self._rank == root:
-                # The bytes are in THIS process. Leaving now can pull them
-                # out from under a peer mid-fetch.
-                self._await_consumers("bc", seq)
+                self._server.publish(name, seq, t, incarnation=str(self._rank), region=self._my_region())
+                continue
+            with _PsyWait(phase="broadcast", rank=self._rank, seq=seq, op="bc", root=root, _be=self):
+                got = self._read_peer(root, name, seq, t, wait_s=self._timeout_s, retain=True)
+            t.copy_(got.reshape(t.shape).to(t.dtype))
         return _base._Work(tensors)
 
     def reduce(self, tensors, opts=None):
@@ -2008,4 +1814,8 @@ def _create(store, rank, size, timeout):
 
 
 def register(name: str = "psychedelic") -> None:
+    # [NO_FLIGHT_RECORDER_ON_A_PYTHON_BACKEND_V1] PyTorch 2.15 attaches its flight recorder to every group whose
+    # backend does not record itself, and attaching it to a Python-subclassed backend segfaults in
+    # _maybe_attach_flight_recorder. 0 is PyTorch's own off switch. A caller who set it keeps their value.
+    os.environ.setdefault("TORCH_FR_BUFFER_SIZE", "0")
     dist.Backend.register_backend(name, _create, devices=["cpu"])

@@ -1288,29 +1288,9 @@ class TensorClient:
 
     def _read_retry_wait(self, worker, host, port, name, generation,
                          shape, dtype, **kw):
-        """Ask again for the same state. Never accept a different one.
-
-        Only GONE_WAIT_EXPIRED is retried. never_published cannot be helped
-        by waiting and superseded means the producer moved PAST what was
-        asked for -- neither is a late peer, and retrying either would just
-        delay a real failure.
-        """
-        last = None
-        for attempt in range(self.WAIT_RETRIES):
-            try:
-                return self.read(worker, host, port, name, generation,
-                                 shape, dtype, **kw)
-            except StateGone as e:
-                if getattr(e, "reason", None) != GONE_WAIT_EXPIRED:
-                    raise
-                last = e
-                if attempt + 1 < self.WAIT_RETRIES:
-                    diag("DIAG-TPLANE", "wait_retry", peer=worker, name=name,
-                         want_gen=generation, attempt=attempt + 1,
-                         of=self.WAIT_RETRIES,
-                         sleep_s=self.WAIT_RETRY_SLEEP_S)
-                    time.sleep(self.WAIT_RETRY_SLEEP_S)
-        raise last
+        """[NO_FALLBACK_V1 - 2026-11-11] One held read. The region holds it until the owner writes or the caller's
+        deadline passes; an expired wait is the answer, and it is raised, not retried after a sleep."""
+        return self.read(worker, host, port, name, generation, shape, dtype, **kw)
 
     def read(self, worker: str, host: str, port: int, name: str,
               generation: int, shape, dtype, channel: str = "d",
