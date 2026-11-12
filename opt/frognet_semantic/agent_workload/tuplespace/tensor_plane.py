@@ -509,6 +509,40 @@ class _NoLock:
 # through frogtorch_ram_client.RegionPlane; TensorClient reads them there with the same SAME/DATA/GONE contract.
 
 
+def _state_gone(worker, name, generation, want_digest, rest) -> "StateGone":
+    """The StateGone a GONE reply means."""
+    try:
+        info = json.loads(bytes(rest).decode()) if len(rest) else {}
+    except ValueError:
+        info = {}
+    reason = info.get("reason", GONE_NEVER_PUBLISHED)
+    if reason == GONE_WAIT_EXPIRED:
+        _at = info.get("gen")
+        msg = ("%s never reached %r generation %s after waiting "
+               "%.1fs; %s. The read is refused rather than served a "
+               "different generation, because a substitution you did "
+               "not ask for and cannot see is worse than a failure."
+               % (worker, name, generation,
+                  float(info.get("waited_s") or 0.0),
+                  "it has not published that cell at all yet"
+                  if _at is None else
+                  "it is still at generation %s" % _at))
+    elif reason == GONE_SUPERSEDED:
+        msg = ("%s has moved past %r generation %s (%s); it now holds "
+               "generation %s (%s). The state you selected is not "
+               "available and the current one is NOT a substitute for "
+               "it." % (worker, name, generation, want_digest,
+                        info.get("gen"), info.get("digest")))
+    else:
+        msg = ("%s does not publish %r at all. The descriptor in the "
+               "space is stale relative to its own data plane -- read "
+               "the space again." % (worker, name))
+    return StateGone(msg, reason, worker=worker, name=name,
+                    want_gen=generation, want_digest=want_digest,
+                    current_gen=info.get("gen"),
+                    current_digest=info.get("digest"))
+
+
 class TensorClient:
     """Permanent links out to peers' servers, one per peer.
 
@@ -736,6 +770,8 @@ class TensorClient:
         supplies a destination LARGE ENOUGH does not have to know the size at
         all, and the speculative read stops being a guess about anything.
         """
+        if exact:
+            return self._read_direct(dst, worker, host, port, name, generation, mode, wait_s, verify, channel)
         _key = self.cache_key(host, port, channel, name)[0]
         t, nbytes, same = self._read_retry_wait(
             worker, host, port, name, generation,
@@ -757,6 +793,82 @@ class TensorClient:
         # The only pass over the payload on this side.
         dst.reshape(-1)[:n].copy_(flat)
         return nbytes, same, n
+
+    def _read_direct(self, dst, worker, host, port, name, generation, mode, wait_s, verify, channel):
+        """[THE_PAYLOAD_LANDS_WHERE_IT_IS_USED_V1] One held read whose payload is received straight into `dst`.
+
+        The reply's length, tag and header are read first; the payload's bytes then go from the kernel into the
+        destination tensor's own memory. read_into used to receive the whole reply into a scratch buffer and copy
+        it into `dst` -- a second pass over every byte of every read. Returns (wire_bytes, False, elements)."""
+        import torch
+        if not dst.is_contiguous():
+            raise ValueError("read_into needs a contiguous destination for %r" % name)
+        flat = dst.detach().reshape(-1)
+        mv = memoryview((flat.view(torch.int16) if flat.dtype == torch.bfloat16 else flat).numpy()).cast("B")
+        req = json.dumps({"name": name, "gen": generation, "mode": mode, "wait_s": wait_s,
+                          "want": None, "inc": None, "verify": bool(verify), "have": None,
+                          "from": self.me}).encode()
+        key = self.cache_key(host, port, channel, name)[0]
+        _kl = self._keylock(key)
+        _mark = []
+        try:
+            with _kl:
+                sk = self._link(host, port, key)
+                sk.settimeout(max(DEFAULT_SOCKET_TIMEOUT_S, wait_s + SOCKET_MARGIN_S))
+                _t0 = time.perf_counter()
+                _send_frame(sk, req)
+                (n,) = struct.unpack(BULK_LEN_FMT, bytes(_recv_exact(sk, BULK_LEN_LEN, mark=_mark)))
+                if n < _TAG_LEN or n > MAX_FRAME:
+                    raise ConnectionError("frame length %d from %s:%d is not a frame" % (n, host, port))
+                tag = bytes(_recv_exact(sk, _TAG_LEN))
+                if tag != REPLY_DATA:
+                    rest = bytes(_recv_exact(sk, n - _TAG_LEN))
+                    meta, m = None, 0
+                else:
+                    (hlen,) = struct.unpack(BULK_LEN_FMT, bytes(_recv_exact(sk, BULK_LEN_LEN)))
+                    meta = json.loads(bytes(_recv_exact(sk, hlen)).decode())
+                    m = n - _TAG_LEN - BULK_LEN_LEN - hlen
+                    if m > len(mv) or m % dst.element_size():
+                        # take the payload off the link so the link stays in step, then say what was wrong
+                        _recv_exact(sk, m)
+                        raise ValueError("%s sent %r gen %s: %d bytes, the destination holds %d"
+                                         % (worker, name, meta.get("gen"), m, len(mv)))
+                    _recv_exact(sk, m, into=mv)            # the kernel's copy into the tensor is the only one
+                _t2 = time.perf_counter()
+        except (ConnectionError, OSError) as e:
+            with self._lock:
+                old = self._links.pop(key, None)
+            if old is not None:
+                try:
+                    old.close()
+                except OSError:
+                    pass
+            diag_exc("DIAG-TPLANE", "link dropped", e, peer=key)
+            raise
+        self.reads += 1
+        self.bytes_received += n
+        if _mark:
+            self.samples.append({"peer": key, "name": name, "bytes": n, "wait_ms": (_mark[0] - _t0) * 1000.0,
+                                 "xfer_ms": (_t2 - _mark[0]) * 1000.0, "t": time.time()})
+            if len(self.samples) > self.SAMPLE_CAP:
+                del self.samples[:len(self.samples) // 2]
+        if tag == REPLY_GONE:
+            raise _state_gone(worker, name, generation, None, rest)
+        if tag != REPLY_DATA:
+            raise RuntimeError("%s answered %r to a read of %r with no digest offered" % (worker, tag, name))
+        if mode == READ_BY_IDENTITY and meta.get("gen") is not None and int(meta["gen"]) != int(generation):
+            raise StateGone("%s answered DATA for %r at generation %s but generation %s was requested"
+                            % (worker, name, meta.get("gen"), generation), GONE_SUPERSEDED, worker=worker,
+                            name=name, want_gen=generation, want_digest=None, current_gen=meta.get("gen"),
+                            current_digest=meta.get("digest"))
+        if verify:
+            got = _digest(mv[:m])
+            if got != meta.get("digest"):
+                raise RuntimeError("%s sent %r gen %s: %d payload bytes digest %s, reply claims %s. The tensor on "
+                                   "the wire is not the tensor that was published."
+                                   % (worker, name, meta.get("gen"), m, got, meta.get("digest")))
+        self.last_identity = (meta.get("gen"), meta.get("digest"), meta.get("inc"))
+        return n, False, m // dst.element_size()
 
     #: [RETRY_IS_NOT_A_FALLBACK_V1] A wait that expired may be asked
     #: again -- the producer is behind, not wrong, and asking again is
@@ -858,36 +970,7 @@ class TensorClient:
 
         tag, rest = bytes(reply[:_TAG_LEN]), reply[_TAG_LEN:]
         if tag == REPLY_GONE:
-            try:
-                info = json.loads(bytes(rest).decode()) if len(rest) else {}
-            except ValueError:
-                info = {}
-            reason = info.get("reason", GONE_NEVER_PUBLISHED)
-            if reason == GONE_WAIT_EXPIRED:
-                _at = info.get("gen")
-                msg = ("%s never reached %r generation %s after waiting "
-                       "%.1fs; %s. The read is refused rather than served a "
-                       "different generation, because a substitution you did "
-                       "not ask for and cannot see is worse than a failure."
-                       % (worker, name, generation,
-                          float(info.get("waited_s") or 0.0),
-                          "it has not published that cell at all yet"
-                          if _at is None else
-                          "it is still at generation %s" % _at))
-            elif reason == GONE_SUPERSEDED:
-                msg = ("%s has moved past %r generation %s (%s); it now holds "
-                       "generation %s (%s). The state you selected is not "
-                       "available and the current one is NOT a substitute for "
-                       "it." % (worker, name, generation, want_digest,
-                                info.get("gen"), info.get("digest")))
-            else:
-                msg = ("%s does not publish %r at all. The descriptor in the "
-                       "space is stale relative to its own data plane -- read "
-                       "the space again." % (worker, name))
-            raise StateGone(msg, reason, worker=worker, name=name,
-                            want_gen=generation, want_digest=want_digest,
-                            current_gen=info.get("gen"),
-                            current_digest=info.get("digest"))
+            raise _state_gone(worker, name, generation, want_digest, rest)
         if tag == REPLY_SAME:
             meta = json.loads(bytes(rest).decode())
             cached = self._cache.get(ck)

@@ -31,7 +31,7 @@ import threading
 import time
 from typing import Any, Dict, List, Optional, Tuple
 
-from .tensor_plane import REPLY_GONE, _recv_frame, _send_frame, tensor_bytes, tensor_view_bytes
+from .tensor_plane import REPLY_GONE, _recv_frame, _send_frame
 
 DEFAULT_DBHOST = "frogtorch"           # accepted and ignored: callers pass the dbhost they always passed
 SD_PREFIX = ""
@@ -316,13 +316,40 @@ class Placement:
 
 
 # ---------------------------------------------------------------------------------------------------- the plane
+class _WriterSeg:
+    """One shared-memory segment this process stores tensors in. The region maps it ([A_WRITE_IS_A_STORE_INTO_THE_
+    MEMORY_V1]); byte 0 says whose turn it is: the writer sets SEG_BUSY before storing, the region sets SEG_FREE once
+    no cell and no send refers to it."""
+    __slots__ = ("name", "mm", "cap")
+
+    def __init__(self, name: str, cap: int):
+        import mmap
+        from .frogtorch_ram import SEG_BUSY, SEG_HDR, SHM_DIR
+        path = os.path.join(SHM_DIR, name)
+        fd = os.open(path, os.O_RDWR | os.O_CREAT | os.O_EXCL, 0o600)
+        try:
+            os.ftruncate(fd, SEG_HDR + cap)
+            self.mm = mmap.mmap(fd, SEG_HDR + cap)
+        finally:
+            os.close(fd)
+        self.mm[0] = SEG_BUSY
+        self.name, self.cap = name, cap
+
+
 class RegionPlane:
-    """Publish tensors into the regions. tensor_plane.TensorServer's publish(), aimed at memory.
+    """Publish tensors into this machine's region. tensor_plane.TensorServer's publish(), aimed at memory.
 
     A tensor cell's address is `<name>@<owner>`: names repeat across ranks (every rank publishes "<group>.arr.<seq>"),
-    and in a shared memory the owner is part of the address. Writes to one region are queued in order on one writer
-    thread, so publish() returns at once and a later write can never overtake an earlier one to the same region.
-    The bytes are frozen (copied) at publish: the caller may reuse its buffer the moment publish() returns.
+    and in a shared memory the owner is part of the address.
+
+    [A_WRITE_IS_A_STORE_INTO_THE_MEMORY_V1] publish() stores the tensor's bytes in a shared-memory segment the region
+    maps -- one copy, which is also the freeze: the caller may reuse its buffer the moment publish() returns -- and
+    queues a small write naming that memory. The region sends reads straight from it. Before, the bytes were copied
+    into a Python buffer, sent over loopback into the region process and copied again there: four copies to the link
+    where there is now one. A segment is stored into again only after the region has let it go.
+
+    Writes to one region are queued in order on one writer thread, so a later write can never overtake an earlier
+    one. A region on another machine is refused: a rank writes only its own machine's memory.
     """
 
     def __init__(self, r: Ram, owner: int, where=None):
@@ -334,6 +361,9 @@ class RegionPlane:
         self._queues: Dict[Tuple[str, int], "queue.Queue"] = {}
         self._qlock = threading.Lock()
         self.fault: Optional[BaseException] = None
+        self._segs: List[_WriterSeg] = []
+        self._seg_lock = threading.Lock()
+        self._local: Dict[Tuple[str, int], bool] = {}
 
     @staticmethod
     def key(name: str, owner) -> str:
@@ -348,27 +378,61 @@ class RegionPlane:
             item = q.get()
             if item is None:
                 return
-            name, gen, blob, inc = item
+            name, gen, seg, nbytes, inc = item
             try:
-                # [A_WRITE_IS_NOT_A_CONVERSATION_V1] streamed: this thread does not wait for the region between
-                # writes (it used to wait for each OKAY, one round trip per tensor). Order is the connection's own;
-                # a write the region could not take ends the session, and the next send here raises.
-                # life="session": the cell is held by this writer's session and goes when the process does, so a
-                # run leaves nothing in anyone's memory ([SESSION_TENSORS_V1]).
-                self.ram.tput(hp, name, gen, blob, inc, ack=False, life="session")
+                # [A_WRITE_IS_NOT_A_CONVERSATION_V1] streamed, never answered. Order is the connection's own; a write
+                # the region could not take ends the session, and the next send here raises. life="session": the
+                # cell is held by this writer's session and goes when the process does ([SESSION_TENSORS_V1]).
+                self.ram.session(hp).send({"op": "tshm", "name": name, "gen": int(gen), "inc": inc, "seg": seg,
+                                           "nbytes": int(nbytes), "life": "session"})
             except BaseException as e:             # the next publish raises it: a lost write is never silent
                 self.fault = e
+
+    def _check_local(self, hp) -> None:
+        ok = self._local.get(hp)
+        if ok is None:
+            from .frogtorch_ram import boot_id
+            theirs = self.ram.session(hp).call({"op": "version"}).get("boot_id")
+            ok = self._local[hp] = bool(theirs) and theirs == boot_id()
+        if not ok:
+            raise RuntimeError("frogtorch: region %s:%d is not on this machine; a rank writes only its own machine's "
+                               "memory [A_RANK_LIVES_ON_ITS_OWN_MACHINE_V1]" % hp)
+
+    def _segment(self, n: int) -> _WriterSeg:
+        """A segment of at least n bytes that the region has let go of, taken (marked BUSY); a new one if none is."""
+        from .frogtorch_ram import SEG_BUSY, SEG_FREE
+        with self._seg_lock:
+            best = None
+            for g in self._segs:
+                if g.cap >= n and g.mm[0] == SEG_FREE and (best is None or g.cap < best.cap):
+                    best = g
+            if best is None:
+                cap = 1 << max(16, (max(1, n) - 1).bit_length())
+                best = _WriterSeg("frogtorch.%d.%d" % (os.getpid(), len(self._segs)), cap)
+                self._segs.append(best)
+            best.mm[0] = SEG_BUSY
+            return best
 
     def publish(self, name: str, generation: int, tensor, incarnation=None, copy=True, region=None) -> None:
         if self.fault is not None:
             raise ConnectionError("frogtorch: an earlier write to a region failed: %r" % (self.fault,))
+        import torch
+        from .frogtorch_ram import SEG_HDR
         hp = region or self.region or self.where()
-        blob = tensor_bytes(tensor)                # frozen now; see the class note
+        self._check_local(hp)
+        src = tensor.detach().to("cpu").contiguous().reshape(-1)
+        if src.dtype == torch.bool:
+            src = src.to(torch.uint8)
+        src = src.view(torch.uint8)
+        n = src.numel()
+        seg = self._segment(n)
+        if n:
+            torch.frombuffer(seg.mm, dtype=torch.uint8, count=n, offset=SEG_HDR).copy_(src)   # the one copy
         with self._qlock:
             q = self._queues.get(hp)
             if q is None:
                 q = self._queues[hp] = queue.Queue()
                 threading.Thread(target=self._writer, args=(hp,), daemon=True,
                                  name="region-writer-%s:%d" % hp).start()
-        q.put((self.key(name, self.owner), int(generation), blob, incarnation))
+        q.put((self.key(name, self.owner), int(generation), seg.name, n, incarnation))
         self.states_offered += 1

@@ -92,7 +92,7 @@ import torch.distributed as dist
 from . import frogtorch_ram_client as T  # [ALL_IN_THE_REGION_V1] FrogTorch's own RAM
 from .frogtorch_ram_client import Placement, RegionPlane
 
-from .tensor_plane import READ_CURRENT, TensorClient
+from .tensor_plane import READ_BY_IDENTITY, READ_CURRENT, TensorClient
 
 SERVICE = os.environ.get("FROGNET_HOOK_SERVICE", "ddphook")
 
@@ -310,7 +310,7 @@ class FrogNetHookState:
         self.bag_publish(self.step, done=True)
         return True
 
-    def cell(self, rank: int, key: int) -> str:
+    def cell(self, rank: int, key: int, n: int) -> str:
         """[THE_NAME_MUST_MEAN_THE_SAME_THING_ON_BOTH_ENDS_V1]
 
         `key` is DDP's own bucket index, not this rank's local counter.
@@ -326,7 +326,7 @@ class FrogNetHookState:
         same value on every rank for the same bucket, so the name says which
         bucket rather than how far along the reader happens to be.
         """
-        return "h%d.b.%d" % (rank, key)
+        return "h%d.b.%d.p%d" % (rank, key, n % 2)
 
     # [A_SHADOWED_DEFINITION_IS_NOT_A_DEFINITION_V1] A second stats() stood
     # here and shadowed the one above -- Python keeps the last definition,
@@ -405,13 +405,18 @@ def _publish(state: FrogNetHookState, key: int, t: torch.Tensor) -> int:
         state.watch_bags()
     if state.watch_fault is not None:
         raise RuntimeError("ddp_hook: the held read on the bags failed") from state.watch_fault
-    state.server.publish(state.cell(state.rank, key), n, t,
+    # [A_STEP_IS_READ_AS_THAT_STEP_V1] two cells per bucket, by step parity. Under faithful a rank is at most one
+    # step ahead of anyone still reading its buckets -- it cannot publish step n+1 until it has every peer's step
+    # n, and a peer publishes step n only after its step n-1 reads are done -- so the cell it overwrites at n+2
+    # has been read by everyone who will read it, and a reader asking for step n by identity gets step n. The
+    # skipping hooks read CURRENT and may be handed a later step, which is their policy.
+    state.server.publish(state.cell(state.rank, key, n), n, t,
                          incarnation=str(state.rank))
     return n
 
 
 def _read(state: FrogNetHookState, r: int, key: int, want_n: int,
-          like: torch.Tensor) -> torch.Tensor:
+          like: torch.Tensor, mode: str = READ_CURRENT) -> torch.Tensor:
     """Read peer `r`'s bucket `key` as of this step.
 
     `key` names the cell. `want_n` is the per-cell generation -- this
@@ -424,13 +429,14 @@ def _read(state: FrogNetHookState, r: int, key: int, want_n: int,
     """
     d = state.rendezvous()[r]
     got, _n, _same = state.client(r).read(
-        "r%d" % r, d["host"], int(d["port"]), RegionPlane.key(state.cell(r, key), r), want_n,
-        list(like.shape), str(like.dtype), mode=READ_CURRENT,
+        "r%d" % r, d["host"], int(d["port"]), RegionPlane.key(state.cell(r, key, want_n), r), want_n,
+        list(like.shape), str(like.dtype), mode=mode,
         wait_s=_peer_wait(state), channel="b%d" % key)
     return got.reshape(like.shape).to(like.dtype)
 
 
-def _gather(state: FrogNetHookState, t: torch.Tensor, key: int, n: int, take: List[int]):
+def _gather(state: FrogNetHookState, t: torch.Tensor, key: int, n: int, take: List[int],
+            mode: str = READ_CURRENT):
     """[EVERY_PEER_AT_ONCE_V1] [THE_CALLER_DOES_NOT_WAIT_FOR_THE_MEMORY_V1] Hold reads on every peer in `take` at
     once, and hand DDP a Future that completes when the last one lands: this rank's bucket and the peers' in RANK
     order, averaged ([REDUCTION_ORDER_IS_RANK_ORDER_V1]).
@@ -465,7 +471,7 @@ def _gather(state: FrogNetHookState, t: torch.Tensor, key: int, n: int, take: Li
         if last:
             fut.set_result(torch.stack([slots[q] for q in sorted(slots)]).mean(0))
     for r in take:
-        f = state.pool().submit(_read, state, r, key, n, t)
+        f = state.pool().submit(_read, state, r, key, n, t, mode)
         f.add_done_callback(lambda f, r=r: landed(r, f))
     return fut
 
@@ -505,7 +511,9 @@ def faithful_hook(state: FrogNetHookState,
     take = [r for r in range(state.world) if r != state.rank]
     state.offered += len(take)
     state.taken += len(take)
-    return _gather(state, t, key, n, take)
+    # [A_STEP_IS_READ_AS_THAT_STEP_V1] the exact step: READ_CURRENT could hand this rank a peer's NEXT step, and the
+    # ranks then summed different things -- faithful owes all_reduce's answer
+    return _gather(state, t, key, n, take, mode=READ_BY_IDENTITY)
 
 
 def fresh_only_hook(state: FrogNetHookState,

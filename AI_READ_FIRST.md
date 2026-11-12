@@ -590,16 +590,32 @@ reconciled. The procedure is in `opt/fdf/docs/APP-SETUP-AND-OPERATION.md`.
 FrogTorch (PyTorch distributed on FrogNet, `agent_workload/tuplespace`) and AIConnect (`agent_workload/aiconnect`) use
 **the FrogTorch RAM**: one region per machine (`frogtorch_ram.py`, the `frogtorch-ram` service, its port picked at
 random into `/etc/frognet/frogtorch-ram.env`), announced by a session-held capability tuple
-`(frogtorch, can, ip:port)` in the SystemRam (`[ALL_IN_THE_REGION_V1]`). A rank writes its cells into its own
-machine's region and reads by holding a read on the cell it needs; the owner's write answers it. There are no peer
-links, no master address, no acknowledgements and no polling; `frognet://<ns>` replaces TCPStore/MASTER_ADDR.
-Membership and claims are session cells (`life="session"`): they go when their writer's session does.
+`(frogtorch, can, ip:port)` in the SystemRam (`[ALL_IN_THE_REGION_V1]`). Control cells (membership, rendezvous,
+gate, hook bags) live in the region on the machine `databasehost.frognet` resolves to.
+
+- **A rank writes only its own machine's memory** (`[EVERY_RANK_WRITES_ONLY_ITS_OWN_MEMORY_V1]`); every other rank's
+  data is read by **holding a read on the owner's region**. The held read is the interrupt; nothing else crosses
+  the network. Never write into another rank's region (91e90c2 did; reverted).
+- **A write is a store** (`[A_WRITE_IS_A_STORE_INTO_THE_MEMORY_V1]`): the rank copies the tensor once into a
+  shared-memory segment the region maps (`/dev/shm`, unlinked as soon as both have it) and sends a small `tshm`
+  naming it; the region serves reads straight from that memory, and a segment is refilled only after the region
+  marks it free (header byte 0). A read's payload lands straight in the destination tensor
+  (`[THE_PAYLOAD_LANDS_WHERE_IT_IS_USED_V1]`). One copy in, one copy off the link. The digest is off unless
+  `FROGNET_PSY_VERIFY=1`.
+- **No acks, no retries, no caps** (`[A_WRITE_IS_NOT_A_CONVERSATION_V1]`, `[HELD_FOR_THE_CALLERS_DEADLINE_V1]`):
+  tput/tshm/cput/qpush are never answered; a held read is held for the caller's own deadline.
+- **Nothing waits in the caller** (`[THE_CALLER_DOES_NOT_WAIT_FOR_THE_MEMORY_V1]`): all_reduce returns its Work at
+  once and runs on the backend's collective thread in call order; the DDP hooks hold every peer's read at once
+  (`[EVERY_PEER_AT_ONCE_V1]`) and their bags arrive on one held read (`[THE_BAGS_ARE_READ_BY_A_HELD_READ_V1]`).
+- **Cells are slot-named** where they are hot (shard `ars.<k>`/`arr`, hook buckets by step parity), generation =
+  round, held by the writer's session; the algorithm's own dependency is what makes overwriting safe.
+
 An AIConnect receiver is a session-held cell `(AIConnect, receiver, <machine>)` in its own machine's region; a
-producer finds receivers by reading that cell in every region and transfers by WRITING each object into the
-receiver's region as one session-held tensor cell per sender thread (`[AICONNECT_IN_THE_REGION_V1]`). The region's
-acknowledgement is delivery. A transfer occupies the receiver's memory, so the ramp checks threads x object size
-against it before it starts. Do not reintroduce MachineReady / ConnectionRequest / BulkReady, a socket receiver, a
-TensorServer in the rank's process, or a re-asking loop: those are what was removed.
+producer finds receivers by reading that cell in every region and writes each object into the receiver's region,
+unanswered (`[AICONNECT_IN_THE_REGION_V1]`); what landed is counted by the region (`stats.by_acct`), read at the rung
+edges. (That direction is a cross-space write; whether to invert it is John's call.) Do not reintroduce
+MachineReady / ConnectionRequest / BulkReady, a socket receiver, a TensorServer in the rank's process, acks, a
+placement fallback, or a re-asking loop: those are what was removed.
 
 ---
 

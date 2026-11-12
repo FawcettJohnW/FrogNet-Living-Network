@@ -613,10 +613,10 @@ class PsychedelicBackend(_base.FrogNetBackend):
     #: hundreds. What it does still buy is integrity: proof the bytes on the
     #: wire are the bytes that were published.
     #:
-    #: Default ON. A corrupted payload with verification off is a wrong
-    #: answer rather than an error, and this transport has already produced
-    #: one framing desync. FROGNET_PSY_VERIFY=0 trades that for the time.
-    VERIFY = os.environ.get("FROGNET_PSY_VERIFY", "1") not in ("0", "no")
+    #: Default OFF (2026-11-12, John: optional, like everything else that is not the data). It read every byte
+    #: twice more per read -- once in the region, once here -- on Pis, for a check TCP already makes on the link
+    #: and the frame's length and tag already make on the framing. FROGNET_PSY_VERIFY=1 turns it back on.
+    VERIFY = os.environ.get("FROGNET_PSY_VERIFY", "0") not in ("0", "no")
 
     def _hwm(self, ln: int, like) -> int:
         """[THE_LENGTH_IS_A_CONSEQUENCE_NOT_A_GUESS_V1 - John 2026-09-14] The

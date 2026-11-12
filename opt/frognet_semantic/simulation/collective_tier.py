@@ -480,6 +480,60 @@ def plane_name_like_is_a_like():
         check("'__like'" in src and "LIKE ?" in src,
               "and the store still builds a LIKE clause from that suffix")
 
+# ---------------------------------------------------------------------------
+# PLANE 9 -- a write is a store into the memory; a read lands where it is used
+# ---------------------------------------------------------------------------
+def plane_two_copies():
+    """[A_WRITE_IS_A_STORE_INTO_THE_MEMORY_V1] [THE_PAYLOAD_LANDS_WHERE_IT_IS_USED_V1] Behaviour, on a real region:
+    a published tensor is stored once into a shared-memory segment the region maps (no bytes on the session), a
+    read lands straight in the destination, a segment is reused only after the region lets it go, and nothing is
+    left in /dev/shm. Fail-on-old: fd1f19f sent every tensor's bytes through the session (tput)."""
+    print("\n=== PLANE 9: one copy into memory, one off the link ===")
+    import socket, subprocess, time
+    import torch
+    if _SEM not in sys.path:
+        sys.path.insert(0, _SEM)
+    from agent_workload.tuplespace import frogtorch_ram_client as T
+    from agent_workload.tuplespace.frogtorch_ram_client import RegionPlane
+    from agent_workload.tuplespace.tensor_plane import TensorClient, READ_BY_IDENTITY
+    sk = socket.socket(); sk.bind(("127.0.0.1", 0)); port = sk.getsockname()[1]; sk.close()
+    p = subprocess.Popen([sys.executable, "-m", "agent_workload.tuplespace.frogtorch_ram", "--bind", "127.0.0.1",
+                          "--port", str(port), "--no-announce"], cwd=_SEM, stdout=subprocess.DEVNULL)
+    try:
+        time.sleep(0.8)
+        hp = ("127.0.0.1", port)
+        pl = RegionPlane(T.Ram(regions=[hp]), 0, where=lambda: hp)
+        cli = TensorClient("tier9")
+        a, b = torch.randn(300_000), torch.randn(300_000)
+        dst = torch.empty(300_000)
+        for g, src in ((1, a), (2, b), (3, a), (4, b)):
+            pl.publish("t9", g, src)
+            cli.read_into(dst, "r0", hp[0], hp[1], RegionPlane.key("t9", 0), g, mode=READ_BY_IDENTITY,
+                          wait_s=10, verify=True, exact=True)
+            if not torch.equal(dst, src):
+                break
+        check(torch.equal(dst, b), "every generation read back exactly, digest verified")
+        st = T.Ram(regions=[hp]).session(hp).call({"op": "stats"})
+        check(st["bytes_in"] == 4 * 300_000 * 4 and st["tputs"] == 4, "four stores counted by the region (%s)"
+              % {k: st[k] for k in ("bytes_in", "tputs")})
+        check(len(pl._segs) <= 2, "segments reused once the region let them go (%d made for 4 writes)"
+              % len(pl._segs))
+        src = open(os.path.join(_tuplespace(), "frogtorch_ram_client.py"), encoding="utf-8").read()
+        pub = src[src.index("    def publish(self, name: str, generation: int, tensor"):]
+        pub = pub[:pub.index("self.states_offered += 1")]
+        check("tensor_bytes(" not in pub and '"op": "tput"' not in src[src.index("class RegionPlane"):],
+              "fail-on-old: a publish sends no tensor bytes on the session")
+        tp = open(os.path.join(_tuplespace(), "tensor_plane.py"), encoding="utf-8").read()
+        check("return self._read_direct(" in tp, "fail-on-old: a sized read lands straight in its destination")
+        check('"FROGNET_PSY_VERIFY", "0"' in open(os.path.join(_tuplespace(), "psychedelic_backend.py"),
+                                                  encoding="utf-8").read(), "the digest is off unless asked for")
+    finally:
+        p.terminate()
+        p.wait()
+    time.sleep(0.2)
+    check(not [f for f in os.listdir("/dev/shm") if f.startswith("frogtorch.%d." % os.getpid())],
+          "nothing of this process left in /dev/shm")
+
 
 def main():
     try:
@@ -501,6 +555,7 @@ def main():
     plane_read_ahead_keying()
     plane_linger()
     plane_name_like_is_a_like()
+    plane_two_copies()
 
     print()
     if FAILS:
