@@ -846,6 +846,10 @@ pages while quoting an index months out of date.
 | A plain-English explanation | `index.html`, then `how-it-works.html` |
 | Evidence | `simulator.html`, `demonstrations.html` |
 | This material at length | `llms.txt` |
+| The Ribbit conversions in this tree (MQTT, lispers.net/Ribbit-LISP, Meshtastic, Redis, OpenEOC, the chat and Communicator examples) | each example's own `README.md` under `opt/frognet_semantic/ribbit/examples/<name>/` (the index, `ribbit/examples/README.md`, does not yet list mqtt or openeoc) |
+| FrogTorch / Psychedelic (PyTorch distributed on FrogNet) | §10b above, then `opt/frognet_semantic/agent_workload` (its tests: `agent_workload/tests`) |
+| Running the simulator gate | the commands in the root `README.md`. `run_all.py` needs `FROGNET_PROXY_ROOT`/`FROGNET_BIN_ROOT`, and TIER 3 needs `fdf-ram`, `fdf-client`, `fdf-events` built (`opt/fdf/src/fdf-source/rinab/tools/build.sh`, `build_static_host.sh`, `build_static_clients.sh`); without them those tiers fail, not skip |
+| Vendored upstream code | `FROGNET_THIRD_PARTY` in `usr/local/lib/frognet_world_manifest.sh`. A vendored tree is named there in the same commit that adds it, or the licence oracle in the discovery gate fails; our own files carry the GPL-2.0-only notice (`usr/local/bin/frognet_apply_license.py`) |
 
 ---
 
