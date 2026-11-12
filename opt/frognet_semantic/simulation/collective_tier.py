@@ -150,62 +150,60 @@ def plane_hook_sources():
         body = ast.get_source_segment(src, fns[0])
         check("parts = [t.clone()]" not in body,
               f"{name}: no self-first accumulator")
-        check("slots[state.rank] = t.clone()" in body,
-              f"{name}: self placed at its own rank index")
-        check("parts = [x for x in slots if x is not None]" in body,
-              f"{name}: skipped peers leave a hole, order preserved")
+        check("return _gather(state, t, key, n," in body,
+              f"{name}: its sum is _gather's, which keys every bucket by rank")
+    # [EVERY_PEER_AT_ONCE_V1] The rank order lives in _gather now: self at its own rank, peers by rank, a
+    # skipped peer simply absent, the stack built over the ranks in ascending order.
+    g = [n for n in ast.walk(tree) if isinstance(n, ast.FunctionDef) and n.name == "_gather"]
+    check(bool(g), "_gather exists")
+    if g:
+        gb = ast.get_source_segment(src, g[0])
+        check("{state.rank: t.clone()}" in gb, "_gather: self placed at its own rank index")
+        check("slots[r] = x" in gb, "_gather: each peer lands at its own rank index")
+        check("torch.stack([slots[q] for q in sorted(slots)])" in gb,
+              "_gather: skipped peers leave a hole, order preserved")
+        check("state.pool().submit(_read" in gb, "_gather: every peer's read is up at once")
 
 
 # ---------------------------------------------------------------------------
 # PLANE 3 -- every waiting read blocks, with a satisfiable condition
 # ---------------------------------------------------------------------------
 def plane_blocking_reads():
-    print("\n=== PLANE 3: waiting reads block, and can be satisfied ===")
-    path = os.path.join(_tuplespace(), "psychedelic_backend.py")
-    src = open(path, encoding="utf-8").read()
-    tree = ast.parse(src)
-
-    calls = [n for n in ast.walk(tree) if isinstance(n, ast.Call)
-             and isinstance(n.func, ast.Attribute)
-             and n.func.attr == "_read_all"]
-    check(len(calls) >= 2, f"_read_all call sites found ({len(calls)})")
-    for c in calls:
-        kw = {k.arg for k in c.keywords}
-        op = (c.args[0].value if c.args and isinstance(c.args[0], ast.Constant)
-              else "<expr>")
-        check("wait_s" in kw, f"line {c.lineno} ({op}): passes wait_s")
-        check("min_rows" in kw, f"line {c.lineno} ({op}): passes min_rows")
-        # The condition has to match the number of WRITERS for that operation.
-        mr = [k.value for k in c.keywords if k.arg == "min_rows"]
-        if mr:
-            bad = isinstance(mr[0], ast.Attribute) and mr[0].attr == "_size"
-            check(not bad,
-                  f"line {c.lineno} ({op}): min_rows is not self._size "
-                  f"(a broadcast has one writer; W is unsatisfiable)")
-
-    bc = [c for c in calls
-          if c.args and getattr(c.args[0], "value", None) == "bc"]
-    if bc:
-        mr = [k.value for k in bc[0].keywords if k.arg == "min_rows"][0]
-        check(isinstance(mr, ast.Constant) and mr.value == 1,
-              "broadcast waits for min_rows=1 (the root is the only producer)")
-
-    tb = open(os.path.join(_tuplespace(), "torch_backend.py"),
-              encoding="utf-8").read()
-    t = ast.parse(tb)
-    mod = {n.targets[0].id for n in t.body
-           if isinstance(n, ast.Assign) and isinstance(n.targets[0], ast.Name)}
-    check("BLOCK_CAP" in mod,
-          "BLOCK_CAP is module-level (was a local, so broadcast could not "
-          "reach it)")
+    print("\n=== PLANE 3: every wait is one held read in the memory ===")
+    # [ALL_IN_THE_REGION_V1] A rank waits by holding one read on the cell it needs, in FrogTorch's own RAM. The
+    # loops this plane used to check -- reads re-asked until rows appeared, consumers acknowledging, a root
+    # waiting for the acknowledgements, BLOCK_CAP re-arming every 5 s -- are what was removed. fail-on-old: none of it
+    # may come back.
+    gone = {"psychedelic_backend.py": ("_await_consumers", "_consumed", "_read_fresh", "_PLANES",
+                                       "_shared_plane"),
+            "torch_backend.py": ("BLOCK_CAP",)}
+    for f, names in gone.items():
+        tree = ast.parse(open(os.path.join(_tuplespace(), f), encoding="utf-8").read())
+        seen = {n.name for n in ast.walk(tree) if isinstance(n, (ast.FunctionDef, ast.ClassDef))}
+        seen |= {n.attr for n in ast.walk(tree) if isinstance(n, ast.Attribute)}
+        seen |= {n.id for n in ast.walk(tree) if isinstance(n, ast.Name)}
+        for nm in names:
+            check(nm not in seen, f"fail-on-old: {f} has no {nm}")
+    # no sleeping anywhere a rank waits; the one sleep left is the diagnostic watchdog's report interval
+    for f in ("psychedelic_backend.py", "torch_backend.py", "ddp_hook.py", "frogtrain.py", "torch_store.py",
+              "frogtorch.py", "frogtorch_ram.py", "frogtorch_ram_client.py", "reduce_by_read.py"):
+        tree = ast.parse(open(os.path.join(_tuplespace(), f), encoding="utf-8").read())
+        bad = []
+        for fn in [n for n in ast.walk(tree) if isinstance(n, ast.FunctionDef)]:
+            if fn.name in ("_psy_start_watchdog", "_loop"):
+                continue
+            for c in ast.walk(fn):
+                if (isinstance(c, ast.Call) and isinstance(c.func, ast.Attribute) and c.func.attr == "sleep"
+                        and isinstance(c.func.value, ast.Name) and c.func.value.id == "time"):
+                    bad.append(f"{fn.name}:{c.lineno}")
+        check(not bad, f"{f}: no time.sleep where a rank waits ({', '.join(bad) or 'none'})")
 
 
 # ---------------------------------------------------------------------------
-# PLANE 4 -- behaviour: a waiting store must collapse the ask count
+# PLANE 4 -- behaviour: a broadcast asks once, and never falls back to asking again
 # ---------------------------------------------------------------------------
 def plane_ask_count():
-    print("\n=== PLANE 4: a store that honours wait_s collapses the asks ===")
-    import time
+    print("\n=== PLANE 4: a broadcast is one held read, and a failed read is an error ===")
     import types
 
     path = os.path.join(_tuplespace(), "psychedelic_backend.py")
@@ -214,9 +212,6 @@ def plane_ask_count():
           if isinstance(n, ast.FunctionDef) and n.name == "broadcast"][0]
     body = ast.get_source_segment(src, fn)
 
-    # broadcast registers its wait with _PsyWait; the stub needs it or the
-    # body raises NameError and the ask count comes back 0, which reads as a
-    # pass on a test that never ran.
     class _NullWait:
         def __init__(self, **kw):
             pass
@@ -227,9 +222,7 @@ def plane_ask_count():
         def __exit__(self, *a):
             return False
 
-    ns = {"time": time, "_base": types.SimpleNamespace(BLOCK_CAP=5.0),
-          "READ_CURRENT": 0, "_PsyWait": _NullWait,
-          "_psy": lambda *a, **k: None}
+    ns = {"_base": types.SimpleNamespace(_Work=lambda t: t), "_PsyWait": _NullWait}
     exec("class _S:\n" + "\n".join("    " + l for l in body.splitlines()), ns)
 
     class _T:
@@ -245,46 +238,37 @@ def plane_ask_count():
         def to(self, x):
             return self
 
-    def run(store_waits):
-        asks = {"n": 0}
+    def run(rank, read):
+        log = {"reads": [], "published": []}
         s = ns["_S"].__new__(ns["_S"])
-        s._rank, s._size, s._timeout_s = 1, 4, 3.0
+        s._rank, s._size, s._timeout_s, s._incarnation = rank, 4, 3.0, "i0"
         s._next_seq = lambda: 7
-        s._publish_tensor = lambda *a: None
-        s._consumed = lambda *a: None
-        s._await_consumers = lambda *a: None
-        s._client = types.SimpleNamespace(
-            read=lambda *a, **k: (None, 0, False))
-        t0 = time.time()
+        s._my_region = lambda: "r"
+        s._server = types.SimpleNamespace(publish=lambda *a, **k: log["published"].append(a[0]))
 
-        def _read_all(op, seq, wait_s=0.0, min_rows=0):
-            asks["n"] += 1
-            if store_waits and wait_s > 0:
-                time.sleep(min(wait_s, 0.25))
-            if time.time() - t0 > 0.6:
-                return {0: {"host": "h", "port": 1, "name": "n",
-                            "gen": 1, "shape": [1], "dtype": "f"}}
-            return {}
-
-        s._read_all = _read_all
+        def _read_peer(peer, name, seq, t, wait_s=0.0, retain=False):
+            log["reads"].append((peer, name, wait_s))
+            return read()
+        s._read_peer = _read_peer
+        err = None
         try:
             s.broadcast([_T()], types.SimpleNamespace(rootRank=0))
-        except Exception:
-            pass
-        return asks["n"]
+        except Exception as e:
+            err = e
+        return log, err
 
-    waiting = run(True)
-    spinning = run(False)
-    print(f"        asks against a waiting store : {waiting}")
-    print(f"        asks against a spinning store: {spinning}")
-    # A count of zero means the body raised, not that it was efficient.
-    check(waiting > 0 and spinning > 0,
-          f"both arms actually ran (waiting={waiting}, spinning={spinning})")
-    check(waiting * 5 < spinning,
-          f"blocking read collapses the ask count ({spinning} -> {waiting})")
-    check(spinning > waiting,
-          "degrades to polling against a store that ignores the parameters, "
-          "rather than breaking")
+    log, err = run(0, lambda: _T())
+    check(err is None and log["published"] == ["i0.bc.7"] and not log["reads"],
+          f"the root writes its cell and reads nothing ({log})")
+    log, err = run(2, lambda: _T())
+    check(err is None and log["reads"] == [(0, "i0.bc.7", 3.0)] and not log["published"],
+          f"a non-root holds ONE read on the root's cell, for the group timeout ({log['reads']})")
+
+    def gone():
+        raise TimeoutError("held read expired")
+    log, err = run(2, gone)
+    check(isinstance(err, TimeoutError) and len(log["reads"]) == 1,
+          f"fail-on-old: a read that fails is raised, not asked again ({len(log['reads'])} read(s), {err!r})")
 
 
 
@@ -367,114 +351,46 @@ def plane_object_is_not_a_list():
 
 
 # ---------------------------------------------------------------------------
-# PLANE 6 -- read-ahead states a name, not a length
+# PLANE 6 -- every rank writes only its own memory
 # ---------------------------------------------------------------------------
 def plane_read_ahead_keying():
-    print("\n=== PLANE 6: read-ahead does not guess a length ===")
-    import torch
-    import types
+    """[EVERY_RANK_WRITES_ONLY_ITS_OWN_MEMORY_V1] John: "Nobody writes into anybody else's space, period."
 
+    The shard all-reduce's writes go to the writer's own region and nowhere else; its reads are held reads on the
+    owner's region; phase 2's reads are up before phase 1's reduce. Fail-on-old: 91e90c2 wrote each slice into the
+    consumer's region (`region=self._region_of(k)`) and read locally. (The September read-ahead this plane used to
+    check is gone with the round-named cells it guessed at; phase 2's early reads are the overlap that remains.)
+    """
+    print("\n=== PLANE 6: every rank writes only its own memory ===")
     path = os.path.join(_tuplespace(), "psychedelic_backend.py")
     src = open(path, encoding="utf-8").read()
     tree = ast.parse(src)
-
-    ra = [n for n in ast.walk(tree)
-          if isinstance(n, ast.FunctionDef) and n.name == "_read_ahead"]
-    check(bool(ra), "_read_ahead exists")
-    if ra:
-        args = [a.arg for a in ra[0].args.args]
-        check("ln" not in args,
-              "fail-on-old: _read_ahead no longer takes a length (%s)"
-              % ", ".join(args))
-
-    check("key = (seq, str(own.dtype))" in src,
-          "the consumption site keys the guess on the round and dtype")
-    check("key = (seq, ln_r, str(own.dtype))" not in src,
-          "fail-on-old: the length is out of the lookup key")
-    check("exact: bool = True" in open(
-              os.path.join(_tuplespace(), "tensor_plane.py"),
-              encoding="utf-8").read(),
-          "read_into can be told the caller does not know the length")
-
-    # -- behaviour: the real _hwm / _stage / _ahead_stage against DDP's own
-    # -- alternating bucket sizes.
-    want = ("_hwm", "_stage", "_ahead_stage")
-    fns = {n.name: ast.get_source_segment(src, n) for n in ast.walk(tree)
-           if isinstance(n, ast.FunctionDef) and n.name in want}
-    if set(fns) != set(want):
-        check(False, "found %s" % sorted(fns))
+    fn = {n.name: n for n in ast.walk(tree) if isinstance(n, ast.FunctionDef)}
+    ar = fn.get("_allreduce_sharded")
+    check(ar is not None, "_allreduce_sharded exists")
+    if ar is None:
         return
-    ns = {"torch": torch}
-    exec("class _B:\n" + "\n".join(
-        "\n".join("    " + l for l in fns[k].splitlines()) for k in want), ns)
-
-    b = ns["_B"].__new__(ns["_B"])
-    b._ln_hwm = {}
-    like = torch.empty(0, dtype=torch.float32)
-
-    # DDP hands these two bucket sizes out alternately; at world 4 the phase-1
-    # slice is a quarter of each.
-    lens = [262657 // 4, 791552 // 4] * 6
-    allocs, seen = 0, None
-    widths = set()
-    for ln in lens:
-        rows = b._stage(3, ln, like)
-        if b._stage_buf is not seen:
-            allocs += 1
-            seen = b._stage_buf
-        widths.add(tuple(r.numel() for r in rows))
-    check(allocs == 2,
-          "_stage allocates once per distinct maximum, not per round "
-          "(%d allocations over %d rounds)" % (allocs, len(lens)))
-    check(widths == {(lens[0],) * 3, (lens[1],) * 3},
-          "every row is still exactly the round's slice length")
-
-    ahead = b._ahead_stage(3, like)
-    check(all(a.numel() == max(lens) for a in ahead),
-          "the speculative landing area is the high-water mark (%d)"
-          % max(lens))
-
-    # -- and the keying, through the real _read_ahead.
-    issued = []
-
-    class _Pool:
-        def submit(self, fn, *a):
-            issued.append(a)
-            f = types.SimpleNamespace()
-            f.cancel = lambda: None
-            f.done = lambda: True
-            f.exception = lambda: None
-            f.result = lambda: None
-            return f
-
-    rafn = ast.get_source_segment(src, ra[0])
-    ns2 = {"torch": torch}
-    exec("class _R:\n" + "\n".join(
-        "\n".join("    " + l for l in x.splitlines())
-        for x in (rafn, fns["_ahead_stage"], fns["_hwm"])), ns2)
-    rb = ns2["_R"].__new__(ns2["_R"])
-    rb._ahead, rb._ln_hwm = {}, {"torch.float32": max(lens)}
-    rb._drop_ahead = lambda: None
-    rb._peer_inc = lambda p: "c%d" % p
-    rb._read_slice_into = None
-    rb._read_ahead(9, like, [1, 2, 3], 0, 30.0, _Pool())
-
-    check(list(rb._ahead) == [(9, "torch.float32")],
-          "the guess is filed under the round it is for (%s)"
-          % list(rb._ahead))
-    check((9, "torch.float32") in rb._ahead,
-          "and is found on the next round whatever length that round turns "
-          "out to be -- which is the miss that made prefetch_hit False in "
-          "every ddp54xx log")
-    check(all(a[5] == "pf" and a[6] is False for a in issued),
-          "every speculative read goes out on the pf channel, exact=False")
-
+    pubs = [c for c in ast.walk(ar) if isinstance(c, ast.Call) and isinstance(c.func, ast.Attribute)
+            and c.func.attr == "publish"]
+    check(len(pubs) == 2, "two writes: the slices and the reduced slice (%d)" % len(pubs))
+    check(all(not any(k.arg == "region" for k in c.keywords) for c in pubs),
+          "fail-on-old: no write names another rank's region")
+    seg = ast.get_source_segment(src, ar)
+    check("_read_local_into" not in seg and "_read_owner_into" in seg,
+          "fail-on-old: every read is a held read on the OWNER's region")
+    ro = fn.get("_read_owner_into")
+    check(ro is not None and "self._region_of(owner)" in ast.get_source_segment(src, ro),
+          "the read goes to the owner's region")
+    check(seg.index('"p2")') < seg.index("acc_fn(own"),
+          "phase 2's held reads are up before phase 1 reduces")
+    check(seg.count("self._server.publish(\"%s.arr\"") == 1 and "for p in peers:\n                self._server"
+          not in seg, "fail-on-old: the reduced slice is written once, not once per peer")
 
 # ---------------------------------------------------------------------------
-# PLANE 7 -- a finished rank does not take its plane away
+# PLANE 7 -- a finished rank leaves; nothing it published goes with its process
 # ---------------------------------------------------------------------------
 def plane_linger():
-    print("\n=== PLANE 7: a rank that finishes waits for the rest ===")
+    print("\n=== PLANE 7: a rank stays until every peer is done reading it, or gone ===")
     import time
     import types
 
@@ -491,50 +407,54 @@ def plane_linger():
     check("done" in [a.arg for a in bp.args.args],
           "fail-on-old: the bag carries whether the rank is finished")
 
-    bench = open(os.path.join(_SEM, "agent_workload", "ddpbench.py"),
+    # the live harness (agent_workload/ddpbench.py was dropped 2026-09-15)
+    bench = open(os.path.normpath(os.path.join(_SEM, "..", "..", "usr", "local", "frognet-ai", "ddpbench.py")),
                  encoding="utf-8").read()
-    _has_linger = "_STATE.linger()" in bench
-    check(_has_linger,
-          "fail-on-old: the harness lingers before the process ends -- without "
-          "it the rank returns from the training loop and the process exit "
-          "closes its TensorServer under peers that are still reading")
-    check(_has_linger
-          and bench.index("_STATE.linger()") < bench.index("destroy_process_group"),
-          "and does it before tearing the group down")
+    check("_STATE.linger(" in bench and bench.index("_STATE.linger(") < bench.index("destroy_process_group"),
+          "the harness publishes its done bag before tearing the group down")
 
-    if not fn:
-        return
-    body = ast.get_source_segment(src, fn[0])
-    ns = {"time": time}
-    exec("class _S:\n" + "\n".join("    " + l for l in body.splitlines()), ns)
+    # [A_PEER_IS_NOT_GONE_UNTIL_EVERY_PEER_SAYS_SO_V1] a rank's buckets are in its own memory again
+    # ([THE_BITS_STAY_WHERE_THEY_ARE_V1]): a rank that finishes stays until every peer is done or gone. One held
+    # read on the members family, against a real RAM.
+    if _SEM not in sys.path:
+        sys.path.insert(0, _SEM)
+    import threading
+    from agent_workload.tuplespace.frogtorch_ram import RamServer
+    from agent_workload.tuplespace.frogtorch_ram_client import Ram, linger
+    srv = RamServer("127.0.0.1", 0)
+    hp = ("127.0.0.1", srv.port)
+    _env = os.environ.get("FROGTORCH_RAMS")
+    os.environ["FROGTORCH_RAMS"] = "127.0.0.1:%d" % srv.port      # the one RAM, configured: no SystemRam here
+    try:
+        r0, r1, r2 = Ram(regions=[hp]), Ram(regions=[hp]), Ram(regions=[hp])
+        for k, r in enumerate((r0, r1, r2)):
+            r.put("frogtorch.members.t7", "r%d" % k, "r%d" % k, {"ip": "x", "port": 1}, life="session")
 
-    def run(peers_finish, timeout_s=6.0):
-        """peers_finish: which peers ever publish done."""
-        st = ns["_S"].__new__(ns["_S"])
-        st.rank, st.world, st.step, st.timeout_s = 0, 4, 40, timeout_s
-        published = []
-        st.bag_publish = lambda step, done=False: published.append((step, done))
-        bags = {r: {"step": 40, "done": (r in peers_finish)}
-                for r in (1, 2, 3)}
-        st.bag_read = lambda wait_s=0.0, min_rows=0: bags
-        msgs = []
+        def r1_done():
+            time.sleep(0.5)
+            r1.put("frogtorch.members.t7", "d1", "d1", {"t": 0}, life="session")
+
+        def r2_gone():
+            time.sleep(1.0)
+            r2._member_session.close()
+        threading.Thread(target=r1_done).start()
+        threading.Thread(target=r2_gone).start()
         t0 = time.time()
-        ok = st.linger(logger=msgs.append)
-        return ok, time.time() - t0, published, " ".join(msgs)
-
-    ok, dt, pub, msg = run({1, 2, 3})
-    check(ok, "returns once every peer reports done")
-    check(pub == [(40, True)],
-          f"publishes its own done exactly once ({pub})")
-    check(dt < 2.0, f"and does not sit out the timeout when it need not ({dt:.1f}s)")
-
-    ok, dt, pub, msg = run({1, 2})
-    check(not ok, "fail-on-old: a peer that never finishes is not waited on forever")
-    check(4.0 < dt < 12.0, f"the wait is bounded by the group timeout ({dt:.1f}s)")
-    check("3" in msg and "EXPIRED" in msg,
-          "and the expiry names the rank it was waiting on")
-    check(pub == [(40, True)],
-          "it still published its own done, so nobody waits on IT")
+        left = linger(r0, "t7", 0, 3, 10.0)
+        dt = time.time() - t0
+        check(left == [] and 0.9 < dt < 5, "waits for one peer to say done and one to go, then leaves (%.2fs)" % dt)
+        r3 = Ram(regions=[hp])
+        r3.put("frogtorch.members.t7b", "r0", "r0", {"ip": "x", "port": 1}, life="session")
+        r3.put("frogtorch.members.t7b", "r1", "r1", {"ip": "x", "port": 1}, life="session")
+        t0 = time.time()
+        left = linger(r3, "t7b", 0, 2, 1.0)
+        check(left == [1] and time.time() - t0 < 3, "a peer that never finishes is named when the wait runs out")
+    finally:
+        srv.close()
+        if _env is None:
+            os.environ.pop("FROGTORCH_RAMS", None)
+        else:
+            os.environ["FROGTORCH_RAMS"] = _env
 
 
 def _api_php():
@@ -584,6 +504,63 @@ def plane_name_like_is_a_like():
         check("'__like'" in src and "LIKE ?" in src,
               "and the store still builds a LIKE clause from that suffix")
 
+# ---------------------------------------------------------------------------
+# PLANE 9 -- the bits stay where they are; the one RAM holds the reference
+# ---------------------------------------------------------------------------
+def plane_two_copies():
+    """[THE_BITS_STAY_WHERE_THEY_ARE_V1] Behaviour: a rank's MemoryPlane holds a read until the generation asked for
+    is stored, the bytes come straight from the owner's memory into the reader's tensor, a copy=False cell is the
+    caller's own tensor, a buffer is refilled only when nothing refers to it. Source: no rank's tensor is written
+    into any RAM host (fail-on-old: 271a754 stored every tensor in the machine's frogtorch-ram)."""
+    print("\n=== PLANE 9: the bits stay in the owner's memory ===")
+    import threading, time
+    import torch
+    if _SEM not in sys.path:
+        sys.path.insert(0, _SEM)
+    from agent_workload.tuplespace.memory_plane import MemoryPlane
+    from agent_workload.tuplespace.tensor_plane import TensorClient, READ_BY_IDENTITY
+    mp = MemoryPlane(0, bind="127.0.0.1")
+    cli = TensorClient("tier9")
+    a, b = torch.randn(300_000), torch.randn(300_000)
+    dst = torch.empty(300_000)
+    got = {}
+
+    def late():
+        time.sleep(0.4)
+        mp.publish("t9", 1, a)
+    th = threading.Thread(target=late)
+    th.start()
+    t0 = time.perf_counter()
+    cli.read_into(dst, "r0", "127.0.0.1", mp.port, MemoryPlane.key("t9", 0), 1, mode=READ_BY_IDENTITY, wait_s=10,
+                  verify=True, exact=True)
+    held = time.perf_counter() - t0
+    th.join()
+    check(torch.equal(dst, a) and 0.3 < held < 5, "a read is held until the owner stores it (%.2fs), then exact"
+          % held)
+    for g, src in ((2, b), (3, a), (4, b)):
+        mp.publish("t9", g, src)
+        cli.read_into(dst, "r0", "127.0.0.1", mp.port, MemoryPlane.key("t9", 0), g, mode=READ_BY_IDENTITY,
+                      wait_s=10, verify=True, exact=True)
+    check(torch.equal(dst, b), "every generation read back exactly, digest verified")
+    check(mp.stats()["buffers"] <= 2, "buffers reused once nothing refers to them (%d for 4 stores)"
+          % mp.stats()["buffers"])
+    live = torch.arange(1000, dtype=torch.float32)
+    mp.publish("v9", 1, live, copy=False)
+    live += 1                                 # copy=False: the cell IS the caller's tensor
+    small = torch.empty(1000)
+    cli.read_into(small, "r0", "127.0.0.1", mp.port, MemoryPlane.key("v9", 0), 1, mode=READ_BY_IDENTITY, wait_s=5,
+                  exact=True)
+    check(torch.equal(small, live), "a copy=False cell is the owner's own tensor, not a copy")
+    mp.close()
+    src = {f: open(os.path.join(_tuplespace(), f), encoding="utf-8").read()
+           for f in ("psychedelic_backend.py", "ddp_hook.py", "frogtrain.py", "frogtorch.py")}
+    check(all("RegionPlane" not in t for t in src.values()), "fail-on-old: no rank writes tensors into a RAM host")
+    check(all("MemoryPlane(" in t for t in src.values()), "every rank's tensors stay in its own MemoryPlane")
+    ram = open(os.path.join(_tuplespace(), "frogtorch_ram.py"), encoding="utf-8").read()
+    check('"tshm"' not in ram, "fail-on-old: the RAM host stores no rank's tensors")
+    tp = open(os.path.join(_tuplespace(), "tensor_plane.py"), encoding="utf-8").read()
+    check("return self._read_direct(" in tp, "a sized read lands straight in its destination")
+
 
 def main():
     try:
@@ -605,6 +582,7 @@ def main():
     plane_read_ahead_keying()
     plane_linger()
     plane_name_like_is_a_like()
+    plane_two_copies()
 
     print()
     if FAILS:
