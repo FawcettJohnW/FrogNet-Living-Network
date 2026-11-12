@@ -111,7 +111,7 @@ from typing import Any, Callable, Dict, List, Optional, Tuple
 from . import frogtorch_ram_client as T  # [ALL_IN_THE_REGION_V1] FrogTorch's own RAM
 
 from .reduce_by_read import ReduceGroup, default_accept
-from .tensor_plane import TensorClient, TensorServer
+from .tensor_plane import TensorClient
 
 # [IMPORT_GUARD_V2] 2026-09-25: diag is first-party and the tree is always on the path; a stub hid a broken install.
 from core.frognet_diag import diag, diag_exc
@@ -306,7 +306,15 @@ class Trainer:
         self.dbhost = dbhost or T.DEFAULT_DBHOST
         self.job = Job(run, spec or {"shards": 8}, self.dbhost)
         self.claims = Claims(self.name, self.dbhost)
-        self.server = TensorServer("0.0.0.0") if data_plane else None
+        # [ALL_IN_THE_REGION_V1] Parameters go into this machine's FrogTorch region; this process serves nothing.
+        self.server = None
+        if data_plane:
+            from .frogtorch_ram_client import RegionPlane
+            _ram = T.ram()
+            self.server = RegionPlane(_ram, self.name)
+            self.server.region = _ram.local_region(self.name)
+            self.server.port = self.server.region[1]
+            advertise_host = self.server.region[0]
         self.client = TensorClient(self.name) if data_plane else None
         self.params = ReduceGroup(
             "params", self.name, dbhost=self.dbhost,
