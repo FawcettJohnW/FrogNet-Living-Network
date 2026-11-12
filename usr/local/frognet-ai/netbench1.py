@@ -601,7 +601,7 @@ def spawn(args, backend, work, store, runid):
                "--rank", str(i), "--world", str(args.world),
                "--backend", backend, "--sizes", args.sizes,
                "--iters", str(args.iters), "--out", out,
-               "--tree", args.tree, "--master-port", args.master_port,
+               "--tree", args.tree,
                "--lookahead", str(args.lookahead),
                "--peer-wait", str(args.peer_wait),
                "--server-wait", str(args.server_wait),
@@ -880,8 +880,6 @@ def main():
                          "the plane's BIND address and the address it "
                          "advertises, so the 127.0.0.1 default makes the "
                          "plane unreachable from other machines.")
-    ap.add_argument("--master", default="127.0.0.1",
-                    help="rank 0's address, for gloo rendezvous")
     ap.add_argument("--role", default="", choices=["", "store", "merge"],
                     help="store: run a store and print its address. "
                          "merge: fit across per-rank JSONs from every machine")
@@ -900,7 +898,6 @@ def main():
     ap.add_argument("--lookahead", type=int, default=1,
                     help="psychedelic prefetch depth; 0 deadlocks, see notes")
     ap.add_argument("--work", default="")
-    ap.add_argument("--master-port", default="29591")
     ap.add_argument("--check", action="store_true")
     ap.add_argument("--version", action="store_true")
     # [A_SETTING_THAT_IS_NOT_ON_THE_COMMAND_LINE_IS_NOT_IN_THE_RESULT_V1]

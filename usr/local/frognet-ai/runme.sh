@@ -79,8 +79,7 @@ case "$BASE" in
     ""|*[!0-9]*) echo "run id must be a number, got '$BASE'"; exit 2 ;;
 esac
 
-# The fleet. rank 0 is also the gloo master and hosts the store.
-MASTER=10.250.250.100
+# The fleet. There is no master: every group forms in FrogTorch's RAM ([ALL_IN_THE_REGION_V1]).
 STORE=databasehost.frognet:80
 OUT=/tmp/nb3
 ITERS=15
@@ -249,7 +248,7 @@ do_run() {   # id, world, backend, reduce, label
     echo "--- $ID: world $W, $BE${RED:+/$RED} ..."
     if python3 "$NB" --rank "$RANK" --world "$W" --backend "$BE" \
         ${RED:+--reduce $RED} --runid "$ID" --addr "$ADDR" \
-        --master "$MASTER" --store "$STORE" \
+        --store "$STORE" \
         --profile slope --iters "$ITERS" --timeout "$TIMEOUT" --diag \
         --peer-wait "$PEER_WAIT" --server-wait "$SERVER_WAIT" \
         --socket-timeout "$SOCKET_TIMEOUT" --socket-margin "$SOCKET_MARGIN" \
