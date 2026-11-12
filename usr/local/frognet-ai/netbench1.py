@@ -417,8 +417,7 @@ def run_rank(a):
     # incremented per campaign now, which is what it was really protecting
     # against, so the check goes rather than gaining an exception for its
     # own harness.
-    os.environ["MASTER_ADDR"] = a.master
-    os.environ["MASTER_PORT"] = a.master_port
+    # [ALL_IN_THE_REGION_V1] No master: the group forms in FrogTorch's RAM, gloo's control included.
     # [THE_PLANE_BINDS_WHERE_IT_ADVERTISES_V1] One value, two jobs: the
     # address TensorServer listens on AND the one it publishes for peers to
     # dial. On one box 127.0.0.1 is right; across machines it is a plane
@@ -491,8 +490,10 @@ def run_rank(a):
         # failure worth surfacing now.
         import datetime
         r["wall_init_start"] = time.time()
+        from agent_workload.tuplespace import torch_store  # noqa: F401  registers frognet://
         dist.init_process_group(
-            a.backend, rank=a.rank, world_size=a.world,
+            a.backend, init_method="frognet://nb1.%s" % (getattr(a, "runid", "") or "default"),
+            rank=a.rank, world_size=a.world,
             timeout=datetime.timedelta(seconds=a.timeout))
         r["wall_init_done"] = time.time()
         pg = dist.distributed_c10d._get_default_group()

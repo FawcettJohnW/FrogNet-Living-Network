@@ -204,6 +204,28 @@ echo
 say "recorded $(( $(wc -l < "$VERSION_FILE") - 1 )) file(s) in $VERSION_FILE"
 [ -d "$BK" ] && say "replaced files backed up under $BK"
 
+# ---- FrogTorch's RAM on this machine ([ALL_IN_THE_REGION_V1]) -------------
+# Every rank writes into the frogtorch-ram service on its own machine. Its port is picked at random once, here, and
+# kept, so it is the same every time the service starts; the service announces it in the SystemRam itself.
+echo
+ENVF=/etc/frognet/frogtorch-ram.env
+if [ ! -f "$ENVF" ]; then
+    mkdir -p /etc/frognet
+    echo "FROGTORCH_RAM_PORT=$(( 20000 + $(od -An -N2 -tu2 /dev/urandom) % 45536 ))" > "$ENVF"
+    say "picked $(cat "$ENVF") for this machine's FrogTorch RAM"
+fi
+if [ -f /etc/systemd/system/frogtorch-ram.service ]; then
+    systemctl daemon-reload
+    systemctl enable frogtorch-ram.service >/dev/null 2>&1
+    if systemctl restart frogtorch-ram.service; then
+        say "frogtorch-ram running ($(cat "$ENVF"))"
+    else
+        fail "frogtorch-ram did not start: journalctl -u frogtorch-ram"
+    fi
+else
+    fail "no /etc/systemd/system/frogtorch-ram.service -- install the FrogNet tree that carries it"
+fi
+
 # ---- prove it works -----------------------------------------------------
 echo
 echo "verifying:"
@@ -217,7 +239,9 @@ for m in ("core.frognet_tuples",
           "agent_workload.tuplespace.list_store",
           "agent_workload.tuplespace.store_server",
           "agent_workload.tuplespace.torch_backend",
-          "agent_workload.tuplespace.psychedelic_backend"):
+          "agent_workload.tuplespace.psychedelic_backend",
+          "agent_workload.tuplespace.frogtorch_ram",
+          "agent_workload.tuplespace.frogtorch_ram_client"):
     try:
         __import__(m)
     except Exception as e:

@@ -90,7 +90,6 @@ if [ -z "$ADDR" ] || [ -z "$BASE" ]; then
 fi
 case "$BASE" in ""|*[!0-9]*) echo "run id must be a number"; exit 2 ;; esac
 
-MASTER=10.250.250.100
 STORE=databasehost.frognet:80
 OUT=/tmp/nb3
 WORLD=4
@@ -204,7 +203,7 @@ run_one() {   # arm index, id, backend, hook, bucket_view, label
     [ "$_BE" = psychedelic ] && _RED="--reduce shard"
     python3 "$DB" --rank "$RANK" --world "$WORLD" --backend "$_BE" \
         $_RED ${_HOOK:+--hook $_HOOK} --bucket-view "$_BV" \
-        --addr "$ADDR" --master "$MASTER" --store "$STORE" --runid "$_ID" \
+        --addr "$ADDR" --store "$STORE" --runid "$_ID" \
         --tree "$TREE" --steps "$STEPS" --warmup "$WARMUP" \
         --hidden "$HIDDEN" --timeout "$TIMEOUT" --peer-wait "$PEER_WAIT" \
         --out "$OUT" 2>&1 | tee "$OUT/$_ID.rank$RANK.log" | \

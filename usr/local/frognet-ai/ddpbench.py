@@ -19,7 +19,7 @@
 """ddpbench.py -- DDP training step cost, with and without bucket views.
 
     python3 ddpbench.py --rank 0 --world 4 --backend psychedelic \
-        --addr 10.250.250.100 --master 10.250.250.100 \
+        --addr 10.250.250.100 \
         --store databasehost.frognet:80 --runid ddp1 --bucket-view 1 \
         --out /tmp/nb3
 
@@ -76,8 +76,6 @@ def main():
     ap.add_argument("--backend", default="psychedelic")
     ap.add_argument("--reduce", default="", choices=["", "stack", "shard"])
     ap.add_argument("--addr", required=True, help="this machine's mesh address")
-    ap.add_argument("--master", required=True)
-    ap.add_argument("--master-port", default="29591")
     ap.add_argument("--store", default="")
     ap.add_argument("--runid", default="")
     ap.add_argument("--tree", default="/opt/frognet_semantic")
@@ -109,8 +107,8 @@ def main():
     os.environ["FROGNET_DIAG"] = "1" if a.diag else "0"
     os.environ.setdefault("FROGNET_SENTINEL_DIR", "/tmp/netbench1.sentinel")
     os.makedirs("/tmp/netbench1.sentinel", exist_ok=True)
-    os.environ["MASTER_ADDR"] = a.master
-    os.environ["MASTER_PORT"] = a.master_port
+    # [ALL_IN_THE_REGION_V1] No master. The group forms in FrogTorch's RAM (frognet://<run id>), for every arm,
+    # the gloo control included; the regions are the frogtorch-ram services announced in the SystemRam.
     os.environ["FROGNET_PSY_HOST"] = a.addr
     os.environ["FROGNET_PSY_PEER_WAIT_S"] = str(a.peer_wait)
     if a.reduce:
@@ -151,7 +149,9 @@ def main():
             be.register(a.backend)
         r["under_test"] = _under_test(a.tree)
 
-        dist.init_process_group(a.backend, rank=a.rank, world_size=a.world)
+        from agent_workload.tuplespace import torch_store  # noqa: F401  registers frognet://
+        dist.init_process_group(a.backend, init_method="frognet://%s" % (a.runid or "ddpbench"),
+                                rank=a.rank, world_size=a.world)
 
         # Identical model on every rank: the seed is shared, the data is not.
         torch.manual_seed(a.seed)
