@@ -509,6 +509,397 @@ class _NoLock:
         return False
 
 
+# ---------------------------------------------------------------------------
+# [STREAM_V1 - 2026-11-12] One permanent socket per (owner, reader). The
+# reader subscribes ONCE; from then on the owner pushes every matching cell
+# the moment it is published, in publish order, with no per-round request and
+# no acknowledgement. Records on the wire are FNWP's data record:
+#
+#     control frame : [len:8][json {name, gen, inc, n, id, t_pub, t_q, ...}]
+#     data records  : [len:4 BE][id:4][total:4][offset:4][bytes] ...
+#
+# SEG is a time/syscall tradeoff, not an MTU: TCP does the MTU. One sendmsg
+# per record, header and payload gathered, nothing copied.
+# ---------------------------------------------------------------------------
+STREAM_SEG = int(os.environ.get("FROGNET_STREAM_SEG", str(1 << 20)))
+STREAM_DIAG = os.environ.get("FROGNET_STREAM_DIAG", "1") not in ("0", "no")
+# A cell whose send or landing takes longer than this is logged even with
+# per-cell diagnostics off.
+STREAM_SLOW_MS = float(os.environ.get("FROGNET_STREAM_SLOW_MS", "2000"))
+_REC = struct.Struct(">IIII")
+
+
+def _sdiag(line: str) -> None:
+    sys.stderr.write("[DIAG-STREAM] " + line + "\n")
+    sys.stderr.flush()
+
+
+def tcp_info(sk) -> Dict[str, int]:
+    """The kernel's view of the link: is it retransmitting, what is the RTT,
+    how big is the congestion window. Linux only; {} elsewhere."""
+    try:
+        raw = sk.getsockopt(socket.IPPROTO_TCP, getattr(socket, "TCP_INFO", 11), 104)
+        if len(raw) < 104:
+            return {}
+        u = struct.unpack("=8B24I", raw[:104])
+        f = u[8:]
+        return {"rto_us": f[0], "unacked": f[4], "lost": f[6], "retrans": f[7],
+                "rtt_us": f[15], "rttvar_us": f[16], "ssthresh": f[17],
+                "cwnd": f[18], "rcv_rtt_us": f[21], "rcv_space": f[22],
+                "total_retrans": f[23]}
+    except OSError:
+        return {}
+
+
+def _ti(sk) -> str:
+    d = tcp_info(sk)
+    return " ".join("%s=%s" % kv for kv in d.items()) if d else "tcp_info=-"
+
+
+def _sendmsg_all(sk, parts) -> None:
+    """sendmsg until everything is out. A partial send is normal on a full
+    window; it is not an error."""
+    bufs = [memoryview(p).cast("B") for p in parts]
+    while bufs:
+        k = sk.sendmsg(bufs)
+        while k and bufs:
+            if k >= len(bufs[0]):
+                k -= len(bufs[0])
+                bufs.pop(0)
+            else:
+                bufs[0] = bufs[0][k:]
+                k = 0
+
+
+def writable_bytes(t):
+    """A writable byte view of a contiguous CPU tensor's own storage, so a
+    socket can receive straight into it."""
+    import torch as _t
+    if not t.is_contiguous():
+        raise ValueError("stream destination must be contiguous")
+    if t.dtype == _t.bfloat16:
+        return memoryview(t.view(_t.int16).numpy()).cast("B")
+    return memoryview(t.numpy()).cast("B")
+
+
+class _Subscriber:
+    """Owner side of one permanent link: what the reader has asked for and
+    not yet been sent, a queue of what is ready, and the thread that drains
+    the queue onto the socket. A request for a cell that does not exist yet
+    is HELD: it is answered by publish(), the moment the cell does."""
+
+    def __init__(self, reader, who, sent_cb, family=()):
+        import re as _re
+        self.reader = reader
+        self.who = who
+        self.wanted: Dict[str, float] = {}   # name -> when it was asked for
+        # [HELD_READ_ON_THE_FAMILY_V1] A standing held read: every cell
+        # written under one of these patterns fires it. Registered once.
+        self.family = list(family)
+        self._rx = [_re.compile(f) for f in self.family]
+        self.t_family = time.time()
+        self._q = []
+        self._cv = threading.Condition()
+        self._id = 0
+        self._sent_cb = sent_cb
+        self.sent = 0
+        self.bytes = 0
+        self.send_s = 0.0
+        self.requests = 0
+        self.stop = threading.Event()
+
+    def wants(self, name: str) -> bool:
+        return name in self.wanted or any(rx.fullmatch(name) for rx in self._rx)
+
+    def fired(self, name: str):
+        """When the held read covering `name` was made, or None. A one-shot
+        request is consumed; the family read stands."""
+        t = self.wanted.pop(name, None)
+        if t is not None:
+            return t
+        if any(rx.fullmatch(name) for rx in self._rx):
+            return self.t_family
+        return None
+
+    def push(self, name, gen, inc, blob, keep, t_pub, t_req) -> None:
+        with self._cv:
+            self._id += 1
+            self._q.append((self._id, name, gen, inc, blob, keep, t_pub, t_req,
+                            len(self._q)))
+            self._cv.notify()
+
+    def run(self, conn, stop) -> None:
+        conn.settimeout(None)
+        while not stop.is_set():
+            with self._cv:
+                while not self._q and not stop.is_set():
+                    self._cv.wait(1.0)
+                if not self._q:
+                    continue
+                cid, name, gen, inc, blob, keep, t_pub, t_req, depth = self._q.pop(0)
+                left = len(self._q)
+            mv = memoryview(blob).cast("B")
+            n = len(mv)
+            t0 = time.time()
+            _send_frame(conn, json.dumps({
+                "name": name, "gen": gen, "inc": inc, "n": n, "id": cid,
+                "t_pub": t_pub, "t_req": t_req, "t_send": t0,
+                "depth": depth}).encode())
+            seg_max = 0.0
+            off = 0
+            while off < n:
+                ln = min(STREAM_SEG, n - off)
+                ts = time.perf_counter()
+                _sendmsg_all(conn, [_REC.pack(ln, cid & 0xFFFFFFFF, n, off),
+                                    mv[off:off + ln]])
+                seg_max = max(seg_max, time.perf_counter() - ts)
+                off += ln
+            t1 = time.time()
+            del keep, blob, mv
+            self.sent += 1
+            self.bytes += n
+            self.send_s += t1 - t0
+            self._sent_cb(name)
+            ms = (t1 - t0) * 1000.0
+            if STREAM_DIAG or ms >= STREAM_SLOW_MS:
+                # held_ms: request arrived -> cell published (<0: it existed
+                #   already). ready_ms: max(request, publish) -> first byte to
+                #   the kernel, i.e. queued behind this link's other cells.
+                # send_ms: first -> last byte accepted by the kernel; with a
+                #   full window that is the network or the reader.
+                # seg_max_ms: the longest single record -- one huge value
+                #   among small ones is a stall, not a slow link.
+                _sdiag("SENT %s gen=%d to=%s at=%s bytes=%d held_ms=%s "
+                       "ready_ms=%.1f send_ms=%.1f seg_max_ms=%.1f MBps=%.1f "
+                       "depth=%d left=%d %s"
+                       % (name, gen, self.reader, self.who, n,
+                          ("family" if t_req == self.t_family else
+                           "%.1f" % ((t_pub - t_req) * 1000.0)),
+                          (t0 - max(t_pub, t_req)) * 1000.0, ms, seg_max * 1000.0,
+                          (n / 1e6) / max(t1 - t0, 1e-6), depth, left, _ti(conn)))
+
+
+class StreamSubscription:
+    """[PULL_LINK_V1] Reader side: one permanent socket to one owner. The
+    reader asks for cells by name whenever it likes (request() does not wait
+    for anything); one thread lands whatever the owner sends back. take()
+    hands a landed cell to the caller -- straight into the caller's tensor if
+    request()/expect() registered it before the bytes arrived, else from a
+    buffer the caller gives back with release()."""
+
+    def __init__(self, me: str, host: str, port: int, label: str,
+                 connect_timeout: float = None, family=()):
+        self.me, self.host, self.port, self.label = me, host, int(port), label
+        self._cv = threading.Condition()
+        self._send_lock = threading.Lock()
+        self._landed: Dict[str, Dict[str, Any]] = {}
+        self._dst: Dict[str, Any] = {}
+        self._asked: Dict[str, float] = {}
+        self._free: Dict[int, list] = {}
+        self.err = None
+        self.cells = 0
+        self.direct = 0
+        self.buffered = 0
+        self.bytes = 0
+        self.requests = 0
+        t0 = time.time()
+        sk = socket.create_connection(
+            (host, self.port),
+            timeout=connect_timeout if connect_timeout else CONNECT_TIMEOUT_S)
+        sk.setsockopt(socket.IPPROTO_TCP, socket.TCP_NODELAY, 1)
+        sk.settimeout(None)
+        self.sock = sk
+        self.family = list(family)
+        _send_frame(sk, json.dumps({"op": "subscribe", "from": me,
+                                    "family": self.family}).encode())
+        json.loads(bytes(_recv_frame(sk)).decode())
+        try:
+            local = "%s:%s" % sk.getsockname()[:2]
+        except OSError:
+            local = "?"
+        _sdiag("LINK %s to %s:%d local=%s connect_ms=%.1f family=%s route=%s"
+               % (label, host, self.port, local, (time.time() - t0) * 1000.0,
+                  self.family, _route(host)))
+        self._t = threading.Thread(target=self._run, daemon=True,
+                                   name="plane-land-%s" % label)
+        self._t.start()
+
+    def request(self, items) -> None:
+        """Ask for cells. `items` is [(name, dst-or-None)]. A name already
+        asked for is not asked again; its destination is still recorded."""
+        new = []
+        now = time.time()
+        with self._cv:
+            for name, dst in items:
+                if dst is not None and name not in self._landed:
+                    self._dst[name] = dst
+                if name not in self._asked and name not in self._landed:
+                    self._asked[name] = now
+                    new.append(name)
+        if new:
+            self.requests += len(new)
+            with self._send_lock:
+                _send_frame(self.sock, json.dumps({"want": new}).encode())
+
+    def _buf(self, n: int):
+        lst = self._free.get(n)
+        if lst:
+            return lst.pop()
+        return bytearray(n)
+
+    def release(self, cell) -> None:
+        b = cell.get("buf")
+        if b is not None and not cell.get("direct"):
+            with self._cv:
+                lst = self._free.setdefault(len(b), [])
+                if len(lst) < 4:
+                    lst.append(b)
+            cell["buf"] = None
+
+    def _run(self) -> None:
+        sk = self.sock
+        try:
+            while True:
+                hdr = json.loads(bytes(_recv_frame(sk)).decode())
+                name, n, cid = hdr["name"], int(hdr["n"]), int(hdr["id"])
+                with self._cv:
+                    dst = self._dst.pop(name, None)
+                    bad_dst = dst is not None and len(dst) != n
+                    if dst is not None and not bad_dst:
+                        target, direct = dst, True
+                    else:
+                        target, direct = self._buf(n), False
+                mv = memoryview(target).cast("B") if not isinstance(target, memoryview) else target
+                got = 0
+                t_first = None
+                while got < n:
+                    ln, rid, total, off = _REC.unpack(bytes(_recv_exact(sk, _REC.size)))
+                    if t_first is None:
+                        t_first = time.time()
+                    if rid != (cid & 0xFFFFFFFF) or total != n or off != got:
+                        raise ConnectionError(
+                            "%s: record id=%d total=%d off=%d inside cell %s "
+                            "id=%d n=%d at %d -- stream out of step"
+                            % (self.label, rid, total, off, name, cid, n, got))
+                    _recv_exact(sk, ln, into=mv[off:off + ln])
+                    got += ln
+                t_land = time.time()
+                with self._cv:
+                    t_ask = self._asked.pop(name, None)
+                cell = {"name": name, "gen": hdr["gen"], "n": n,
+                        "direct": direct, "buf": None if direct else target,
+                        "t_land": t_land, "hdr": hdr, "t_ask": t_ask,
+                        "bad_dst": (len(dst) if bad_dst else None)}
+                with self._cv:
+                    self._landed[name] = cell
+                    self.cells += 1
+                    self.bytes += n
+                    if direct:
+                        self.direct += 1
+                    else:
+                        self.buffered += 1
+                    self._cv.notify_all()
+                wire = (t_land - (t_first or t_land)) * 1000.0
+                if STREAM_DIAG or wire >= STREAM_SLOW_MS:
+                    # since_pub_ms / since_send_ms cross hosts: clock skew is
+                    # in them. wire_ms is first record -> last byte, local.
+                    # ask_to_land_ms is local: this rank's request -> last
+                    # byte here. owner_held_ms / owner_ready_ms are the
+                    # owner's own clock: request held waiting for publish,
+                    # then queued behind the link's other cells.
+                    # owner_ready_ms: written -> first byte out, on the
+                    # owner's clock (queued behind that link's other cells).
+                    # since_send_ms: owner's first byte -> last byte here,
+                    # across clocks, so skew is in it; wire_ms is all local.
+                    _sdiag("LANDED %s gen=%s from=%s bytes=%d direct=%d "
+                           "wire_ms=%.1f ask_to_land_ms=%s owner_held_ms=%s "
+                           "owner_ready_ms=%.1f since_send_ms=%.1f depth=%s %s"
+                           % (name, hdr["gen"], self.label, n, int(direct), wire,
+                              ("%.1f" % ((t_land - t_ask) * 1000.0)) if t_ask else "-",
+                              ("family" if t_ask is None
+                               else "%.1f" % ((hdr["t_pub"] - hdr["t_req"]) * 1000.0)),
+                              (hdr["t_send"] - max(hdr["t_pub"], hdr["t_req"])) * 1000.0,
+                              (t_land - hdr["t_send"]) * 1000.0,
+                              hdr.get("depth"), _ti(sk)))
+        except BaseException as e:
+            import traceback
+            with self._cv:
+                self.err = "%s: %s" % (type(e).__name__, e)
+                self._cv.notify_all()
+            if isinstance(e, ConnectionError) and "after 0 of" in str(e):
+                # EOF between cells: the owner closed the link (it exited, or
+                # shut down). Not a fault unless a cell is still wanted.
+                _sdiag("LINK CLOSED %s %s:%d by owner after %d cells; still "
+                       "asked for: %s" % (self.label, self.host, self.port,
+                                          self.cells, sorted(self._asked)[:6]))
+            else:
+                _sdiag("LINK DOWN %s %s:%d after %d cells: %s\n%s"
+                       % (self.label, self.host, self.port, self.cells,
+                          self.err, traceback.format_exc()))
+
+    def expect(self, name: str, dst) -> None:
+        """Say where `name` goes before it arrives, so it is received straight
+        into `dst`. A cell that already landed is left where it is."""
+        with self._cv:
+            if name not in self._landed:
+                self._dst[name] = dst
+
+    def take(self, name: str, dst=None, timeout_s: float = 300.0):
+        """The cell called `name`, once it has landed. `dst` is a writable
+        byte view; if registered before the bytes arrive they are received
+        straight into it. Returns the cell dict, with `waited_ms` and
+        `early` (it had landed before anyone asked)."""
+        t0 = time.time()
+        with self._cv:
+            cell = self._landed.pop(name, None)
+            early = cell is not None
+            if cell is None and dst is not None:
+                self._dst[name] = dst
+            deadline = t0 + timeout_s
+            while cell is None:
+                if self.err:
+                    self._dst.pop(name, None)
+                    raise ConnectionError("%s: stream from %s:%d is down: %s"
+                                          % (self.label, self.host, self.port,
+                                             self.err))
+                left = deadline - time.time()
+                if left <= 0:
+                    self._dst.pop(name, None)
+                    raise TimeoutError(
+                        "%s: %s did not arrive from %s:%d in %.0f s "
+                        "(landed and unclaimed: %s; cells=%d)"
+                        % (self.label, name, self.host, self.port, timeout_s,
+                           sorted(self._landed)[:8], self.cells))
+                self._cv.wait(left)
+                cell = self._landed.pop(name, None)
+        cell["waited_ms"] = (time.time() - t0) * 1000.0
+        cell["early"] = early
+        if cell.get("bad_dst") is not None:
+            raise RuntimeError(
+                "%s: %s carries %d bytes, the caller's destination holds %d. "
+                "The ranks do not agree on the bucket."
+                % (self.label, name, cell["n"], cell["bad_dst"]))
+        return cell
+
+    def stats(self) -> Dict[str, Any]:
+        return {"cells": self.cells, "direct": self.direct,
+                "requests": self.requests, "asked_open": len(self._asked),
+                "buffered": self.buffered, "mbytes": round(self.bytes / 1e6, 2),
+                "unclaimed": len(self._landed), "err": self.err}
+
+
+def _route(host: str) -> str:
+    """`ip route get` for the peer, once per subscription: which interface
+    and next hop the bytes actually take."""
+    try:
+        import subprocess
+        out = subprocess.run(["ip", "route", "get", host], capture_output=True,
+                             text=True, timeout=2).stdout
+        return "'" + " ".join(out.split()) + "'"
+    except Exception as e:
+        return "unknown(%s)" % type(e).__name__
+
+
 class TensorServer:
     """Serves this worker's published tensors to whoever asks.
 
@@ -596,6 +987,17 @@ class TensorServer:
         self.same_replies = 0
         self.data_replies = 0
 
+        # [STREAM_V1] Readers that subscribed once and are pushed every
+        # matching publish on their permanent connection. _sub_lock is a real
+        # lock: publish and subscribe must agree on which cells a new
+        # subscriber gets from the snapshot and which from the push.
+        self._subs = []
+        self._sub_lock = threading.Lock()
+        self.stream_cells = 0
+        self.retired = 0
+        self._pub_t: Dict[str, float] = {}
+        self._readers_left: Dict[str, int] = {}
+
         self._stop = threading.Event()
         self._t = threading.Thread(target=self._loop, daemon=True,
                                    name="tensor-server-%d" % self.port)
@@ -603,7 +1005,8 @@ class TensorServer:
         diag("DIAG-TPLANE", "server up", port=self.port)
 
     def publish(self, name: str, generation: int, tensor,
-                incarnation: Optional[str] = None, copy: bool = True) -> None:
+                incarnation: Optional[str] = None, copy: bool = True,
+                readers: Optional[int] = None) -> None:
         """Offer an immutable state. Serialisation and hashing are deferred.
 
         [MATERIALISE_ON_DEMAND_V1]
@@ -652,12 +1055,25 @@ class TensorServer:
         else:
             blob = tensor_view_bytes(tensor)
             keep = tensor
-        with self._lock:
+        with self._sub_lock:
             self._current[name] = (int(generation), blob, incarnation)
             if keep is not None:
                 self._pinned[name] = keep
             self._materialised.pop(name, None)
             self.states_offered += 1
+            # [STREAM_V1] Hand the cell to every subscriber that wants it.
+            # The reference goes on its queue; its sender thread puts the
+            # bytes on the wire. Nobody asked, nobody acks.
+            now = time.time()
+            self._pub_t[name] = now
+            if readers:
+                self._readers_left[name] = int(readers)
+            for sub in self._subs:
+                t_req = sub.fired(name)
+                if t_req is not None:
+                    sub.push(name, int(generation), incarnation, blob,
+                             keep if keep is not None else tensor, now, t_req)
+                    self.stream_cells += 1
         # [WE_OWN_BOTH_ENDS_OF_THIS_V1] Tell the waiters, rather than making
         # them look again.
         with self._pub_cv:
@@ -669,6 +1085,93 @@ class TensorServer:
         diag("DIAG-TPLANE", "offer", name=name, gen=generation,
              incarnation=incarnation)
         return None
+
+    def _sent(self, name: str) -> None:
+        """[PULL_LINK_V1] A cell published with `readers=k` is dropped after
+        its k-th send: everyone who will ever ask for it has had it. Until
+        then it is kept, so a request that arrives late is still answered."""
+        with self._sub_lock:
+            left = self._readers_left.get(name)
+            if left is None:
+                return
+            left -= 1
+            if left > 0:
+                self._readers_left[name] = left
+                return
+            self._readers_left.pop(name, None)
+            self._pub_t.pop(name, None)
+            if self._current.pop(name, None) is not None:
+                self.retired += 1
+            self._pinned.pop(name, None)
+            self._materialised.pop(name, None)
+
+    def _want(self, sub, names) -> None:
+        now = time.time()
+        with self._sub_lock:
+            for n in names:
+                sub.requests += 1
+                cur = self._current.get(n)
+                if cur is not None:
+                    g, b, i = cur
+                    sub.push(n, g, i, b, self._pinned.get(n),
+                             self._pub_t.get(n, now), now)
+                else:
+                    sub.wanted[n] = now
+
+    def _stream_to(self, conn, who, req) -> None:
+        """[PULL_LINK_V1] This connection is now a permanent request link.
+        Requests come in on it at any time; answers go out on it as each
+        requested cell exists. The two directions never wait for each other."""
+        sub = _Subscriber(req.get("from", who), who, self._sent,
+                          req.get("family") or ())
+        with self._sub_lock:
+            # Cells of the family already written fire the held read now,
+            # in write order; later ones fire it as they are written. Done
+            # under the publish lock so no cell is missed or sent twice.
+            snap = sorted(((self._pub_t.get(n, 0.0), n, g, b, i)
+                           for n, (g, b, i) in self._current.items()
+                           if sub.wants(n)))
+            for tp, n, g, b, i in snap:
+                sub.push(n, g, i, b, self._pinned.get(n), tp, sub.t_family)
+            self._subs.append(sub)
+        _send_frame(conn, json.dumps({"ok": 1, "port": self.port,
+                                      "already": len(snap)}).encode())
+        _sdiag("LINK UP port=%d reader=%s at=%s family=%s already=%d"
+               % (self.port, sub.reader, who, sub.family, len(snap)))
+        if req.get("want"):
+            self._want(sub, req["want"])
+
+        def _requests():
+            try:
+                while not self._stop.is_set():
+                    r = json.loads(bytes(_recv_frame(conn)).decode())
+                    self._want(sub, r.get("want") or [])
+            except (ConnectionError, OSError, ValueError) as e:
+                _sdiag("LINK %s port=%d reader=%s: %s (sent %d cells, %.1f MB)"
+                       % ("CLOSED by reader" if "after 0 of" in str(e)
+                          else "DOWN", self.port, sub.reader, e, sub.sent,
+                          sub.bytes / 1e6))
+                try:
+                    conn.shutdown(socket.SHUT_RDWR)
+                except OSError:
+                    pass
+                self._stop_sub(sub)
+        threading.Thread(target=_requests, daemon=True,
+                         name="plane-req-%s" % sub.reader).start()
+        try:
+            sub.run(conn, sub.stop)
+        finally:
+            with self._sub_lock:
+                if sub in self._subs:
+                    self._subs.remove(sub)
+
+    def _stop_sub(self, sub) -> None:
+        with self._sub_lock:
+            if sub in self._subs:
+                self._subs.remove(sub)
+        sub.stop.set()
+        with sub._cv:
+            sub._cv.notify_all()
 
     def _materialise(self, name, need_digest: bool = True):
         """[A_DIGEST_IS_COMPUTED_WHEN_IT_IS_ASKED_FOR_V1]
@@ -775,6 +1278,10 @@ class TensorServer:
         try:
             while not self._stop.is_set():
                 req = json.loads(bytes(_recv_frame(conn)).decode())
+                if req.get("op") == "subscribe":
+                    # [STREAM_V1] The connection stops being request/reply.
+                    self._stream_to(conn, who, req)
+                    return
                 name = req.get("name")
                 want_gen = req.get("gen")
                 # [A_STATE_IS_WHAT_IT_SAYS_IT_IS_V1] The identity the consumer
@@ -1115,6 +1622,9 @@ class TensorClient:
             return lk
 
     def _link(self, host: str, port: int, key: str) -> socket.socket:
+        if self.aborted:
+            raise ConnectionError("%s: client aborted (process exiting); not "
+                                  "opening %s:%s" % (self.me, host, port))
         with self._lock:
             sk = self._links.get(key)
             if sk is not None:
@@ -1282,7 +1792,7 @@ class TensorClient:
     #: asking the SAME question. What must never happen is being handed a
     #: different answer. Bounded, because a producer that has not arrived in
     #: this long is not late, it is gone.
-    WAIT_RETRIES = int(os.environ.get("FROGNET_PLANE_WAIT_RETRIES", "3"))
+    WAIT_RETRIES = int(os.environ.get("FROGNET_PLANE_WAIT_RETRIES", "1"))  # [ASK_ONCE_V1] a held read is held once; asking again is messaging
     WAIT_RETRY_SLEEP_S = float(
         os.environ.get("FROGNET_PLANE_WAIT_RETRY_SLEEP_S", "5"))
 
@@ -1297,6 +1807,12 @@ class TensorClient:
         """
         last = None
         for attempt in range(self.WAIT_RETRIES):
+            if self.aborted:
+                # [EXIT_ENDS_THE_WAIT_V1] A retry outliving the program is
+                # what held ddp5744 at exit for 3 x PEER_WAIT.
+                raise ConnectionError("%s: aborted while waiting for %s from "
+                                      "%s (process exiting)" % (self.me, name,
+                                                                worker))
             try:
                 return self.read(worker, host, port, name, generation,
                                  shape, dtype, **kw)
@@ -1558,6 +2074,23 @@ class TensorClient:
                 "same_ratio": (self.same_hits / self.reads)
                 if self.reads else None,
                 "links": len(self._links)}
+
+    aborted = False
+
+    def abort(self) -> int:
+        """[EXIT_ENDS_THE_WAIT_V1] End every read in flight, now, from any
+        thread. shutdown() -- not close() -- is what wakes a thread blocked in
+        recv on Linux; the blocked read gets EOF and raises, and the retry
+        loop sees `aborted` and stops. Takes no lock a reader might hold."""
+        self.aborted = True
+        n = 0
+        for sk in list(self._links.values()):
+            try:
+                sk.shutdown(socket.SHUT_RDWR)
+                n += 1
+            except OSError:
+                pass
+        return n
 
     def close(self):
         with self._lock:

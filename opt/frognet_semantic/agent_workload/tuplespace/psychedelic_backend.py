@@ -89,7 +89,8 @@ import torch.distributed as dist
 from . import frogtorch_ram_client as T  # [ONE_RAM_V1] the control cells: the one RAM on databasehost.frognet; the September code, otherwise unchanged
 
 from . import torch_backend as _base
-from .tensor_plane import READ_CURRENT, TensorClient, TensorServer
+from .tensor_plane import (READ_CURRENT, StreamSubscription, TensorClient,
+                           TensorServer, tcp_info, writable_bytes)
 
 
 # ---------------------------------------------------------------------------
@@ -523,7 +524,39 @@ class PsychedelicBackend(_base.FrogNetBackend):
                 # exists to overlap.
                 max_workers=max(4, 2 * self._size),
                 thread_name_prefix="psy-read")
+            # [EXIT_ENDS_THE_WAIT_V1] concurrent.futures joins its workers at
+            # interpreter exit. A worker blocked in a read-ahead for a round
+            # that will never be published held ddp5744 there for up to
+            # 3 x PEER_WAIT. threading's exit hooks run newest-first, so this
+            # one -- registered after the executor's -- runs before the join
+            # and ends the reads it would otherwise wait on.
+            try:
+                threading._register_atexit(lambda be=self: be._abort_io("exit"))
+            except Exception as e:
+                _psy("EXIT_HOOK_FAILED", err=repr(e))
         return self._exec
+
+    def _abort_io(self, why: str) -> None:
+        """End all outstanding reads and speculative work: on shutdown and
+        at interpreter exit."""
+        self._stop.set()
+        n = 0
+        for c in list(self._clients.values()):
+            n += c.abort()
+        for s_ in list(getattr(self, "_streams", {}).values()):
+            try:
+                s_.sock.shutdown(__import__("socket").SHUT_RDWR)
+            except OSError:
+                pass
+        ex = self._exec
+        if ex is not None:
+            ex.shutdown(wait=False, cancel_futures=True)
+        print("[DIAG-PSY] ABORT_IO why=%s rank=%d links_shut=%d" % (why, self._rank, n),
+              flush=True)
+
+    def shutdown(self) -> None:
+        """destroy_process_group calls this."""
+        self._abort_io("shutdown")
 
     # -- prefetch --------------------------------------------------------
     #
@@ -935,6 +968,8 @@ class PsychedelicBackend(_base.FrogNetBackend):
             raise NotImplementedError(
                 "FROGNET_PSY_REDUCE=shard cannot express ReduceOp %r "
                 "pairwise. Use FROGNET_PSY_REDUCE=stack for it." % name)
+        if self.STREAM:
+            return self._allreduce_streamed(t, seq, acc_fn)
         _t_pub = time.perf_counter()
         W, r = self._size, self._rank
         flat = t.reshape(-1)
@@ -1108,6 +1143,165 @@ class PsychedelicBackend(_base.FrogNetBackend):
         for p, f in p2.items():
             f.result()
         self._phase_ms["phase2"].append((time.perf_counter()-_t_p2)*1000.0)
+
+    # [HELD_READ_ON_THE_FAMILY_V1 - 2026-11-12] The September shard
+    # all-reduce on one permanent link per peer. Once, at the first round,
+    # this rank makes a held read on each peer's family -- the cells that
+    # peer writes for it: <peer>.ars.<seq>.<me> and <peer>.arr.<seq>, every
+    # seq. The peer writing a cell into its own space fires the held read and
+    # the transfer starts on the link at once. No flag, no per-round request,
+    # no ack. Read-ahead is inherent: round N+1's write fires while round N
+    # is still finishing. Nothing blocks a thread at exit.
+    STREAM = os.environ.get("FROGNET_PSY_STREAM", "1") not in ("0", "no")
+
+    def _stream(self, p: int) -> StreamSubscription:
+        subs = getattr(self, "_streams", None)
+        if subs is None:
+            subs = self._streams = {}
+        s = subs.get(p)
+        if s is None:
+            import re as _re
+            d = self._rendezvous()[p]
+            pi = _re.escape(self._peer_inc(p))
+            s = subs[p] = StreamSubscription(
+                "r%d" % self._rank, d["host"], int(d["port"]),
+                "psy-r%d-from-r%d" % (self._rank, p),
+                family=[pi + r"\.ars\.\d+\." + str(self._rank),
+                        pi + r"\.arr\.\d+"])
+        return s
+
+    def _take(self, p: int, name: str, seq: int, phase: str, dst=None):
+        sub = self._stream(p)
+        d = self._rendezvous()[p]
+        with _PsyWait(phase=phase, rank=self._rank, seq=seq, peer=p, cell=name,
+                      gen=seq, host=d["host"], port=d["port"], stream=1,
+                      _be=self):
+            try:
+                return sub.take(name, dst, timeout_s=self._timeout_s)
+            except Exception as e:
+                if hasattr(e, "add_note"):
+                    e.add_note("rank %d waiting for %s pushed by rank %d at "
+                               "%s:%s; stream %s"
+                               % (self._rank, name, p, d.get("host"),
+                                  d.get("port"), sub.stats()))
+                raise
+
+    def _allreduce_streamed(self, t: torch.Tensor, seq: int, acc_fn) -> None:
+        _t_pub = time.perf_counter()
+        W, r = self._size, self._rank
+        flat = t.reshape(-1)
+        parts = self._slices(flat.numel())
+        inc = self._peer_inc(r)
+        peers = [q for q in range(W) if q != r]
+        for p in peers:
+            self._stream(p)
+        st_r, ln_r = parts[r]
+        own = flat[st_r:st_r + ln_r]
+        esz = flat.element_size()
+
+        # [HELD_READ_ON_THE_FAMILY_V1] Nothing is requested per round: the
+        # held read on each peer's family, made once, fires on every write.
+        # What this does is say WHERE a cell goes if it has not landed yet,
+        # so it is received straight into place -- phase-1 slices into the
+        # staging rows, reduced slices into the answer. The phase-2 ranges
+        # are this rank's own phase-1 slices for those peers, on their way
+        # out now; peer p cannot write its reduced slice until it has all of
+        # this rank's slice, so the overwrite comes after the send -- the
+        # September invariant, unchanged. A cell that came early (the peer
+        # was a round ahead) is already in a buffer and is taken from there.
+        stage = self._stage(W - 1, ln_r, own) if ln_r else []
+        for i, p in enumerate(peers):
+            pi = self._peer_inc(p)
+            st_p, ln_p = parts[p]
+            if ln_r:
+                self._streams[p].expect("%s.ars.%d.%d" % (pi, seq, r),
+                                        writable_bytes(stage[i]))
+            if ln_p:
+                self._streams[p].expect("%s.arr.%d" % (pi, seq),
+                                        writable_bytes(flat[st_p:st_p + ln_p]))
+
+        for k, (st, ln) in enumerate(parts):
+            if ln and k != r:
+                nm = "%s.ars.%d.%d" % (inc, seq, k)
+                self._server.publish(nm, seq, flat[st:st + ln],
+                                     incarnation=str(r), copy=False, readers=1)
+        pub_ms = (time.perf_counter() - _t_pub) * 1000.0
+        self._phase_ms["publish"].append(pub_ms)
+
+        _t_p1 = time.perf_counter()
+        w1 = {}
+        if ln_r:
+            for i, p in enumerate(peers):
+                nm = "%s.ars.%d.%d" % (self._peer_inc(p), seq, r)
+                c = self._take(p, nm, seq, "s1")
+                if c["n"] != ln_r * esz:
+                    raise RuntimeError(
+                        "rank %d round %d: own slice is %d bytes, r%d pushed %d "
+                        "for %s. The ranks do not agree on the bucket."
+                        % (r, seq, ln_r * esz, p, c["n"], nm))
+                if c["direct"]:
+                    acc_fn(own, stage[i])
+                else:
+                    acc_fn(own, torch.frombuffer(c["buf"], dtype=own.dtype,
+                                                 count=ln_r))
+                    self._streams[p].release(c)
+                w1[p] = c
+        p1_ms = (time.perf_counter() - _t_p1) * 1000.0
+        self._phase_ms["phase1"].append(p1_ms)
+
+        _t_p2 = time.perf_counter()
+        if ln_r:
+            nm = "%s.arr.%d" % (inc, seq)
+            self._server.publish(nm, seq, own, incarnation=str(r),
+                                 readers=W - 1)
+        w2 = {}
+        for p in peers:
+            st_p, ln_p = parts[p]
+            if not ln_p:
+                continue
+            c = self._take(p, "%s.arr.%d" % (self._peer_inc(p), seq), seq, "s2")
+            if c["n"] != ln_p * esz:
+                raise RuntimeError(
+                    "rank %d round %d: r%d's reduced slice is %d bytes, expected "
+                    "%d" % (r, seq, p, c["n"], ln_p * esz))
+            if not c["direct"]:
+                flat[st_p:st_p + ln_p].copy_(torch.frombuffer(
+                    c["buf"], dtype=flat.dtype, count=ln_p))
+                self._streams[p].release(c)
+            w2[p] = c
+        p2_ms = (time.perf_counter() - _t_p2) * 1000.0
+        self._phase_ms["phase2"].append(p2_ms)
+
+        for p, c in list(w1.items()) + list(w2.items()):
+            self._peer_ms.setdefault(p, []).append(c["waited_ms"])
+        if _PSY_DIAG:
+            # One line per round. wait = how long this rank sat on that cell;
+            # early = it had landed before this rank asked (the stream was
+            # ahead); direct = received straight into place. The slowest
+            # peer in each phase is named.
+            def _w(ws):
+                return ",".join("r%d:%.0f%s%s" % (p, c["waited_ms"],
+                                                  "e" if c["early"] else "",
+                                                  "d" if c["direct"] else "")
+                                for p, c in sorted(ws.items()))
+            s1 = max(w1.items(), key=lambda kv: kv[1]["waited_ms"])[0] if w1 else -1
+            s2 = max(w2.items(), key=lambda kv: kv[1]["waited_ms"])[0] if w2 else -1
+            _psy("ROUND", rank=r, seq=seq, numel=flat.numel(), slice=ln_r,
+                 pub_ms="%.1f" % pub_ms, p1_ms="%.1f" % p1_ms,
+                 p2_ms="%.1f" % p2_ms, p1_wait=_w(w1), p1_slowest="r%d" % s1,
+                 p2_wait=_w(w2), p2_slowest="r%d" % s2,
+                 t="%.3f" % time.time())
+
+    def stream_stats(self) -> Dict[str, Any]:
+        out = {"server": {"cells_pushed": self._server.stream_cells,
+                          "retired": self._server.retired,
+                          "held": len(self._server._current)}}
+        for p, s in sorted(getattr(self, "_streams", {}).items()):
+            st = s.stats()
+            st["tcp"] = tcp_info(s.sock)
+            out["from_r%d" % p] = st
+        return out
+
 
     def _inbox_get(self, r: int, seq: int, like: torch.Tensor,
                    timeout_s: float) -> torch.Tensor:
@@ -1664,9 +1858,16 @@ class PsychedelicBackend(_base.FrogNetBackend):
             # step. `_gen` remains for `_publish_tensor`, whose readers get
             # the generation from the store descriptor and so never had
             # this problem.
-            self._server.publish(name, seq, t,
-                                 incarnation=str(self._rank))
-            # The generation, and nothing the reader already knows.
+            # [NOBODY_READS_IT_SO_DO_NOT_WRITE_IT_V1 - 2026-11-12] This
+            # published the WHOLE tensor -- a full copy -- before every
+            # all-reduce, and the shard path never reads an ".ar." cell. A
+            # profile of a loopback DDP rank put it at the top of the main
+            # thread, above backward. It was never dropped either: one copy
+            # of every bucket of every step, held for the life of the job.
+            # Only the stack path reads it, so only the stack path writes it.
+            if self.REDUCE != "shard":
+                self._server.publish(name, seq, t,
+                                     incarnation=str(self._rank))
 
 
             # [BLAST_IT_ALL_AT_RAM_V1] All of them, at once.
@@ -2011,14 +2212,23 @@ def _create(store, rank, size, timeout):
 
 
 #: Said once per process, so a run's own log shows which code is running.
-BUILD = ("psychedelic 20260915-september-revived-r2 (the September tensor path, as it ran ddp5801; "
+BUILD = ("psychedelic 20261112-september-family-link-r5 (the September tensor path; "
+         "one held read per peer on the family it writes for this rank; the write fires it "
+         "and the bytes go on one permanent link, without pause; "
          "control cells in the one RAM; PyTorch 2.15 port)")
 
 
 def register(name: str = "psychedelic") -> None:
-    print("[psychedelic] %s; read-ahead %s" % (BUILD, "on" if PsychedelicBackend.READAHEAD else "OFF"), flush=True)
+    print("[psychedelic] %s; family link %s; read-ahead %s" % (
+        BUILD, "on" if PsychedelicBackend.STREAM else "OFF",
+        "inherent (held read on the family)" if PsychedelicBackend.STREAM else
+        ("on" if PsychedelicBackend.READAHEAD else "OFF")), flush=True)
     # [NO_FLIGHT_RECORDER_ON_A_PYTHON_BACKEND_V1] PyTorch 2.15 attaches its flight recorder to every group whose
     # backend does not record itself, and attaching it to a Python-subclassed backend segfaults. 0 is its own off
     # switch; a caller who set it keeps their value. (2.15 port; not in the September code.)
     os.environ.setdefault("TORCH_FR_BUFFER_SIZE", "0")
+    _sw = os.environ.get("FROGNET_PSY_SWITCH_S")
+    if _sw:
+        import sys as _sys
+        _sys.setswitchinterval(float(_sw))
     dist.Backend.register_backend(name, _create, devices=["cpu"])
