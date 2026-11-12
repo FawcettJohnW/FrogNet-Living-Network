@@ -30,7 +30,7 @@ from __future__ import annotations
 
 import os
 import time
-from typing import Any, Dict, List
+from typing import Any, Dict, List, Optional
 
 
 def mem_available_mb() -> float:

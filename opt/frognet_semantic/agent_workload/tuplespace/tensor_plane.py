@@ -242,11 +242,6 @@ def _recv_exact(sk: socket.socket, n: int, into=None, mark=None) -> memoryview:
 #: cannot be allocated.
 MAX_FRAME = 1 << 30
 
-#: Ceiling on how long one server thread will hold a connection waiting for
-#: a state to appear. A reader may ask for less; asking for more is capped
-#: here so a client cannot pin a server thread indefinitely.
-MAX_SERVER_WAIT_S = float(os.environ.get("FROGNET_PLANE_MAX_WAIT_S", "300"))
-
 #: How long to wait for a TCP connection to complete. Must exceed the
 #: kernel's SYN retransmission schedule (~1s, 3s, 7s, 15s) or a single lost
 #: SYN fails the connect while TCP is still trying.
@@ -825,36 +820,27 @@ class TensorClient:
 
         _kl = self._keylock(key)
         _mark, _t0, _t2 = [], 0.0, 0.0
-        for attempt in (1, 2):
-            try:
-                with _kl:
-                    sk = self._link(host, port, key)
-                    # The socket must outlast the wait this request asks the
-                    # server to hold, plus time to send the answer back. A
-                    # slow link makes that second part matter.
-                    sk.settimeout(max(DEFAULT_SOCKET_TIMEOUT_S,
-                                      wait_s + SOCKET_MARGIN_S))
-                    _t0 = time.perf_counter()
-                    _send_frame(sk, req)
-                    del _mark[:]
-                    reply = _recv_frame(sk, into=into, mark=_mark)
-                    _t2 = time.perf_counter()
-                break
-            except (ConnectionError, OSError) as e:
-                # [THE_LINK_IS_PERMANENT_V1] A broken link is dropped so the
-                # next attempt builds a new one. Not a retry loop: one rebuild,
-                # then the failure is the caller's.
-                with self._lock:
-                    old = self._links.pop(key, None)
-                if old is not None:
-                    try:
-                        old.close()
-                    except OSError:
-                        pass
-                diag_exc("DIAG-TPLANE", "link dropped", e, peer=key,
-                         attempt=attempt)
-                if attempt == 2:
-                    raise
+        # [ONE_READ_V1] One held read on one permanent link. A broken link is dropped so the NEXT read builds a new
+        # one; this read is not sent again -- a second ask is how a lost question turns into a silent delay.
+        try:
+            with _kl:
+                sk = self._link(host, port, key)
+                sk.settimeout(max(DEFAULT_SOCKET_TIMEOUT_S, wait_s + SOCKET_MARGIN_S))
+                _t0 = time.perf_counter()
+                _send_frame(sk, req)
+                del _mark[:]
+                reply = _recv_frame(sk, into=into, mark=_mark)
+                _t2 = time.perf_counter()
+        except (ConnectionError, OSError) as e:
+            with self._lock:
+                old = self._links.pop(key, None)
+            if old is not None:
+                try:
+                    old.close()
+                except OSError:
+                    pass
+            diag_exc("DIAG-TPLANE", "link dropped", e, peer=key)
+            raise
         self.reads += 1
         # [WAITING_IS_NOT_TRANSFERRING_V1] One sample per read: how long the
         # peer took to start answering, how long the bytes took once they

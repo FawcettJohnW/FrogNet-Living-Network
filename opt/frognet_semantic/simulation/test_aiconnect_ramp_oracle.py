@@ -109,6 +109,10 @@ class _Region:
     def stats(self):
         return self.srv.region.stats()
 
+    def hold_for(self, name, gen, wait_s=10.0):
+        """A held read on one cell until it reaches gen -- how a test learns an unanswered write landed."""
+        return self.srv.region.tget(name, gen, wait_s)[1]
+
     def close(self):
         if self.held:
             self.held.sk.close()
@@ -941,10 +945,19 @@ def test_the_region_is_the_receiver():
         lk = producer.RegionLink("127.0.0.1", rx.hp, "10.0.0.1", 7)
         for _ in range(n_obj):
             lk.send(obj_bytes)
+        # [A_WRITE_IS_NOT_A_CONVERSATION_V1] send() returned without a reply; the test learns the last object
+        # landed the way any reader does, by holding a read on the cell
+        check("the last object lands (held read on the cell)", rx.hold_for(lk.name, n_obj), lk.name)
         st = rx.stats()
+        check("send() reads nothing back from the region",
+              "_recv_frame" not in inspect.getsource(producer.RegionLink.send))
+        check("the region counted the sender's landed bytes under its acct",
+              st.get("by_acct", {}).get(producer.acct_of("10.0.0.1")) == n_obj * obj_bytes, repr(st.get("by_acct")))
         check("every object landed in the region", st["tputs"] == n_obj and st["bytes_in"] == n_obj * obj_bytes,
               repr(st))
         check("a permanent link is one session", rx.accepts == 1, "%d accepts" % rx.accepts)
+        check("landed() reads that count from the regions",
+              producer.landed({"127.0.0.1": rx.hp}, "10.0.0.1") == n_obj * obj_bytes)
         check("the thread holds ONE cell, overwritten", st["tensors"] == 1 and st["held_bytes"] == obj_bytes,
               repr(st))
         lk.close()
@@ -976,7 +989,9 @@ def test_many_concurrent_links():
             t.start()
         for t in ts:
             t.join(timeout=20)
+        landed_all = all(rx.hold_for(lk.name, 1) for lk in links)
         st = rx.stats()
+        check("every link's object landed (held reads)", landed_all)
         check("no write failed", not errs, "; ".join(errs[:3]))
         check("all %d links were accepted" % want, rx.accepts == want, "accepted %d" % rx.accepts)
         check("one cell per sender thread", st["tensors"] == want and st["tputs"] == want, repr(st))

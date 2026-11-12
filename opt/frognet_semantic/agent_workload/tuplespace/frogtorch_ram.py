@@ -24,14 +24,17 @@ rank reaches the same answer with no vote and no messages.
 Wire: the framing tensor_plane already speaks (<!Q len><payload>), so TensorClient reads a region unchanged.
 
   tensor read   {name, gen, mode, have, want, inc, wait_s, verify}            -> SAME|DATA|GONE, as TensorServer
-  tensor write  {"op":"tput", name, gen, inc, life?}  then one frame of bytes   -> OKAY {gen}
+  tensor write  {"op":"tput", name, gen, inc, life?, ack?, acct?}  then the bytes -> nothing (OKAY {gen} only if ack)
+                (acct: the bytes are added to stats' by_acct[acct] -- how a writer that is never answered
+                 learns what landed)
                 (life="session": the cell goes when the writer's session closes -- AIConnect's objects)
-  counters      {"op":"stats"}                                                 -> OKAY {bytes_in, tputs, held_bytes, ...}
-  cell write    {"op":"cput", service, var, scope, value, life}                -> OKAY {id}
+  counters      {"op":"stats"}                                     -> OKAY {bytes_in, tputs, held_bytes, by_acct, ...}
+  cell write    {"op":"cput", service, var, scope, value, life, ack?}          -> nothing (OKAY {id} only if ack)
   cell read     {"op":"cget", service, var?, min_rows, wait_s, after?}          -> OKAY {rows:[...]}
   cell remove   {"op":"cdel", id} / {"op":"cdelvar", service, var}             -> OKAY {removed}
   in the memory {"op":"ccas", service, var, expected, desired}                -> OKAY {value}
-                {"op":"qpush"|"qpop"|"qlen", service, var, value?, wait_s?}   -> OKAY {...}
+                {"op":"qpush", ..., ack?} -> nothing;  {"op":"qpop"|"qlen", ...} -> OKAY {...}
+  every held read is held for the wait_s its caller gives, with no cap of the host's own
 
 Run:  python3 -m agent_workload.tuplespace.frogtorch_ram --port <port> [--bind 0.0.0.0]
 """
@@ -49,10 +52,11 @@ from typing import Any, Dict, List, Optional, Tuple
 
 from agent_workload.aiconnect.service import BULK_LEN_FMT
 
-from .tensor_plane import (GONE_NEVER_PUBLISHED, GONE_SUPERSEDED, GONE_WAIT_EXPIRED, MAX_SERVER_WAIT_S,
+from .tensor_plane import (GONE_NEVER_PUBLISHED, GONE_SUPERSEDED, GONE_WAIT_EXPIRED,
                            READ_BY_IDENTITY, REPLY_DATA, REPLY_GONE, REPLY_SAME, _digest, _recv_frame, _send_frame)
 
-BUILD = "frogtorch_ram 20261112-r3 [ALL_IN_THE_REGION_V1] [SESSION_TENSORS_V1] [THE_ANNOUNCEMENT_IS_READ_BACK_V1]"
+BUILD = ("frogtorch_ram 20261112-r4 [ALL_IN_THE_REGION_V1] [SESSION_TENSORS_V1] [THE_ANNOUNCEMENT_IS_READ_BACK_V1] "
+         "[HELD_FOR_THE_CALLERS_DEADLINE_V1] [DELIVERY_IS_COUNTED_WHERE_IT_LANDS_V1]")
 #: Capability tuples live in the SystemRam (AI_READ_FIRST 10): every election reads capability there.
 SYSTEM_RAM = os.environ.get("FROGTORCH_SYSTEM_RAM", "databasehost.frognet")
 REPLY_OKAY = b"OKAY"
@@ -79,6 +83,7 @@ class Region:
         self._session_tensors: Dict[str, set] = {}    # [SESSION_TENSORS_V1] session -> names it holds
         self.tputs = 0
         self.bytes_in = self.bytes_out = 0
+        self.bytes_by_acct: Dict[str, int] = {}       # [DELIVERY_IS_COUNTED_WHERE_IT_LANDS_V1] writer-named tallies
         self.same_replies = self.data_replies = 0
 
     # ---- tensors --------------------------------------------------------------------------------------------
@@ -88,11 +93,14 @@ class Region:
             k = self._tensors[name] = _Key(self._lock)
         return k
 
-    def tput(self, name: str, gen: int, blob: bytes, inc, life: str = "data", session: str = "") -> None:
+    def tput(self, name: str, gen: int, blob: bytes, inc, life: str = "data", session: str = "",
+             acct: Optional[str] = None) -> None:
         with self._lock:
             k = self._tkey(name)
             k.value = (int(gen), blob, inc, None)
             self.bytes_in += len(blob)
+            if acct:
+                self.bytes_by_acct[acct] = self.bytes_by_acct.get(acct, 0) + len(blob)
             self.tputs += 1
             if life == "session":
                 self._session_tensors.setdefault(session, set()).add(name)
@@ -102,11 +110,12 @@ class Region:
         with self._lock:
             held = sum(len(k.value[1]) for k in self._tensors.values() if k.value is not None)
             return {"bytes_in": self.bytes_in, "bytes_out": self.bytes_out, "tputs": self.tputs,
-                    "tensors": sum(1 for k in self._tensors.values() if k.value is not None), "held_bytes": held}
+                    "tensors": sum(1 for k in self._tensors.values() if k.value is not None), "held_bytes": held,
+                    "by_acct": dict(self.bytes_by_acct)}
 
     def tget(self, name: str, want_gen, wait_s: float):
         """The current value, once it has reached want_gen (held until then, up to wait_s)."""
-        deadline = time.monotonic() + min(wait_s, MAX_SERVER_WAIT_S)
+        deadline = time.monotonic() + wait_s      # [HELD_FOR_THE_CALLERS_DEADLINE_V1] no cap of the host's own
         with self._lock:
             k = self._tkey(name)
             while True:
@@ -146,7 +155,7 @@ class Region:
     def cget(self, service, var, min_rows: int, wait_s: float, after: int = -1, unlike=None) -> List[Dict[str, Any]]:
         """Held until at least min_rows cells match and, with after >= 0, one of them is newer than after; with
         unlike (a list of ids), until the cells there are not exactly those -- a write OR a removal ends it."""
-        deadline = time.monotonic() + min(wait_s, MAX_SERVER_WAIT_S)
+        deadline = time.monotonic() + wait_s      # [HELD_FOR_THE_CALLERS_DEADLINE_V1]
         with self._lock:
             k = self._skey(service)
             while True:
@@ -212,7 +221,7 @@ class Region:
             return self._next_id
 
     def qpop(self, service, var, wait_s: float):
-        deadline = time.monotonic() + min(wait_s, MAX_SERVER_WAIT_S)
+        deadline = time.monotonic() + wait_s      # [HELD_FOR_THE_CALLERS_DEADLINE_V1]
         with self._lock:
             k = self._skey(service)
             while True:
@@ -282,7 +291,8 @@ class RamServer:
                     self._tensor_read(conn, req)
                 elif op == "tput":
                     blob = bytes(_recv_frame(conn))
-                    R.tput(req["name"], req["gen"], blob, req.get("inc"), req.get("life", "data"), session)
+                    R.tput(req["name"], req["gen"], blob, req.get("inc"), req.get("life", "data"), session,
+                           req.get("acct"))
                     # [A_WRITE_IS_NOT_A_CONVERSATION_V1] a write is answered only if the writer asked to be told;
                     # FrogTorch's tensor writes stream, and the readers are what the cell landing releases
                     if req.get("ack", True):
@@ -340,6 +350,7 @@ class RamServer:
         R = self.region
         name, want_gen, mode = req.get("name"), req.get("gen"), req.get("mode", READ_BY_IDENTITY)
         have, want_digest, want_inc = req.get("have"), req.get("want"), req.get("inc")
+        _t0 = time.monotonic()
         v, ok = R.tget(name, want_gen, float(req.get("wait_s") or 0.0))
         if v is None and not ok and float(req.get("wait_s") or 0.0) <= 0:
             _send_frame(conn, REPLY_GONE, json.dumps({"reason": GONE_NEVER_PUBLISHED}).encode())
@@ -347,7 +358,8 @@ class RamServer:
         if not ok:
             _send_frame(conn, REPLY_GONE, json.dumps({"reason": GONE_WAIT_EXPIRED,
                                                       "gen": None if v is None else v[0],
-                                                      "want_gen": want_gen}).encode())
+                                                      "want_gen": want_gen,
+                                                      "waited_s": time.monotonic() - _t0}).encode())
             return
         need_digest = want_digest is not None or have is not None or bool(req.get("verify", True))
         gen, blob, inc, digest = R.digest_of(name) if need_digest else v

@@ -759,11 +759,12 @@ class PsychedelicBackend(_base.FrogNetBackend):
         d = self._rendezvous()[rank]
         return (d["host"], int(d["port"]))
 
-    def _read_local_into(self, dst, owner: int, name: str, gen: int, wait_s: float, channel: str) -> int:
-        """[THE_ANSWER_IS_WRITTEN_WHERE_IT_IS_READ_V1] A held read on THIS machine's region for the cell `owner`
-        wrote here. The owner's write crossed the network once, one way, unanswered; this read never leaves the
-        machine. READ_BY_IDENTITY: the generation must be exactly `gen` -- a newer one is an error, not an answer."""
-        host, port = self._region_of(self._rank)
+    def _read_owner_into(self, dst, owner: int, name: str, gen: int, wait_s: float, channel: str) -> int:
+        """[EVERY_RANK_WRITES_ONLY_ITS_OWN_MEMORY_V1] A held read on the OWNER's region for a cell the owner wrote
+        there. The owner's write never left its machine and nothing answered it; this read is the interrupt that
+        fires when the cell reaches `gen`. READ_BY_IDENTITY: the generation must be exactly `gen` -- a newer one is
+        an error, not an answer."""
+        host, port = self._region_of(owner)
         key = RegionPlane.key(name, owner)
         _t0 = time.perf_counter()
         try:
@@ -774,33 +775,35 @@ class PsychedelicBackend(_base.FrogNetBackend):
                     verify=self.VERIFY, channel=channel, exact=True)[2]
         except Exception as e:
             if hasattr(e, "add_note"):
-                e.add_note("rank %d reading %s (written by rank %d) from its own region %s:%d"
-                           % (self._rank, key, owner, host, port))
+                e.add_note("rank %d reading %s from rank %d's region %s:%d" % (self._rank, key, owner, host, port))
             raise
         finally:
             self._peer_ms.setdefault(owner, []).append((time.perf_counter() - _t0) * 1000.0)
 
     def _allreduce_sharded(self, t: torch.Tensor, seq: int, op) -> None:
-        """Reduce-scatter, then all-gather -- by WRITING into the consumer's memory and reading locally.
+        """Reduce-scatter, then all-gather: every rank writes its own truth into its own memory and holds reads on
+        the others'.
 
-        [THE_ANSWER_IS_WRITTEN_WHERE_IT_IS_READ_V1 - John 2026-11-12: "No acks. No waiting except through held
-        reads ... per-node RAM disperses the work across the LAN, but this is not messaging."]
+        [EVERY_RANK_WRITES_ONLY_ITS_OWN_MEMORY_V1 - John: "Nobody writes into anybody else's space, period. There
+        is no cross-space write." / "Producers only write into their own space."] A write is DMA into this
+        machine's region, never answered; a held read on another rank's region is the interrupt that fires when the
+        cell lands. Nothing else crosses the network. This is the September shape (ddp5401/5801: the owner
+        publishes in its own plane, peers read it, phase 2's reads parked before anyone has reduced) on the
+        per-machine regions. 2026-11-12's 91e90c2 wrote each slice INTO the consumer's region instead -- a
+        cross-space write -- and is reverted here.
 
-        Rank k owns slice k. Phase 1: every rank WRITES its slice k into rank k's region, for every k != itself --
-        one-way streams, nothing answers them. Rank k holds a read on its OWN region for each peer's slice k,
-        reduces, and WRITES the reduced slice into every peer's region. Phase 2: every rank holds a read on its own
-        region for each peer's reduced slice. Bytes on the wire per rank: 2(W-1)n/W out, the same in -- ring's
-        count -- and no request ever crosses the network: the only waits are held reads on the local memory.
-
-        Before (2026-11-11): every rank wrote its slices into its OWN region, and every reader sent a read request
-        across the WAN to the owner's region and waited for the reply -- twice per round, per peer -- plus a
-        whole-tensor write nobody read, under a name that changed every round, so the region grew without bound.
+        Rank k owns slice k. Phase 1: every rank writes slice k (k != itself) into its OWN region; rank k holds a
+        read on each peer's region for that peer's slice k, and reduces. Phase 2: rank k writes its reduced slice
+        ONCE into its own region; every peer holds a read on it. Bytes on the wire per rank: 2(W-1)n/W out, the
+        same in -- ring's count.
 
         Cells are named by SLOT, not by round: `<inc>.c<owner>.ars.<k>` and `<inc>.c<owner>.arr`, generation = the
         round. A slot is overwritten one round later, and never before its reader has it: the owner cannot write
-        round s+1 to rank k until it has round s's reduced slice from k, which k writes only after reading the
-        owner's round-s slice. The algorithm's own dependency is the release; nothing is acknowledged. The cells are
-        held by the writer's session, so they go when the process does.
+        round s+1's slice k until it has round s's reduced slice from k, which k writes only after reading the
+        owner's round-s slice; and it cannot write round s+1's reduced slice until every peer has written round
+        s+1's slice to it, which each does only after reading round s's reduced slice. The algorithm's own
+        dependency is the release; nothing is acknowledged. The cells are held by the writer's session, so they
+        go when the process does.
         """
         name = self._op_name(op)
         _ACC = {
@@ -828,38 +831,41 @@ class PsychedelicBackend(_base.FrogNetBackend):
         st_r, ln_r = parts[r]
         own = flat[st_r:st_r + ln_r]
 
-        # Phase 1, out: slice k goes INTO rank k's memory (copied at publish, so `flat` may change after).
+        # Phase 1, out: slice k into THIS rank's own memory, for every k but itself (copied at publish, so `flat`
+        # may change after). Local; nothing answers.
         for k in peers:
             st, ln = parts[k]
             if ln:
-                self._server.publish("%s.ars.%d" % (inc, k), seq, flat[st:st + ln], incarnation=str(r),
-                                     region=self._region_of(k))
+                self._server.publish("%s.ars.%d" % (inc, k), seq, flat[st:st + ln], incarnation=str(r))
         self._phase_ms["publish"].append((time.perf_counter() - _t_pub) * 1000.0)
         _t_p1 = time.perf_counter()
 
-        # Both phases' held reads go up now, all on this machine's region: phase 2's are parked before any peer
-        # has reduced, so each reduced slice is in place the moment it lands.
+        # Both phases' held reads go up now. Phase 2's sit on each owner's region before that owner has reduced,
+        # so each reduced slice comes back the moment it is written; its round trip overlaps this rank's reduce.
+        # The destinations are disjoint (phase 2 fills the slices this rank does not own, phase 1 stages the one
+        # it does), so the two sets of reads never touch the same elements.
         p2 = {}
         for p in peers:
             st_p, ln_p = parts[p]
             if ln_p:
-                p2[p] = pool.submit(self._read_local_into, flat[st_p:st_p + ln_p], p,
+                p2[p] = pool.submit(self._read_owner_into, flat[st_p:st_p + ln_p], p,
                                     "%s.arr" % self._peer_inc(p), seq, wait, "p2")
         if ln_r:
             stage = self._stage(W - 1, ln_r, own)
-            futs = {p: pool.submit(self._read_local_into, stage[i], p, "%s.ars.%d" % (self._peer_inc(p), r), seq,
+            futs = {p: pool.submit(self._read_owner_into, stage[i], p, "%s.ars.%d" % (self._peer_inc(p), r), seq,
                                    wait, "p1")
                     for i, p in enumerate(peers)}
+            # one fixed order whatever order they land in; each slice is reduced by one rank only, so every rank
+            # ends with the same bits
             for i, p in enumerate(peers):
                 futs[p].result()
                 acc_fn(own, stage[i])
         self._phase_ms["phase1"].append((time.perf_counter() - _t_p1) * 1000.0)
 
-        # Phase 2, out: the reduced slice goes into every peer's memory.
+        # Phase 2, out: the reduced slice, once, into this rank's own memory.
         _t_p2 = time.perf_counter()
         if ln_r:
-            for p in peers:
-                self._server.publish("%s.arr" % inc, seq, own, incarnation=str(r), region=self._region_of(p))
+            self._server.publish("%s.arr" % inc, seq, own, incarnation=str(r))
         for f in p2.values():
             f.result()
         self._phase_ms["phase2"].append((time.perf_counter() - _t_p2) * 1000.0)

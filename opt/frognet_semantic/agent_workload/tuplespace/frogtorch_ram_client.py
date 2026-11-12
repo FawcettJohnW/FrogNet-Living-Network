@@ -107,6 +107,8 @@ class _Session:
             _send_frame(self.sk, payload)
 
     def call(self, head: Dict[str, Any], payload=None):
+        # the connection must outlast the hold this request asks for ([HELD_FOR_THE_CALLERS_DEADLINE_V1])
+        self.sk.settimeout(max(CALL_TIMEOUT_S, float(head.get("wait_s") or 0.0) + 30.0))
         if payload is None:
             _send_frame(self.sk, json.dumps(head).encode())
         else:
@@ -118,6 +120,18 @@ class _Session:
             raise ConnectionError("frogtorch: RAM host %s:%d refused %s: %s"
                                   % (self.host, self.port, head.get("op"), body[:200]))
         return json.loads(body.decode()) if body else {}
+
+    def close(self) -> None:
+        """Ends the session; a read held on it in another thread returns with an error at once (shutdown, then
+        close -- close alone does not wake a thread blocked in recv)."""
+        try:
+            self.sk.shutdown(socket.SHUT_RDWR)
+        except OSError:
+            pass
+        try:
+            self.sk.close()
+        except OSError:
+            pass
 
 
 class Ram:
@@ -131,7 +145,29 @@ class Ram:
         self._member_session: Optional[_Session] = None
 
     def control(self) -> Tuple[str, int]:
-        return self.regions[0]
+        """[CONTROL_LIVES_WITH_THE_ROLE_V1] The region every rank agrees on for membership, the store and the gate:
+        the one on the machine that holds the SystemRam role. It was regions[0] -- whichever machine sorted lowest
+        among the regions THIS process happened to see, so two ranks starting a moment apart could pick different
+        control regions and never meet. A role every rank resolves the same way has no such race.
+        With FROGTORCH_RAMS (regions configured, not discovered) it is the first one configured."""
+        c = getattr(self, "_control", None)
+        if c is not None:
+            return c
+        if os.environ.get("FROGTORCH_RAMS", "").strip():
+            c = self.regions[0]
+        else:
+            try:
+                role_ip = socket.gethostbyname(SYSTEM_RAM)
+            except OSError as e:
+                raise ConnectionError("frogtorch: cannot resolve the SystemRam role %s (%s)" % (SYSTEM_RAM, e)) from e
+            mine = [hp for hp in self.regions if hp[0] == role_ip]
+            if not mine:
+                raise RuntimeError("frogtorch: the SystemRam role %s is %s, and that machine has no FrogTorch RAM "
+                                   "announced (announced: %s); on it: systemctl restart frogtorch-ram"
+                                   % (SYSTEM_RAM, role_ip, " ".join("%s:%d" % hp for hp in self.regions)))
+            c = mine[0]
+        self._control = c
+        return c
 
     def local_region(self, owner) -> Tuple[str, int]:
         """The region on this machine. [A_RANK_LIVES_ON_ITS_OWN_MACHINE_V1] There is no other choice: this used to

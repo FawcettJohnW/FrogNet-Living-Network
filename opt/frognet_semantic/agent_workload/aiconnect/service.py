@@ -50,7 +50,9 @@ _TREE = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__
 if _TREE not in sys.path:
     sys.path.insert(0, _TREE)
 
-BUILD = "aiconnect 20261111-r1 [AICONNECT_IN_THE_REGION_V1]"
+BUILD = "aiconnect 20261112-r2 [AICONNECT_IN_THE_REGION_V1] [A_WRITE_IS_NOT_A_CONVERSATION_V1] [DELIVERY_IS_COUNTED_WHERE_IT_LANDS_V1]"
+#: how long one held read on the receiver family is held; it is re-held at once, so this is not a poll interval
+HOLD_S = 3600.0
 SERVICE = "AIConnect"
 VAR_RECEIVER = "receiver"
 
@@ -107,23 +109,33 @@ class AIConnectService:
 
     def run(self) -> int:
         from agent_workload.tuplespace.frogtorch_ram_client import _Session
-        from agent_workload.tuplespace.tensor_plane import MAX_SERVER_WAIT_S
         held = _Session(*self.region)            # holds the receiver cell: it goes with this session
-        self.cell_id = int(held.call({"op": "cput", "service": SERVICE, "var": VAR_RECEIVER, "scope": self.machine,
-                                      "value": self.value(), "life": "session"})["id"])
+        mine = self.value()
+        # [A_WRITE_IS_NOT_A_CONVERSATION_V1] written, not answered; the cell is found again by what it says
+        held.send({"op": "cput", "service": SERVICE, "var": VAR_RECEIVER, "scope": self.machine,
+                   "value": mine, "life": "session", "ack": False})
+
+        def ours(rows):
+            return [r for r in rows if r.get("scope") == self.machine
+                    and (r.get("value") or {}).get("started") == mine["started"]]
+        # A held read on the receiver family: it returns when the cells there change. If ours is not among them, it
+        # was removed out from under us and this machine is no longer a receiver -- say so and stop. The first read
+        # holds until the write above has landed; each later one holds until the family changes.
+        watch = _Session(*self.region)
+        rows = watch.call({"op": "cget", "service": SERVICE, "var": VAR_RECEIVER, "min_rows": 0,
+                           "wait_s": 0.0}).get("rows", [])
+        while not ours(rows):
+            rows = watch.call({"op": "cget", "service": SERVICE, "var": VAR_RECEIVER, "min_rows": 0,
+                               "wait_s": HOLD_S, "unlike": sorted(r["id"] for r in rows)}).get("rows", [])
+        self.cell_id = int(ours(rows)[0]["id"])
         print("[AIConnect] %s %s: receiver in region %s:%d (cell %d)"
               % (BUILD, self.machine, self.region[0], self.region[1], self.cell_id), flush=True)
-        # A held read on the receiver family: it returns when the cells there change. If ours is not among them, it
-        # was removed out from under us and this machine is no longer a receiver -- say so and stop.
-        watch = _Session(*self.region)
-        ids = None
         while True:
             rows = watch.call({"op": "cget", "service": SERVICE, "var": VAR_RECEIVER, "min_rows": 0,
-                               "wait_s": MAX_SERVER_WAIT_S, "unlike": ids}).get("rows", [])
+                               "wait_s": HOLD_S, "unlike": sorted(r["id"] for r in rows)}).get("rows", [])
             if not any(r.get("id") == self.cell_id for r in rows):
                 raise RuntimeError("this machine's receiver cell %d is gone from region %s:%d"
                                    % (self.cell_id, self.region[0], self.region[1]))
-            ids = sorted(r["id"] for r in rows)
 
 
 def main(argv=None) -> int:

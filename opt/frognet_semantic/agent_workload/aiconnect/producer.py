@@ -61,7 +61,7 @@ from core.codec import MAX_WIRE_FIELD_BYTES  # noqa: E402
 from agent_workload.aiconnect.service import (  # noqa: E402
     BUILD, SERVICE, VAR_RECEIVER, machine_name, parse_region)
 from agent_workload.tuplespace.frogtorch_ram_client import _Session, discover_regions  # noqa: E402
-from agent_workload.tuplespace.tensor_plane import MAX_SERVER_WAIT_S, _recv_frame, _send_frame  # noqa: E402
+from agent_workload.tuplespace.tensor_plane import _send_frame  # noqa: E402
 from agent_workload.aiconnect.resources import (  # noqa: E402
     cpu_idle_pct, disk_free_mb, loadavg_per_core, mem_available_mb,
     net_counters, net_delta, link_capacity, link_summary, peer_routes, softnet_drops, wire_overhead_ratio, carrier_of, iface_table)
@@ -113,9 +113,14 @@ class Receivers:
         self.regions = regions if regions is not None else discover_regions()
         self._seen: Dict[str, Dict[str, Any]] = {}
 
-    def _rows(self, hp, wait_s=0.0, unlike=None) -> List[Dict[str, Any]]:
-        return _Session(*hp).call({"op": "cget", "service": SERVICE, "var": VAR_RECEIVER, "min_rows": 0,
-                                   "wait_s": wait_s, "unlike": unlike}).get("rows", [])
+    def _rows(self, hp, wait_s=0.0, unlike=None, session=None) -> List[Dict[str, Any]]:
+        s = session or _Session(*hp)
+        try:
+            return s.call({"op": "cget", "service": SERVICE, "var": VAR_RECEIVER, "min_rows": 0,
+                           "wait_s": wait_s, "unlike": unlike}).get("rows", [])
+        finally:
+            if session is None:
+                s.close()
 
     def receivers(self, want: int = 0) -> Dict[str, Dict[str, Any]]:
         """{machine: its receiver cell's value}. want > 0: hold a read on every region until that many are there
@@ -137,22 +142,33 @@ class Receivers:
         if want and len(found) < want:
             deadline = time.time() + self.timeout_s
 
+            sessions = {hp: _Session(*hp) for hp in self.regions}
+
             def hold(hp):
-                ids = sorted(r["id"] for r in self._rows(hp))
-                while time.time() < deadline:
-                    rows = self._rows(hp, wait_s=max(0.1, min(MAX_SERVER_WAIT_S, deadline - time.time())),
-                                      unlike=ids)
-                    ids = sorted(r["id"] for r in rows)
-                    with lock:
-                        take(hp, rows)
-                        lock.notify_all()
-                        if len(found) >= want:
-                            return
+                # one session per region, holding one read at a time for the whole remaining deadline
+                ses = sessions[hp]
+                try:
+                    ids = sorted(r["id"] for r in self._rows(hp, session=ses))
+                    while time.time() < deadline:
+                        rows = self._rows(hp, wait_s=max(0.1, deadline - time.time()), unlike=ids, session=ses)
+                        ids = sorted(r["id"] for r in rows)
+                        with lock:
+                            take(hp, rows)
+                            lock.notify_all()
+                            if len(found) >= want:
+                                return
+                except (OSError, ConnectionError):
+                    if not done.is_set():       # a session we closed ourselves is not a failure
+                        raise
+            done = threading.Event()
             ts = [threading.Thread(target=hold, args=(hp,), daemon=True) for hp in self.regions]
             for t in ts:
                 t.start()
             with lock:
                 lock.wait_for(lambda: len(found) >= want, timeout=self.timeout_s)
+            done.set()
+            for ses in sessions.values():       # releases the holds still open on the other regions
+                ses.close()
         self._seen = found
         return found
 
@@ -311,13 +327,39 @@ def send_rest(peer: str, port: int, total_bytes: int, chunk: int = 1 << 16,
 _LINK_TIMEOUT = [30.0]
 
 
+def acct_of(sender: str) -> str:
+    """The name a receiver region tallies this sender's landed bytes under."""
+    return "aic.%s" % sender
+
+
+def landed(ports: Dict[str, Tuple[str, int]], sender: str) -> int:
+    """Bytes of this sender's objects that have landed, summed over every receiver region it writes to.
+
+    [DELIVERY_IS_COUNTED_WHERE_IT_LANDS_V1] The writes are never answered, so the sender does not know per object
+    what arrived; the regions do. Read at the rung boundaries only -- one counter read per region per rung, not per
+    object -- and a region that cannot be read is an error, not a zero. [NO FALLBACKS]
+    """
+    from agent_workload.tuplespace.frogtorch_ram_client import _Session
+    acct, total = acct_of(sender), 0
+    for hp in sorted(set(tuple(v) for v in ports.values())):
+        s = _Session(*hp)
+        try:
+            total += int((s.call({"op": "stats"}).get("by_acct") or {}).get(acct, 0))
+        finally:
+            s.close()
+    return total
+
+
 class RegionLink:
     """One sender thread's PERMANENT session with one receiver's region ([THE_LINK_IS_PERMANENT_V1]).
 
     send() writes one object as the thread's cell, aic.<sender>.<thread>, into that region, overwriting the last
-    one, and returns when the region has it. The cell is held by this session (life="session"): it goes when the
-    link closes, so a run leaves nothing in the receiver's memory. The object is sent from one block, repeated, so
-    an object of any size needs no buffer of that size here.
+    one. The write is not answered ([A_WRITE_IS_NOT_A_CONVERSATION_V1]): send() returns when the bytes are handed to
+    the socket, and TCP's own window is the only thing that can hold it. What LANDED is counted by the region
+    itself, under acct aic.<sender> ([DELIVERY_IS_COUNTED_WHERE_IT_LANDS_V1]), and read by landed() at the rung
+    boundaries. The cell is held by this session (life="session"): it goes when the link closes, so a run leaves
+    nothing in the receiver's memory. The object is sent from one block, repeated, so an object of any size needs
+    no buffer of that size here.
 
     A link that breaks is not re-established inside send(): the exception reaches the worker, which drops the link
     and counts the failure. [NO FALLBACKS]
@@ -347,14 +389,11 @@ class RegionLink:
     def send(self, total_bytes: int) -> int:
         self.gen += 1
         _send_frame(self.sock, json.dumps({"op": "tput", "name": self.name, "gen": self.gen, "inc": None,
-                                           "life": "session"}).encode())
+                                           "life": "session", "ack": False,
+                                           "acct": acct_of(self.sender)}).encode())
         full, tail = divmod(int(total_bytes), self.chunk)
         parts = [self._block] * full + ([self._block[:tail]] if tail else [])
         _send_frame(self.sock, *(parts or [b""]))
-        reply = bytes(_recv_frame(self.sock))
-        if reply[:4] != b"OKAY":
-            raise ConnectionError("region %s:%d refused the write: %r" % (self.region[0], self.region[1],
-                                                                            reply[:120]))
         self.objects += 1
         self.bytes += total_bytes
         return total_bytes
@@ -973,6 +1012,7 @@ def main(argv=None) -> int:
 
     net0 = net_counters()
     _softnet0 = softnet_drops()
+    _landed0 = landed(ports, rv.me) if a.transport == "region" else 0
     _ramp_began_at = time.time()
     levels: List[Dict[str, Any]] = []
     threads: List[threading.Thread] = []
@@ -1043,11 +1083,17 @@ def main(argv=None) -> int:
             lvl_retries = 0
             _rung_net0 = net_counters()
             b0, x0, f0 = stats.bytes, stats.transfers, stats.failures
+            # [DELIVERY_IS_COUNTED_WHERE_IT_LANDS_V1] region writes are unanswered; what landed is read from the
+            # receivers' regions at the window's edges. MB/s is LANDED bytes; what was handed to the sockets is
+            # kept beside it as handed_mb_per_s.
+            _region = (a.transport == "region")
+            l0 = landed(ports, rv.me) if _region else 0
             t0 = time.time()
             gate.release()
             time.sleep(a.step_seconds)
             dt = time.time() - t0
-            d_bytes = stats.bytes - b0
+            d_handed = stats.bytes - b0
+            d_bytes = (landed(ports, rv.me) - l0) if _region else d_handed
             d_x = stats.transfers - x0
             d_f = stats.failures - f0
 
@@ -1069,6 +1115,7 @@ def main(argv=None) -> int:
 
             lvl = {"threads": n_threads,
                    "mb_per_s": d_bytes / 1048576.0 / dt,
+                   "handed_mb_per_s": d_handed / 1048576.0 / dt,
                    "wire_mb_per_s": _wire_rate,
                    "warm_failures": _warm_fails,
                    "warm_seconds": round(_warm_elapsed, 2),
@@ -1131,11 +1178,13 @@ def main(argv=None) -> int:
                 lvl_retries += 1
                 levels.pop()
                 time.sleep(a.step_seconds)
-                d_bytes = stats.bytes - b0
+                d_handed = stats.bytes - b0
+                d_bytes = (landed(ports, rv.me) - l0) if _region else d_handed
                 d_x = stats.transfers - x0
                 d_f = stats.failures - f0
                 dt = time.time() - t0
                 lvl["mb_per_s"] = d_bytes / 1048576.0 / dt
+                lvl["handed_mb_per_s"] = d_handed / 1048576.0 / dt
                 lvl["xfers_per_s"] = d_x / dt
                 levels.append(lvl)
                 print("%-8d %10.2f %10.2f %10.2f %9d %8.1f %9.2f %8d %8d "
@@ -1458,7 +1507,8 @@ def main(argv=None) -> int:
     # additive and the table exists so nobody has to guess which is which.
     _fin = net_delta(net0)
     _per = _fin.get("per_iface", {})
-    _app_bytes = stats.bytes
+    # region: what LANDED in the receivers' memory ([DELIVERY_IS_COUNTED_WHERE_IT_LANDS_V1]); else what was sent
+    _app_bytes = (landed(ports, rv.me) - _landed0) if a.transport == "region" else stats.bytes
     _carrier = carrier_of(_per)
     if _per:
         print("         carried by     : %s" % iface_table(_per))

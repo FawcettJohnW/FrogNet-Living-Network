@@ -342,108 +342,40 @@ def plane_object_is_not_a_list():
 
 
 # ---------------------------------------------------------------------------
-# PLANE 6 -- read-ahead states a name, not a length
+# PLANE 6 -- every rank writes only its own memory
 # ---------------------------------------------------------------------------
 def plane_read_ahead_keying():
-    print("\n=== PLANE 6: read-ahead does not guess a length ===")
-    import torch
-    import types
+    """[EVERY_RANK_WRITES_ONLY_ITS_OWN_MEMORY_V1] John: "Nobody writes into anybody else's space, period."
 
+    The shard all-reduce's writes go to the writer's own region and nowhere else; its reads are held reads on the
+    owner's region; phase 2's reads are up before phase 1's reduce. Fail-on-old: 91e90c2 wrote each slice into the
+    consumer's region (`region=self._region_of(k)`) and read locally. (The September read-ahead this plane used to
+    check is gone with the round-named cells it guessed at; phase 2's early reads are the overlap that remains.)
+    """
+    print("\n=== PLANE 6: every rank writes only its own memory ===")
     path = os.path.join(_tuplespace(), "psychedelic_backend.py")
     src = open(path, encoding="utf-8").read()
     tree = ast.parse(src)
-
-    ra = [n for n in ast.walk(tree)
-          if isinstance(n, ast.FunctionDef) and n.name == "_read_ahead"]
-    check(bool(ra), "_read_ahead exists")
-    if ra:
-        args = [a.arg for a in ra[0].args.args]
-        check("ln" not in args,
-              "fail-on-old: _read_ahead no longer takes a length (%s)"
-              % ", ".join(args))
-
-    check("key = (seq, str(own.dtype))" in src,
-          "the consumption site keys the guess on the round and dtype")
-    check("key = (seq, ln_r, str(own.dtype))" not in src,
-          "fail-on-old: the length is out of the lookup key")
-    check("exact: bool = True" in open(
-              os.path.join(_tuplespace(), "tensor_plane.py"),
-              encoding="utf-8").read(),
-          "read_into can be told the caller does not know the length")
-
-    # -- behaviour: the real _hwm / _stage / _ahead_stage against DDP's own
-    # -- alternating bucket sizes.
-    want = ("_hwm", "_stage", "_ahead_stage")
-    fns = {n.name: ast.get_source_segment(src, n) for n in ast.walk(tree)
-           if isinstance(n, ast.FunctionDef) and n.name in want}
-    if set(fns) != set(want):
-        check(False, "found %s" % sorted(fns))
+    fn = {n.name: n for n in ast.walk(tree) if isinstance(n, ast.FunctionDef)}
+    ar = fn.get("_allreduce_sharded")
+    check(ar is not None, "_allreduce_sharded exists")
+    if ar is None:
         return
-    ns = {"torch": torch}
-    exec("class _B:\n" + "\n".join(
-        "\n".join("    " + l for l in fns[k].splitlines()) for k in want), ns)
-
-    b = ns["_B"].__new__(ns["_B"])
-    b._ln_hwm = {}
-    like = torch.empty(0, dtype=torch.float32)
-
-    # DDP hands these two bucket sizes out alternately; at world 4 the phase-1
-    # slice is a quarter of each.
-    lens = [262657 // 4, 791552 // 4] * 6
-    allocs, seen = 0, None
-    widths = set()
-    for ln in lens:
-        rows = b._stage(3, ln, like)
-        if b._stage_buf is not seen:
-            allocs += 1
-            seen = b._stage_buf
-        widths.add(tuple(r.numel() for r in rows))
-    check(allocs == 2,
-          "_stage allocates once per distinct maximum, not per round "
-          "(%d allocations over %d rounds)" % (allocs, len(lens)))
-    check(widths == {(lens[0],) * 3, (lens[1],) * 3},
-          "every row is still exactly the round's slice length")
-
-    ahead = b._ahead_stage(3, like)
-    check(all(a.numel() == max(lens) for a in ahead),
-          "the speculative landing area is the high-water mark (%d)"
-          % max(lens))
-
-    # -- and the keying, through the real _read_ahead.
-    issued = []
-
-    class _Pool:
-        def submit(self, fn, *a):
-            issued.append(a)
-            f = types.SimpleNamespace()
-            f.cancel = lambda: None
-            f.done = lambda: True
-            f.exception = lambda: None
-            f.result = lambda: None
-            return f
-
-    rafn = ast.get_source_segment(src, ra[0])
-    ns2 = {"torch": torch}
-    exec("class _R:\n" + "\n".join(
-        "\n".join("    " + l for l in x.splitlines())
-        for x in (rafn, fns["_ahead_stage"], fns["_hwm"])), ns2)
-    rb = ns2["_R"].__new__(ns2["_R"])
-    rb._ahead, rb._ln_hwm = {}, {"torch.float32": max(lens)}
-    rb._drop_ahead = lambda: None
-    rb._peer_inc = lambda p: "c%d" % p
-    rb._read_slice_into = None
-    rb._read_ahead(9, like, [1, 2, 3], 0, 30.0, _Pool())
-
-    check(list(rb._ahead) == [(9, "torch.float32")],
-          "the guess is filed under the round it is for (%s)"
-          % list(rb._ahead))
-    check((9, "torch.float32") in rb._ahead,
-          "and is found on the next round whatever length that round turns "
-          "out to be -- which is the miss that made prefetch_hit False in "
-          "every ddp54xx log")
-    check(all(a[5] == "pf" and a[6] is False for a in issued),
-          "every speculative read goes out on the pf channel, exact=False")
-
+    pubs = [c for c in ast.walk(ar) if isinstance(c, ast.Call) and isinstance(c.func, ast.Attribute)
+            and c.func.attr == "publish"]
+    check(len(pubs) == 2, "two writes: the slices and the reduced slice (%d)" % len(pubs))
+    check(all(not any(k.arg == "region" for k in c.keywords) for c in pubs),
+          "fail-on-old: no write names another rank's region")
+    seg = ast.get_source_segment(src, ar)
+    check("_read_local_into" not in seg and "_read_owner_into" in seg,
+          "fail-on-old: every read is a held read on the OWNER's region")
+    ro = fn.get("_read_owner_into")
+    check(ro is not None and "self._region_of(owner)" in ast.get_source_segment(src, ro),
+          "the read goes to the owner's region")
+    check(seg.index('"p2")') < seg.index("acc_fn(own"),
+          "phase 2's held reads are up before phase 1 reduces")
+    check(seg.count("self._server.publish(\"%s.arr\"") == 1 and "for p in peers:\n                self._server"
+          not in seg, "fail-on-old: the reduced slice is written once, not once per peer")
 
 # ---------------------------------------------------------------------------
 # PLANE 7 -- a finished rank leaves; nothing it published goes with its process
