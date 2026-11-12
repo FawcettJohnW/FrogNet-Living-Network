@@ -178,6 +178,12 @@ public final class MainActivity extends Activity implements LocationListener {
             openTethering();
         } }); }
         @JavascriptInterface public void exit() { runOnUiThread(new Runnable() { public void run() { exitApp(); } }); }
+        /** [FEMA_EOC_V1] the page's Print (EOCAdmin's forms, the IAP, the after-action report): Android's print service, on
+         *  the page as it prints (its print rules show the sheet only) */
+        @JavascriptInterface public void print(final String title) { runOnUiThread(new Runnable() { public void run() {
+            android.print.PrintManager pm = (android.print.PrintManager) getSystemService(android.content.Context.PRINT_SERVICE);
+            pm.print(title, web.createPrintDocumentAdapter(title), new android.print.PrintAttributes.Builder().build());
+        } }); }
         /** [CHAT_NOTICE_V1] a message the user cannot see: a phone notification while the app is not in front */
         @JavascriptInterface public void notice(String from, String text) {
             if (inFront) return;
@@ -316,8 +322,16 @@ public final class MainActivity extends Activity implements LocationListener {
         // 10.101.113.1 "is not a FrogNet node ... through its own tunnel", then nothing; the door out of reach for 40 min)
         lastLan = nodeLan();
         if (!lan.isEmpty()) {                           // [ON_THE_LAN_NO_TUNNEL_V1] the node routes this phone already
-            final String line = pendingConnect; pendingConnect = null;
-            if (line == null) return;
+            String line0 = pendingConnect; pendingConnect = null;
+            if (line0 == null) return;
+            // [NODE_IS_THE_ASKED_GATEWAY_V1] on a node's LAN (its gateway answered as a FrogNet door just now) a connect that
+            // names no node goes to that node
+            String gwn = gwOf(lanShape());
+            try {
+                Map<String, Object> c = Json.obj(Json.parse(line0));
+                if (Json.str(c.get("door")).trim().isEmpty() && !gwn.isEmpty()) { c.put("door", gwn); line0 = Json.write(c); note("[NODE_IS_THE_ASKED_GATEWAY_V1] the node is " + gwn + ", whose LAN this is"); }
+            } catch (IllegalArgumentException ignored) { }
+            final String line = line0;
             note("[ON_THE_LAN_NO_TUNNEL_V1] " + lan + ": no FrogNet tunnel needed for this" + networks());
             new Thread(new Runnable() { public void run() {
                 core.handle(line);
@@ -344,7 +358,7 @@ public final class MainActivity extends Activity implements LocationListener {
         }
         if (!memberStarted || memberRestart) {          // [APP_IS_SELF_CONTAINED_V1] this app joins (its VPN question, once)
             if (!Member.has(this)) {                    // [ADMITTED_BY_INVITE_V1] the region answers invited keys only
-                deliver(Json.o("ev", "error", "text", "no FrogNet invitation: scan the EOC's QR code, or paste its line (or one from fdf-identity <name> --leaf) on this screen"));
+                deliver(Json.o("ev", "error", "text", "no FrogNet invitation: scan the Command Center's QR code, or paste its line (or one from fdf-identity <name> --leaf) on this screen"));
                 return;
             }
             Member.name(this, prefs.getString("name", Build.MODEL));
@@ -495,7 +509,8 @@ public final class MainActivity extends Activity implements LocationListener {
         web.loadUrl("file:///android_asset/ui/index.html");
         askForLocation();
         watchNetworks();
-        gatewayUnknown(new Runnable() { public void run() { } });   // [GATEWAY_IS_A_NODE_V1] asked at once, so the first screen knows
+        // [NOTHING_UNTIL_ASKED_V1] (John 2026-11-10: no "connections or login or anything like that until I tell it to") the
+        // gateway is not asked at start ([GATEWAY_IS_A_NODE_V1] asks it at the connect the user makes); nothing else is started
     }
 
     private Map<String, Object> settings() {
@@ -515,6 +530,10 @@ public final class MainActivity extends Activity implements LocationListener {
         String gw = gateway();
         // on a node's Wi-Fi the node is the gateway: where this phone is now ([TEAM_HOST_V1] not on a team lead's hotspot,
         // whose gateway is the lead's phone: there the node is the one the lead's card names)
+        // [NOTHING_UNTIL_ASKED_V1] the gateway is not asked at start, so the Node field is the node this phone used last
+        // ([NODE_IS_THE_ASKED_GATEWAY_V1], found 2026-11-10: r72 to r74 took any 10.x Wi-Fi whose gateway is its .1 for a
+        // node's -- a home router's 10.101.113.1 was then the Node, and the connect went there); at the connect the gateway
+        // is asked ([GATEWAY_IS_A_NODE_V1]), and on a node's LAN that node is the one connected to (startMember)
         if (!gw.isEmpty() && !nodeLan().isEmpty()) door = gw;
         // [RT_TEAM_APP_V1] an APK built for one role (the Team app: meta-data net.frognet.openeoc.ROLE = team) opens as it
         String lock = meta("net.frognet.openeoc.ROLE");
@@ -588,7 +607,11 @@ public final class MainActivity extends Activity implements LocationListener {
         for (android.net.Network n : cm.getAllNetworks()) { android.net.LinkProperties lp = cm.getLinkProperties(n); if (lp != null && lp.getInterfaceName() != null) nets.add(lp.getInterfaceName()); }
         try {
             for (java.net.NetworkInterface ni : java.util.Collections.list(java.net.NetworkInterface.getNetworkInterfaces())) {
-                if (!ni.isUp() || ni.isLoopback() || ni.getName().startsWith("tun") || nets.contains(ni.getName())) continue;
+                // [HOTSPOT_SEEN_V1] (found 2026-11-09 on John's Samsung: the hotspot on, swlan0 10.143.246.81, and still "turn it
+                // on") Android lists the hotspot's own swlan0 among its networks there: a hotspot interface by its name is the
+                // hotspot even when listed; another listed one (wlan1 ...) can be a Wi-Fi this phone is a client of
+                if (!ni.isUp() || ni.isLoopback() || ni.getName().startsWith("tun")) continue;
+                if (nets.contains(ni.getName()) && !ni.getName().matches("(swlan|ap|softap)\\d*")) continue;
                 // [TEAM_WIFI_V1] a tethering interface by its name (the hotspot's swlan0/ap0/wlan1/softap0, USB's rndis0/ncm0,
                 // Bluetooth's bt-pan): any other interface Android does not list (rmnet, ccmni, dummy, p2p ...) is not the
                 // team's Wi-Fi -- taking one for it said "hosting the team on this phone's hotspot" with the hotspot off
@@ -724,10 +747,21 @@ public final class MainActivity extends Activity implements LocationListener {
         net.frognet.ram.Enroll.Line l = net.frognet.ram.Enroll.parse(Json.str(m.get("line")));
         if (l == null) { deliver(Json.o("ev", "error", "text", "not an enrollment code")); return; }
         String pw = Json.str(m.get("password"));
-        note("[ENROLL_V1] enrolling as " + l.user + " in " + l.app + " at " + l.url + " (" + net.frognet.ram.Enroll.BUILD + ")");
+        note("[ENROLL_V1] enrolling as " + l.user + (Json.str(m.get("team")).isEmpty() ? "" : ", creating team " + Json.str(m.get("team"))) + " in " + l.app + " at " + l.url + " (" + net.frognet.ram.Enroll.BUILD + ")");
         Map<String, Object> a;
-        try { a = net.frognet.ram.Enroll.enroll(l, pw); }
-        catch (Exception e) { deliver(Json.o("ev", "enrollFailed", "text", e.getMessage() == null ? e.toString() : e.getMessage())); return; }
+        // [EOC_LEADS_V1] the EOC's QR for a user it added: the team's name the lead typed (the door creates the team)
+        try { a = net.frognet.ram.Enroll.enroll(l, pw, Json.str(m.get("team")), Json.str(m.get("kind"))); }
+        catch (Exception e) {
+            String why = e.getMessage() == null ? e.toString() : e.getMessage();
+            // [CLAIM_ON_THE_NODES_WIFI_V1] (found 2026-11-09: a lead's claim timed out from a home router's 10.101.113.x) a
+            // phone that has not joined FrogNet reaches the EOC's door only on a node's Wi-Fi: said, with where this phone is
+            if (e instanceof java.io.IOException && nodeLan().isEmpty() && !Member.has(this)) {
+                String w = wifiAddr(), lan = lanShape(), gw = gwOf(lan);
+                why += ". This phone is on " + (w.isEmpty() ? "no Wi-Fi" : w) + (gw.isEmpty() ? "" : " (gateway " + gw + (Boolean.FALSE.equals(gwIsNode.get(gw)) ? ", not a FrogNet node" : "") + ")")
+                     + " and has not joined FrogNet yet: join the Command Center node's Wi-Fi, then scan the code again (" + l.url.replaceAll("^https?://", "").replaceAll("/.*", "") + " is reached from there)";
+            }
+            note("[ENROLL_V1] not enrolled: " + why); deliver(Json.o("ev", "enrollFailed", "text", why)); return;
+        }
         String inv = Json.str(a.get("invite")).trim();    // [APP_IS_SELF_CONTAINED_V1] this app joins with it, at Connect
         if (!inv.startsWith("fdfinv1.")) { deliver(Json.o("ev", "enrollFailed", "text", "the invitation it gave is not one: " + (inv.length() > 40 ? inv.substring(0, 40) : inv))); return; }
         try { if (Member.keep(this, inv, "", "")) memberRestart = true; }
@@ -740,7 +774,7 @@ public final class MainActivity extends Activity implements LocationListener {
         boolean lead = Json.bool(a.get("lead"));
         Enrolled.keep(this, l.app, l.user, pw, Json.str(a.get("role")), lead, door);
         note("[ENROLL_V1] enrolled: " + l.user + " is " + Json.str(a.get("role")) + (lead ? ", its team's lead" : "") + "; this phone's FrogNet invitation is kept (" + invitedAs() + ")");
-        deliver(Json.o("ev", "enrolled", "user", l.user, "role", Json.str(a.get("role")), "lead", lead, "door", door, "invited", invitedAs()));
+        deliver(Json.o("ev", "enrolled", "user", l.user, "role", Json.str(a.get("role")), "kind", Json.str(a.get("kind")), "lead", lead, "door", door, "invited", invitedAs()));
     }
 
     /** [ENROLL_V1] the lead's members page: who may enroll here, where a member can reach this phone, and the sponsor */
@@ -757,10 +791,13 @@ public final class MainActivity extends Activity implements LocationListener {
         else { String w = wifiAddr(); if (!w.isEmpty()) addrs.add(Json.o("label", "this Wi-Fi", "addr", w)); }
         String e = Member.edge(this); if (!e.isEmpty()) addrs.add(Json.o("label", "FrogNet (the Internet)", "addr", e));
         java.util.List<Object> names = new java.util.ArrayList<Object>(Enrolled.members(this).keySet());
+        // [MEMBER_PASSWORDS_OPTIONAL_V1] the members the lead gave a password of their own (the rest joined by the team's)
+        java.util.List<Object> own = new java.util.ArrayList<Object>();
+        for (java.util.Map.Entry<String, Object> m : Enrolled.members(this).entrySet()) if (Json.obj(m.getValue()).get("verifier") instanceof java.util.Map) own.add(m.getKey());
         String key;                                       // [SEALED_ENROLL_V1] the sponsor key's fingerprint: the team QR's fifth part
         try { key = net.frognet.ram.Enroll.Seal.fingerprint(net.frognet.ram.Enroll.Seal.publicOf(Enrolled.sponsorKey(this))); }
         catch (Exception x) { deliver(Json.o("ev", "error", "text", "the team's sponsor key: " + x)); return; }
-        deliver(Json.o("ev", "members", "key", key, "app", me.app, "team", me.role, "members", names, "addrs", addrs, "port", TeamHostService.SPONSOR_PORT,
+        deliver(Json.o("ev", "members", "key", key, "app", me.app, "team", me.role, "members", names, "own", own, "addrs", addrs, "port", TeamHostService.SPONSOR_PORT,
                 "sponsoring", TeamHostService.sponsorState().isEmpty() || start, "teamPassword", Enrolled.teamVerifier(this) != null));   // [TEAM_JOIN_V1]
     }
     /** this phone's address on the Wi-Fi it is a client of ("" : none) */
@@ -776,7 +813,7 @@ public final class MainActivity extends Activity implements LocationListener {
     /** the lead's card in its team RAM at gw (the hotspot's gateway: the lead's phone), as the page's teamCard; null: none */
     private Map<String, Object> teamCard(String gw) {
         try {
-            java.net.HttpURLConnection c = (java.net.HttpURLConnection) new java.net.URL("http://" + gw + ":" + TeamHostService.PORT + AppCore.API + "?op=read&service=rt-team&variable=card").openConnection();
+            java.net.HttpURLConnection c = (java.net.HttpURLConnection) new java.net.URL("http://" + gw + ":" + TeamHostService.PORT + AppCore.API + "?op=read&service=openeoc-team&variable=card").openConnection();
             c.setConnectTimeout(3000); c.setReadTimeout(3000);
             java.io.InputStream in = c.getInputStream(); java.io.ByteArrayOutputStream b = new java.io.ByteArrayOutputStream();
             byte[] k = new byte[4096]; for (int n; (n = in.read(k)) > 0; ) b.write(k, 0, n);

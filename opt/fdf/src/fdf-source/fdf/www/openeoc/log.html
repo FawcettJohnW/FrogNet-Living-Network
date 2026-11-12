@@ -4,7 +4,7 @@
      node. Every device's entries, as they are written; nothing merged, nothing sent. -->
 <html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Radio Log</title>
-<link rel="stylesheet" href="rt.css"></head><body>
+<link rel="stylesheet" href="openeoc.css"></head><body>
 <nav><b>Radio Log</b> · <a href="rangers.html">Rangers</a> · <a href="map.html">Map</a> · <a href="print309.html">ICS-309</a> · <a href="board.html">Board</a> · <a href="messages.html">Messages</a> · <a href="summary.html">Summary</a> · <a href="aar.html">After-action</a></nav>
 <h1>Radio Log</h1>
 <fieldset id="login" hidden><label>User <input name="user" size="12"></label><label>Password <input name="password" type="password" size="12"></label>
@@ -25,7 +25,7 @@
 <h2>Entries <small id="count"></small></h2>
 <table><thead><tr><th>Msg #</th><th title="handled: click to cycle ✓ → !">✓</th><th>Time</th><th>Callsign</th><th>Status</th><th>Location</th><th>Notes</th><th>By</th></tr></thead><tbody id="rows"></tbody></table>
 <script type="module">
-import * as RT from './rt.js'
+import * as RT from './openeoc.js'
 const D = RT.D, $ = (s) => document.querySelector(s), f$ = (fs, n) => $(fs + ' [name=' + n + ']'), say = (t) => { $('#say').textContent = t }
 for (const [k] of D.STATUSES) $('#entry').status.add(new Option(k, k))
 let entries = new Map(), stopLog = null, stopMarks = null, stopRoster = null, stopPos = null, missions = new Map(), marks = new Map()
@@ -57,12 +57,12 @@ function open(m) {
   stopPos = RT.sharePosition(m)                             // [DEVICE_POSITION_V1] this device's own position, as it moves
   RT.present(m).catch((e) => say('not in the directory yet: ' + e.message))
   entries = new Map(); marks = new Map(); draw()
-  stopRoster = RT.watch('rt-roster', m.id, (cells) => { $('#callsigns').innerHTML = [...cells.values()].map(r => '<option value="' + RT.esc(r.bag.callsign) + '">' + RT.esc(r.bag.fullName || '') + '</option>').join('') })
-  stopMarks = RT.watch('rt-handled', m.id, (cells) => { marks = RT.markOf(cells); draw() }, (e) => say('the RAM did not answer (' + e.message + '); reading again'))
-  stopLog = RT.watch('rt-log', RT.logVariable(m), (cells) => { entries = cells; draw() }, (e) => say('the RAM did not answer (' + e.message + '); reading again'))
+  stopRoster = RT.watch('openeoc-roster', m.id, (cells) => { $('#callsigns').innerHTML = [...cells.values()].map(r => '<option value="' + RT.esc(r.bag.callsign) + '">' + RT.esc(r.bag.fullName || '') + '</option>').join('') })
+  stopMarks = RT.watch('openeoc-handled', m.id, (cells) => { marks = RT.markOf(cells); draw() }, (e) => say('the RAM did not answer (' + e.message + '); reading again'))
+  stopLog = RT.watch('openeoc-log', RT.logVariable(m), (cells) => { entries = cells; draw() }, (e) => say('the RAM did not answer (' + e.message + '); reading again'))
 }
 { const cur = RT.currentMission(); if (cur) open(cur) }      // the mission this device is on is its own: kept, whatever this side's RAM holds
-RT.watch('rt-mission', 'settings', (cells) => {
+RT.watch('openeoc-mission', 'settings', (cells) => {
   missions = cells; const sel = f$('#mis', 'pick'), cur = RT.currentMission()
   sel.innerHTML = '<option value="">(choose)</option>' + [...cells.values()].map(r => '<option value="' + RT.esc(r.instance) + '">' + RT.esc(r.bag.name) + ' (op ' + RT.esc(r.bag.opPeriod) + ')</option>').join('')
   if (cur && cells.has(cur.id)) { sel.value = cur.id; if (!stopLog || cells.get(cur.id).bag.opPeriod !== cur.opPeriod) open({ id: cur.id, ...cells.get(cur.id).bag }) }
@@ -77,7 +77,7 @@ $('#startMission').onclick = async () => {
   const name = f$('#mis', 'name').value.trim(), op = f$('#mis', 'op').value.trim() || '1'
   if (!name) { say('name the mission'); return }
   const id = RT.missionId(name)
-  await RT.write('rt-mission', 'settings', id, { name, opPeriod: op, startedBy: RT.device().id, at: Math.round(Date.now() / 1000) })
+  await RT.write('openeoc-mission', 'settings', id, { name, opPeriod: op, startedBy: RT.device().id, at: Math.round(Date.now() / 1000) })
   open({ id, name, opPeriod: op }); say('')
 }
 $('#entry').onsubmit = async (ev) => {

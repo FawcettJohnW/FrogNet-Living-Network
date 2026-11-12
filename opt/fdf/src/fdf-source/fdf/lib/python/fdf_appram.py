@@ -2,7 +2,7 @@
 #  Copyright (C) 2016-2026 Fawcett Innovations LLC             #
 #  SPDX-License-Identifier: GPL-2.0-only                       #
 ################################################################
-"""fdf_appram -- [APP_SERVICES_V1] where an app's AppRam is served now, for the programs on a node (rt-post309, rt-sim):
+"""fdf_appram -- [APP_SERVICES_V1] where an app's AppRam is served now, for the programs on a node (openeoc-post309, openeoc-sim):
 its AppHost, the line the election writes into /etc/hosts (FDF_HOSTS) -- <app>Host.frognet for the general AppRam,
 <team>Host.<app> for a Team's -- and its port, in the app's one configuration tuple (this machine's copy in FDF_APPS,
 or the tuple in databasehost-control when the app is not installed here). HOSTS is the file whose writing is the event."""
@@ -38,7 +38,7 @@ def config_of(app):
     except (OSError, ValueError):
         pass
     try:
-        for c in fdfram.Ram(fdfram.control_ram()).read("fdf-app", "config", app):
+        for c in fdfram.control_ram().read("fdf-app", "config", app):   # [ROLES_ON_API_V1] api.php
             return json.loads(str((c.get("bag") or {}).get("config") or "{}"))
     except (fdfram.RamError, ValueError):
         pass

@@ -3,7 +3,7 @@
      summary.html -- [RT_SUMMARY_V1] the mission summary: rules.js summarizeMission (OpenEOC's) over the log, the
      roster and the after-action notes, for the whole log or the op period's window. Derived; nothing is stored. -->
 <html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
-<title>Summary</title><link rel="stylesheet" href="rt.css">
+<title>Summary</title><link rel="stylesheet" href="openeoc.css">
 <style> .bar { display: inline-block; background: #5b7fa6; height: 10px; vertical-align: middle } .bar.att { background: #c0392b } </style></head><body>
 <nav><a href="log.html">Radio Log</a> · <b>Summary</b> · <a href="aar.html">After-action</a></nav>
 <h1>Summary <small id="mis"></small></h1>
@@ -19,7 +19,7 @@
 <h2>Needs attention <small id="natt"></small></h2><table><tbody id="att"></tbody></table>
 <h2>After-action notes <small id="naar"></small></h2><div id="aar"></div>
 <script type="module">
-import * as RT from './rt.js'
+import * as RT from './openeoc.js'
 const D = RT.D, $ = (s) => document.querySelector(s), say = (t) => { $('#say').textContent = t }
 window.RT_NOTE = say
 const m = RT.currentMission()
@@ -47,9 +47,9 @@ $('#from').onchange = $('#to').onchange = setWin; $('#whole').onclick = () => { 
 if (!m) say('choose or start a mission on the Radio Log first')
 else {
   $('#mis').textContent = m.name + ', op period ' + m.opPeriod
-  RT.watch('rt-log', RT.logVariable(m), (c) => { log = c; draw() }, (e) => say('the RAM did not answer (' + e.message + '); reading again'))
-  RT.watch('rt-roster', m.id, (c) => { roster = c; draw() })
-  RT.watch('rt-notes', m.id, (c) => { notes = c; draw() })
+  RT.watch('openeoc-log', RT.logVariable(m), (c) => { log = c; draw() }, (e) => say('the RAM did not answer (' + e.message + '); reading again'))
+  RT.watch('openeoc-roster', m.id, (c) => { roster = c; draw() })
+  RT.watch('openeoc-notes', m.id, (c) => { notes = c; draw() })
   setInterval(draw, 60000)                                         // "so far" moves with the clock, no write
 }
 </script></body></html>

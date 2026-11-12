@@ -1,9 +1,9 @@
 <!doctype html>
 <!-- Copyright (C) 2016-2026 Fawcett Innovations LLC. SPDX-License-Identifier: GPL-2.0-only
      rangers.html -- [RT_PAGES_V1] the mission's roster: each ranger written by the device that typed it, at
-     (rt-roster, <mission>, <uid>); every post sees every ranger as it is added. -->
+     (openeoc-roster, <mission>, <uid>); every post sees every ranger as it is added. -->
 <html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
-<title>Rangers</title><link rel="stylesheet" href="rt.css"></head><body>
+<title>Rangers</title><link rel="stylesheet" href="openeoc.css"></head><body>
 <nav><a href="log.html">Radio Log</a> · <b>Rangers</b> · <a href="map.html">Map</a> · <a href="print309.html">ICS-309</a> · <a href="board.html">Board</a> · <a href="messages.html">Messages</a> · <a href="summary.html">Summary</a> · <a href="aar.html">After-action</a></nav>
 <h1>Rangers <small id="mis"></small></h1>
 <form id="add"><fieldset><label>Callsign <input name="callsign" size="10" required></label>
@@ -13,7 +13,7 @@
 <div id="say"></div>
 <table><thead><tr><th>Callsign</th><th>Name</th><th>Team</th><th>Role</th><th>Phone</th><th>Last heard</th><th>Added by</th></tr></thead><tbody id="rows"></tbody></table>
 <script type="module">
-import * as RT from './rt.js'
+import * as RT from './openeoc.js'
 const $ = (s) => document.querySelector(s), say = (t) => { $('#say').textContent = t }
 window.RT_NOTE = (t) => { const e = document.querySelector('#say'); if (e) e.textContent = t }
 const m = RT.currentMission()
@@ -27,12 +27,12 @@ function draw() {
 }
 if (!m) { say('choose or start a mission on the Radio Log first') } else {
   $('#mis').textContent = m.name + ', op period ' + m.opPeriod
-  RT.watch('rt-roster', m.id, (c) => { roster = c; draw() }, (e) => say('the RAM did not answer (' + e.message + '); reading again'))
-  RT.watch('rt-log', RT.logVariable(m), (c) => { log = c; draw() })
+  RT.watch('openeoc-roster', m.id, (c) => { roster = c; draw() }, (e) => say('the RAM did not answer (' + e.message + '); reading again'))
+  RT.watch('openeoc-log', RT.logVariable(m), (c) => { log = c; draw() })
   $('#add').onsubmit = async (ev) => {
     ev.preventDefault(); const f = ev.target, d = RT.device()
     const callsign = f.callsign.value.trim().toUpperCase(), uid = callsign.replace(/[^A-Z0-9]/g, '') || d.id + '.' + Date.now()
-    try { await RT.write('rt-roster', m.id, uid, { uid, callsign, fullName: f.fullName.value.trim(), team: f.team.value.trim(), role: f.role.value.trim(),
+    try { await RT.write('openeoc-roster', m.id, uid, { uid, callsign, fullName: f.fullName.value.trim(), team: f.team.value.trim(), role: f.role.value.trim(),
                                                    phone: f.phone.value.trim(), by: d.name || d.id, at: Math.round(Date.now() / 1000) })
           say('added ' + callsign); f.reset(); f.callsign.focus() } catch (e) { say('not added: ' + e.message) }
   }

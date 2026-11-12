@@ -48,6 +48,18 @@ public final class Main extends Application {
         }
         /** [RT_CALL_V1] the page's Call: what this computer's Communicator can use, then the Communicator itself */
         public void comms(String json) { Main.this.comms(json); }
+        /** [FEMA_EOC_V1] the page's Print (EOCAdmin's forms, the IAP, the after-action report): this computer's printer
+         *  dialog, then the page as it prints (its print rules show the sheet only) */
+        public void print(String title) {
+            Platform.runLater(() -> {
+                javafx.print.PrinterJob job = javafx.print.PrinterJob.createPrinterJob();
+                if (job == null) { pageSay("⚠ no printer on this computer"); return; }
+                job.getJobSettings().setJobName(title);
+                if (!job.showPrintDialog(stage)) { job.cancelJob(); return; }
+                web.print(job);
+                if (!job.endJob()) pageSay("⚠ the printer did not take " + title + ": " + job.getJobStatus());
+            });
+        }
         /** [RT_MAP_SAYS_V1] the page's own account of its map, in this window's log */
         public void log(String line) { System.out.println(line); }
         public void startComms(String json) { new Thread(() -> Main.this.startComms(json), "comms").start(); }
@@ -77,7 +89,7 @@ public final class Main extends Application {
         Map<String, Object> m; try { m = Json.obj(Json.parse(json)); } catch (Exception e) { return; }
         Platform.runLater(() -> {
             String exe = commsExe();
-            if (exe.isEmpty()) { deliver(Json.o("ev", "error", "text", "no Communicator chosen: Call needs comms-app")); return; }
+            if (exe.isEmpty()) return;                  // said by commsExe
             new Thread(() -> {
                 Map<String, Object> s = settings(), ev = devices(exe);
                 String door = Json.str(m.get("door"));
@@ -94,7 +106,8 @@ public final class Main extends Application {
             Map<String, Object> m = Json.obj(Json.parse(json)), s = settings();
             s.put("comms", Json.o("camera", Json.str(m.get("camera")), "mic", Json.str(m.get("mic")), "speaker", Json.str(m.get("speaker"))));
             write(s, settingsFile());
-            java.util.List<String> c = new java.util.ArrayList<>(java.util.Arrays.asList(commsExeSaved(),
+            String exe = commsExe(false); if (exe.isEmpty()) { deliver(Json.o("ev", "error", "text", "no Communicator on this computer: Call again to choose it")); return; }
+            java.util.List<String> c = new java.util.ArrayList<>(java.util.Arrays.asList(exe,
                     "--ram", Json.str(m.get("ram")), "--media", Json.str(m.get("media")), "--name", Json.str(m.get("name"))));
             // calling: --auto-join places the call once the peer is in the room. Answering: the Communicator rings with the
             // caller's invitation and is answered there (--auto-join on both ends would have each call the other)
@@ -114,24 +127,45 @@ public final class Main extends Application {
         String line = Json.write(ev);
         Platform.runLater(() -> { try { web.executeScript("rtDeliver(" + Json.quote(line) + ")"); } catch (Exception e) { System.err.println("page: " + e); } });
     }
-    private String commsExeSaved() { return Json.str(settings().get("commsApp")); }
-    /** comms-app: the one this computer was told, else beside OpenEOC, else asked for once (FX thread) */
-    private String commsExe() {
-        String p = commsExeSaved();
-        if (!p.isEmpty() && new File(p).canExecute()) return p;
+    /** [ONE_COMMUNICATOR_V1] (John 2026-11-10: "the comms-app is part of the bundle thrown down, but also such that there is
+     *  only one on the device") one Communicator per computer, for every OpenEOC app on it: the bundle's comms\comms-app.exe
+     *  when the bundle carries one; else the one this computer was told (~/.openeoc/communicator.json, one file for every
+     *  app; the path an app saved before, its commsApp, is taken into it); else asked for once, on the FX thread, and kept
+     *  there. r73 to r75 used the bundle's only and broke the calls of a computer whose Communicator was elsewhere (John:
+     *  "It has been working"). "" : none (asked: none chosen, said). */
+    private String commsExe() { return commsExe(true); }
+    private String commsExe(boolean ask) {
         boolean win = System.getProperty("os.name").toLowerCase().contains("win");
         String n = win ? "comms-app.exe" : "comms-app";
-        Path base = Paths.get(System.getProperty("rt.home", ".")).toAbsolutePath();
-        for (Path c : new Path[]{base.resolve(n), base.resolve("comms").resolve(n), base.resolve("bin").resolve(n),
-                                 base.getParent() == null ? base.resolve(n) : base.getParent().resolve("Communicator").resolve(n),
-                                 base.getParent() == null ? base.resolve(n) : base.getParent().resolve("comms").resolve(n)})
-            if (Files.isExecutable(c)) return remember(c.toString());
+        Path exe = bundle().resolve("comms").resolve(n);
+        if (Files.isRegularFile(exe) && Files.isExecutable(exe)) return exe.toString();
+        String known = knownComms();
+        if (!known.isEmpty() && Files.isRegularFile(Paths.get(known))) return known;
+        if (!ask) return "";
         javafx.stage.FileChooser fc = new javafx.stage.FileChooser();
-        fc.setTitle("Where is the FrogNet Communicator (" + n + ")?");
+        fc.setTitle("Where is the FrogNet Communicator (" + n + ")? Asked once for every OpenEOC app on this computer");
         File f = fc.showOpenDialog(stage);
-        return f == null ? "" : remember(f.getAbsolutePath());
+        if (f == null) { deliver(Json.o("ev", "error", "text", "no Communicator chosen: Call needs " + n)); return ""; }
+        keepComms(f.getAbsolutePath()); return f.getAbsolutePath();
     }
-    private String remember(String exe) { Map<String, Object> s = settings(); s.put("commsApp", exe); write(s, settingsFile()); return exe; }
+    private static Path commsFile() { return home().resolve("communicator.json"); }
+    private String knownComms() {
+        try { String p = Json.str(Json.obj(Json.parse(new String(Files.readAllBytes(commsFile()), StandardCharsets.UTF_8))).get("exe")); if (!p.isEmpty()) return p; }
+        catch (Exception ignored) { }
+        String old = Json.str(settings().get("commsApp"));            // the path this app saved before r73
+        if (!old.isEmpty() && Files.isRegularFile(Paths.get(old))) { keepComms(old); return old; }
+        return "";
+    }
+    private static void keepComms(String exe) {
+        try { Files.createDirectories(home()); Files.write(commsFile(), Json.write(Json.o("exe", exe)).getBytes(StandardCharsets.UTF_8)); }
+        catch (IOException e) { System.err.println("communicator.json not saved: " + e.getMessage()); }
+    }
+    /** the bundle's folder: the one the ui folder (--ui) is in */
+    private Path bundle() {
+        String ui = getParameters().getNamed().getOrDefault("ui", Paths.get(System.getProperty("rt.home", "."), "ui").toString());
+        Path p = Paths.get(ui).toAbsolutePath().getParent();
+        return p == null ? Paths.get(".").toAbsolutePath() : p;
+    }
     /** comms-app --list-devices, parsed: cameras by name, audio devices by number (mic: has inputs; speaker: outputs) */
     public static Map<String, Object> devices(String exe) {
         java.util.List<Object> cams = new java.util.ArrayList<>(), mics = new java.util.ArrayList<>(), spk = new java.util.ArrayList<>();
@@ -158,6 +192,9 @@ public final class Main extends Application {
         return Json.o("cameras", cams, "mics", mics, "speakers", spk, "note", note);
     }
 
+    /** a line on the page's status line (on the FX thread) */
+    private void pageSay(String t) { try { web.executeScript("status(" + Json.quote(t) + ")"); } catch (Exception e) { System.err.println("page: " + e); } }
+
     @Override public void start(Stage stage) throws Exception {
         this.stage = stage;
         String ui = getParameters().getNamed().getOrDefault("ui", Paths.get(System.getProperty("rt.home", "."), "ui").toString());
@@ -181,7 +218,11 @@ public final class Main extends Application {
         });
         web.setOnAlert(e -> System.out.println("page: " + e.getData()));
         web.load(Paths.get(ui, "index.html").toUri().toString());
-        stage.setTitle(("eoc".equals(lock()) ? "OpenEOC EOC" : "OpenEOC") + " — powered by the FrogNet Living Network");   // [RT_EOC_APP_V1]
+        // [WINDOW_SAYS_ITS_VIEW_V1] (John 2026-11-09: "The Windows tools need to say what UI is running in the title bar") the
+        // window's title is the page's: the view it opens as, or the one it connected as (OpenEOC EOCAdmin, OpenEOC Team · Bigdogs ...)
+        String first = lock().isEmpty() ? "OpenEOC" : "OpenEOC -- " + ("eocadmin".equals(lock()) ? "EOCAdmin" : "eoc".equals(lock()) ? "CommandCenter" : lock());   // [NAMES_ARE_THE_CONVENTION_V1]
+        stage.setTitle(first + " — powered by the FrogNet Living Network");
+        web.titleProperty().addListener((o, was, now) -> { if (now != null && !now.trim().isEmpty()) stage.setTitle(now.trim() + " — powered by the FrogNet Living Network"); });
         // [OPENEOC_BRAND_V1] the OpenEOC mark as the window's icon (taskbar, title bar), from the page's own folder
         java.nio.file.Path mark = Paths.get(ui, "openeoc-mark-256.png");
         if (java.nio.file.Files.exists(mark)) stage.getIcons().add(new javafx.scene.image.Image(mark.toUri().toString()));
@@ -228,7 +269,7 @@ public final class Main extends Application {
         for (String k : new String[]{"door", "name", "role", "team", "unit"}) s.put(k, Json.str(m.get(k)));
         write(s, settingsFile());
     }
-    private static final String[] KEPT = {"dev", "door", "name", "role", "team", "unit", "comms", "commsApp", "addr"};
+    private static final String[] KEPT = {"dev", "door", "name", "role", "team", "unit", "comms", "commsApp", "addr"};   // [ONE_COMMUNICATOR_V1] commsApp read once into communicator.json
     /** [RT_APP_SETTINGS_APART_V1] each app its own file: settings.json the OpenEOC app's, settings-eoc.json the EOC app's
      *  (its own device id too: both may run on one computer) */
     private String settingsFile() { return lock().isEmpty() ? "settings.json" : "settings-" + lock().replaceAll("[^a-z0-9_-]", "") + ".json"; }

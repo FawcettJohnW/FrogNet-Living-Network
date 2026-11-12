@@ -10,16 +10,16 @@ import java.util.HashMap;
 import java.util.Map;
 
 /**
- * [RT_LAYERS_V1] [RT_FIELD_V1] what teams do in the field: (rt-field, <mission>, <dev>.<ms>) a deployed sensor platform,
+ * [RT_LAYERS_V1] [RT_FIELD_V1] what teams do in the field: (openeoc-field, <mission>, <dev>.<ms>) a deployed sensor platform,
  * a request for services, a hazard, a searched area -- its writer's record, not own (it stays when the phone goes);
- * (rt-field, <mission>.act, <item>~<dev>) the EOC's or a team's action on one (acknowledged, dispatched, done).
+ * (openeoc-field, <mission>.act, <item>~<dev>) the EOC's or a team's action on one (acknowledged, dispatched, done).
  */
 public final class FieldLayer extends Layer {
     private volatile Follower fieldF;
     public String name() { return "field"; }
 
     public void start(final Here h) {
-        fieldF = h.follow("field", "rt-field", null, new Runnable() { public void run() {
+        fieldF = h.follow("field", "openeoc-field", null, new Runnable() { public void run() {
             Follower f = fieldF; if (f == null) return;
             h.out("ev", "field", "items", new HashMap<String, Object>(f.family(h.mission())), "acts", new HashMap<String, Object>(f.family(h.mission() + ".act")));
         } });

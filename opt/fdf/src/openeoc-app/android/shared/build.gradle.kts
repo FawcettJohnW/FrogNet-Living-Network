@@ -12,7 +12,7 @@ val fn = file("../../../frognet-android")
 if (!File(fn, "member/src/main/kotlin/com/fawcettinnovations/fdf/member/Member.kt").isFile)
     throw GradleException("no FrogNet member source at $fn (frognet-android, beside openeoc-app in opt/fdf/src)")
 val ui = file("../../ui")
-val genAssets = layout.buildDirectory.dir("generated/rt-assets")
+val genAssets = layout.buildDirectory.dir("generated/openeoc-assets")
 // [RT_LAYERS_V1] the base page only: each app copies its own layers (ui/layers) into its own assets
 val copyUi = tasks.register<Copy>("copyUi") { from(ui) { exclude("layers/**") }; into(genAssets.map { it.dir("ui") }) }
 android {

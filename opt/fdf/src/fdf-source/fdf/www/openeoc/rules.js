@@ -69,9 +69,9 @@ export function parseLocation(text) {
   return { lat: null, lng: null, text: t }
 }
 
-// ---- the mission summary [RT_SUMMARY_V1]: RangerTrak's domain/mission-summary.ts (b6745f49) on this app's cells.
+// ---- the mission summary [RT_SUMMARY_V1]: OpenEOC's domain/mission-summary.ts (b6745f49) on this app's cells.
 // What the cells do not carry is left out, not faked: revisions, late entries (no logged-at apart from the date),
-// the source, tactical calls. "Needs attention" is the statuses RangerTrak flags by default.
+// the source, tactical calls. "Needs attention" is the statuses OpenEOC flags by default.
 export const FLAGGED = new Set(['urgent', 'need-rest-food', 'evidence-report'])
 export const BUCKET_HOURS_CHOICES = [1, 2, 3, 6, 12, 24]
 export const MAX_BUCKETS = 48
@@ -97,7 +97,7 @@ function tally(labels) {
   const c = new Map(); for (const l of labels) c.set(l, (c.get(l) ?? 0) + 1)
   return [...c].map(([label, count]) => ({ label, count })).sort((a, b) => b.count - a.count || a.label.localeCompare(b.label))
 }
-// entries: [{ id, bag }] (the log's rows); rangers: roster bags; notes: rt-notes bags; window: {from, to} or null
+// entries: [{ id, bag }] (the log's rows); rangers: roster bags; notes: openeoc-notes bags; window: {from, to} or null
 export function summarizeMission({ entries: rows, rangers, notes, window, now }) {
   const dated = rows.map(r => ({ e: r.bag, id: r.id, t: new Date(r.bag.date).getTime() })).filter(x => Number.isFinite(x.t)).sort((a, b) => a.t - b.t || a.id - b.id)
   const wholeLog = window === null
@@ -143,7 +143,7 @@ export function summarizeMission({ entries: rows, rangers, notes, window, now })
            aar: { groups: [...gm.values()], incidentCount: incident.length, appCount: wn.length - incident.length } }
 }
 
-// ---- the ICS-213 [RT_213_V1]: RangerTrak's ics213FieldsFromReport (b6745f49), the form's own field names
+// ---- the ICS-213 [RT_213_V1]: OpenEOC's ics213FieldsFromReport (b6745f49), the form's own field names
 const p2 = (n) => String(n).padStart(2, '0')
 export const formDate = (d) => p2(d.getMonth() + 1) + '/' + p2(d.getDate()) + '/' + d.getFullYear()     // mm/dd/yyyy, never the locale's
 export const formTime = (d) => p2(d.getHours()) + ':' + p2(d.getMinutes())                              // 24-hour
