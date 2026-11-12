@@ -109,9 +109,13 @@ LISPERS_STOP_PATTERNS = [   # (regex on the function name, reason)
     (r"retransmit_ddt", "map-resolver as DDT client: not in the job"),
 ]
 # ------------------------------------------------------------------------------------------------- scope: Ribbit
+# [AUDIT_FOLLOWS_THE_TREE_V1] since v0.64 the RAM host is the platform's (ribbit/cpp/src/ram_host.cpp) and the LISP
+# region's operation is ribbit_cpp/lisper_ram.cpp; the platform is no longer copied into ribbit_cpp.
+RIBBIT_HOSTED = "ribbit_cpp/lisper_ram.cpp"
+RIBBIT_RAM_HOST = "../../cpp/src/ram_host.cpp"
 RIBBIT_APP_FILES = ["ribbit_cpp/lisp_engine.hpp", "ribbit_cpp/lisp_handler.hpp", "tools/lisp_boundary.cpp",
-                    "tools/ramsrv/ram_server.cpp"]
-RIBBIT_RAM_APP_FUNCS = re.compile(r"^(lisp_op|ResidentMemory::.*|private_service)$")   # the rest of ram_server = platform
+                    RIBBIT_HOSTED, RIBBIT_RAM_HOST]
+RIBBIT_RAM_APP_FUNCS = re.compile(r"^(ResidentMemory::.*)$")   # the rest of ram_host = platform
 RIBBIT_PLATFORM_EXCLUDE = re.compile(r"pyuni_.*tables\.hpp$")                          # generated tables
 RIBBIT_OPS_IN = {"wire.register6", "wire.request6", "wire.request4", "wire.register4_notify", "wire.register_notify",
                  "wire.register4", "registration.put", "registration.delete", "resolution.get", "site.add",
@@ -357,13 +361,19 @@ def dispatch_blocks(body):
 def ribbit_scope(root):
     ribbit_files = sorted("ribbit_cpp/" + f for f in os.listdir(os.path.join(root, "ribbit_cpp"))
                           if f.endswith((".hpp", ".cpp", ".h")) and not RIBBIT_PLATFORM_EXCLUDE.search(f))
+    plat_root = os.path.join(root, "../../cpp")
+    for sub in ("include", "include/lf", "src"):
+        d = os.path.join(plat_root, sub)
+        if os.path.isdir(d):
+            ribbit_files += sorted("../../cpp/%s/%s" % (sub, f) for f in os.listdir(d)
+                                   if f.endswith((".hpp", ".cpp", ".h")) and not RIBBIT_PLATFORM_EXCLUDE.search(f))
     files = sorted(set(ribbit_files + RIBBIT_APP_FILES))
     rows = lizard_rows(files, cwd=root)
     src = {f: open(os.path.join(root, f)).read().split("\n") for f in files}
     def text(r): return "\n".join(src[r["file"]][r["a"] - 1:r["b"]])
     mism = sum(1 for r in rows if decisions(text(r)) + 1 != r["ccn"])   # our counter against lizard (reported)
-    app = [r for r in rows if r["file"] in RIBBIT_APP_FILES and (r["file"] != "tools/ramsrv/ram_server.cpp" or RIBBIT_RAM_APP_FUNCS.match(r["name"]))]
-    plat = [r for r in rows if r not in app and r["file"] not in ("ribbit_cpp/ribbit_lisp.cpp",)]
+    app = [r for r in rows if r["file"] in RIBBIT_APP_FILES and (r["file"] != RIBBIT_RAM_HOST or RIBBIT_RAM_APP_FUNCS.match(r["name"]))]
+    plat = [r for r in rows if r not in app and r["file"] not in ("ribbit_cpp/ribbit_lisp.cpp", "ribbit_cpp/ram_probe.cpp")]
     ops_out, disp = [], [r for r in app if r["name"] == "Engine::dispatch"][0]
     kept = []
     for b in dispatch_blocks(text(disp)):
@@ -381,7 +391,7 @@ def ribbit_scope(root):
         t = disp_text if r is disp else text(r)
         return strip_local(t)[0]
     roots = [r for r in app if r["file"] in ("ribbit_cpp/lisp_handler.hpp", "tools/lisp_boundary.cpp")
-             or r["file"] == "tools/ramsrv/ram_server.cpp"] + [disp]
+             or r["file"] in (RIBBIT_HOSTED, RIBBIT_RAM_HOST)] + [disp]
     reach = set(); todo = list(roots)
     while todo:
         r = todo.pop(); key = (r["file"], r["a"])

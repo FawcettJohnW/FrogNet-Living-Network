@@ -37,7 +37,7 @@ try:
  assert ms.call('resolver.wait_site',iid=IID,prefix=SITE,group=G,active=True)=='good'
  assert ms.call('ms_governor.start',iid=IID,group=G,name='ms-regov')=='good'
  assert etr.call('etr.identity',name='etr-rg',xtr_id='3c3c')=='good'
- assert etr.call('etr_liveness.start',interval_s=1,lifetime_s=10)=='good'
+ assert etr.call('etr_liveness.start')=='good'
  assert etr.call('database_mapping.add',iid=IID,prefix=P,group=G,rloc_set=[R])=='good'
  assert etr.call('etr_decision.wait',governor='ms-regov',iid=IID,group=G,prefix=P,decision='accepted',timeout_s=5)=='good'
  assert itr.call('resolver.wait',iid=IID,prefix=P,group=G,present=True,rloc=R,timeout_s=5)=='good'

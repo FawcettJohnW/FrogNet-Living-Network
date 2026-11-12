@@ -1,0 +1,112 @@
+#pragma once
+
+#include "RadioLibInterface.h"
+
+/**
+ * \brief Adapter for SX128x radio family. Implements common logic for child classes.
+ * \tparam T RadioLib module type for SX128x: SX1280.
+ */
+template <class T> class SX128xInterface : public RadioLibInterface
+{
+  public:
+    SX128xInterface(LockingArduinoHal *hal, RADIOLIB_PIN_TYPE cs, RADIOLIB_PIN_TYPE irq, RADIOLIB_PIN_TYPE rst,
+                    RADIOLIB_PIN_TYPE busy);
+
+    /// Initialise the Driver transport hardware and software.
+    /// Make sure the Driver is properly configured before calling init().
+    /// \return true if initialisation succeeded.
+    virtual bool init() override;
+
+    virtual bool wideLora() override;
+
+    /// SX128x is a 2.4 GHz-only chip; it cannot tune sub-GHz regions
+    virtual bool supportsSubGhz() override { return false; }
+
+    /// Apply any radio provisioning changes
+    /// Make sure the Driver is properly configured before calling init().
+    /// \return true if initialisation succeeded.
+    virtual bool reconfigure() override;
+
+    /// Prepare hardware for sleep.  Call this _only_ for deep sleep, not needed for light sleep.
+    virtual bool sleep() override;
+
+    bool isIRQPending() override { return lora.getIrqFlags() != 0; }
+
+    /// DS rev 3.3 16.2: a header error leaves RX wedged with no RX_DONE or timeout, so only a re-arm clears it
+    bool headerErrWedgesRx() const override { return true; }
+
+  protected:
+    /**
+     * Specific module instance
+     */
+    T lora;
+
+    int16_t getCurrentRSSI() override;
+
+    /**
+     * Glue functions called from ISR land
+     */
+    virtual void clearRadioIsr() override;
+
+    /**
+     * Enable a particular ISR callback glue function
+     */
+    virtual void setRadioIsr(void (*callback)()) override { lora.setDio1Action(callback); }
+
+    /** can we detect a LoRa preamble on the current channel? */
+    virtual bool isChannelActive() override;
+
+    /** are we actively receiving a packet (only called during receiving state) */
+    virtual bool isActivelyReceiving() override;
+
+    /**
+     * Start waiting to receive a message
+     */
+    virtual void startReceive() override;
+
+    /**
+     *  We override to turn on transmitter power as needed.
+     */
+    virtual void configHardwareForSend() override;
+
+    /**
+     * Add SNR data to received messages
+     */
+    virtual void addReceiveMetadata(meshtastic_MeshPacket *mp) override;
+
+    virtual void setStandby() override;
+
+    uint32_t getPacketTime(uint32_t pl, bool received) override { return computePacketTime(lora, pl, received); }
+
+    bool readRxHeaderInfo(uint8_t &cr, bool &hasCRC) override
+    {
+        return lora.getLoRaRxHeaderInfo(&cr, &hasCRC) == RADIOLIB_ERR_NONE;
+    }
+
+    // 2.4 GHz only. isChannelActive() passes CAD_ON_8_SYMB; keep the two in step.
+    uint8_t getCadSymbolCountWideLora() const override { return 8; }
+
+    /** Set the CAD peak-to-noise threshold for the current sf/bw. Call after either changes. */
+    void applyCadDetPeak();
+
+  private:
+    /** Program all modem parameters into the chip; returns the first RadioLib error, or RADIOLIB_ERR_NONE */
+    int16_t programModemParams();
+
+    /** begin() and chip-side setup, shared by init() and by reconfigure()'s recovery of a chip that lost its state */
+    /** @param fromInit true only for the boot-time call, which may adjust region and reboot on a
+     *  2.4GHz-only part; a runtime recovery must never reboot the node. */
+    bool reinitChip(bool fromInit = false);
+
+    /** setStandby()'s body, returning the standby error instead of asserting - for callers that can recover */
+    int16_t trySetStandby();
+
+    /** Recover a chip that lost its runtime state: hardware-reset via begin() and reprogram */
+    bool recoverChipStateLoss() override
+    {
+        if (!reinitChip() || programModemParams() != RADIOLIB_ERR_NONE)
+            return false;
+        applyCadDetPeak(); // the reset took the CAD threshold with the rest of the chip state
+        return true;
+    }
+};

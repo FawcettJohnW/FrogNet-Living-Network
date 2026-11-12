@@ -11,9 +11,9 @@ import java.util.Map;
 
 /**
  * [RT_LAYERS_V1] [RT_FACILITY_V1] each hospital's own status (beds by type, diversion, power, water, oxygen, staff,
- * needs): (rt-facility, <mission>, <facility>), written by whoever runs that facility's desk, not own (it stays);
- * [RT_TRANSPORT_V1] each patient transport, (rt-transport, <mission>, <dev>.<ms>), the unit's record, and the hospital's
- * acknowledgement (rt-transport, <mission>.act, <id>~<dev>). The Hospital view (its desk: on the map as staff) and the
+ * needs): (openeoc-facility, <mission>, <facility>), written by whoever runs that facility's desk, not own (it stays);
+ * [RT_TRANSPORT_V1] each patient transport, (openeoc-transport, <mission>, <dev>.<ms>), the unit's record, and the hospital's
+ * acknowledgement (openeoc-transport, <mission>.act, <id>~<dev>). The Hospital view (its desk: on the map as staff) and the
  * Ambulance view.
  */
 public final class MedicalLayer extends Layer {
@@ -22,10 +22,10 @@ public final class MedicalLayer extends Layer {
     public Map<String, Role> roles() { return roles("hospital", new Role("unit", "staff", false), "ambulance", new Role("unit", "ambulance", false)); }
 
     public void start(final Here h) {
-        facF = h.follow("facilities", "rt-facility", h.mission(), new Runnable() { public void run() {
+        facF = h.follow("facilities", "openeoc-facility", h.mission(), new Runnable() { public void run() {
             Follower f = facF; if (f != null) h.out("ev", "facilities", "list", new HashMap<String, Object>(f.family(h.mission())));
         } });
-        trF = h.follow("transports", "rt-transport", null, new Runnable() { public void run() {
+        trF = h.follow("transports", "openeoc-transport", null, new Runnable() { public void run() {
             Follower f = trF; if (f == null) return;
             h.out("ev", "transports", "items", new HashMap<String, Object>(f.family(h.mission())), "acts", new HashMap<String, Object>(f.family(h.mission() + ".act")));
         } });

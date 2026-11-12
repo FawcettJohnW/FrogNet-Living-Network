@@ -1,6 +1,6 @@
 # Study: message numbers and the merge (phase 1, step 3)
 
-RangerTrak `b6745f49`: `src/app/domain/msg-no.ts` (164 lines), `src/app/domain/entry-merge.ts` (232), ADR D-68, E-220,
+OpenEOC `b6745f49`: `src/app/domain/msg-no.ts` (164 lines), `src/app/domain/entry-merge.ts` (232), ADR D-68, E-220,
 E-218, D-59, E-114. Read, not run; what the code does, then what it means on the memory.
 
 ## What stock does

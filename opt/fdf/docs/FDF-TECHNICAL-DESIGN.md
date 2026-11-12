@@ -1,10 +1,10 @@
-# FD&F Technical Design Document
+# CroakOS Technical Design Document
 
-**System:** FD&F (Farinacci–Day–Fawcett): RINA naming, LISP mapping and Ribbit shared RAM as one network.
+**System:** CroakOS, the distributed operating system that implements the FD&F (Farinacci–Day–Fawcett) architecture: RINA naming, LISP mapping and Ribbit shared RAM as one network. FD&F names the architecture; CroakOS names the software described here. The code keeps the `fdf` name in its paths and commands.
 **Build described:** `fdf-2026-10-12-r20`; Appendix S, `fdf-2026-10-16-r21` (`fdf-source/rinab/src/fdf_version.hpp:4`), public repository `FawcettJohnW/FrogNet-Living-Network` at commit `989225c` (2026-10-14).
 **Author:** Fawcett Innovations LLC. **Status:** technical design of the code as built, derived from the code. **This is very early code; the security model is designed but not yet fully implemented (§9).**
 
-The main document (§1–§12) is the technical design: the FD&F client, then region mode. The reference appendices (A–O) hold the detail, with every statement traced to the code. The last four appendices (P–S) show additional capabilities: preloading a region with data, extending the RAM API and the semantic message handling, and John Day's DAF model built as a region.
+The main document (§1–§12) is the technical design: the CroakOS client, then region mode. The reference appendices (A–O) hold the detail, with every statement traced to the code. The last four appendices (P–S) show additional capabilities: preloading a region with data, extending the RAM API and the semantic message handling, and John Day's DAF model built as a region.
 
 **Contents**
 
@@ -12,7 +12,7 @@ The main document (§1–§12) is the technical design: the FD&F client, then re
 2. System overview
 3. Design goals, constraints and non-goals
 4. Architecture
-5. Detailed design: the FD&F client
+5. Detailed design: the CroakOS client
 6. Detailed design: region mode
 7. Interfaces
 8. Data model
@@ -54,7 +54,7 @@ This document is the technical design of FD&F as built: what it is for, how it i
 
 ### 1.2 Scope
 
-- **In scope:** the FD&F code under `opt/fdf`. That is the RAM manager (`fdf-ram`), the FD&F client, region mode (FrogNet on FD&F), and the Windows and Android members.
+- **In scope:** the CroakOS code under `opt/fdf`. That is the RAM manager (`fdf-ram`), the CroakOS client, region mode (FrogNet on FD&F), and the Windows and Android members.
 - **Out of scope:** FrogNet's own LAN discovery and routing (`opt/frognet_semantic`), and the Ribbit examples as products in their own right. Appendices P–R draw on those examples only to show what the platform under FD&F can do beyond what FD&F uses. One handler they describe (R.3) survives only as a reference copy.
 
 ### 1.3 How to read it
@@ -98,7 +98,7 @@ FD&F makes one network out of individual machines by giving them one shared memo
   - **Ribbit** (John Fawcett) is the shared memory and the API to it.
 
 It is not much code:
-- the stand-alone FD&F source is about 3,600 lines;
+- the stand-alone CroakOS source is about 3,600 lines;
 - the LISP engine compiled into `fdf-ram` adds about 3,100;
 - the C++ platform library and RAM server it runs on add about 4,700 more.
 
@@ -175,7 +175,7 @@ One bootstrap configuration, given once. Everything else it learns from the shar
 
 **By name**, the area's name is turned into the address of its mapping system by a fixed rule: a hash of the name into 198.18.0.0/15. The mapping says where the RAM manager is now, so the manager can move and machines follow (Appendix F).
 
-## 5. Detailed design: the FD&F client
+## 5. Detailed design: the CroakOS client
 
 ### 5.1 Behaviour
 
@@ -246,7 +246,7 @@ The mode is set in `net.json` on the region host. The RAM manager publishes it a
 | Create | `fdf-region-create AREA PUBLIC_IP` | Makes the site key (printed once), the three services, and the hub |
 | Join | `sudo bash fdf-install-<arch>.run <SITE KEY> <RAM_HOST:PORT> <AREA>` | Installs, writes the join state, turns off the LAN election, starts the client and facts |
 | More ponds | `fdf-pond-add`, `fdf-pond-remove`, `fdf-forward AREA` | A machine has one forward pond (routes, mapping, hub peer) and any number of participant ponds (memory only) |
-| Leave | `fdf-leave` | Removes the FD&F services and state; the node goes back to LAN-only FrogNet and keeps its WireGuard key |
+| Leave | `fdf-leave` | Removes the CroakOS services and state; the node goes back to LAN-only FrogNet and keeps its WireGuard key |
 
 ### 6.4 Addressing
 
@@ -296,7 +296,7 @@ Appendix I has the details: the hub, the facts, the route planner, ponds and rea
 
 ### 7.1 RAM API
 
-One endpoint per RAM manager: `/FawcettInnovations.RINA.ram_interface.php` on FD&F hosts, `/ram.php` by default.
+One endpoint per RAM manager: `/FawcettInnovations.RINA.ram_interface.php` on CroakOS hosts, `/ram.php` by default.
 
 | op | What it does |
 |---|---|
@@ -385,6 +385,8 @@ Appendix E.3 has every kind, and Appendix E.7 what exists at startup.
 **Principle.** FD&F owns no permission system of its own.
 - The RAM manager does no authorization. It is an ordinary Linux process and inherits that machine's protection: file ownership, firewall, accounts.
 - Finer policy belongs in the region owner's API, because each region is a vendor-owned piece of the address space with its own API (`PLAN-FROGNET-ON-FDF.md:257`).
+- **Authorization is by role, on the machine.** Every service is a role, held by one machine at a time. A role comes up when its lead logs into the app's admin app on the same network as the parent role, which can be across the Internet when the device already has a tunnel (the door's `enroll` op in `fdf/www/dc/ram.php` has no LAN check: it needs a door whose ControlRam holds the parent's configuration). The role is authenticated by network membership, plus a challenge when it connects to the machine holding the role (`ORGANIZATIONS.md` §9.3), and enforced by that machine's protection. A child can take on its parent's authorization transparently, but is not required to.
+- **Reach is not authorization.** What a device can get to at all is set by its admission level and by the hub (contracts 1 and 3 below), whatever roles it holds.
 
 **Where security lives.** "Security lives in enrollment (RINA), in signed registration (LISP), and in which memory a record lives in (Ribbit)" (`PLAN-FROGNET-ON-FDF.md:257-259`):
 - **Enrollment (RINA).** Each DIF is a shared RAM. A machine sees a DIF's records only if it is enrolled in that DIF, so a monitor on a DIF sees only that DIF's machines.
@@ -486,7 +488,7 @@ Appendix N has the full list. The main open items:
 
 ## Appendix A. How to read the reference appendices
 
-**What they are.** Appendices A–O are the engineering reference for the FD&F code under `opt/fdf`: the detail behind §1–§12. They cover:
+**What they are.** Appendices A–O are the engineering reference for the CroakOS code under `opt/fdf`: the detail behind §1–§12. They cover:
 - requirements, architecture and interfaces;
 - the memory semantics and the guarantees they provide;
 - bootstrap and failure behaviour, and the wire protocol;
@@ -515,7 +517,7 @@ about 37 `apply_*.py`) now builds only the client side (`frogram.cpp`); line num
 | Label | Meaning |
 |---|---|
 | **r20** | Shown on this build, in the October 2026 cleanup gates (netns, containers), 2026-10-13. |
-| **HIST** | Shown on an earlier FD&F build (2026-10-05 to 10-09). Not re-run on r20. |
+| **HIST** | Shown on an earlier CroakOS build (2026-10-05 to 10-09). Not re-run on r20. |
 | **HW** | Reported from John's hardware. |
 | **NOT RUN** | Specified, never executed. |
 | **DESIGN** | Written down, not implemented. |
@@ -526,7 +528,7 @@ about 37 `apply_*.py`) now builds only the client side (`frogram.cpp`); line num
 
 ### B.1 What FD&F is
 
-FD&F builds one logical network out of individual machines. Each machine holds one outbound session to a RAM manager. The machines find each other only through the shared memory that manager hosts:
+CroakOS builds one logical network out of individual machines. Each machine holds one outbound session to a RAM manager. The machines find each other only through the shared memory that manager hosts:
 - **RINA supplies naming:** DIFs, enrollment, the flow API.
 - **LISP supplies identity-to-location mapping:** the area's name tells a machine where its RAM host is.
 - **Ribbit supplies the programming surface:** a shared object store, reached by named operations.
@@ -543,7 +545,7 @@ The governing rulings:
 | Ribbit | The RAM manager (memory and region), its API, the wire (FNWP, BLDC-1 semantic compression) | §D, §E, §H |
 | Transport | FD&F: locate, connect, announce, participants, capability, change. "No definition carries a route, a path or a neighbour" (`rinab/src/transport.hpp:1-48`) | §F |
 
-The transport interface is definitions only (`[TRANSPORT_INTERFACE_V1]`, `rinab/src/transport.hpp:1-48`). Its FD&F implementation is `rinab/src/fdf_transport.hpp`.
+The transport interface is definitions only (`[TRANSPORT_INTERFACE_V1]`, `rinab/src/transport.hpp:1-48`). Its CroakOS implementation is `rinab/src/fdf_transport.hpp`.
 
 ### B.3 Components
 
@@ -560,7 +562,7 @@ The transport interface is definitions only (`[TRANSPORT_INTERFACE_V1]`, `rinab/
 | `fdf_graph.py` | Pure route/exit/allowed-ips planner from region facts | `fdf-source/fdf/lib/python/fdf_graph.py` |
 
 **Size.** Code lines only, with blank and comment-only lines excluded:
-- stand-alone FD&F source (`rinab/src`): 3,644;
+- stand-alone CroakOS source (`rinab/src`): 3,644;
 - C++ platform library and RAM server (`rinab/platform/ribbit_cpp` and `ramsrv`, without the LISP engine and generated tables): 4,660;
 - the LISP engine port: a further 3,093;
 - generated Unicode tables: a further 4,522 lines.
@@ -575,7 +577,7 @@ The transport interface is definitions only (`[TRANSPORT_INTERFACE_V1]`, `rinab/
 
 In every mode the machine is given one bootstrap configuration: one fact in direct and by-name modes, and in region mode the endpoint, area and site key, given once at install. Everything else it learns from the shared memory.
 
-The highest-IP "control host" rule belongs to FrogNet's LAN mode, not to FD&F. It lives at `opt/frognet_semantic/discovery/hosts.py:361-383` and appears nowhere in the FD&F code; within `fdf-source` it is mentioned only in `docs/history`.
+The highest-IP "control host" rule belongs to FrogNet's LAN mode, not to FD&F. It lives at `opt/frognet_semantic/discovery/hosts.py:361-383` and appears nowhere in the CroakOS code; within `fdf-source` it is mentioned only in `docs/history`.
 
 ---
 
@@ -675,7 +677,7 @@ Rulings John stated that are not written in the repository are marked *(ruling, 
 
 | ID | Requirement | Source | Implemented | Verified / status |
 |---|---|---|---|---|
-| R-O1 | Nothing stray in `/usr/local/bin`; node tarballs are staged in `/tmp` and untarred from `/`. | `PLAN-FROGNET-ON-FDF.md:353` | FD&F programs all live in `/opt/fdf/bin` (`fdf-source/fdf/bin/fdf-join:8`). The node `.run` does carry FrogNet's own existing tools into `/usr/local/bin` (§J.1). | G4, G5. **r20** |
+| R-O1 | Nothing stray in `/usr/local/bin`; node tarballs are staged in `/tmp` and untarred from `/`. | `PLAN-FROGNET-ON-FDF.md:353` | CroakOS programs all live in `/opt/fdf/bin` (`fdf-source/fdf/bin/fdf-join:8`). The node `.run` does carry FrogNet's own existing tools into `/usr/local/bin` (§J.1). | G4, G5. **r20** |
 | R-O2 | Exactly one file per machine type. | `docs/cleanup-2026-10/T4a-BRIEF.md:6` | `[ONE_TARBALL_PER_MACHINE_V1]` (`rinab/tools/make_deliverables.sh`) | Gate 5 (dist equals tree). **r20** |
 | R-O3 | Every component logs its build; nobody runs a command to learn what is deployed. | `docs/cleanup-2026-10/T2-BRIEF.md:5`; `[FDF_VERSION_V1]` | §J.4 | Build consistency gate in `make_deliverables.sh:78-85`. **r20** |
 | R-O4 | Commands never redirect output away from the terminal. | `docs/cleanup-2026-10/T4a-BRIEF.md:4-5` | `fdf-services.sh` writes to the terminal, no log files | `check-docs.sh`. **r20** |
@@ -755,7 +757,7 @@ rina-host build patch the platform never had: lost in the switch to fdf-ram, 70f
 
 ### D.4 Atomicity and isolation: the guarantees
 
-| Property | FD&F memory | Source |
+| Property | CroakOS memory | Source |
 |---|---|---|
 | Atomic unit | One cell. A reader never sees a half-written cell. | `ram_memory.hpp:133, 153-158` |
 | Locking | Each row has one `shared_mutex`: many readers or one writer. "There is no other lock on the memory." The index structures are lock-free, insert-only lists published by compare-and-swap. | `ram_memory.hpp:1-15, 61` |
@@ -1147,7 +1149,9 @@ These come back by re-assertion and re-announcement, not by copying.
 
 FrogNet's daemon, outside FD&F, cited for completeness (`opt/frognet_semantic/internet_tunnels_v3/poll.py`):
 - Region loss is one transition (`[REGION_LOSS_IS_A_TRANSITION_V1]`): the phase is recalculated, every region route and name is withdrawn, and every kernel WireGuard interface is torn down. No merge takes their place (`[GONE_IS_GONE_V1]`) (`poll.py:1593, 1629-1639`).
-- When nothing on the system space's list answers, the next walk is on an event, not every 5 s (`[EVENTS_NOT_TIMERS_V1]`, `poll.py` `_wait_rejoin`): one of the list's RAM managers saying it is up (`$FDF_VAR/ram/<host>_<port>.up`), `lan-rams.json` changing, a forward switch, or the daemon's stop. On return the daemon takes the family's newest id, then reads (`[WATCH_BEFORE_READ_V1]`).
+- When nothing on the system space's list answers, the next walk is on an event, not every 5 s (`[EVENTS_NOT_TIMERS_V1]`, `poll.py` `_wait_rejoin`): one of the list's RAM managers saying it is up (`$FDF_VAR/ram/<host>_<port>.up`), a standing session to one of them answering, a forward switch, or the daemon's stop.
+- A split is LAN-only (`[SPLIT_IS_LAN_ONLY_V1]`, John 2026-11-07): on region loss the daemon runs `runMerge` (`FROGNET_RUNMERGE`, default `/usr/local/bin/runMerge.bash`), so the LAN's discovery, elections and roles take over; there is no LAN RAM manager and no `lan-rams.json` (`[ROLES_ON_API_V1]`). While LAN-only it keeps a standing session to every entry on the list, and the first one answering rejoins the region.
+- The roles (`databasehost_control.frognet`, `databasehost.frognet`) are each one host's `api.php` on port 80, with held reads in api.php fired through the holder's port 80 (`held_fire.php`); see `AI_READ_FIRST.md` section 10a. On return the daemon takes the family's newest id, then reads (`[WATCH_BEFORE_READ_V1]`).
 - The daemon's region events are one held read on `(pond, member)` (`region.events()`), not `fdf-events`.
 - A stop is an event too (`[STOP_IS_AN_EVENT_V1]`, `config.py`): the signal handler writes to a pipe that every wait holds, and ends the held read.
 - `fdf-client` exits when its session ends, and systemd restarts it 2 s later. The fresh session re-announces and re-registers (`fdf-source/fdf/bin/fdf-join:38-40`; `fdf_client.cpp:403-408`).
@@ -1408,7 +1412,7 @@ Source: `fdf-source/fdf/bin/fdf-hub`.
 ### I.8 Leaving
 
 `fdf-leave` (`fdf-source/fdf/bin/fdf-leave`):
-1. stops and removes the FD&F units, including every pond;
+1. stops and removes the CroakOS units, including every pond;
 2. removes the region state files;
 3. re-enables the LAN election timer;
 4. restarts the daemon in LAN-only mode.
@@ -1616,7 +1620,7 @@ Ten steps, each with "look for" lines and a pass criterion (`docs/cleanup-2026-1
 
 Hardware evidence that does exist:
 - Seattle7 (Raspberry Pi), r21–r28, 2026-10-14 (`docs/cleanup-2026-10/FIX-2026-10-14-IDENTITY.md`);
-- the first FD&F hardware runs on 2026-10-07: the kart demo and the Communicator (`RESULTS.md:1620-1749`).
+- the first CroakOS hardware runs on 2026-10-07: the kart demo and the Communicator (`RESULTS.md:1620-1749`).
 
 ### L.4 Measured numbers
 
@@ -1711,7 +1715,7 @@ These are in tension with R-F1 and R-F2. They are recorded here, not ruled on.
   - restricted DIFs exist only as design (R-S3);
   - contract 5, forwarding limited to what was exposed, has no test.
 - **Verification:**
-  - re-run the stand-alone FD&F tests and the rlite suite on r20 (§M);
+  - re-run the stand-alone CroakOS tests and the rlite suite on r20 (§M);
   - T7 on hardware;
   - kernel WireGuard and arm64 have never been executed;
   - record `bench.sh` against rlite.
@@ -1815,7 +1819,7 @@ The examples follow the same rules:
 - **What runs.** Each call runs a resident `Engine` (`lisp_engine.hpp`) in the memory. A whole Map-Register, with its authentication, site policy, registration and Map-Notify, is one call. A site, a key and a policy are one call each.
 - **Its cells** are under the service `lisp`.
 - **Verification.** It was tested against lispers.net 0.643 (`examples/lispers.net/README.md`).
-- **In FD&F.** The FD&F host keeps this operation from the platform (§D.7).
+- **In FD&F.** The CroakOS host keeps this operation from the platform (§D.7).
 
 ### Q.5 FD&F's RINA region: two operations and its own store
 
@@ -1955,7 +1959,7 @@ SotF is the one handler that fills all three slots plus a program factory.
 
 ## Appendix S. John Day's DAF model on Ribbit
 
-A working prototype of the distributed-application model in the RINA Reference Model, Part 2, Chapters 1 and 2 (John Day; Day and Trouva), built as a region of the FD&F RAM host. The plan it implements is *The RINA DAF Model on Ribbit: A Prototype Plan* (2026-10-16). Build `fdf-2026-10-16-r21`.
+A working prototype of the distributed-application model in the RINA Reference Model, Part 2, Chapters 1 and 2 (John Day; Day and Trouva), built as a region of the CroakOS RAM host. The plan it implements is *The RINA DAF Model on Ribbit: A Prototype Plan* (2026-10-16). Build `fdf-2026-10-16-r21`.
 
 **Where it is.** All paths are relative to `opt/fdf/src/fdf-source/rinab/`.
 
@@ -2073,7 +2077,7 @@ Measured on loopback, one machine:
 | Replication | One copy at the RAM manager: replication of degree one. Day's RIB is "a partially replicated database" for most DAFs. |
 | RIB in each member | A member's RIB is a reference to the one shared copy: reads and writes execute at the RAM manager. The exception is a working set (§S.5): a read cache of declared names, refreshed by held reads, whose local reads can trail the copy by the time a change takes to arrive (1.2 ms measured). Writes always go to the copy. |
 | Partitions | Each island keeps its own copy. Rejoining is an explicit `export` and `merge`, given the time of the split. Session state is rebuilt by re-assertion, never merged. |
-| Who may read cells | `op=daf` enforces membership and object sets. The generic memory itself does no authorization, by design (§9.1, R-S1), so anything that reaches the RAM port can read service `daf` directly. Private secrets live in `#daf`, which the network cannot read. |
+| Who may read cells | `op=daf` enforces membership and object sets. The generic memory itself does no authorization, by design (§9.1, R-S1): authorization is the role's, on the machine that holds it. Reach is separate: a process that reaches the RAM port can read service `daf` directly, and admission and the hub decide what can reach it. Private secrets live in `#daf`, which the network cannot read. |
 | START | A restricted script (from a name: filter, a fact, count, sum, min, max, avg or list), once, periodic or on change. Not arbitrary code. |
 | DIF Allocator: create | Creates a new DAF on one RAM host once all owners approve. It does not start a new RAM manager. |
 | Authentication | Modules `null` and `key` (HMAC-SHA-256 with nonce, replay refused). Sessions are not encrypted (§9.2). |

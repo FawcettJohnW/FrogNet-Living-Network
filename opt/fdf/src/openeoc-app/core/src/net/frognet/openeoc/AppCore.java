@@ -40,8 +40,8 @@ import java.util.Map;
  *   {"ev":"world","who":{id:bag},"pos":{id:bag}}            everyone present now, and where
  *   {"ev":"msg","from":..,"name":..,"to":..,"text":..,"at":..}  a message, once each
  *   {"ev":"error","text":"..."}
- * Cells: (rt-who, <mission>, <dev>) and (rt-pos, <mission>, <dev>), latest, own; (rt-msg, <mission>, <dev>.<ms>) to
- * everyone; (rt-team, <mission>, <dev>.<ms>) in the team's own RAM; (rt-dm, <mission>.<to>, <from>.<ms>) in the
+ * Cells: (openeoc-who, <mission>, <dev>) and (openeoc-pos, <mission>, <dev>), latest, own; (openeoc-msg, <mission>, <dev>.<ms>) to
+ * everyone; (openeoc-team, <mission>, <dev>.<ms>) in the team's own RAM; (openeoc-dm, <mission>.<to>, <from>.<ms>) in the
  * addressee's own variable, which only the addressee reads.
  */
 public final class AppCore {
@@ -49,7 +49,7 @@ public final class AppCore {
 
     public static final String APP = "openeoc";
     public static final String API = "/FawcettInnovations.RINA.ram_interface.php";
-    public static final String BUILD = "openeoc-app-2026-11-09-r57";
+    public static final String BUILD = "openeoc-app-2026-11-10-r81";
 
     private final Ui ui;
     private String door = "", dev = "", name = "", role = "", team = "", user = "", mission = "";
@@ -61,13 +61,13 @@ public final class AppCore {
     private final Map<String, Layer.Role> views = new java.util.LinkedHashMap<String, Layer.Role>();
     private final List<Follower> layerF = new java.util.concurrent.CopyOnWriteArrayList<Follower>();
     private String status = "available";
-    private final Map<String, Follower> teams = new HashMap<String, Follower>();
+    private final Map<String, TeamStore> teams = new HashMap<String, TeamStore>();   // [TEAM_ON_SYSTEMRAM_V1] a RAM's, or the SystemRam's
     private final Map<String, Boolean> seen = new HashMap<String, Boolean>();   // message ids shown
     private Map<String, Object> fix = null;
     private volatile boolean resolving = false;
     // [TEAM_HOST_V1] (John 2026-11-02: EOC > Team > Team Member; the team lead's phone hosts the team's RAM, the members
     // reach it on the lead's hotspot, the EOC wherever the lead's phone is on the network). The door still says where
-    // every RAM fdf-app serves (doorRams); a team whose lead hosts says where its RAM is in (rt-team-host, host, <team>)
+    // every RAM fdf-app serves (doorRams); a team whose lead hosts says where its RAM is in (openeoc-team-host, host, <team>)
     // on the general RAM, the lead's own cell (own: gone with the lead's session), and that is where its RAM is.
     private Map<String, String> doorRams = new HashMap<String, String>();
     private String teamRam = "";                        // given at connect: a member on the host's hotspot
@@ -75,6 +75,9 @@ public final class AppCore {
     private Map<String, Object> card = null;            // the lead's card for its members: team, door, join line
     private volatile Follower hostF;
     private volatile String leadVia = "";
+    /** [EOC_LEADS_V1] the EOC user's password, for this session only (memory: never written, never said): the door's check
+     *  that a lead is added by the EOC */
+    private volatile String eocPassword = "";
 
     /** every layer there is (the app with every view) */
     public AppCore(Ui ui) { this(ui, null); }
@@ -131,6 +134,24 @@ public final class AppCore {
             else if (op.equals("teamHost")) teamHost(m);
             else if (op.equals("teamPlace")) teamPlace(m);
             else if (op.equals("door")) redoor(Json.str(m.get("door")).trim());
+            else if (op.equals("leads")) leads();                       // [EOC_LEADS_V1]
+            else if (op.equals("roleConf")) roleConf(m);                // [ROLE_ADMIN_V1]
+            else if (op.equals("teamDelete")) {                     // [TEAM_DELETE_V1]
+                try { teamDelete(Json.str(m.get("team"))); }
+                catch (Exception e) { String why = e.getMessage() == null ? e.toString() : e.getMessage();
+                    if (why.contains("op is read")) why = "this node's door cannot delete teams yet (it answered: " + why + "): put dc-door-2026-11-09-teamdel2 on the node";
+                    out("ev", "leadSaid", "ok", false, "text", why); throw new Exception(why); }
+            }
+            else if (op.equals("leadAdd") || op.equals("leadRemove")) {
+                // [LEAD_SAYS_ITS_ANSWER_V1] (found 2026-11-09: "I hit Create the Lead ... and nothing happened") the answer, or
+                // why not, on the Leads screen itself, not only the status line
+                try { if (op.equals("leadAdd")) leadAdd(m); else leadRemove(Json.str(m.get("lead"))); }
+                catch (Exception e) {
+                    String why = e.getMessage() == null ? e.toString() : e.getMessage();
+                    if (why.contains("op is read")) why = "this node's door has no Leads yet (it answered: " + why + "): put dc-door-2026-11-09-cc1 on the node";
+                    out("ev", "leadSaid", "ok", false, "text", why); throw new Exception(why);
+                }
+            }
             else {                                          // [RT_LAYERS_V1] a layer's op
                 boolean done = false;
                 for (Layer l : layers) if (l.handle(op, m, here)) { done = true; break; }
@@ -168,6 +189,44 @@ public final class AppCore {
         return "HTTP " + LAST_STATUS.get() + " for ?" + q.replaceAll("&.*", "") + (hs.isEmpty() ? "" : " (" + hs + ")") + ": " + (t.length() > 200 ? t.substring(0, 200) + "…" : t);
     }
     private Map<String, Object> doorCall(String q, String body) throws Exception { return doorCall(q, body, 10000); }
+
+    // ------------------------------------------------------------------ [EOC_LEADS_V1] the EOC's leads
+    // (John 2026-11-09: "the EOC needs to have a menu named Leads ... the Lead creation screen, which has the name, password,
+    // and list of Roles the name can handle. The list of roles may be * for all roles, or a hand-entered list") a lead is
+    // added at the door by the EOC user (its own password, kept for this session); the lead's password goes as a
+    // verifier only. The lead then scans the EOC's QR for it, names its team, and creates it.
+    private void leads() throws Exception {
+        Map<String, Object> o = doorCall("op=leads&app=" + APP, null);
+        out("ev", "leads", "leads", Json.obj(o.get("leads")), "teams", Json.obj(o.get("teams")), "door", door);
+    }
+    private boolean eocLoggedIn() { return !user.isEmpty() && !eocPassword.isEmpty(); }
+    private void leadAdd(Map<String, Object> m) throws Exception {
+        if (!eocLoggedIn()) throw new Exception("only the Command Center, logged in, adds leads");
+        String lead = Json.str(m.get("lead")).trim(), pw = Json.str(m.get("password"));
+        if (!lead.matches("[A-Za-z0-9][A-Za-z0-9._-]{0,39}")) throw new Exception("a lead's name: letters, digits, . _ - (at most 40)");
+        if (pw.length() < 4) throw new Exception("a password of at least 4 characters for " + lead);
+        java.util.List<Object> roles = new java.util.ArrayList<Object>();
+        for (Object r : Json.arr(m.get("roles"))) { String x = Json.str(r).trim().toLowerCase(); if (!x.isEmpty() && !roles.contains(x)) roles.add(x); }
+        if (roles.isEmpty()) throw new Exception("the roles " + lead + " can run: * for all, or a list");
+        doorCall("op=lead&app=" + APP, Json.write(Json.o("user", user, "password", eocPassword, "lead", lead, "roles", roles,
+                "verifier", net.frognet.ram.Enroll.verifier(pw))));
+        say("lead " + lead + " added (" + roles + "): " + lead + " scans the Command Center's QR, names the team, and creates it");
+        out("ev", "leadSaid", "ok", true, "text", "lead " + lead + " created (" + roles + "): its QR is below");
+        leads();
+    }
+    /** [TEAM_DELETE_V1] (John 2026-11-09: "I need a way to delete a team") a team created on the network, deleted at the door */
+    private void teamDelete(String t) throws Exception {
+        if (!eocLoggedIn()) throw new Exception("only the Command Center, logged in, deletes teams");
+        if (t.trim().isEmpty()) throw new Exception("which team?");
+        doorCall("op=teamdel&app=" + APP, Json.write(Json.o("user", user, "password", eocPassword, "team", t)));
+        say("team " + t + " deleted"); out("ev", "leadSaid", "ok", true, "text", "team " + t + " deleted: its lead can create a team again");
+        leads();
+    }
+    private void leadRemove(String lead) throws Exception {
+        if (!eocLoggedIn()) throw new Exception("only the Command Center, logged in, removes leads");
+        doorCall("op=lead&app=" + APP, Json.write(Json.o("user", user, "password", eocPassword, "lead", lead, "remove", true)));
+        say("lead " + lead + " removed"); leads();
+    }
     private Map<String, Object> doorCall(String q, String body, int readMs) throws Exception {
         String r;
         try { r = http(body == null ? "GET" : "POST", "http://" + door + "/dc/ram.php?" + q, body, readMs); }
@@ -191,7 +250,7 @@ public final class AppCore {
     }
 
     /** [RT_MISSION_V1] set the mission: an update of the current one (its settings, written again whole), or a new one
-     *  (id: from its name and the time; "at": now, so it is the mission now on every device). (rt-mission, settings, <id>) */
+     *  (id: from its name and the time; "at": now, so it is the mission now on every device). (openeoc-mission, settings, <id>) */
     private void missionSet(Map<String, Object> m) throws Exception {
         if (mis == null) throw new Exception("not connected");
         if (pub()) throw new Exception("the public view sees the mission; it does not set it");
@@ -245,7 +304,8 @@ public final class AppCore {
         if (!Json.str(o.get("node")).isEmpty()) doorNode = Json.str(o.get("node"));
         if (SENSORS_SET.isEmpty() && !Json.str(o.get("sensors")).isEmpty()) SENSORS = Json.str(o.get("sensors"));
         Map<String, String> out = new HashMap<String, String>();
-        for (Map.Entry<String, Object> e : Json.obj(o.get("rams")).entrySet()) out.put(e.getKey(), Json.str(e.getValue()));
+        // a team by its name in lower case, as the lead's cells say it (a team a lead named "Lee Rescue" is one team, not two)
+        for (Map.Entry<String, Object> e : Json.obj(o.get("rams")).entrySet()) out.put(e.getKey().toLowerCase(), Json.str(e.getValue()));
         return out;
     }
 
@@ -261,7 +321,9 @@ public final class AppCore {
             String r = Json.str(o.get("role")); user = Json.str(m.get("user"));
             // [RT_CATEGORY_IS_THE_VIEW_V1] the user's role is this view's when it is the view's name, or when the admin put it
             // in the view's category (eochq in the category EOC is an EOC): the door's op=roles says each role's category
-            if (!r.equalsIgnoreCase(want)) {
+            // [ROLE_ADMIN_V1] EOCAdmin and every role's Admin (TeamAdmin ...) are a Command Center user's, as the Command Center is
+            final boolean cc = want.equals("eoc") || want.equals("eocadmin") || want.endsWith("admin");
+            if (!r.equalsIgnoreCase(want) && !(cc && r.equalsIgnoreCase("eoc"))) {
                 String cat = "", why = "";
                 try {
                     Map<String, Object> rs = Json.obj(doorCall("op=roles&app=" + APP, null).get("roles"));
@@ -271,13 +333,28 @@ public final class AppCore {
                     else cat = Json.str(Json.obj(x).get("category"));
                 } catch (Exception e) { why = "the door's roles not read: " + e.getMessage(); }
                 String c = cat.toLowerCase().trim(), one = c.endsWith("s") ? c.substring(0, c.length() - 1) : c;
-                if (!(c.equals(want) || one.equals(want)))
-                    throw new Exception("user " + user + " has role '" + r + "' (category " + (cat.isEmpty() ? "unknown: " + why : cat) + "), not the "
-                            + (want.equals("eoc") ? "EOC" : want) + "'s: in the admin app, put " + r + " in the " + (want.equals("eoc") ? "EOC" : cap(want)) + " category (" + BUILD + ")");
+                // [FEMA_EOC_V1] EOCAdmin is an EOC user's: a role in the EOC category opens it
+                if (!(c.equals(want) || one.equals(want) || (cc && one.equals("eoc"))))
+                    // [EOC_USER_SAYS_THE_FIX_V1] (found 2026-11-10: "put eochq in the EOC category", which the admin tool has had
+                    // no way to do since admin r16: it has Teams and Command Center users, no categories) the fix the tool has
+                    throw new Exception(cc
+                            ? "user " + user + " has role '" + r + "' (category " + (cat.isEmpty() ? "unknown: " + why : cat) + "), which is not in the EOC category, so "
+                              + user + " is not a Command Center user: in the admin app, remove " + user + " from " + r + " (the ✕ beside it under Teams), Apply, then add "
+                              + user + " under Command Center users with its password, Apply (" + BUILD + ")"
+                            : "user " + user + " has role '" + r + "' (category " + (cat.isEmpty() ? "unknown: " + why : cat) + "), not the " + want + "'s: in the admin app, put " + r + " in the " + cap(want) + " category (" + BUILD + ")");
             }
             role = want;                                    // the admin's role name in any case ([RT_EOC_APP_V1])
             team = "";
-        } else if (v.connect.equals("team")) { role = want; team = Json.str(m.get("team")); user = ""; }
+            eocPassword = Json.str(m.get("password"));      // [EOC_LEADS_V1] kept for adding leads, this session only
+        } else if (v.connect.equals("team")) {
+            role = want; team = Json.str(m.get("team")); user = "";
+            // [TEAM_DELETE_V1] (John 2026-11-09: "I need to remove it so that I get an error on the phone when it tries to use
+            // it") a team the Command Center deleted, or that was never created, is not on the door's roles: refused, said
+            Map<String, Object> rs = Json.obj(doorCall("op=roles&app=" + APP, null).get("roles"));
+            boolean there = false; for (String k : rs.keySet()) if (k.equalsIgnoreCase(team.trim())) there = true;
+            if (!there) throw new Exception("team " + cap(team) + " is not on this network: the Command Center deleted it, or it was never created ("
+                    + (rs.isEmpty() ? "the door names no teams" : "its teams: " + String.join(", ", rs.keySet())) + ")");
+        }
         else if (v.connect.equals("unit")) { role = want; team = Json.str(m.get("unit")); user = ""; }   // [RT_SUITE_APPS_V1] a unit's app
         else { role = want; team = ""; user = ""; }
         teamRam = Json.str(m.get("teamRam")).trim();
@@ -314,10 +391,46 @@ public final class AppCore {
     private static String[] hp(String a) { int c = a.lastIndexOf(':'); return new String[]{a.substring(0, c), a.substring(c + 1)}; }
 
     private void stopAll() {
+        roleWatch = null; roleKick.release();             // [ROLE_ADMIN_V1]
         for (Follower f : new Follower[]{general, mis, dm, positions, msgs, callF, logF, hostF}) if (f != null) f.stop();
-        for (Follower f : teams.values()) f.stop();
+        for (TeamStore f : teams.values()) f.stop();
         for (Follower f : layerF) f.stop();
         teams.clear(); layerF.clear(); general = mis = dm = positions = msgs = callF = logF = hostF = null;
+    }
+
+    // ------------------------------------------------------------------ [ROLE_ADMIN_V1] a role's one configuration
+    /** a role's Admin: op roleConf {role} reads it, {role, ramhost} sets it (this Command Center user's password, kept for
+     *  the session); either way the page is told (ev roleConf) */
+    private void roleConf(Map<String, Object> m) throws Exception {
+        String r = Json.str(m.get("role")).toLowerCase(), h = Json.str(m.get("ramhost"));
+        Map<String, Object> o = h.isEmpty() ? doorCall("op=roleconf&app=" + APP + "&role=" + r, null)
+                : doorCall("op=roleconf&app=" + APP, Json.write(Json.o("user", user, "password", eocPassword, "role", r, "ramhost", h)));
+        if (!h.isEmpty()) say("[ROLE_ADMIN_V1] " + cap(r) + "'s RAM host is " + h + " now: every " + r + " instance holds a read on it");
+        out("ev", "roleConf", "role", r, "conf", Json.obj(o.get("conf")), "set", !h.isEmpty());
+    }
+    /** an instance of a role (a team or a unit): a held read on its role's configuration at the door, from its connect until
+     *  it stops; each change is said to the page (ev roleConf), which brings this instance's own tuples to match. A read
+     *  that fails is said and held again on the next event (a lead's cell, the door again) */
+    private volatile Thread roleWatch; private final java.util.concurrent.Semaphore roleKick = new java.util.concurrent.Semaphore(0);
+    private void watchRole(final String r) {
+        final Thread t = new Thread(new Runnable() { public void run() {
+            long last = 0; boolean first = true; String bad = null;
+            while (roleWatch == Thread.currentThread()) {
+                try {
+                    Map<String, Object> o = doorCall("op=roleconf&app=" + APP + "&role=" + r + (first ? "" : "&after=" + last + "&wait=20"), null, 35000);
+                    long sig = (long) Json.num(o.get("last"));
+                    if (first || sig != last) out("ev", "roleConf", "role", r, "conf", Json.obj(o.get("conf")), "set", false);
+                    last = sig; first = false; if (bad != null) { say("[ROLE_ADMIN_V1] " + cap(r) + "Admin's configuration read again"); bad = null; }
+                } catch (Exception e) {
+                    if (roleWatch != Thread.currentThread()) return;
+                    String why = e.getMessage() == null ? e.toString() : e.getMessage();
+                    if (!why.equals(bad)) say("[ROLE_ADMIN_V1] " + cap(r) + "Admin's configuration not read (" + why + "): read again on the next event");
+                    bad = why; first = true;
+                    try { roleKick.acquire(); roleKick.drainPermits(); } catch (InterruptedException x) { return; }
+                }
+            }
+        } }, "roleconf-" + r);
+        roleWatch = t; t.setDaemon(true); t.start();
     }
 
     /** the followers, on the RAMs where they are served now; ours go with them */
@@ -326,26 +439,32 @@ public final class AppCore {
         String[] g = hp(rams.get("general"));
         Follower.Log lg = new Follower.Log() { public void say(String l) { onSessionLine(l); } };
         standingAsked = false;
-        mis = new Follower("mission", g[0], Integer.parseInt(g[1]), API, "rt-mission", "settings", lg, null, new Runnable() { public void run() { onMission(); } });
+        mis = new Follower("mission", g[0], Integer.parseInt(g[1]), API, "openeoc-mission", "settings", lg, null, new Runnable() { public void run() { onMission(); } });
         if (pub()) return;   // the public reads the world only (no chat)
-        hostF = new Follower("team hosts", g[0], Integer.parseInt(g[1]), API, "rt-team-host", lg, null, new Runnable() { public void run() { onHosts(); } });
+        hostF = new Follower("team hosts", g[0], Integer.parseInt(g[1]), API, "openeoc-team-host", lg, null, new Runnable() { public void run() { onHosts(); } });
         startTeams();
+        if (java.util.Arrays.asList(net.frognet.openeoc.layer.RoleAdminLayer.ROLES).contains(role)) watchRole(role);   // [ROLE_ADMIN_V1] an instance
     }
 
     /** the team followers: each on where its RAM is now */
     private void startTeams() {
         Follower.Log lg = new Follower.Log() { public void say(String l) { onSessionLine(l); } };
-        for (Follower f : teams.values()) f.stop();
+        for (TeamStore f : teams.values()) f.stop();
         teams.clear();
         for (Map.Entry<String, String> e : rams.entrySet()) {
             String k = e.getKey();
             if (k.equals("general")) continue;      // the door says the app's RAMs by their names: general, and one per team
             String t = k;
             if (view().allTeams || t.equalsIgnoreCase(team)) {
-                String[] a = hp(e.getValue());
                 final String tn = t;
-                teams.put(t, new Follower("team " + t, a[0], Integer.parseInt(a[1]), API, "rt-team", lg, null,
-                        new Runnable() { public void run() { onTeam(tn); } }));
+                Runnable ch = new Runnable() { public void run() { onTeam(tn); } };
+                if (e.getValue().equals("systemram"))           // [TEAM_ON_SYSTEMRAM_V1] no RAM of its own: the SystemRam, through the door
+                    teams.put(t, new TeamStore.OnSystemRam(APP, "openeoc-team", t, new TeamStore.Door() {
+                        public Map<String, Object> call(String q, String body, int readMs) throws Exception { return doorCall(q, body, readMs); } }, lg, ch));
+                else {
+                    String[] a = hp(e.getValue());
+                    teams.put(t, TeamStore.of(new Follower("team " + t, a[0], Integer.parseInt(a[1]), API, "openeoc-team", lg, null, ch)));
+                }
             }
         }
     }
@@ -369,14 +488,24 @@ public final class AppCore {
      *  not there (its session began again, or it moved) */
     private void onHosts() {
         Follower h = hostF; if (h == null) return;
-        for (Follower t : teams.values()) t.again();     // [EVENTS_NOT_TIMERS_V1] a lead's cell written: its RAM is there (again)
+        for (TeamStore t : teams.values()) t.again();     // [EVENTS_NOT_TIMERS_V1] a lead's cell written: its RAM is there (again)
+        roleKick.release();                               // [ROLE_ADMIN_V1] the role's configuration read again, if its read failed
         String mine = team.toLowerCase();
         if (!hosting.isEmpty()) {
             Map<String, Object> c = h.family("host").get(mine);
             if (c == null || !hostAddr.equals(Json.str(c.get("ram"))) || !dev.equals(Json.str(c.get("dev"))))
                 if (h.write("host", mine, Json.o("team", cap(team), "ram", hostAddr, "dev", dev, "name", name, "at", System.currentTimeMillis() / 1000), true))
-                    say("[TEAM_HOST_V1] team " + cap(team) + "'s RAM is on this phone: the EOC reaches it at " + hostAddr);
+                    say("[TEAM_HOST_V1] team " + cap(team) + "'s RAM is on this phone: the Command Center reaches it at " + hostAddr);
         }
+        // [TEAMS_FROM_THE_DOOR_V1] (found 2026-11-10 in John's demo: team Flying Monkeys' messages reached Dave and the phone,
+        // never the Command Center) the Command Center connected before the team existed, so its doorRams had no Flying
+        // Monkeys; it learnt of the team from the lead's host cell alone. The lead's cell is its own: it went when the
+        // phone's app stopped (the network switch), and the Command Center then dropped the team (doorRams lacked it), and
+        // nothing wrote the cell again (a team on the SystemRam is placed once). Now a lead's cell coming or going is the
+        // event that asks the door again: what the door serves now, which names a team on the SystemRam whether or not
+        // its lead is there.
+        try { Map<String, String> d = servedRams(); if (!d.equals(doorRams)) { say("[TEAMS_FROM_THE_DOOR_V1] the door serves now: " + d); doorRams = d; } }
+        catch (Exception e) { say("[TEAMS_FROM_THE_DOOR_V1] the door was not asked again (" + e.getMessage() + "): the teams it served at the connect stand"); }
         synchronized (this) {
             Map<String, String> now = withTeamRams(doorRams);
             if (now.equals(rams)) return;
@@ -396,10 +525,10 @@ public final class AppCore {
         Map<String, Object> c = Json.obj(m.get("card"));
         card = Json.o("team", cap(team), "door", Json.str(c.get("door")).isEmpty() ? door : Json.str(c.get("door")), "join", Json.str(c.get("join")),
                       "via", Json.str(c.get("via")), "lead", name, "at", System.currentTimeMillis() / 1000);
-        say("[TEAM_HOST_V1] hosting team " + cap(team) + "'s RAM on this phone (" + hosting + ")" + (hostAddr.isEmpty() ? "; the EOC is not told where (no address on the network yet)" : "; the EOC is told " + hostAddr));
+        say("[TEAM_HOST_V1] hosting team " + cap(team) + "'s RAM on this phone (" + hosting + ")" + (hostAddr.isEmpty() ? "; the Command Center is not told where (no address on the network yet)" : "; the Command Center is told " + hostAddr));
         place(m, "here");
         onHosts();
-        Follower f = teams.get(team.toLowerCase()); if (f != null) onTeam(team.toLowerCase());
+        TeamStore f = teams.get(team.toLowerCase()); if (f != null) onTeam(team.toLowerCase());
     }
 
     /** [GROUP_PLACE_V1] (John 2026-11-03: the lead says where its group lives) the lead's choice, at the door: "here" (this
@@ -411,7 +540,7 @@ public final class AppCore {
         if (u.isEmpty()) { say("[GROUP_PLACE_V1] team " + cap(team) + ": no lead's user on this phone: where the team lives is not said at the door"); return; }
         Map<String, Object> o = doorCall("op=place&app=" + APP, Json.write(Json.o("user", u, "password", pw, "at", at, "guid", "phone-" + dev)));
         Map<String, Object> pl = Json.obj(o.get("place"));
-        say("[GROUP_PLACE_V1] team " + cap(Json.str(pl.get("role"))) + " lives " + (at.equals("here") ? "on this phone (" + Json.str(pl.get("guid")) + ")" : "on databasehost") + ": the door says so (" + Json.str(o.get("door")) + ")");
+        say("[GROUP_PLACE_V1] team " + cap(Json.str(pl.get("role"))) + " lives " + (at.equals("here") ? "on this phone (" + Json.str(pl.get("guid")) + ")" : at.equals("systemram") ? "on the SystemRam, with no RAM of its own" : "on databasehost") + ": the door says so (" + Json.str(o.get("door")) + ")");
     }
 
     /** [GROUP_PLACE_V1] the lead moves its team's RAM to databasehost: placed there at the door, this phone's own host
@@ -419,14 +548,18 @@ public final class AppCore {
      *  its RAM). Nothing is carried over: each owner writes its own truth again in the team's RAM where it is now. */
     private void teamPlace(Map<String, Object> m) throws Exception {
         String at = Json.str(m.get("at"));
-        if (!at.equals("databasehost")) throw new Exception("teamPlace: at databasehost (hosting here is Host team)");
+        if (!at.equals("databasehost") && !at.equals("systemram")) throw new Exception("teamPlace: at databasehost or systemram (hosting here is Host team)");
         if (!isTeam() || team.isEmpty()) throw new Exception("only a team's lead places its team");
         place(m, at);
         Follower h = hostF;
         if (h != null && !hosting.isEmpty()) h.write("host", team.toLowerCase(), Json.o("team", cap(team), "ram", "", "dev", dev, "name", name, "at", System.currentTimeMillis() / 1000), true);
         hosting = ""; hostAddr = ""; card = null;
-        doorRams = servedRams(team.toLowerCase(), 20);
-        say("[GROUP_PLACE_V1] team " + cap(team) + "'s RAM " + (doorRams.containsKey(team.toLowerCase()) ? "is served on databasehost now, at " + doorRams.get(team.toLowerCase())
+        doorRams = at.equals("systemram") ? servedRams() : servedRams(team.toLowerCase(), 20);   // the SystemRam: nothing to wait for
+        // [TEAM_ON_SYSTEMRAM_V1] the lead's cell says so too: every device follows the hosts' cells (an event), not only the door
+        if (at.equals("systemram") && h != null) h.write("host", team.toLowerCase(), Json.o("team", cap(team), "ram", "systemram", "dev", dev, "name", name, "at", System.currentTimeMillis() / 1000), true);
+        if (at.equals("systemram")) say("[TEAM_ON_SYSTEMRAM_V1] team " + cap(team) + " has no RAM of its own now: everything goes through the SystemRam ("
+            + (doorRams.containsKey(team.toLowerCase()) ? "the door says so" : "the door does not say so yet") + ")");
+        else say("[GROUP_PLACE_V1] team " + cap(team) + "'s RAM " + (doorRams.containsKey(team.toLowerCase()) ? "is served on databasehost now, at " + doorRams.get(team.toLowerCase())
             : "is not served yet 20 s after (no member has it running): the team page waits for it"));
         onHosts();
     }
@@ -460,7 +593,7 @@ public final class AppCore {
             if (mis.up() && !standingAsked) {
                 standingAsked = true;
                 if (mis.write("settings", "standing", Json.o("name", "Standing operations", "event", "Standing operations", "opPeriod", 1, "at", -1, "by", "OpenEOC (no mission started)"), false))
-                    say("no mission had been started on this network: Standing operations is the mission until the EOC starts one");
+                    say("no mission had been started on this network: Standing operations is the mission until the Command Center starts one");
                 else out("ev", "error", "text", "no mission on this network, and the standing mission could not be written (no session to the general RAM)");
             }
             return;
@@ -472,22 +605,22 @@ public final class AppCore {
         for (Follower x : new Follower[]{general, positions, msgs, dm, callF, logF}) if (x != null) x.stop();
         for (Follower x : layerF) x.stop();
         layerF.clear();
-        general = new Follower("presence", g[0], Integer.parseInt(g[1]), API, "rt-who", lg, null, new Runnable() { public void run() { world(general, null); } });
-        // rt-who and rt-pos and rt-msg: one follower each would be three sessions; the library follows one service, so
+        general = new Follower("presence", g[0], Integer.parseInt(g[1]), API, "openeoc-who", lg, null, new Runnable() { public void run() { world(general, null); } });
+        // openeoc-who and openeoc-pos and openeoc-msg: one follower each would be three sessions; the library follows one service, so
         // the world is two followers on the general RAM (presence + position) and the messages a third
-        positions = new Follower("positions", g[0], Integer.parseInt(g[1]), API, "rt-pos", lg, null,
+        positions = new Follower("positions", g[0], Integer.parseInt(g[1]), API, "openeoc-pos", lg, null,
                 new Runnable() { public void run() { world(general, null); } });
-        // [RT_CALL_V1] a call to this device: (rt-call, <mission>.<dev>, <from>.<ms>), in the callee's own variable
+        // [RT_CALL_V1] a call to this device: (openeoc-call, <mission>.<dev>, <from>.<ms>), in the callee's own variable
         if (!pub())
-            callF = new Follower("calls", g[0], Integer.parseInt(g[1]), API, "rt-call", mission + "." + dev, lg, null, new Runnable() { public void run() { onCalls(); } });
-        // [RT_RADIO_LOG_IN_THE_APP_V1] the radio log's entries (RangerTrak's own app, /rt/log.html: scribes and field phones),
-        // (rt-log, <mission>.<opPeriod>, <dev>.<seq>), in the same general RAM: the EOC and the teams see them as they are
+            callF = new Follower("calls", g[0], Integer.parseInt(g[1]), API, "openeoc-call", mission + "." + dev, lg, null, new Runnable() { public void run() { onCalls(); } });
+        // [RT_RADIO_LOG_IN_THE_APP_V1] the radio log's entries (RangerTrak's own app, /openeoc/log.html: scribes and field phones),
+        // (openeoc-log, <mission>.<opPeriod>, <dev>.<seq>), in the same general RAM: the EOC and the teams see them as they are
         // typed. Read only here: an entry's message number is its post's (ICS-309), made by the radio log.
         if (!pub())
-            logF = new Follower("radio log", g[0], Integer.parseInt(g[1]), API, "rt-log", lg, null, new Runnable() { public void run() { onLog(); } });
+            logF = new Follower("radio log", g[0], Integer.parseInt(g[1]), API, "openeoc-log", lg, null, new Runnable() { public void run() { onLog(); } });
         if (!pub()) {
-            msgs = new Follower("messages", g[0], Integer.parseInt(g[1]), API, "rt-msg", mission, lg, null, new Runnable() { public void run() { onMsgs(); } });
-            dm = new Follower("direct", g[0], Integer.parseInt(g[1]), API, "rt-dm", mission + "." + dev, lg, null, new Runnable() { public void run() { onDm(); } });
+            msgs = new Follower("messages", g[0], Integer.parseInt(g[1]), API, "openeoc-msg", mission, lg, null, new Runnable() { public void run() { onMsgs(); } });
+            dm = new Follower("direct", g[0], Integer.parseInt(g[1]), API, "openeoc-dm", mission + "." + dev, lg, null, new Runnable() { public void run() { onDm(); } });
         }
         for (Layer l : layers) l.start(here);           // [RT_LAYERS_V1] the layers' families, in this mission
         out("ev", "mission", "id", mission, "name", Json.str(f.get(mission).get("name")), "bag", f.get(mission), "all", new HashMap<String, Object>(f));
@@ -542,7 +675,15 @@ public final class AppCore {
         if (said != null) { synchronized (seen) { said.put("cameBack", seen.containsKey(Json.str(said.get("id")))); } }
         out("ev", "diag", "build", BUILD, "door", door, "node", doorNode, "role", role, "view", view().connect, "team", team, "mission", mission, "name", name,
                 "layers", layerNames(), "rams", new HashMap<String, Object>(rams), "doorRams", new HashMap<String, Object>(doorRams),
-                "followers", fs, "me", me, "lastSay", said, "hosts", lastHosts, "at", System.currentTimeMillis());
+                "followers", fs, "me", me, "lastSay", said, "hosts", lastHosts, "teams", teamStates(), "at", System.currentTimeMillis());
+    }
+
+    /** [SYSTEMRAM_TEAMS_IN_DIAG_V1] every team this device follows and how: Diagnostics had only the RAM followers, so a team
+     *  on the SystemRam (no follower) was not in it at all */
+    private Map<String, Object> teamStates() {
+        Map<String, Object> o = new java.util.TreeMap<String, Object>();
+        synchronized (this) { for (Map.Entry<String, TeamStore> e : teams.entrySet()) o.put(e.getKey(), e.getValue().state()); }
+        return o;
     }
 
     private void world(Follower who, Object unused) {
@@ -559,7 +700,7 @@ public final class AppCore {
     private void onMsgs() { for (Map.Entry<String, Map<String, Object>> e : msgs.family(mission).entrySet()) emitOnce("m:" + e.getKey(), e.getValue(), "all"); }
     private void onDm() { for (Map.Entry<String, Map<String, Object>> e : dm.family(mission + "." + dev).entrySet()) emitOnce("d:" + e.getKey(), e.getValue(), "dev:" + dev); }
     private void onTeam(String t) {
-        Follower f = teams.get(t); if (f == null) return;
+        TeamStore f = teams.get(t); if (f == null) return;
         // [TEAM_HOST_V1] the lead's card in its own team's RAM: what a member's app reads on the hotspot to connect
         Map<String, Object> cd = card;
         if (cd != null && !hosting.isEmpty() && t.equalsIgnoreCase(team)) {
@@ -589,15 +730,15 @@ public final class AppCore {
         lastSay = Json.o("to", to, "id", id, "at", ms);
         if (to.equals("all")) { if (msgs == null || !msgs.write(mission, inst, b, false)) throw new Exception("not connected"); }
         else if (to.startsWith("team:")) {
-            String t = to.substring(5); Follower f = null;
-            for (Map.Entry<String, Follower> e : teams.entrySet()) if (e.getKey().equalsIgnoreCase(t)) f = e.getValue();
+            String t = to.substring(5); TeamStore f = null;
+            for (Map.Entry<String, TeamStore> e : teams.entrySet()) if (e.getKey().equalsIgnoreCase(t)) f = e.getValue();
             if (f == null) throw new Exception("team " + t + "'s RAM is not served on this network");
             b.put("team", t);
             if (!f.write(mission, inst, b, false)) throw new Exception("not connected to team " + t);
         } else if (to.startsWith("dev:")) {
             // in the addressee's own variable: only the addressee reads it; the sender keeps its own copy (the page shows it)
             if (dm == null || !dm.write(mission + "." + to.substring(4), inst, b, false)) throw new Exception("not connected");
-            // dm follows OUR variable; the write goes to theirs on the same RAM (the follower's service is rt-dm)
+            // dm follows OUR variable; the write goes to theirs on the same RAM (the follower's service is openeoc-dm)
             emitOnce("s:" + inst, b, to);
         }
         lastSay.put("written", true);
@@ -871,7 +1012,7 @@ public final class AppCore {
         List<Follower> out = new ArrayList<Follower>();
         for (Follower f : new Follower[]{general, mis, dm, positions, msgs, callF, logF, hostF}) if (f != null) out.add(f);
         out.addAll(layerF);
-        out.addAll(teams.values());
+        for (TeamStore t : teams.values()) if (t.follower() != null) out.add(t.follower());
         return out;
     }
 

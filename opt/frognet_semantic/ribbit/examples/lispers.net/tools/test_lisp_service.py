@@ -23,13 +23,15 @@ Two machines from the same package, one RAM host:
   B  etr + itr: one database mapping 198.40.1.0/24 -> 192.0.2.41, liveness, a resolver view
 Checks ([CAPABILITY_REGISTRATION_V1] -- capabilities are registered, not peers identified):
   1. each role is registered as its own capability tuple, addressed by what reaches it (udp:A:P, xtr:<id>, ...)
-  2. after the startup wait each role reads the capabilities it uses: the ETR the map-server (with its site), the ITR
-     the map-resolver (at A's UDP front), the map-server the ETR's prefix
-  3. heartbeats advance in the capability tuples
-  3. an ITR's Encapsulated Map-Request to A's UDP front for 198.40.1.9 is answered with B's locator -- B registered
+  2. each role holds a read on the capabilities it uses and handles each as it arrives ([CAPABILITIES_HELD_V1]): the
+     ETR the map-server (with its site), the ITR the map-resolver (at A's UDP front), the map-server the ETR's prefix
+     -- A starts first and sees B when B writes, with no startup wait
+  3. the tuples carry no beat: the session holds them
+  4. an ITR's Encapsulated Map-Request to A's UDP front for 198.40.1.9 is answered with B's locator -- B registered
      natively (a cell, governed by A), not by a Map-Register
-  4. B stops cleanly on SIGTERM; after its liveness lifetime A's front stops answering with B's locator
-  5. B reads its configuration from /etc/lispers.d/lisp-service.config (the default) and runs with --service: it
+  5. B stops cleanly on SIGTERM; its session ends, its liveness cell and capability tuple go, A's held read is handed
+     the tuple as gone, and A's front stops answering with B's locator
+  6. B reads its configuration from /etc/lispers.d/lisp-service.config (the default) and runs with --service: it
      returns at once, runs in the background, logs to logs/lisp-service.log beside the program, pid in
      logs/lisp-service.pid. A is run in the foreground with --config. An existing /etc/lispers.d/lisp-service.config
      is put back afterwards.
@@ -47,12 +49,11 @@ srv = subprocess.Popen([srv_bin, "--listen", "127.0.0.1:%d" % port], stdout=subp
 time.sleep(0.5)
 tmp = tempfile.mkdtemp()
 A = {"name": "ms-a", "ram": {"host": "127.0.0.1", "port": port, "api": API}, "roles": ["map-server", "map-resolver"],
-     "udp": {"address": "127.0.0.1", "port": udp}, "heartbeat_s": 1, "startup_wait_s": 5,
+     "udp": {"address": "127.0.0.1", "port": udp},
      "sites": [{"iid": "0", "prefix": "198.40.0.0/16", "group": "", "accept_more_specifics": True, "key_id": 1, "password": "svc-secret"}],
      "governor": {"iid": "0", "group": ""}}
-B = {"name": "etr-b", "ram": {"host": "127.0.0.1", "port": port, "api": API}, "roles": ["etr", "itr"], "heartbeat_s": 1, "startup_wait_s": 5,
-     "etr": {"xtr_id": "b0b0", "database_mappings": [{"iid": "0", "prefix": "198.40.1.0/24", "group": "", "rloc_set": ["192.0.2.41"]}],
-             "liveness": {"interval_s": 1, "lifetime_s": 4}},
+B = {"name": "etr-b", "ram": {"host": "127.0.0.1", "port": port, "api": API}, "roles": ["etr", "itr"],
+     "etr": {"xtr_id": "b0b0", "database_mappings": [{"iid": "0", "prefix": "198.40.1.0/24", "group": "", "rloc_set": ["192.0.2.41"]}]},
      "itr": {"iids": [{"iid": "0", "group": ""}]}}
 import shutil
 path_a = os.path.join(tmp, "ms-a.json"); json.dump(A, open(path_a, "w"))
@@ -69,7 +70,7 @@ check(started.returncode == 0 and "started, pid" in started.stdout, "--service r
 time.sleep(0.5)
 bpid = int(open(os.path.join(bdir, "logs", "lisp-service.pid")).read())
 check(os.path.exists("/proc/%d" % bpid), "--service: the service runs in the background (pid %d from logs/lisp-service.pid)" % bpid)
-time.sleep(7)
+time.sleep(2)                                      # B's start and A's held read of it
 def log(n):
     if n == "ms-a": alog.flush(); return open(alog.name).read()
     return open(os.path.join(bdir, "logs", "lisp-service.log")).read()
@@ -84,11 +85,10 @@ check(insts("capability|etr") == ["xtr:b0b0"] and get("capability|etr", "xtr:b0b
 check(len(insts("capability|itr")) == 1, "itr registered as a capability")
 check(not insts("capability"), "no per-machine tuple: capabilities only")
 bl, al = log("etr-b"), log("ms-a")
-check("etr: 1 map-server capability" in bl and "map-server at 127.0.0.1:%d site 198.40.0.0/16 (iid 0)" % udp in bl, "the ETR read the map-server capability it uses")
-check("itr: 1 map-resolver capability" in bl and "map-resolver at 127.0.0.1:%d" % udp in bl, "the ITR read the map-resolver capability it uses")
-check("map-server: 1 etr capability" in al and "etr 198.40.1.0/24 (iid 0)" in al, "the map-server read the ETR capability and its prefix")
-b1 = get("capability|map-server", U)["beat"]; time.sleep(2.5); b2 = get("capability|map-server", U)["beat"]
-check(b2 >= b1 + 2, "the heartbeat advances in the capability tuples (%s -> %s)" % (b1, b2))
+check("etr: map-server at 127.0.0.1:%d site 198.40.0.0/16 (iid 0)" % udp in bl, "the ETR read the map-server capability it uses")
+check("itr: map-resolver at 127.0.0.1:%d" % udp in bl, "the ITR read the map-resolver capability it uses")
+check("map-server: etr 198.40.1.0/24 (iid 0)" in al, "the map-server read the ETR capability and its prefix")
+check("beat" not in get("capability|map-server", U) and "heartbeat_s" not in get("capability|map-server", U), "no beat in the capability tuples: the session holds them")
 s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM); s.bind(("127.0.0.1", 0)); s.settimeout(2)
 def ask(eid, nonce):
     s.sendto(ecm(map_request(eid, nonce, "127.0.0.1"), "127.0.0.1", eid, s.getsockname()[1]), ("127.0.0.1", udp))
@@ -106,14 +106,16 @@ os.kill(bpid, signal.SIGTERM)
 for k in range(100):
     if not os.path.exists("/proc/%d" % bpid) or open("/proc/%d/stat" % bpid).read().split()[2] == "Z": break
     time.sleep(0.1)
-check("stopped after" in log("etr-b"), "etr-b (--service) stops cleanly on SIGTERM, and says so in logs/lisp-service.log")
+check("stopped" in log("etr-b"), "etr-b (--service) stops cleanly on SIGTERM, and says so in logs/lisp-service.log")
 gone = False
 for k in range(24):
     try: got = ask("198.40.1.9", 0x7200 + k)
     except socket.timeout: got = None
     if got == []: gone = True; break
     time.sleep(0.5)
-check(gone, "after etr-b's liveness lifetime, ms-a's front no longer answers with its locator")
+check(gone, "once etr-b's session ends, ms-a's front no longer answers with its locator")
+check(insts("capability|etr") == [], "etr-b's capability tuple went with its session")
+check("map-server: etr xtr:b0b0 gone" in log("ms-a"), "the map-server's held read was handed etr-b's capability as gone")
 pa.send_signal(signal.SIGTERM)
 try: pa.wait(timeout=10)
 except subprocess.TimeoutExpired: pa.kill()

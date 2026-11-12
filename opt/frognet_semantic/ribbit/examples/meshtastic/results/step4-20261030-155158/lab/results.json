@@ -1,0 +1,119 @@
+{
+ "S1_views": {
+  "pass": true,
+  "seconds": 21.11,
+  "views": {
+   "!81ba4009": [
+    "!075990fa",
+    "!13c22cab",
+    "!60f6c0b3"
+   ],
+   "!60f6c0b3": [
+    "!075990fa",
+    "!13c22cab",
+    "!81ba4009"
+   ],
+   "!13c22cab": [
+    "!075990fa",
+    "!60f6c0b3",
+    "!81ba4009"
+   ],
+   "!075990fa": [
+    "!13c22cab",
+    "!60f6c0b3",
+    "!81ba4009"
+   ]
+  }
+ },
+ "S2_broadcast": {
+  "pass": true,
+  "received": {
+   "!81ba4009": [
+    "BD-075990fa",
+    "BD-13c22cab",
+    "BD-60f6c0b3"
+   ],
+   "!60f6c0b3": [
+    "BD-075990fa",
+    "BD-13c22cab",
+    "BD-81ba4009"
+   ],
+   "!13c22cab": [
+    "BD-075990fa",
+    "BD-60f6c0b3",
+    "BD-81ba4009"
+   ],
+   "!075990fa": [
+    "BD-13c22cab",
+    "BD-60f6c0b3",
+    "BD-81ba4009"
+   ]
+  }
+ },
+ "S3_dm_ack": {
+  "pass": true,
+  "error": "NONE",
+  "seconds": 0.04,
+  "from": "!60f6c0b3"
+ },
+ "S8_position": {
+  "pass": true,
+  "live_client_seconds": 0.01,
+  "live_ok": true,
+  "fresh_client_seconds": 1.61,
+  "position": {
+   "latitude": 47.4677248,
+   "longitude": -122.3360512,
+   "altitude": 120,
+   "precisionBits": 15
+  },
+  "fresh_client_20s_later": {
+   "latitude": 47.4677248,
+   "longitude": -122.3360512,
+   "altitude": 120,
+   "precisionBits": 15
+  }
+ },
+ "S9_requests": {
+  "nodeinfo": {
+   "answer": null,
+   "seconds": 30.0
+  },
+  "position": {
+   "answer": "POSITION_APP",
+   "error": null,
+   "seconds": 0.04,
+   "from": "!81ba4009"
+  },
+  "telemetry": {
+   "answer": "TELEMETRY_APP",
+   "error": null,
+   "seconds": 0.05,
+   "from": "!81ba4009"
+  },
+  "pass": false
+ },
+ "S4_kill": {
+  "pass": false,
+  "seconds": 30.46
+ },
+ "S5_dm_dead": {
+  "observed": "MAX_RETRANSMIT",
+  "seconds": 39.3,
+  "from": "!81ba4009",
+  "pass": true
+ },
+ "S6_restart": {
+  "pass": true,
+  "seconds": 0.32
+ },
+ "S7_malformed": {
+  "pass": true,
+  "answering": {
+   "!81ba4009": true,
+   "!60f6c0b3": true,
+   "!13c22cab": true,
+   "!075990fa": true
+  }
+ }
+}

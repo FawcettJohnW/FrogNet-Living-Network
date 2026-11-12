@@ -1,0 +1,5 @@
+build/
+build-ctl/
+sdkconfig
+sdkconfig.ctl
+sdkconfig.old

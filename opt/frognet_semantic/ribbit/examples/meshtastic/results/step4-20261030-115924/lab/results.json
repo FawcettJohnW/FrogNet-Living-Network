@@ -1,0 +1,82 @@
+{
+ "S1_views": {
+  "pass": true,
+  "seconds": 0.44,
+  "views": {
+   "!0ecac10a": [
+    "!83f30fae",
+    "!95960e35",
+    "!fec45e97"
+   ],
+   "!95960e35": [
+    "!0ecac10a",
+    "!83f30fae",
+    "!fec45e97"
+   ],
+   "!fec45e97": [
+    "!0ecac10a",
+    "!83f30fae",
+    "!95960e35"
+   ],
+   "!83f30fae": [
+    "!0ecac10a",
+    "!95960e35",
+    "!fec45e97"
+   ]
+  }
+ },
+ "S2_broadcast": {
+  "pass": true,
+  "received": {
+   "!0ecac10a": [
+    "BD-83f30fae",
+    "BD-95960e35",
+    "BD-fec45e97"
+   ],
+   "!95960e35": [
+    "BD-0ecac10a",
+    "BD-83f30fae",
+    "BD-fec45e97"
+   ],
+   "!fec45e97": [
+    "BD-0ecac10a",
+    "BD-83f30fae",
+    "BD-95960e35"
+   ],
+   "!83f30fae": [
+    "BD-0ecac10a",
+    "BD-95960e35",
+    "BD-fec45e97"
+   ]
+  }
+ },
+ "S3_dm_ack": {
+  "pass": true,
+  "error": "NONE",
+  "seconds": 0.04,
+  "from": "!95960e35"
+ },
+ "S4_kill": {
+  "pass": true,
+  "seconds": 0.32
+ },
+ "S5_dm_dead": {
+  "observed": "PKI_SEND_FAIL_PUBLIC_KEY",
+  "seconds": 0.0,
+  "from": "!0ecac10a",
+  "pass": true
+ },
+ "S6_restart": {
+  "pass": true,
+  "seconds": 0.33
+ },
+ "S7_malformed": {
+  "pass": true,
+  "answering": {
+   "!0ecac10a": true,
+   "!95960e35": true,
+   "!fec45e97": true,
+   "!83f30fae": true
+  }
+ }
+}

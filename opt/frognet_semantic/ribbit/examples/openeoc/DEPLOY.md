@@ -11,7 +11,7 @@ What runs where, and the commands, for the build of 2026-11-01. The design is `P
 | `fdf-install-aarch64-fdf-2026-11-01-r38.run` | each Pi node |
 | `fdf-droplet-x86_64-fdf-2026-11-01-r38.tgz` | an x86_64 region holder (a droplet) |
 | `fdf-droplet-aarch64-fdf-2026-11-01-r38.tgz` | a Pi region holder (a LAN region) |
-| `fdf-addin-dc-linux-any-dc-2026-11-01-r1.tgz` | the app: the DisasterComm add-in, which carries OpenEOC's pages (`/rt/`) and the post's 309 writer |
+| `fdf-addin-dc-linux-any-dc-2026-11-01-r1.tgz` | the app: the DisasterComm add-in, which carries OpenEOC's pages (`/openeoc/`) and the post's 309 writer |
 
 Made by `rinab/tools/make_deliverables.sh OUTDIR` and `bundles/make_addin.sh dc OUTDIR`.
 
@@ -54,8 +54,8 @@ started by hand.
 
     cd /tmp && tar xzf fdf-addin-dc-linux-any-dc-2026-11-01-r1.tgz && sudo ./fdf-addin-dc-dc-2026-11-01-r1/install
 
-The pages go to `/opt/fdf/www/dc` and `/opt/fdf/www/rt`, and Apache serves them (`/rt/` opens `index.html`).
-`fdf-addin-dc.service` holds the add-in's tuple and runs `rt-post309`, which writes the post's ICS-309 and ICS-213
+The pages go to `/opt/fdf/www/dc` and `/opt/fdf/www/openeoc`, and Apache serves them (`/openeoc/` opens `index.html`).
+`fdf-addin-dc.service` holds the add-in's tuple and runs `openeoc-post309`, which writes the post's ICS-309 and ICS-213
 files to `/opt/fdf/var/rt/`.
 
 Then the admin's configuration, the same line on every node the app is installed on (the admin app is this command
@@ -73,13 +73,13 @@ where its selection says.
 
 ## 3. The users
 
-Windows, Android and any laptop: a browser on a node's Wi-Fi, `http://<the node>/rt/`. (The Windows and Android
+Windows, Android and any laptop: a browser on a node's Wi-Fi, `http://<the node>/openeoc/`. (The Windows and Android
 shells that show the same pages from the device itself are not built yet.)
 
 1. The page connects first. The device is shown by its host name, from the lease the node gave it; a device that
    sent none (many Android phones) is named once on the Radio Log ("This device").
 2. A user with a role logs in once (user and password on the Radio Log); an EOC client opens
-   `http://<the node>/rt/index.html?role=eoc` and needs no password.
+   `http://<the node>/openeoc/index.html?role=eoc` and needs no password.
 3. The page opens on the role's screen: the Radio Log, a team's messages, or the EOC's Summary.
 4. Everything after that is on every post as it is written: entries, marks, positions, messages, the forms.
 
@@ -92,10 +92,10 @@ The app is `opt/fdf/src/openeoc-app` (its README says how it is built). On the n
 
     cd /tmp && tar xzf fdf-addin-dc-linux-any-dc-2026-11-01-r3.tgz && sudo ./fdf-addin-dc-dc-2026-11-01-r3/install
     sudo /opt/fdf/bin/fdf-app config openeoc general,alpha,bravo,charlie,delta --role eoc --role alpha:default --role bravo:default --role charlie:default --role delta:default --user EOCAdmin:EOCAdmin=eoc
-    sudo systemd-run --unit rt-sim --setenv=FDF_HOME=/opt/fdf /opt/fdf/addins/dc/bin/rt-sim
+    sudo systemd-run --unit openeoc-sim --setenv=FDF_HOME=/opt/fdf /opt/fdf/addins/dc/bin/openeoc-sim
 
 - the general RAM and one RAM per team (team messages), served by `fdf-app` where its selection says;
-- `rt-sim` on one node only: 80 simulated instances, each on its own session; `systemctl stop rt-sim` and they are gone.
+- `openeoc-sim` on one node only: 80 simulated instances, each on its own session; `systemctl stop openeoc-sim` and they are gone.
 
 Windows: unzip `RangerTrak-windows-x64-rt-app-2026-11-01-r1.zip` (built before the rename to OpenEOC), run `RangerTrak\RangerTrak.cmd`, on the node's
 Wi-Fi. EOC: user `EOCAdmin`. Phone: the APK from `opt/fdf/src/openeoc-app/android` (Android Studio), on the node's
@@ -111,7 +111,7 @@ Wi-Fi; the node is filled in from the Wi-Fi's gateway.
 
 ## The admin app (2026-11-01, [ADMIN_APP_V1])
 
-On every member with OpenEOC (once): the node update (`fdf-app` r4, the door, rt-sim r8), and the install line with
+On every member with OpenEOC (once): the node update (`fdf-app` r4, the door, openeoc-sim r8), and the install line with
 an admin added, e.g. `... --user EOCAdmin:EOCAdmin=eoc --admin boss:<password>`, then `systemctl restart fdf-app`.
 On Windows: unzip `OpenEOC-Admin-windows-x64-<build>.zip`, run `OpenEOC-Admin.cmd`, connect to any member with the
 app as that admin. Teams, roles and users changed there are adopted by every member that has the admin key; the

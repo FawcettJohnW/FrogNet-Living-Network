@@ -15,7 +15,7 @@ const cap = (t) => t ? t.toLowerCase().replace(/(^| )(.)/g, (x, a, c) => a + c.t
 // kinds: how each is drawn on the map (a layer adds its own with RT.kind)
 const KINDS = {
   team:      { label: 'Teams',      shape: '',    size: 18, color: '#888' },
-  eoc:       { label: 'EOC',        shape: 'sq',  size: 20, color: '#6b4fd8', ch: 'E' },
+  eoc:       { label: 'Command Center', shape: 'sq',  size: 20, color: '#6b4fd8', ch: 'C' },
   ambulance: { label: 'Ambulances', shape: 'sq',  size: 18, color: '#e23b3b', ch: '+' },
   boat:      { label: 'Boats',      shape: 'sq',  size: 18, color: '#1565c0', ch: 'B' },
   victim:    { label: 'Victims',    shape: '',    size: 12, color: '#f2c200', ch: '' },
@@ -73,7 +73,8 @@ let map
 const RT = {
   roles: {}, screens: {}, sections: {}, evs: {}, hooks: {}, loaded: [], buttons: [],
   layer(name, fn) { RT.loaded.push(name); fn(RT) },
-  role(name, def) { RT.roles[name] = Object.assign({ name, label: cap(name), title: 'OpenEOC ' + cap(name), field: 'none', kinds: [], teams: 'none',
+  role(name, def) { RT.roles[name] = Object.assign({ name, label: cap(name), title: 'OpenEOC -- ' + cap(name).replace(/ /g, ''),   // [NAMES_ARE_THE_CONVENTION_V1] OpenEOC -- <Name>
+                                                      field: 'none', kinds: [], teams: 'none',
                                                       chat: true, sensors: true, mission: true }, def) },
   screen(name, fn) { RT.screens[name] = fn },
   open(name, ...a) { if (RT.screens[name]) RT.screens[name](...a) },
@@ -149,7 +150,7 @@ RT.on('roles', (m) => {
 // ------------------------------------------------------------ start: the native side calls rtInit once the page loads
 // [RT_LAYERS_V1] the app's layers first (cfg.layers, in that order; every one there is when it names none), then the
 // connect screen with the views they add
-const ALL_LAYERS = ['help', 'field', 'eoc', 'team', 'medical', 'units', 'public', 'ics']
+const ALL_LAYERS = ['help', 'field', 'eoc', 'team', 'medical', 'units', 'public', 'ics', 'fema', 'paper', 'roleadmin']   // [FEMA_EOC_V1] fema, paper: after ics (they add to its boards)
 window.rtInit = function (cfg) {
   S.cfg = cfg || {}
   const names = (S.cfg.layers && S.cfg.layers.length ? S.cfg.layers : ALL_LAYERS).filter(n => /^[a-z0-9_-]+$/.test(n))
@@ -190,31 +191,68 @@ function start() {
   const first = RT.roles[S.cfg.role] ? S.cfg.role : (RT.roles.team ? 'team' : Object.keys(RT.roles)[0])
   if (first) f.querySelector(`[name=role][value=${first}]`).checked = true
   RT.fire('init', S.cfg)
-  roleFields(); askRoles()
+  roleFields()
+  // [NOTHING_UNTIL_ASKED_V1] a phone asks the node nothing until its user says (its roles: at Node, or the connect); a computer
+  // asks for the teams the admin made, for its connect screen, as before
+  if (S.cfg.platform !== 'android') askRoles()
   if (!$('#qrSec').hidden) $('#manual').open = false      // [CONNECT_QR_FIRST_V1] the QR code is the way in; Manual login a tap away
-  // [JOINED_IS_DONE_V1] (John 2026-11-09: "once joined and authenticated the first time, they are done") a phone that has
-  // joined opens on the map: no picker, no connect screen. It connects as what joining made it (its user, its team or
-  // view, the node it joined through); the connect screen shows only if that connect fails, and says why.
-  const joined = joinedView()
+  // [NOTHING_UNTIL_ASKED_V1] (John 2026-11-10: "NOT start the hotspot or do any connections or login or anything like that
+  // until I tell it to ... When the phone comes up, I should have the option to start as a team, ambulance, etc. before
+  // anything else. If I start as a team, it should ask me if I want to connect as the existing team or start a new one.")
+  // It replaces [JOINED_IS_DONE_V1] (the joined phone connected by itself) and the roles asked of the node at start: the
+  // first screen is which app this starts as; a joined phone connects only when its user says so.
   S.ready = true; for (const m of early.splice(0)) window.rtDeliver(m)
   setTimeout(() => {
-    if (joined) {          // the splash stays, saying who is connecting, until the map (or the connect screen, saying why)
-      S.autoConnect = true
-      const t = S.cfg.enrolled.user + ': connecting as ' + (RT.roles[joined] || {}).label + (S.cfg.enrolled.lead ? ', lead of ' + cap(S.cfg.enrolled.role) : ' in ' + cap(S.cfg.enrolled.role))
-      $('#splash').insertAdjacentHTML('beforeend', `<div class="joining">${esc(t)}</div>`); $('#cstatus').textContent = t
-      f.requestSubmit(); return
-    }
     $('#splash').classList.add('gone')
-    if (lock || Object.keys(RT.roles).length < 2) f.hidden = false; else pickApp()
+    if (lock) { S.lockedApp = true; startAs(lock.name) }
+    else if (Object.keys(RT.roles).length < 2) { S.lockedApp = true; startAs(Object.keys(RT.roles)[0]) }
+    else pickApp()
   }, 1800)
+}
+// [NOTHING_UNTIL_ASKED_V1] a phone's team or unit (the Team app, an Ambulance ...): the existing one (this phone's, by
+// what it joined as; or one to join, by its QR) or a new one (the lead's QR the Command Center shows, then its name)
+const teamLike = (r) => r && (r.field === 'team' || r.field === 'unit')
+function startAs(name) {
+  const r = RT.roles[name], f = $('#connect'); if (!r) { f.hidden = false; return }
+  const rb = f.querySelector(`[name=role][value=${r.name}]`); if (rb) rb.checked = true
+  S.fresh = false; roleFields()
+  if (!(S.cfg.platform === 'android' && teamLike(r))) { f.hidden = false; return }
+  const e = S.cfg.enrolled || {}, mine = e.user && joinedViewOf(e) === r.name
+  const what = r.field === 'team' ? 'team' : (r.unitLabel || r.label).toLowerCase()
+  const has = mine ? (e.lead ? cap(e.role) + ', as its lead ' : cap(e.role) + ', as ') + e.user : ''
+  f.hidden = true
+  if (!$('#startAs')) document.body.insertAdjacentHTML('beforeend', '<div id="startAs" hidden><div class="pick-card"><h2></h2><div class="pick-list"></div></div></div>')
+  $('#startAs h2').textContent = r.title || 'OpenEOC ' + r.label
+  $('#startAs .pick-list').innerHTML = `
+      <button type="button" id="saOld"><span><b>Connect as the existing ${esc(what)}</b><br><span class="pick-last">${mine ? esc(has) : 'scan its QR code (its lead shows it)'}</span></span></button>
+      <button type="button" id="saNew"><span><b>Start a new ${esc(what)}</b><br><span class="pick-last">scan the lead QR code the Command Center shows you, then name it</span></span></button>
+      ${S.lockedApp ? '' : '<button type="button" id="saBack"><span>Other app</span></button>'}`
+  $('#startAs').hidden = false
+  const go = () => { $('#startAs').hidden = true; f.hidden = false }
+  if ($('#saBack')) $('#saBack').onclick = () => { $('#startAs').hidden = true; pickApp() }
+  $('#saOld').onclick = () => {
+    go()
+    if (!mine) { S.fresh = true; roleFields(); $('#cstatus').textContent = 'scan the QR code the ' + what + "'s lead shows you"; return }
+    joinedView(); const t = e.user + ': connecting as ' + r.label + (e.lead ? ', lead of ' + cap(e.role) : ' in ' + cap(e.role))
+    $('#cstatus').textContent = t; S.autoConnect = true; f.requestSubmit()
+  }
+  $('#saNew').onclick = () => {
+    go(); S.fresh = true; roleFields()             // the scan offered even on a phone that has joined: a new one is made by it
+    $('#cstatus').textContent = 'scan the lead QR code the Command Center shows you; then type the ' + what + "'s name and your password"
+  }
 }
 // [JOINED_IS_DONE_V1] what joining made this phone: the view it connects as, with its fields filled ('' : not joined, or
 // joined as a view this app does not have)
+// the view what joining made this phone connects as ('' : not joined, or joined as a view this app does not have)
+function joinedViewOf(e) {
+  if (!e || !e.user) return ''
+  const rl = String(e.role || '').toLowerCase()
+  // an app built for one view (the Ambulance app ...) connects as that view; else the view by the role's name, else a team
+  return S.cfg.lock && RT.roles[S.cfg.lock] ? S.cfg.lock : RT.roles[rl] && rl !== 'team' ? rl : RT.roles.team ? 'team' : ''
+}
 function joinedView() {
   const e = S.cfg.enrolled || {}; if (!e.user) return ''
-  const f = $('#connect'), rl = String(e.role || '').toLowerCase()
-  // an app built for one view (the Ambulance app ...) connects as that view; else the view by the role's name, else a team
-  const view = S.cfg.lock && RT.roles[S.cfg.lock] ? S.cfg.lock : RT.roles[rl] && rl !== 'team' ? rl : RT.roles.team ? 'team' : ''
+  const f = $('#connect'), view = joinedViewOf(e)
   if (!view) return ''
   if (e.door) f.door.value = e.door
   if (!S.cfg.nameGiven || !f.name.value) f.name.value = e.user
@@ -239,10 +277,9 @@ function pickApp() {
   $('#pick .pick-list').innerHTML = Object.values(RT.roles).map(r => `<button type="button" data-pick="${esc(r.name)}">${esc(r.title || 'OpenEOC ' + r.label)}${r.name === last ? '<span class="pick-last">last used</span>' : ''}</button>`).join('')
   $('#pick').querySelectorAll('[data-pick]').forEach(b => b.onclick = () => {
     const r = RT.roles[b.dataset.pick], f = $('#connect')
-    f.querySelector(`[name=role][value=${r.name}]`).checked = true; roleFields()
     const t = r.title || 'OpenEOC ' + r.label
     f.querySelector('h1').textContent = t; document.title = t
-    $('#pick').hidden = true; f.hidden = false
+    $('#pick').hidden = true; startAs(r.name)       // [NOTHING_UNTIL_ASKED_V1] a team or unit: the existing one or a new one
   })
   $('#connect').hidden = true; $('#pick').hidden = false
 }
@@ -251,7 +288,7 @@ function roleFields() {
   // [TEAM_HOST_V1] a team member's phone joins its lead's hotspot by scanning the hotspot's QR code
   // [ENROLL_V1] any view: the frog QR the admin (or the team's lead) shows, then the password
   // [CONNECT_QR_FIRST_V1] the QR code first, on a phone that can scan and has not joined yet; joined, it is done
-  const joined = !!(S.cfg.enrolled && S.cfg.enrolled.user)
+  const joined = !!(S.cfg.enrolled && S.cfg.enrolled.user) && !S.fresh     // [NOTHING_UNTIL_ASKED_V1] Start a new one: the scan again
   $('#qrSec').hidden = joined || !(S.cfg.platform === 'android' && window.rtNative && window.rtNative.scanTeam)
   $('#joinEoc').hidden = joined || !(S.cfg.platform === 'android' && window.rtNative && window.rtNative.enroll)
   document.querySelectorAll('[data-field]').forEach(e => { e.hidden = e.dataset.field !== r.field })
@@ -279,13 +316,40 @@ $('#scanTeam').onclick = () => { $('#cstatus').textContent = 'scan the frog QR c
 // line, at the node in the Node field: the same as scanning the EOC's QR -- the team's name, the teams password, Join
 $('#joinEoc').onclick = () => {
   const d = $('#connect').door.value.trim()
-  if (!d) { $('#cstatus').textContent = 'the Node first: the node the EOC is on (e.g. 10.170.170.1)'; $('#connect').door.focus(); return }
+  if (!d) { $('#cstatus').textContent = 'the Node first: the node the Command Center is on (e.g. 10.170.170.1)'; $('#connect').door.focus(); return }
   const url = 'http://' + d.replace(/^https?:\/\//, '').replace(/\/.*/, '') + '/dc/ram.php'
-  enrollScan({ line: FrogQR.enrollLine(url, 'openeoc', '*'), url, app: 'openeoc', user: '*', team: true })
+  enrollScan({ line: FrogQR.enrollLine(url, 'openeoc', '*'), url, app: 'openeoc', user: '', manual: true })   // [EOC_LEADS_V1] the user typed here
 }
 // [ENROLL_V1] scanned: who this code is for and where; the password, then Join
 function enrollScan(m) {
   S.enrollLine = m.line; S.enrollTeam = m.team ? m : null
+  // [EOC_LEADS_V1] (John 2026-11-09: "When I scan the QR code it should take me to a filled in screen with my username filled
+  // in, but the team name blank. I fill in the team name, add my password, and hit the button to create the Team") the
+  // EOC's QR for a user it added (its door, a user, no key): the user filled in, the team's name blank, the password
+  // [EOC_USER_QR_V1] an app that opens as a logged-in view (the EOC, EOCAdmin) takes the admin's QR for its user: the user
+  // filled in, its password, Log in (enrolled as that user) -- no team's name
+  const view = S.cfg.lock || (document.querySelector('[name=role]:checked') || {}).value || ''
+  const loginView = !!(RT.roles[view] && RT.roles[view].field === 'login')
+  const lead = /\/dc\/ram\.php/.test(m.url) && !m.key && !loginView && (m.manual || (m.user && m.user !== '*'))
+  if (loginView && /\/dc\/ram\.php/.test(m.url) && m.user && m.user !== '*') {
+    S.enrollLead = null; $('#enrollCallL').hidden = true
+    $('#enrollUserL').hidden = false; $('#enrollUser').value = m.user; $('#enrollUser').readOnly = true; $('#enrollGo').textContent = 'Log in'
+    $('#enrollWho').textContent = RT.roles[view].label + ' · ' + m.app + ' · ' + m.url.replace(/^https?:\/\//, '').replace(/\/.*/, '')
+    $('#enrollBox').hidden = false; $('#enrollPw').value = ''; $('#enrollPw').focus()
+    $('#cstatus').textContent = m.user + "'s password"
+    return
+  }
+  S.enrollLead = lead ? m : null
+  $('#enrollUserL').hidden = !lead; $('#enrollGo').textContent = lead ? 'Create the Team' : 'Join'
+  if (lead) {
+    $('#enrollUser').value = m.user || ''; $('#enrollUser').readOnly = !m.manual
+    $('#enrollCallL').hidden = false; $('#enrollCall').value = ''; $('#enrollCallL').querySelector('.ecl').textContent = 'Team name'
+    $('#enrollCall').setAttribute('autocapitalize', 'words')
+    $('#enrollWho').textContent = 'Create your team · ' + m.app + ' · ' + m.url.replace(/^https?:\/\//, '').replace(/\/.*/, '')
+    $('#enrollBox').hidden = false; $('#enrollPw').value = ''; (m.manual ? $('#enrollUser') : $('#enrollCall')).focus()
+    $('#cstatus').textContent = m.manual ? 'the user the Command Center gave you, your team\'s name and your password' : "your team's name and your password: you lead the team"
+    return
+  }
   // [TEAM_JOIN_V1] a team's QR: the call sign is yours, the password the team's. [CHILDREN_JOIN_V1] the EOC's QR (its
   // door): the name is your new team's (anything), the password the EOC's teams password -- you lead that team
   const eoc = m.team && /\/dc\/ram\.php/.test(m.url); S.enrollEoc = eoc
@@ -297,12 +361,24 @@ function enrollScan(m) {
   $('#enrollCallL').querySelector('.ecl').textContent = eoc ? "Your team's name" : 'Your call sign'
   $('#enrollCall').setAttribute('autocapitalize', eoc ? 'words' : 'characters')
   // [TEAMS_AUTHORIZED_V1] a QR with a login is a Team's the admin authorized (or an EOC user's): its password claims it here
-  $('#enrollWho').textContent = (eoc ? 'Join the EOC · ' : m.team ? 'Team · ' : 'Claim ' + m.user + ' · ') + m.app + ' · ' + m.url.replace(/^https?:\/\//, '').replace(/\/.*/, '')
+  $('#enrollWho').textContent = (eoc ? 'Join the Command Center · ' : m.team ? 'Team · ' : m.key ? 'Join as ' + m.user + ' · ' : 'Claim ' + m.user + ' · ') + m.app + ' · ' + m.url.replace(/^https?:\/\//, '').replace(/\/.*/, '')
   $('#enrollBox').hidden = false; $('#enrollPw').value = ''; (m.team && !callFromName ? $('#enrollCall') : $('#enrollPw')).focus()
-  $('#cstatus').textContent = eoc ? "your team's name and the EOC's teams password" : callFromName ? 'the team password (you join as ' + nm + ')' : m.team ? 'your call sign and the team password' : m.user + "'s password: this device claims it"
+  $('#cstatus').textContent = eoc ? "your team's name and the Command Center's teams password" : callFromName ? 'the team password (you join as ' + nm + ')' : m.team ? 'your call sign and the team password' : m.key ? m.user + "'s own password, from your team lead" : m.user + "'s password: this device claims it"
 }
 $('#enrollGo').onclick = () => {
   if (!S.enrollLine) return
+  if (S.enrollLead) {                                    // [EOC_LEADS_V1] create the team: the user, the team's name, the password
+    const u = $('#enrollUser').value.trim(), t = $('#enrollCall').value.trim()
+    if (!/^[A-Za-z0-9][A-Za-z0-9._-]{0,39}$/.test(u)) { $('#cstatus').textContent = 'your user: the one the Command Center gave you'; $('#enrollUser').focus(); return }
+    if (!/^[A-Za-z0-9][A-Za-z0-9 ._-]{0,39}$/.test(t)) { $('#cstatus').textContent = "the team's name: letters, digits, space . _ - (at most 40)"; $('#enrollCall').focus(); return }
+    if (!$('#enrollPw').value) { $('#cstatus').textContent = 'your password'; $('#enrollPw').focus(); return }
+    $('#cstatus').textContent = 'creating team ' + t + '…'; $('#enrollGo').disabled = true
+    S.enrollPw = $('#enrollPw').value   // [PASSWORD_NOT_LOGGED_V1]
+    // the kind: the view this app runs the team as (its own, or the one picked), one of the roles the EOC gave the lead
+    const kind = S.cfg.lock || (document.querySelector('[name=role]:checked') || {}).value || 'team'
+    window.rtNative.enroll(JSON.stringify({ line: FrogQR.enrollLine(S.enrollLead.url, S.enrollLead.app, u), password: S.enrollPw, team: t, kind }))
+    return
+  }
   let line = S.enrollLine
   if (S.enrollTeam) {
     const raw = $('#enrollCall').value.trim(), cs = S.enrollEoc ? raw : raw.toUpperCase()
@@ -321,7 +397,10 @@ function enrolled(m) {
   S.cfg.enrolled = { user: m.user, role: m.role, lead: m.lead, door: m.door }
   if (m.door) f.door.value = m.door
   f.name.value = m.user; f.user.value = m.user; f.password.value = S.enrollPw || ''; S.enrollPw = ''
-  const rl = String(m.role || '').toLowerCase(), view = RT.roles[rl] && rl !== 'team' ? rl : RT.roles.team ? 'team' : rl
+  const rl = String(m.role || '').toLowerCase(), kd = String(m.kind || '').toLowerCase()
+  // [EOC_LEADS_V1] a team a lead created runs as its kind (team, hospital, ambulance ...): a unit's name is the team's
+  const view = kd && RT.roles[kd] ? kd : RT.roles[rl] && rl !== 'team' ? rl : RT.roles.team ? 'team' : rl
+  if (kd && RT.roles[kd] && RT.roles[kd].field === 'unit') f.unit.value = m.role
   const rb = f.querySelector(`[name=role][value=${view}]`); if (rb && !$('#roleSet').hidden) rb.checked = true
   RT.fire('enrolled', m, view)
   roleFields()
@@ -349,6 +428,7 @@ window.rtDeliver = function (line) {
   else if (m.ev === 'connected') connected(m)
   else if (m.ev === 'enrollScan') enrollScan(m)
   else if (m.ev === 'enrolled') enrolled(m)
+  else if (m.ev === 'roleConf' && !String(S.role || '').endsWith('admin')) roleConfHere(m)   // [ROLE_ADMIN_V1] an instance
   else if (m.ev === 'enrollFailed') { $('#enrollGo').disabled = false; $('#cstatus').textContent = '⚠ ' + m.text; status('⚠ ' + m.text) }
   else if (m.ev === 'mission') { $('#mission').textContent = m.name || m.id; RT.fire('mission', m)
     const changed = S.mission && S.mission.id !== m.id
@@ -392,6 +472,7 @@ function diagSheet(d) {
   const body = `<div class="diag">
     <div><b>${esc(d.build)}</b> · view ${esc(d.role)} (${esc(d.view)})${d.team ? ' · team ' + esc(d.team) : ''} · mission ${esc(d.mission) || '<span class="bad">none</span>'} · ${esc(d.name)} · layers ${esc(d.layers)}</div>
     <div>Door <b>${esc(d.door) || '<span class="bad">none</span>'}</b>; the RAMs it says: ${j(d.doorRams)}; in use: ${j(d.rams)}</div>
+    <div>Teams followed (${Object.keys(d.teams || {}).length}): ${Object.entries(d.teams || {}).map(([t, x]) => '<b>' + esc(cap(t)) + '</b> on ' + esc(x.on) + (x.on === 'the SystemRam' ? ': ' + x.tuples + ' tuple(s), ' + x.reads + ' read(s)' + (x.failing ? ' <span class="bad">FAILING: ' + esc(x.failing) + '</span>' : '') + (x.stopped ? ' <span class="bad">stopped</span>' : '') : '')).join('; ') || '<span class="bad">none</span>'}</div>
     <h3>Where this device reads and writes</h3>
     <table class="dt"><tr><th>Follower</th><th>RAM at</th><th>State</th><th>Sessions</th><th>Writes</th><th>Holds</th></tr>${fs || '<tr><td colspan="6" class="bad">no followers: not connected</td></tr>'}</table>
     ${tun ? `<h3>FrogNet tunnel</h3>
@@ -417,8 +498,11 @@ function refreshSheet(what) { if (!$('#sheet').hidden) RT.fire('refresh', what) 
 
 function connected(m) {
   S.doorNode = m.node || ''                            // [DOOR_SAYS_ITS_NODE_V1] the node the door is (dc-door r16 on)
+  if ($('#startAs')) $('#startAs').hidden = true
   if ($('#pick')) $('#pick').hidden = true     // [RT_APP_PICKER_V1] connected (an enrolled phone, a lead's card): the question is answered
-  S.role = m.role; S.team = m.team || ''; S.connectedAt = Date.now(); S.autoConnect = false; $('#splash').classList.add('gone')
+  S.role = m.role; S.team = m.team || ''; S.rams = m.rams || {}; S.connectedAt = Date.now(); S.autoConnect = false; $('#splash').classList.add('gone')
+  // [WINDOW_SAYS_ITS_VIEW_V1] the title (the window's, on Windows) says the view this app is running as, and its team or unit
+  { const rr = RT.roles[m.role] || {}; document.title = (rr.title || 'OpenEOC -- ' + (rr.label || m.role)) + (S.team ? ' · ' + cap(S.team) : '') }
   const r = RT.me()
   $('#connect').hidden = true; $('#main').hidden = false
   $('#who').textContent = S.cfg.name + ' · ' + (r.who ? r.who() : r.label || S.role)
@@ -456,11 +540,55 @@ function connected(m) {
   }
   tabs(); toList()
   if (r.connected) r.connected(m)
-  // [LEAD_HOTSPOT_V1] a team's lead: its hotspot is the team's Wi-Fi; on every connect the phone makes sure it is on
-  if (S.cfg.enrolled && S.cfg.enrolled.lead && window.rtNative && window.rtNative.ensureHotspot) window.rtNative.ensureHotspot()
+  // [LEAD_STARTS_ASKED_V1] (John 2026-11-09: "On the phone, when it starts, it needs to wait a second to see if I want to
+  // start the hotspot and if I want to host the system RAM") the lead's phone asks, nothing done before it is answered:
+  // the hotspot (the team's Wi-Fi), and -- its team served nowhere ([LEAD_HOSTS_ITS_TEAM_V1]) -- where the team lives:
+  // on this phone (Host team) or with no RAM of its own (Use SystemRam). A team served already is not replaced.
+  const myTeam = String(S.team || '').toLowerCase()
+  if (S.cfg.enrolled && S.cfg.enrolled.lead && S.role === 'team' && myTeam && window.rtNative && !S.leadAsked) {
+    S.leadAsked = true
+    const served = Object.keys(m.rams || {}).some(k => k.toLowerCase() === myTeam)
+    setTimeout(() => leadStart(served), 1000)
+  }
   RT.fire('connected', m)
   addressFix()
   redraw()
+}
+
+// [LEAD_STARTS_ASKED_V1] the lead's start: the hotspot, and where its team lives when no one serves it
+// [LEAD_HOST_CHOICES_V1] (John 2026-11-10, "in human interpretable form": "Host the hotspot and the role on this phone.
+// WARNING: Eats battery life / Host the Hotspot on this phone, but use the network for the role. / Host the network and
+// the role on another device") a second after the lead connects; nothing is done before the answer
+function leadStart(served) {
+  const t = cap(S.team), n = window.rtNative
+  if (!n.ensureHotspot && !n.teamHost && !n.teamPlace) return   // nothing to ask here (a computer: no hotspot)
+  sheet('leadStart', 'Team ' + t, `<div class="meta">${served ? 'Team ' + esc(t) + ' is running on the network now.' : 'Team ' + esc(t) + ' is not running anywhere yet: until it is, its messages go nowhere.'}</div>
+    <div class="sens">
+      ${n.teamHost ? `<button type="button" id="lsHost"><b>Host the hotspot and the role on this phone.</b> <span class="warn">WARNING: Eats battery life</span></button>` : ''}
+      ${n.teamPlace && n.ensureHotspot ? `<button type="button" id="lsSys"><b>Host the Hotspot on this phone, but use the network for the role.</b></button>` : ''}
+      <button type="button" id="lsOther" disabled><b>Host the network and the role on another device</b> <span class="meta">(Not Implemented)</span></button></div>`)
+  const close = () => { $('#sheet').hidden = true; S.sheet = '' }
+  const on = (id, f) => { const b = $('#' + id); if (b) b.onclick = () => { close(); f() } }
+  on('lsHost', () => { status('team ' + t + ': the hotspot and the role on this phone'); n.teamHost() })
+  on('lsSys', () => { status('team ' + t + ': the hotspot on this phone, the role on the network'); n.ensureHotspot(); n.teamPlace('systemram') })
+}
+
+// [ROLE_ADMIN_V1] an instance of a role: its Admin's configuration came (at its connect, and on every change: the core's
+// held read). The lead brings its own tuples to match: the SystemRam is a place it writes itself; its own device needs its
+// hotspot, which is never started without being asked ([NOTHING_UNTIL_ASKED_V1]): it is said, and Host is the lead's
+function roleConfHere(m) {
+  const c = m.conf || {}, h = c.ramhost || '', t = cap(S.team || ''), n = window.rtNative || {}
+  S.roleConf = c
+  if (!h || !S.team) return
+  const lead = !!(S.cfg.enrolled && S.cfg.enrolled.lead), mine = String(S.team).toLowerCase()
+  const onSys = Object.entries(S.rams || {}).some(([k, v]) => k.toLowerCase() === mine && v === 'systemram')
+  const who = cap(m.role) + 'Admin'
+  if (h === 'systemram' && S.role !== 'team') status(who + ': the RAM host is the SystemRam (a ' + m.role + ' instance does not move its RAM there yet)')
+  else if (h === 'systemram') {
+    if (lead && !onSys && n.teamPlace) { status(who + ': the RAM host is the SystemRam: team ' + t + ' moves there'); n.teamPlace('systemram') }
+    else if (!onSys) status(who + ': the RAM host is the SystemRam (its lead moves team ' + t + ' there)')
+  } else if (h === 'device') status(who + ": the RAM host is each instance's own device" + (lead ? ': Host the hotspot and RAM on this phone' : ' (its lead hosts it)'))
+  else if (h === 'none') status(who + ': no host or RAM is provided for ' + t)
 }
 
 // ------------------------------------------------------------ the map
@@ -482,6 +610,7 @@ function world(who, pos) {
   const kinds = [...new Set(Object.values(pos).filter(Boolean).map(b => b.kind))].sort().join()
   if (kinds !== S.kindsSeen) { S.kindsSeen = kinds; if (map && !more) legend() }
   if (Object.keys(who).join() !== before && map) toList()
+  if (Object.keys(who).join() !== before && S.tab === 'call') callList()   // [CHAT_CALL_TAB_V1] who is there now
   redraw()
 }
 // [TEAM_VIEW_IS_THE_TEAM_V1] which teams are drawn: a team member starts with their own; the EOC with all
@@ -608,7 +737,8 @@ function legend() {
 function teamsHere() { return RT.me().teams === 'all' ? knownTeams().map(cap) : (S.team ? [S.team] : []) }
 function tabs() {
   const t = $('#tabs'); t.innerHTML = ''
-  for (const [k, n] of [['all', 'Everyone']].concat(teamsHere().map(x => ['team:' + x, x])).concat([['dev', 'Direct']])) {
+  // [CHAT_CALL_TAB_V1] (John 2026-11-10: "make Call available under the Chat menu as well. For now, just a single person")
+  for (const [k, n] of [['all', 'Everyone']].concat(teamsHere().map(x => ['team:' + x, x])).concat([['dev', 'Direct'], ['call', 'Call']])) {
     const b = document.createElement('button'); b.textContent = n; b.className = S.tab === k ? 'on' : ''
     b.onclick = () => { S.tab = k; tabs(); showLog() }; t.appendChild(b)
   }
@@ -618,7 +748,7 @@ function toList() {
   const s = $('#to'); const cur = s.value; s.innerHTML = ''
   // [DM_TO_ANYONE_PRESENT_V1] direct: every person present now (their own presence cell), real devices first, then
   // anyone talked to already; the simulated ones are reached from the map
-  const people = Object.entries(S.who).filter(([id, b]) => b && talkable(id, b) && !b.sim).map(([id, b]) => ['dev:' + id, b.name + (b.team ? ' (' + b.team + ')' : b.kind === 'eoc' ? ' (EOC)' : '')])
+  const people = Object.entries(S.who).filter(([id, b]) => b && talkable(id, b) && !b.sim).map(([id, b]) => ['dev:' + id, b.name + (b.team ? ' (' + b.team + ')' : b.kind === 'eoc' ? ' (Command Center)' : '')])
   const known = new Set(people.map(p => p[0]))
   const opts = [['all', 'Everyone']].concat(teamsHere().map(x => ['team:' + x, 'Team ' + x])).concat(people)
     .concat(Object.entries(S.direct).filter(([id]) => !known.has('dev:' + id)).map(([id, n]) => ['dev:' + id, n]))
@@ -636,7 +766,22 @@ function msgHtml(m) {
   const tag = t ? `<span class="tag" style="background:${tc}">${esc(t)}</span> ` : m.to.startsWith('dev:') ? '<span class="tag dm">direct</span> ' : ''
   return `<div class="m${mine ? ' mine' : ''}${kind}"${style}><div class="h">${tag}${esc(m.name)}${esc(where)} · ${at}</div>${esc(m.text)}</div>`
 }
-function showLog() { const l = $('#log'); l.innerHTML = S.msgs.filter(inTab).map(msgHtml).join(''); l.scrollTop = l.scrollHeight }
+function showLog() {
+  const l = $('#log')
+  if (S.tab === 'call') { callList(); return }
+  $('#sayForm').hidden = false
+  l.innerHTML = S.msgs.filter(inTab).map(msgHtml).join(''); l.scrollTop = l.scrollHeight
+}
+// [CHAT_CALL_TAB_V1] the Call tab: every person present now (as the To list has them), each with Call: one person a call
+function callList() {
+  const l = $('#log'); $('#sayForm').hidden = true
+  const people = Object.entries(S.who).filter(([id, b]) => b && id !== S.cfg.dev && talkable(id, b) && !b.sim)
+    .map(([id, b]) => [id, b.name, b.team ? 'Team ' + b.team : b.kind === 'eoc' ? 'Command Center' : (b.kind || '')])
+    .sort((x, y) => String(x[1]).localeCompare(String(y[1])))
+  l.innerHTML = people.length ? '<div class="calls">' + people.map(([id, n, w]) => `<div class="callrow"><span><b>${esc(n)}</b> <span class="meta">${esc(w)}</span></span><button type="button" data-call="${esc(id)}">Call</button></div>`).join('') + '</div>'
+    : '<div class="meta">No one to call: nobody else is on the network now.</div>'
+  l.querySelectorAll('[data-call]').forEach(btn => btn.onclick = () => { const b = S.who[btn.dataset.call] || {}; send({ op: 'call', to: btn.dataset.call, peerName: b.name || '' }) })
+}
 function message(m) {
   if (S.seen[m.id]) return; S.seen[m.id] = 1
   S.msgs.push(m); S.msgs.sort((a, b) => (a.at || 0) - (b.at || 0))
@@ -879,7 +1024,7 @@ $('#misBtn').onclick = () => missionPanel()
 
 
 // ------------------------------------------------------------ [RT_RADIO_LOG_IN_THE_APP_V1] OpenEOC's radio log, here
-// What the scribes and field phones log over the radio (the radio log app, /rt/log.html), for this mission and its
+// What the scribes and field phones log over the radio (the radio log app, /openeoc/log.html), for this mission and its
 // operational period, newest first, as it is typed. Read only: the entries and their ICS-309 numbers are the posts'.
 const RL_STATUS = { urgent: 'Urgent', 'need-rest-food': 'Needs rest/food', ok: 'OK', info: 'Info' }
 function radioLog() {
@@ -889,7 +1034,7 @@ function radioLog() {
   sheet('rlog', 'Radio log — op period ' + esc(m.op || '1'), (rows.length ? `<table class="rl"><thead><tr><th>Time</th><th>No.</th><th>Call sign</th><th>Status</th><th>Location</th><th>Notes</th><th>Post</th></tr></thead><tbody>` +
     rows.map(r => `<tr${r.status === 'urgent' ? ' class="urg"' : ''}><td>${r.date ? new Date(r.date).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) : ''}</td><td>${esc(no(r.msgNo))}</td><td><b>${esc(r.callsign)}</b></td>
       <td>${esc(RL_STATUS[r.status] || r.status || '')}</td><td>${esc(loc(r.location))}</td><td>${esc(r.notes || '')}</td><td>${esc(r.by || '')}</td></tr>`).join('') + '</tbody></table>'
-    : '<div class="meta">No radio log entries in this operational period yet. Scribes log them in the Radio log app (/rt/ on the node).</div>'))
+    : '<div class="meta">No radio log entries in this operational period yet. Scribes log them in the Radio log app (/openeoc/ on the node).</div>'))
 }
 $('#logBtn').onclick = radioLog
 

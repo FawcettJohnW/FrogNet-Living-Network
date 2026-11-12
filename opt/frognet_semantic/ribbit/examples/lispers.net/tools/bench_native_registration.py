@@ -32,7 +32,7 @@ try:
  call(ms,'resolver.wait_site',iid='0',prefix='198.33.0.0/16',group='',active=True)
  call(ms,'ms_governor.start',iid='0',group='',name='ms-bench')
  call(etr,'etr.identity',name='etr-bench',xtr_id='0e0e')
- call(etr,'etr_liveness.start',interval_s=5,lifetime_s=30)   # v0.44: native registrations need a live ETR
+ call(etr,'etr_liveness.start')   # v0.44: native registrations need a live ETR
  call(etr,'database_mapping.add',iid='0',prefix=PF,group='',rloc_set=['192.0.2.1'])
  call(itr,'resolver.wait',iid='0',prefix=PF,group='',present=True,rloc='192.0.2.1',timeout_s=5)
  lat=[]

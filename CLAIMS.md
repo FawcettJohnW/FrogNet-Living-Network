@@ -38,7 +38,8 @@ reproduces them, and the cleanup did not re-run them.
 
 | Claim | Where it is recorded |
 |---|---|
-| A two-way HD video call sustains under 150 kbit/s over 900 MHz HaLow (22 fps measured) | `/demonstrations.html` §01 |
+| Bidirectional 160×120 video at 24 fps with prioritized audio at about 121 kbit/s, over TCP through an earlier broker and a 900 MHz segment. This is not HD. | `/evidence.html`, video bitrate |
+| An HD-scale call, Windows to Android: 1280×720 at 20 fps, roughly 1.2–1.5 Mb/s receive-side. That figure is the receiver's display, not a bandwidth requirement. | `/demonstrations.html`, "Windows and Android, October 12" |
 | A call continues across a deliberate network partition | `/demonstrations.html` |
 | A value written in one city is read in another with no application messaging | `/index.html`, `/demonstrations.html` |
 | The media ladder steps down and recovers under contested RF | `/simulator.html` |

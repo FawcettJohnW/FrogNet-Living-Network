@@ -1,0 +1,1325 @@
+{
+ "oracles": [
+  "py-smokevirt",
+  "py-smokemesh",
+  "mcp-ci-device-mesh-e2e",
+  "rt-vectors"
+ ],
+ "rows": {
+  "ToRadio": [
+   {
+    "name": "packet",
+    "num": 1,
+    "py-smokevirt": 101,
+    "py-smokemesh": 219,
+    "mcp-ci-device-mesh-e2e": 7,
+    "rt-vectors": 15,
+    "native-unit(static)": [
+     "test_event_channel_phone_api"
+    ]
+   },
+   {
+    "name": "want_config_id",
+    "num": 3,
+    "py-smokevirt": 238,
+    "py-smokemesh": 84,
+    "mcp-ci-device-mesh-e2e": 7,
+    "rt-vectors": 6,
+    "native-unit(static)": [
+     "test_phone_api_config_dump",
+     "test_stream_api"
+    ]
+   },
+   {
+    "name": "disconnect",
+    "num": 4,
+    "py-smokevirt": 0,
+    "py-smokemesh": 0,
+    "mcp-ci-device-mesh-e2e": 0,
+    "rt-vectors": 0,
+    "native-unit(static)": []
+   },
+   {
+    "name": "xmodemPacket",
+    "num": 5,
+    "py-smokevirt": 0,
+    "py-smokemesh": 0,
+    "mcp-ci-device-mesh-e2e": 0,
+    "rt-vectors": 0,
+    "native-unit(static)": []
+   },
+   {
+    "name": "mqttClientProxyMessage",
+    "num": 6,
+    "py-smokevirt": 0,
+    "py-smokemesh": 0,
+    "mcp-ci-device-mesh-e2e": 0,
+    "rt-vectors": 0,
+    "native-unit(static)": []
+   },
+   {
+    "name": "heartbeat",
+    "num": 7,
+    "py-smokevirt": 138,
+    "py-smokemesh": 49,
+    "mcp-ci-device-mesh-e2e": 6,
+    "rt-vectors": 7,
+    "native-unit(static)": [
+     "test_phone_api_config_dump"
+    ]
+   }
+  ],
+  "FromRadio": [
+   {
+    "name": "packet",
+    "num": 2,
+    "py-smokevirt": 62,
+    "py-smokemesh": 215,
+    "mcp-ci-device-mesh-e2e": 17,
+    "rt-vectors": 52,
+    "native-unit(static)": [
+     "test_phone_api_config_dump",
+     "test_stream_api"
+    ]
+   },
+   {
+    "name": "my_info",
+    "num": 3,
+    "py-smokevirt": 237,
+    "py-smokemesh": 84,
+    "mcp-ci-device-mesh-e2e": 7,
+    "rt-vectors": 6,
+    "native-unit(static)": [
+     "test_phone_api_config_dump"
+    ]
+   },
+   {
+    "name": "node_info",
+    "num": 4,
+    "py-smokevirt": 237,
+    "py-smokemesh": 204,
+    "mcp-ci-device-mesh-e2e": 11,
+    "rt-vectors": 11,
+    "native-unit(static)": [
+     "test_phone_api_config_dump"
+    ]
+   },
+   {
+    "name": "config",
+    "num": 5,
+    "py-smokevirt": 2370,
+    "py-smokemesh": 840,
+    "mcp-ci-device-mesh-e2e": 70,
+    "rt-vectors": 60,
+    "native-unit(static)": [
+     "test_phone_api_config_dump"
+    ]
+   },
+   {
+    "name": "log_record",
+    "num": 6,
+    "py-smokevirt": 0,
+    "py-smokemesh": 0,
+    "mcp-ci-device-mesh-e2e": 0,
+    "rt-vectors": 0,
+    "native-unit(static)": []
+   },
+   {
+    "name": "config_complete_id",
+    "num": 7,
+    "py-smokevirt": 237,
+    "py-smokemesh": 84,
+    "mcp-ci-device-mesh-e2e": 7,
+    "rt-vectors": 6,
+    "native-unit(static)": [
+     "test_phone_api_config_dump"
+    ]
+   },
+   {
+    "name": "rebooted",
+    "num": 8,
+    "py-smokevirt": 0,
+    "py-smokemesh": 0,
+    "mcp-ci-device-mesh-e2e": 0,
+    "rt-vectors": 0,
+    "native-unit(static)": []
+   },
+   {
+    "name": "moduleConfig",
+    "num": 9,
+    "py-smokevirt": 4029,
+    "py-smokemesh": 1428,
+    "mcp-ci-device-mesh-e2e": 119,
+    "rt-vectors": 102,
+    "native-unit(static)": [
+     "test_phone_api_config_dump",
+     "test_stream_api"
+    ]
+   },
+   {
+    "name": "channel",
+    "num": 10,
+    "py-smokevirt": 1896,
+    "py-smokemesh": 672,
+    "mcp-ci-device-mesh-e2e": 56,
+    "rt-vectors": 48,
+    "native-unit(static)": [
+     "test_phone_api_config_dump"
+    ]
+   },
+   {
+    "name": "queueStatus",
+    "num": 11,
+    "py-smokevirt": 225,
+    "py-smokemesh": 235,
+    "mcp-ci-device-mesh-e2e": 28,
+    "rt-vectors": 44,
+    "native-unit(static)": [
+     "test_phone_api_config_dump"
+    ]
+   },
+   {
+    "name": "xmodemPacket",
+    "num": 12,
+    "py-smokevirt": 0,
+    "py-smokemesh": 0,
+    "mcp-ci-device-mesh-e2e": 0,
+    "rt-vectors": 0,
+    "native-unit(static)": []
+   },
+   {
+    "name": "metadata",
+    "num": 13,
+    "py-smokevirt": 237,
+    "py-smokemesh": 84,
+    "mcp-ci-device-mesh-e2e": 7,
+    "rt-vectors": 6,
+    "native-unit(static)": [
+     "test_phone_api_config_dump"
+    ]
+   },
+   {
+    "name": "mqttClientProxyMessage",
+    "num": 14,
+    "py-smokevirt": 0,
+    "py-smokemesh": 0,
+    "mcp-ci-device-mesh-e2e": 0,
+    "rt-vectors": 0,
+    "native-unit(static)": []
+   },
+   {
+    "name": "fileInfo",
+    "num": 15,
+    "py-smokevirt": 1190,
+    "py-smokemesh": 483,
+    "mcp-ci-device-mesh-e2e": 39,
+    "rt-vectors": 34,
+    "native-unit(static)": [
+     "test_phone_api_config_dump"
+    ]
+   },
+   {
+    "name": "clientNotification",
+    "num": 16,
+    "py-smokevirt": 0,
+    "py-smokemesh": 0,
+    "mcp-ci-device-mesh-e2e": 0,
+    "rt-vectors": 0,
+    "native-unit(static)": [
+     "test_stream_api"
+    ]
+   },
+   {
+    "name": "deviceuiConfig",
+    "num": 17,
+    "py-smokevirt": 237,
+    "py-smokemesh": 84,
+    "mcp-ci-device-mesh-e2e": 7,
+    "rt-vectors": 6,
+    "native-unit(static)": [
+     "test_phone_api_config_dump"
+    ]
+   },
+   {
+    "name": "lockdown_status",
+    "num": 18,
+    "py-smokevirt": 0,
+    "py-smokemesh": 0,
+    "mcp-ci-device-mesh-e2e": 0,
+    "rt-vectors": 0,
+    "native-unit(static)": []
+   },
+   {
+    "name": "region_presets",
+    "num": 19,
+    "py-smokevirt": 237,
+    "py-smokemesh": 84,
+    "mcp-ci-device-mesh-e2e": 7,
+    "rt-vectors": 6,
+    "native-unit(static)": [
+     "test_phone_api_config_dump"
+    ]
+   }
+  ],
+  "AdminMessage": [
+   {
+    "name": "get_channel_request",
+    "num": 1,
+    "py-smokevirt": 0,
+    "py-smokemesh": 0,
+    "mcp-ci-device-mesh-e2e": 0,
+    "rt-vectors": 0,
+    "native-unit(static)": []
+   },
+   {
+    "name": "get_channel_response",
+    "num": 2,
+    "py-smokevirt": 0,
+    "py-smokemesh": 0,
+    "mcp-ci-device-mesh-e2e": 0,
+    "rt-vectors": 0,
+    "native-unit(static)": []
+   },
+   {
+    "name": "get_owner_request",
+    "num": 3,
+    "py-smokevirt": 0,
+    "py-smokemesh": 0,
+    "mcp-ci-device-mesh-e2e": 0,
+    "rt-vectors": 0,
+    "native-unit(static)": [
+     "test_admin_session_repro"
+    ]
+   },
+   {
+    "name": "get_owner_response",
+    "num": 4,
+    "py-smokevirt": 0,
+    "py-smokemesh": 0,
+    "mcp-ci-device-mesh-e2e": 0,
+    "rt-vectors": 0,
+    "native-unit(static)": [
+     "test_admin_session_repro"
+    ]
+   },
+   {
+    "name": "get_config_request",
+    "num": 5,
+    "py-smokevirt": 24,
+    "py-smokemesh": 21,
+    "mcp-ci-device-mesh-e2e": 0,
+    "rt-vectors": 4,
+    "native-unit(static)": [
+     "test_admin_session_repro"
+    ]
+   },
+   {
+    "name": "get_config_response",
+    "num": 6,
+    "py-smokevirt": 13,
+    "py-smokemesh": 0,
+    "mcp-ci-device-mesh-e2e": 0,
+    "rt-vectors": 4,
+    "native-unit(static)": [
+     "test_admin_session_repro"
+    ]
+   },
+   {
+    "name": "get_module_config_request",
+    "num": 7,
+    "py-smokevirt": 0,
+    "py-smokemesh": 0,
+    "mcp-ci-device-mesh-e2e": 0,
+    "rt-vectors": 0,
+    "native-unit(static)": [
+     "test_admin_session_repro"
+    ]
+   },
+   {
+    "name": "get_module_config_response",
+    "num": 8,
+    "py-smokevirt": 0,
+    "py-smokemesh": 0,
+    "mcp-ci-device-mesh-e2e": 0,
+    "rt-vectors": 0,
+    "native-unit(static)": [
+     "test_admin_session_repro",
+     "test_module_config",
+     "test_tak_config"
+    ]
+   },
+   {
+    "name": "get_canned_message_module_messages_request",
+    "num": 10,
+    "py-smokevirt": 0,
+    "py-smokemesh": 0,
+    "mcp-ci-device-mesh-e2e": 0,
+    "rt-vectors": 0,
+    "native-unit(static)": []
+   },
+   {
+    "name": "get_canned_message_module_messages_response",
+    "num": 11,
+    "py-smokevirt": 0,
+    "py-smokemesh": 0,
+    "mcp-ci-device-mesh-e2e": 0,
+    "rt-vectors": 0,
+    "native-unit(static)": []
+   },
+   {
+    "name": "get_device_metadata_request",
+    "num": 12,
+    "py-smokevirt": 0,
+    "py-smokemesh": 0,
+    "mcp-ci-device-mesh-e2e": 0,
+    "rt-vectors": 0,
+    "native-unit(static)": [
+     "test_admin_radio"
+    ]
+   },
+   {
+    "name": "get_device_metadata_response",
+    "num": 13,
+    "py-smokevirt": 0,
+    "py-smokemesh": 0,
+    "mcp-ci-device-mesh-e2e": 0,
+    "rt-vectors": 0,
+    "native-unit(static)": []
+   },
+   {
+    "name": "get_ringtone_request",
+    "num": 14,
+    "py-smokevirt": 0,
+    "py-smokemesh": 0,
+    "mcp-ci-device-mesh-e2e": 0,
+    "rt-vectors": 0,
+    "native-unit(static)": []
+   },
+   {
+    "name": "get_ringtone_response",
+    "num": 15,
+    "py-smokevirt": 0,
+    "py-smokemesh": 0,
+    "mcp-ci-device-mesh-e2e": 0,
+    "rt-vectors": 0,
+    "native-unit(static)": []
+   },
+   {
+    "name": "get_device_connection_status_request",
+    "num": 16,
+    "py-smokevirt": 0,
+    "py-smokemesh": 0,
+    "mcp-ci-device-mesh-e2e": 0,
+    "rt-vectors": 0,
+    "native-unit(static)": []
+   },
+   {
+    "name": "get_device_connection_status_response",
+    "num": 17,
+    "py-smokevirt": 0,
+    "py-smokemesh": 0,
+    "mcp-ci-device-mesh-e2e": 0,
+    "rt-vectors": 0,
+    "native-unit(static)": []
+   },
+   {
+    "name": "set_ham_mode",
+    "num": 18,
+    "py-smokevirt": 0,
+    "py-smokemesh": 0,
+    "mcp-ci-device-mesh-e2e": 0,
+    "rt-vectors": 0,
+    "native-unit(static)": [
+     "test_admin_radio"
+    ]
+   },
+   {
+    "name": "get_node_remote_hardware_pins_request",
+    "num": 19,
+    "py-smokevirt": 0,
+    "py-smokemesh": 0,
+    "mcp-ci-device-mesh-e2e": 0,
+    "rt-vectors": 0,
+    "native-unit(static)": []
+   },
+   {
+    "name": "get_node_remote_hardware_pins_response",
+    "num": 20,
+    "py-smokevirt": 0,
+    "py-smokemesh": 0,
+    "mcp-ci-device-mesh-e2e": 0,
+    "rt-vectors": 0,
+    "native-unit(static)": []
+   },
+   {
+    "name": "enter_dfu_mode_request",
+    "num": 21,
+    "py-smokevirt": 0,
+    "py-smokemesh": 0,
+    "mcp-ci-device-mesh-e2e": 0,
+    "rt-vectors": 0,
+    "native-unit(static)": []
+   },
+   {
+    "name": "delete_file_request",
+    "num": 22,
+    "py-smokevirt": 0,
+    "py-smokemesh": 0,
+    "mcp-ci-device-mesh-e2e": 0,
+    "rt-vectors": 0,
+    "native-unit(static)": []
+   },
+   {
+    "name": "set_scale",
+    "num": 23,
+    "py-smokevirt": 0,
+    "py-smokemesh": 0,
+    "mcp-ci-device-mesh-e2e": 0,
+    "rt-vectors": 0,
+    "native-unit(static)": []
+   },
+   {
+    "name": "backup_preferences",
+    "num": 24,
+    "py-smokevirt": 0,
+    "py-smokemesh": 0,
+    "mcp-ci-device-mesh-e2e": 0,
+    "rt-vectors": 0,
+    "native-unit(static)": []
+   },
+   {
+    "name": "restore_preferences",
+    "num": 25,
+    "py-smokevirt": 0,
+    "py-smokemesh": 0,
+    "mcp-ci-device-mesh-e2e": 0,
+    "rt-vectors": 0,
+    "native-unit(static)": []
+   },
+   {
+    "name": "remove_backup_preferences",
+    "num": 26,
+    "py-smokevirt": 0,
+    "py-smokemesh": 0,
+    "mcp-ci-device-mesh-e2e": 0,
+    "rt-vectors": 0,
+    "native-unit(static)": []
+   },
+   {
+    "name": "send_input_event",
+    "num": 27,
+    "py-smokevirt": 0,
+    "py-smokemesh": 0,
+    "mcp-ci-device-mesh-e2e": 0,
+    "rt-vectors": 0,
+    "native-unit(static)": []
+   },
+   {
+    "name": "set_owner",
+    "num": 32,
+    "py-smokevirt": 4,
+    "py-smokemesh": 0,
+    "mcp-ci-device-mesh-e2e": 0,
+    "rt-vectors": 2,
+    "native-unit(static)": [
+     "test_admin_session_repro",
+     "test_stream_api"
+    ]
+   },
+   {
+    "name": "set_channel",
+    "num": 33,
+    "py-smokevirt": 14,
+    "py-smokemesh": 0,
+    "mcp-ci-device-mesh-e2e": 0,
+    "rt-vectors": 0,
+    "native-unit(static)": [
+     "test_admin_radio",
+     "test_fuzz_packets"
+    ]
+   },
+   {
+    "name": "set_config",
+    "num": 34,
+    "py-smokevirt": 53,
+    "py-smokemesh": 21,
+    "mcp-ci-device-mesh-e2e": 4,
+    "rt-vectors": 2,
+    "native-unit(static)": [
+     "test_fuzz_packets"
+    ]
+   },
+   {
+    "name": "set_module_config",
+    "num": 35,
+    "py-smokevirt": 0,
+    "py-smokemesh": 0,
+    "mcp-ci-device-mesh-e2e": 0,
+    "rt-vectors": 0,
+    "native-unit(static)": [
+     "test_fuzz_packets"
+    ]
+   },
+   {
+    "name": "set_canned_message_module_messages",
+    "num": 36,
+    "py-smokevirt": 0,
+    "py-smokemesh": 0,
+    "mcp-ci-device-mesh-e2e": 0,
+    "rt-vectors": 0,
+    "native-unit(static)": []
+   },
+   {
+    "name": "set_ringtone_message",
+    "num": 37,
+    "py-smokevirt": 0,
+    "py-smokemesh": 0,
+    "mcp-ci-device-mesh-e2e": 0,
+    "rt-vectors": 0,
+    "native-unit(static)": []
+   },
+   {
+    "name": "remove_by_nodenum",
+    "num": 38,
+    "py-smokevirt": 0,
+    "py-smokemesh": 0,
+    "mcp-ci-device-mesh-e2e": 0,
+    "rt-vectors": 0,
+    "native-unit(static)": [
+     "test_fuzz_packets"
+    ]
+   },
+   {
+    "name": "set_favorite_node",
+    "num": 39,
+    "py-smokevirt": 0,
+    "py-smokemesh": 0,
+    "mcp-ci-device-mesh-e2e": 0,
+    "rt-vectors": 0,
+    "native-unit(static)": [
+     "test_admin_radio",
+     "test_fuzz_packets"
+    ]
+   },
+   {
+    "name": "remove_favorite_node",
+    "num": 40,
+    "py-smokevirt": 0,
+    "py-smokemesh": 0,
+    "mcp-ci-device-mesh-e2e": 0,
+    "rt-vectors": 0,
+    "native-unit(static)": [
+     "test_fuzz_packets"
+    ]
+   },
+   {
+    "name": "set_fixed_position",
+    "num": 41,
+    "py-smokevirt": 2,
+    "py-smokemesh": 0,
+    "mcp-ci-device-mesh-e2e": 0,
+    "rt-vectors": 2,
+    "native-unit(static)": []
+   },
+   {
+    "name": "remove_fixed_position",
+    "num": 42,
+    "py-smokevirt": 1,
+    "py-smokemesh": 0,
+    "mcp-ci-device-mesh-e2e": 0,
+    "rt-vectors": 0,
+    "native-unit(static)": [
+     "test_fuzz_packets"
+    ]
+   },
+   {
+    "name": "set_time_only",
+    "num": 43,
+    "py-smokevirt": 0,
+    "py-smokemesh": 0,
+    "mcp-ci-device-mesh-e2e": 0,
+    "rt-vectors": 0,
+    "native-unit(static)": [
+     "test_fuzz_packets"
+    ]
+   },
+   {
+    "name": "get_ui_config_request",
+    "num": 44,
+    "py-smokevirt": 0,
+    "py-smokemesh": 0,
+    "mcp-ci-device-mesh-e2e": 0,
+    "rt-vectors": 0,
+    "native-unit(static)": []
+   },
+   {
+    "name": "get_ui_config_response",
+    "num": 45,
+    "py-smokevirt": 0,
+    "py-smokemesh": 0,
+    "mcp-ci-device-mesh-e2e": 0,
+    "rt-vectors": 0,
+    "native-unit(static)": []
+   },
+   {
+    "name": "store_ui_config",
+    "num": 46,
+    "py-smokevirt": 0,
+    "py-smokemesh": 0,
+    "mcp-ci-device-mesh-e2e": 0,
+    "rt-vectors": 0,
+    "native-unit(static)": []
+   },
+   {
+    "name": "set_ignored_node",
+    "num": 47,
+    "py-smokevirt": 0,
+    "py-smokemesh": 0,
+    "mcp-ci-device-mesh-e2e": 0,
+    "rt-vectors": 0,
+    "native-unit(static)": [
+     "test_admin_radio",
+     "test_fuzz_packets"
+    ]
+   },
+   {
+    "name": "remove_ignored_node",
+    "num": 48,
+    "py-smokevirt": 0,
+    "py-smokemesh": 0,
+    "mcp-ci-device-mesh-e2e": 0,
+    "rt-vectors": 0,
+    "native-unit(static)": [
+     "test_fuzz_packets"
+    ]
+   },
+   {
+    "name": "toggle_muted_node",
+    "num": 49,
+    "py-smokevirt": 0,
+    "py-smokemesh": 0,
+    "mcp-ci-device-mesh-e2e": 0,
+    "rt-vectors": 0,
+    "native-unit(static)": [
+     "test_admin_radio",
+     "test_fuzz_packets"
+    ]
+   },
+   {
+    "name": "begin_edit_settings",
+    "num": 64,
+    "py-smokevirt": 1,
+    "py-smokemesh": 0,
+    "mcp-ci-device-mesh-e2e": 0,
+    "rt-vectors": 0,
+    "native-unit(static)": [
+     "test_admin_radio"
+    ]
+   },
+   {
+    "name": "commit_edit_settings",
+    "num": 65,
+    "py-smokevirt": 0,
+    "py-smokemesh": 0,
+    "mcp-ci-device-mesh-e2e": 0,
+    "rt-vectors": 0,
+    "native-unit(static)": [
+     "test_admin_radio"
+    ]
+   },
+   {
+    "name": "add_contact",
+    "num": 66,
+    "py-smokevirt": 0,
+    "py-smokemesh": 0,
+    "mcp-ci-device-mesh-e2e": 0,
+    "rt-vectors": 0,
+    "native-unit(static)": [
+     "test_fuzz_packets"
+    ]
+   },
+   {
+    "name": "key_verification",
+    "num": 67,
+    "py-smokevirt": 0,
+    "py-smokemesh": 0,
+    "mcp-ci-device-mesh-e2e": 0,
+    "rt-vectors": 0,
+    "native-unit(static)": []
+   },
+   {
+    "name": "factory_reset_device",
+    "num": 94,
+    "py-smokevirt": 0,
+    "py-smokemesh": 0,
+    "mcp-ci-device-mesh-e2e": 0,
+    "rt-vectors": 0,
+    "native-unit(static)": []
+   },
+   {
+    "name": "reboot_ota_seconds",
+    "num": 95,
+    "py-smokevirt": 0,
+    "py-smokemesh": 0,
+    "mcp-ci-device-mesh-e2e": 0,
+    "rt-vectors": 0,
+    "native-unit(static)": []
+   },
+   {
+    "name": "exit_simulator",
+    "num": 96,
+    "py-smokevirt": 2,
+    "py-smokemesh": 21,
+    "mcp-ci-device-mesh-e2e": 0,
+    "rt-vectors": 0,
+    "native-unit(static)": []
+   },
+   {
+    "name": "reboot_seconds",
+    "num": 97,
+    "py-smokevirt": 0,
+    "py-smokemesh": 0,
+    "mcp-ci-device-mesh-e2e": 0,
+    "rt-vectors": 0,
+    "native-unit(static)": []
+   },
+   {
+    "name": "shutdown_seconds",
+    "num": 98,
+    "py-smokevirt": 0,
+    "py-smokemesh": 0,
+    "mcp-ci-device-mesh-e2e": 0,
+    "rt-vectors": 0,
+    "native-unit(static)": []
+   },
+   {
+    "name": "factory_reset_config",
+    "num": 99,
+    "py-smokevirt": 0,
+    "py-smokemesh": 0,
+    "mcp-ci-device-mesh-e2e": 0,
+    "rt-vectors": 0,
+    "native-unit(static)": []
+   },
+   {
+    "name": "nodedb_reset",
+    "num": 100,
+    "py-smokevirt": 0,
+    "py-smokemesh": 0,
+    "mcp-ci-device-mesh-e2e": 0,
+    "rt-vectors": 0,
+    "native-unit(static)": []
+   },
+   {
+    "name": "ota_request",
+    "num": 102,
+    "py-smokevirt": 0,
+    "py-smokemesh": 0,
+    "mcp-ci-device-mesh-e2e": 0,
+    "rt-vectors": 0,
+    "native-unit(static)": []
+   },
+   {
+    "name": "sensor_config",
+    "num": 103,
+    "py-smokevirt": 0,
+    "py-smokemesh": 0,
+    "mcp-ci-device-mesh-e2e": 0,
+    "rt-vectors": 0,
+    "native-unit(static)": []
+   },
+   {
+    "name": "lockdown_auth",
+    "num": 104,
+    "py-smokevirt": 0,
+    "py-smokemesh": 0,
+    "mcp-ci-device-mesh-e2e": 0,
+    "rt-vectors": 0,
+    "native-unit(static)": [
+     "test_stream_api"
+    ]
+   }
+  ],
+  "PortNum": [
+   {
+    "name": "UNKNOWN_APP",
+    "num": 0,
+    "py-smokevirt": 0,
+    "py-smokemesh": 0,
+    "mcp-ci-device-mesh-e2e": 0,
+    "rt-vectors": 0,
+    "native-unit(static)": [
+     "test_mesh_module"
+    ]
+   },
+   {
+    "name": "TEXT_MESSAGE_APP",
+    "num": 1,
+    "py-smokevirt": 0,
+    "py-smokemesh": 8,
+    "mcp-ci-device-mesh-e2e": 12,
+    "rt-vectors": 6,
+    "native-unit(static)": [
+     "support",
+     "test_ack_proof",
+     "test_event_channel_router",
+     "test_fuzz_packets",
+     "test_mesh_beacon",
+     "test_mesh_module",
+     "test_meshpacket_serializer",
+     "test_mqtt",
+     "test_muted_source",
+     "test_nexthop_routing",
+     "test_packet_signing",
+     "test_phone_api_config_dump",
+     "test_pki_admin_fallback",
+     "test_position_precision",
+     "test_rebroadcast_mode",
+     "test_reliable_ack_matrix",
+     "test_stream_api",
+     "test_tophone_queue",
+     "test_traffic_management"
+    ]
+   },
+   {
+    "name": "REMOTE_HARDWARE_APP",
+    "num": 2,
+    "py-smokevirt": 0,
+    "py-smokemesh": 0,
+    "mcp-ci-device-mesh-e2e": 0,
+    "rt-vectors": 0,
+    "native-unit(static)": []
+   },
+   {
+    "name": "POSITION_APP",
+    "num": 3,
+    "py-smokevirt": 0,
+    "py-smokemesh": 0,
+    "mcp-ci-device-mesh-e2e": 0,
+    "rt-vectors": 7,
+    "native-unit(static)": [
+     "support",
+     "test_channel_keys",
+     "test_event_channel_phone_api",
+     "test_event_channel_router",
+     "test_fuzz_packets",
+     "test_mesh_module",
+     "test_meshpacket_serializer",
+     "test_mqtt",
+     "test_packet_signing",
+     "test_position_precision",
+     "test_traffic_management",
+     "test_transmit_history"
+    ]
+   },
+   {
+    "name": "NODEINFO_APP",
+    "num": 4,
+    "py-smokevirt": 0,
+    "py-smokemesh": 90,
+    "mcp-ci-device-mesh-e2e": 4,
+    "rt-vectors": 12,
+    "native-unit(static)": [
+     "test_fuzz_packets",
+     "test_meshpacket_serializer",
+     "test_mqtt",
+     "test_nodeinfo_send_window",
+     "test_packet_signing",
+     "test_traffic_management",
+     "test_transmit_history"
+    ]
+   },
+   {
+    "name": "ROUTING_APP",
+    "num": 5,
+    "py-smokevirt": 45,
+    "py-smokemesh": 40,
+    "mcp-ci-device-mesh-e2e": 4,
+    "rt-vectors": 14,
+    "native-unit(static)": [
+     "test_ack_proof",
+     "test_admin_radio",
+     "test_mesh_module",
+     "test_mqtt",
+     "test_nexthop_routing",
+     "test_packet_signing",
+     "test_reliable_ack_matrix",
+     "test_tophone_queue",
+     "test_traffic_management"
+    ]
+   },
+   {
+    "name": "ADMIN_APP",
+    "num": 6,
+    "py-smokevirt": 114,
+    "py-smokemesh": 63,
+    "mcp-ci-device-mesh-e2e": 4,
+    "rt-vectors": 14,
+    "native-unit(static)": [
+     "test_admin_session_repro",
+     "test_fuzz_packets",
+     "test_mesh_module",
+     "test_mqtt",
+     "test_rebroadcast_mode",
+     "test_stream_api",
+     "test_traffic_management"
+    ]
+   },
+   {
+    "name": "TEXT_MESSAGE_COMPRESSED_APP",
+    "num": 7,
+    "py-smokevirt": 0,
+    "py-smokemesh": 0,
+    "mcp-ci-device-mesh-e2e": 0,
+    "rt-vectors": 0,
+    "native-unit(static)": []
+   },
+   {
+    "name": "WAYPOINT_APP",
+    "num": 8,
+    "py-smokevirt": 0,
+    "py-smokemesh": 0,
+    "mcp-ci-device-mesh-e2e": 0,
+    "rt-vectors": 0,
+    "native-unit(static)": [
+     "test_event_channel_phone_api",
+     "test_event_channel_router",
+     "test_fuzz_packets",
+     "test_meshpacket_serializer",
+     "test_mqtt",
+     "test_nexthop_routing",
+     "test_packet_signing",
+     "test_position_precision"
+    ]
+   },
+   {
+    "name": "AUDIO_APP",
+    "num": 9,
+    "py-smokevirt": 0,
+    "py-smokemesh": 0,
+    "mcp-ci-device-mesh-e2e": 0,
+    "rt-vectors": 0,
+    "native-unit(static)": []
+   },
+   {
+    "name": "DETECTION_SENSOR_APP",
+    "num": 10,
+    "py-smokevirt": 0,
+    "py-smokemesh": 0,
+    "mcp-ci-device-mesh-e2e": 0,
+    "rt-vectors": 0,
+    "native-unit(static)": [
+     "test_mqtt"
+    ]
+   },
+   {
+    "name": "ALERT_APP",
+    "num": 11,
+    "py-smokevirt": 0,
+    "py-smokemesh": 0,
+    "mcp-ci-device-mesh-e2e": 0,
+    "rt-vectors": 0,
+    "native-unit(static)": []
+   },
+   {
+    "name": "KEY_VERIFICATION_APP",
+    "num": 12,
+    "py-smokevirt": 0,
+    "py-smokemesh": 0,
+    "mcp-ci-device-mesh-e2e": 0,
+    "rt-vectors": 0,
+    "native-unit(static)": [
+     "test_key_verification",
+     "test_packet_signing",
+     "test_pki_admin_fallback"
+    ]
+   },
+   {
+    "name": "REMOTE_SHELL_APP",
+    "num": 13,
+    "py-smokevirt": 0,
+    "py-smokemesh": 0,
+    "mcp-ci-device-mesh-e2e": 0,
+    "rt-vectors": 0,
+    "native-unit(static)": []
+   },
+   {
+    "name": "REPLY_APP",
+    "num": 32,
+    "py-smokevirt": 0,
+    "py-smokemesh": 0,
+    "mcp-ci-device-mesh-e2e": 0,
+    "rt-vectors": 0,
+    "native-unit(static)": []
+   },
+   {
+    "name": "IP_TUNNEL_APP",
+    "num": 33,
+    "py-smokevirt": 0,
+    "py-smokemesh": 0,
+    "mcp-ci-device-mesh-e2e": 0,
+    "rt-vectors": 0,
+    "native-unit(static)": []
+   },
+   {
+    "name": "PAXCOUNTER_APP",
+    "num": 34,
+    "py-smokevirt": 0,
+    "py-smokemesh": 0,
+    "mcp-ci-device-mesh-e2e": 0,
+    "rt-vectors": 0,
+    "native-unit(static)": []
+   },
+   {
+    "name": "STORE_FORWARD_PLUSPLUS_APP",
+    "num": 35,
+    "py-smokevirt": 0,
+    "py-smokemesh": 0,
+    "mcp-ci-device-mesh-e2e": 0,
+    "rt-vectors": 0,
+    "native-unit(static)": []
+   },
+   {
+    "name": "NODE_STATUS_APP",
+    "num": 36,
+    "py-smokevirt": 0,
+    "py-smokemesh": 0,
+    "mcp-ci-device-mesh-e2e": 0,
+    "rt-vectors": 0,
+    "native-unit(static)": []
+   },
+   {
+    "name": "MESH_BEACON_APP",
+    "num": 37,
+    "py-smokevirt": 0,
+    "py-smokemesh": 0,
+    "mcp-ci-device-mesh-e2e": 0,
+    "rt-vectors": 0,
+    "native-unit(static)": [
+     "test_fuzz_packets",
+     "test_mesh_beacon"
+    ]
+   },
+   {
+    "name": "PAGING_APP",
+    "num": 38,
+    "py-smokevirt": 0,
+    "py-smokemesh": 0,
+    "mcp-ci-device-mesh-e2e": 0,
+    "rt-vectors": 0,
+    "native-unit(static)": []
+   },
+   {
+    "name": "SERIAL_APP",
+    "num": 64,
+    "py-smokevirt": 0,
+    "py-smokemesh": 0,
+    "mcp-ci-device-mesh-e2e": 0,
+    "rt-vectors": 0,
+    "native-unit(static)": []
+   },
+   {
+    "name": "STORE_FORWARD_APP",
+    "num": 65,
+    "py-smokevirt": 0,
+    "py-smokemesh": 0,
+    "mcp-ci-device-mesh-e2e": 0,
+    "rt-vectors": 0,
+    "native-unit(static)": [
+     "test_mesh_module"
+    ]
+   },
+   {
+    "name": "RANGE_TEST_APP",
+    "num": 66,
+    "py-smokevirt": 0,
+    "py-smokemesh": 0,
+    "mcp-ci-device-mesh-e2e": 0,
+    "rt-vectors": 0,
+    "native-unit(static)": [
+     "test_mqtt"
+    ]
+   },
+   {
+    "name": "TELEMETRY_APP",
+    "num": 67,
+    "py-smokevirt": 0,
+    "py-smokemesh": 0,
+    "mcp-ci-device-mesh-e2e": 0,
+    "rt-vectors": 7,
+    "native-unit(static)": [
+     "test_fuzz_packets",
+     "test_mesh_module",
+     "test_meshpacket_serializer",
+     "test_mqtt",
+     "test_packet_signing",
+     "test_reliable_ack_matrix",
+     "test_tophone_queue",
+     "test_traffic_management",
+     "test_transmit_history"
+    ]
+   },
+   {
+    "name": "ZPS_APP",
+    "num": 68,
+    "py-smokevirt": 0,
+    "py-smokemesh": 0,
+    "mcp-ci-device-mesh-e2e": 0,
+    "rt-vectors": 0,
+    "native-unit(static)": []
+   },
+   {
+    "name": "SIMULATOR_APP",
+    "num": 69,
+    "py-smokevirt": 4,
+    "py-smokemesh": 230,
+    "mcp-ci-device-mesh-e2e": 8,
+    "rt-vectors": 19,
+    "native-unit(static)": []
+   },
+   {
+    "name": "TRACEROUTE_APP",
+    "num": 70,
+    "py-smokevirt": 0,
+    "py-smokemesh": 3,
+    "mcp-ci-device-mesh-e2e": 0,
+    "rt-vectors": 5,
+    "native-unit(static)": [
+     "test_fuzz_packets",
+     "test_packet_signing",
+     "test_traceroute_nexthop"
+    ]
+   },
+   {
+    "name": "NEIGHBORINFO_APP",
+    "num": 71,
+    "py-smokevirt": 0,
+    "py-smokemesh": 0,
+    "mcp-ci-device-mesh-e2e": 0,
+    "rt-vectors": 0,
+    "native-unit(static)": [
+     "test_fuzz_packets",
+     "test_mesh_module"
+    ]
+   },
+   {
+    "name": "ATAK_PLUGIN",
+    "num": 72,
+    "py-smokevirt": 0,
+    "py-smokemesh": 0,
+    "mcp-ci-device-mesh-e2e": 0,
+    "rt-vectors": 0,
+    "native-unit(static)": []
+   },
+   {
+    "name": "MAP_REPORT_APP",
+    "num": 73,
+    "py-smokevirt": 0,
+    "py-smokemesh": 0,
+    "mcp-ci-device-mesh-e2e": 0,
+    "rt-vectors": 0,
+    "native-unit(static)": [
+     "test_event_channel_router",
+     "test_mqtt",
+     "test_position_precision"
+    ]
+   },
+   {
+    "name": "POWERSTRESS_APP",
+    "num": 74,
+    "py-smokevirt": 0,
+    "py-smokemesh": 0,
+    "mcp-ci-device-mesh-e2e": 0,
+    "rt-vectors": 0,
+    "native-unit(static)": []
+   },
+   {
+    "name": "LORAWAN_BRIDGE",
+    "num": 75,
+    "py-smokevirt": 0,
+    "py-smokemesh": 0,
+    "mcp-ci-device-mesh-e2e": 0,
+    "rt-vectors": 0,
+    "native-unit(static)": []
+   },
+   {
+    "name": "RETICULUM_TUNNEL_APP",
+    "num": 76,
+    "py-smokevirt": 0,
+    "py-smokemesh": 0,
+    "mcp-ci-device-mesh-e2e": 0,
+    "rt-vectors": 0,
+    "native-unit(static)": []
+   },
+   {
+    "name": "CAYENNE_APP",
+    "num": 77,
+    "py-smokevirt": 0,
+    "py-smokemesh": 0,
+    "mcp-ci-device-mesh-e2e": 0,
+    "rt-vectors": 0,
+    "native-unit(static)": []
+   },
+   {
+    "name": "ATAK_PLUGIN_V2",
+    "num": 78,
+    "py-smokevirt": 0,
+    "py-smokemesh": 0,
+    "mcp-ci-device-mesh-e2e": 0,
+    "rt-vectors": 0,
+    "native-unit(static)": [
+     "test_mesh_module"
+    ]
+   },
+   {
+    "name": "LORA_OTA_APP",
+    "num": 79,
+    "py-smokevirt": 0,
+    "py-smokemesh": 0,
+    "mcp-ci-device-mesh-e2e": 0,
+    "rt-vectors": 0,
+    "native-unit(static)": []
+   },
+   {
+    "name": "GROUPALARM_APP",
+    "num": 112,
+    "py-smokevirt": 0,
+    "py-smokemesh": 0,
+    "mcp-ci-device-mesh-e2e": 0,
+    "rt-vectors": 0,
+    "native-unit(static)": []
+   },
+   {
+    "name": "PRIVATE_APP",
+    "num": 256,
+    "py-smokevirt": 0,
+    "py-smokemesh": 0,
+    "mcp-ci-device-mesh-e2e": 0,
+    "rt-vectors": 0,
+    "native-unit(static)": [
+     "test_mesh_module",
+     "test_packet_signing",
+     "test_pki_admin_fallback"
+    ]
+   },
+   {
+    "name": "ATAK_FORWARDER",
+    "num": 257,
+    "py-smokevirt": 0,
+    "py-smokemesh": 0,
+    "mcp-ci-device-mesh-e2e": 0,
+    "rt-vectors": 0,
+    "native-unit(static)": []
+   },
+   {
+    "name": "MAX",
+    "num": 511,
+    "py-smokevirt": 0,
+    "py-smokemesh": 0,
+    "mcp-ci-device-mesh-e2e": 0,
+    "rt-vectors": 0,
+    "native-unit(static)": []
+   }
+  ]
+ }
+}

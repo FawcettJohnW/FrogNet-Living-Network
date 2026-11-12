@@ -4,9 +4,11 @@
 #  SPDX-License-Identifier: GPL-2.0-only                       #
 ################################################################
 """test_fdf_app.py -- [APP_SERVICES_V1] fdf-app as the design has it (the doc "FrogNet SystemRam, FrogNetHost Admin and
-App Services -- Design", 2026-11-04, sections 5, 7 and 9), on real RAM hosts (fdf-ram) and four machines a, b, c, d,
-each with its own fdf-app serve and its own .1 (127.0.N.1). Two RAM hosts on one port, 127.0.0.2 and 127.0.0.3: the
-hosts file (as every node's election writes it) names databasehost-control and the SystemRam; the AppHost lines are
+App Services -- Design", 2026-11-04, sections 5, 7 and 9) and the roles on api.php ([ROLES_ON_API_V1], 2026-11-07),
+with four machines a, b, c, d, each with its own fdf-app serve and its own .1 (127.0.N.1). Two role hosts, 127.0.0.2
+and 127.0.0.3: this tree's api.php on port 80, each on its own MariaDB database; the node's own .1 serves held_fire.php
+where they fire the held reads. The hosts file (as every node's election writes it) names databasehost-control and the
+SystemRam; the AppRams are services (fdf-ram, served by fdf-app on their ports); the AppHost lines are
 the real election's (core/app_hosts.py), run here as the tunnel daemon runs it: on a held read on each fdf-app family
 and on a membership change. One app, openeoc, RAMs general and hospitals; c has the most memory, b the next, a the
 least, d the most and no app.
@@ -17,7 +19,7 @@ least, d the most and no app.
      databasehost-control still holds exactly the one tuple: no machine writes a copy of its own
   3  each machine's capability tuple per AppRam in the SystemRam; the password nowhere in a tuple
   4  the election: openeocHost.frognet and hospitalsHost.openeoc name c; c serves each on its configured port
-  5  c's service gone (its machine still there): its capability tuples gone with its session; both on b
+  5  c's service stopped (its machine still there): it withdrew its capability tuples; both on b
   6  c back: both on c again
   7  the Admin's configuration (a new Team RAM alpha with its own port, a new user): adopted by a, b and c (their
      answers in the SystemRam); alpha served on its port
@@ -26,10 +28,12 @@ least, d the most and no app.
  10  the app's selection (-mem_total_kb): every AppRam on a
  11  hospitals' lead places it here on b (its own configuration tuple): hospitalsHost.openeoc names b; a place by a
      user who is not its lead is no place; placed on databasehost: the selection again
- 12  databasehost-control and the SystemRam move (the hosts file names the other RAM host): the merge writes the
-     configuration tuples into the new databasehost-control as signed; the capability tuples are held there; the
-     AppHosts the same
+ 12  databasehost-control and the SystemRam move (the hosts file names the other role host): the merge writes the
+     configuration tuples into the new databasehost-control as signed; each machine announces its capability tuples
+     there; the AppHosts the same
  13  install with no databasehost-control named: nothing installed
+Needs: root (port 80, /run/frognet/held), MariaDB with root access by socket, php with mysqli and curl, and fdf-ram
+and ram in BUILD_STATIC_DIR (tools/build.sh, tools/build_static_clients.sh).
 usage: tools/test_fdf_app.py [BUILD_STATIC_DIR]
 """
 import hashlib, hmac, json, os, shutil, socket, subprocess, sys, tempfile, threading, time
@@ -40,6 +44,8 @@ F = os.path.join(H, "..", "fdf")
 FN = os.path.join(H, "..", "..", "..", "..", "frognet_semantic")
 sys.path.insert(0, os.path.join(F, "lib", "python"))
 sys.path.insert(0, FN)
+os.environ["FROGNET_CORE"] = os.path.normpath(os.path.join(FN, "core"))
+sys.path.insert(0, os.environ["FROGNET_CORE"])
 import fdfram  # noqa: E402
 
 FAILS = []
@@ -54,18 +60,45 @@ T = tempfile.mkdtemp(prefix="fdf-app-")
 os.makedirs(T + "/bin")
 for b in ("fdf-ram", "ram"): shutil.copy(os.path.join(B, b), T + "/bin/")
 procs = []
-PORT = free()
-os.environ["FDF_LAN_RAM_PORT"] = str(PORT); os.environ["FDF_PY"] = os.path.join(F, "lib", "python")
-from core import app_hosts  # noqa: E402  (reads FDF_LAN_RAM_PORT)
-def ram_at(ip, name):
-    procs.append(subprocess.Popen([T + "/bin/fdf-ram", "--listen", "%s:%d" % (ip, PORT), "--api", fdfram.API],
-                                  env=dict(os.environ, RINA_REGION_FILE=T + "/%s.perm" % name, RINA_NET_CONFIG=T + "/none", FDF_VAR=T + "/v-" + name),
-                                  stdout=subprocess.DEVNULL, stderr=open(T + "/%s.log" % name, "w")))
+os.environ["FDF_PY"] = os.path.join(F, "lib", "python")
+from core import app_hosts  # noqa: E402
+WWW = os.path.normpath(os.path.join(FN, "..", "..", "var", "www", "html"))
+PW = "fatest" + str(os.getpid())
+def serve_www(ip, files, db=None):
+    """php -S on ip:80 serving `files` from this tree's var/www/html; api.php on its own database `db`"""
+    d = os.path.join(T, "www-" + ip)
+    os.makedirs(d)
+    for f in files:
+        shutil.copy(os.path.join(WWW, f), d)
+    if db:
+        cfg = (open(os.path.join(WWW, "config.php")).read().replace("__FROGNET_DB_PASS__", PW)
+               .replace("define('DB_NAME', 'FrogNet');", "define('DB_NAME', '%s');" % db)
+               .replace("define('DB_USER', 'FrogUser');", "define('DB_USER', 'FaTestUser');"))
+        open(os.path.join(d, "config.php"), "w").write(cfg)
+        sql = ("DROP DATABASE IF EXISTS %s; CREATE DATABASE %s;" % (db, db) +
+               "".join("CREATE USER IF NOT EXISTS 'FaTestUser'@'%s' IDENTIFIED BY '%s'; ALTER USER 'FaTestUser'@'%s' IDENTIFIED BY '%s'; "
+                       "GRANT ALL ON %s.* TO 'FaTestUser'@'%s';" % (h, PW, h, PW, db, h) for h in ("localhost", "127.0.0.1")))
+        subprocess.run(["mysql", "-e", sql], check=True)
+        for f in ("Create_Database.sql", "schema_fixups.sql"):
+            subprocess.run("sed 's/`FrogNet`/`%s`/g; s/^USE FrogNet;/USE %s;/' %s | mysql" % (db, db, os.path.join(WWW, f)), shell=True,
+                           check=True, stdout=subprocess.DEVNULL)
+    procs.append(subprocess.Popen(["php", "-S", "%s:80" % ip, "-t", d], env=dict(os.environ, PHP_CLI_SERVER_WORKERS="8"),
+                                  stdout=subprocess.DEVNULL, stderr=open(T + "/php-%s.log" % ip, "w")))
     for _ in range(100):
-        try: socket.create_connection((ip, PORT), 0.2).close(); return
+        try: socket.create_connection((ip, 80), 0.2).close(); return
         except OSError: time.sleep(0.05)
-ram_at("127.0.0.2", "ram2"); ram_at("127.0.0.3", "ram3")
-R = {ip: fdfram.Ram("%s:%d" % (ip, PORT)) for ip in ("127.0.0.2", "127.0.0.3")}
+for ip in ("127.0.0.2", "127.0.0.3"):
+    subprocess.run(["ip", "addr", "add", ip + "/8", "dev", "lo"], capture_output=True)
+# this node's own .1 on its LAN (a veth pair: its FrogNet address, as frognet_tuples.my_ip finds it -- not lo)
+if subprocess.run(["ip", "-o", "addr", "show", "fnt0"], capture_output=True, text=True).stdout.find("10.99.99.1/") < 0:
+    subprocess.run(["ip", "link", "add", "fnt0", "type", "veth", "peer", "name", "fnt0p"], capture_output=True)
+    subprocess.run(["ip", "addr", "add", "10.99.99.1/24", "dev", "fnt0"], capture_output=True)
+    for d in ("fnt0p", "fnt0"): subprocess.run(["ip", "link", "set", d, "up"], capture_output=True)
+serve_www("127.0.0.2", ["api.php", "config.php"], db="fatest_a")       # the role hosts
+serve_www("127.0.0.3", ["api.php", "config.php"], db="fatest_b")
+import frognet_tuples  # noqa: E402
+serve_www(frognet_tuples.my_ip(), ["held_fire.php"])                   # this node's own .1: where its holds fire
+R = {ip: fdfram.RoleRam(ip) for ip in ("127.0.0.2", "127.0.0.3")}
 
 # ---- the hosts file every node's election writes, and the election (the tunnel daemon's two app-tuple reads)
 HOSTS = T + "/etc/hosts"; os.makedirs(T + "/etc")
@@ -89,14 +122,17 @@ def elect(why=""):
         if text != "\n".join(was) + "\n":
             open(HOSTS + ".tmp", "w").write(text); os.replace(HOSTS + ".tmp", HOSTS)
 def watch(name):
-    last, at = -1, None
+    """the tunnel daemon's two app-tuple reads: held at the role's api.php; the election on every change"""
+    at, had = None, None
     while True:
         ip = world["control"] if name == "control" else world["system"]
-        if ip != at: last, at = -1, ip
+        rm = R[ip]
         try:
-            cs = R[ip].read("fdf-app", "", "", after=last, wait_s=5)
-            if cs:
-                last = max(int(c["id"]) for c in cs); elect("app tuples (%s)" % name)
+            cs = rm.read("fdf-app", "", "", after=-1 if ip != at else 0, wait_s=0 if ip != at else 5)
+            now = sorted((c["id"], c["writer"], json.dumps(c["bag"], sort_keys=True)) for c in cs)
+            if ip != at or now != had:
+                elect("app tuples (%s)" % name)
+            at, had = ip, now
         except fdfram.RamError:
             time.sleep(0.2)
 elect("start")
@@ -186,7 +222,7 @@ try:
     stop("c"); t0 = time.monotonic()
     m, dt = wait_for(on({"general": "b", "hospitals": "b"}))
     gone = not [c for c in live(sysr(), "can") if c["instance"].endswith(".guid-c")]
-    check(m is not None and gone, "5 c's service gone: its capability tuples gone with its session (%s); both on b %.0f ms after: %s" % (gone, dt * 1000, m))
+    check(m is not None and gone, "5 c's service stopped: it withdrew its capability tuples (%s); both on b %.0f ms after: %s" % (gone, dt * 1000, m))
     serve("c")
     m, dt = wait_for(on({"general": "c", "hospitals": "c"}))
     check(m is not None, "6 c back: both on c %.0f ms after: %s" % (dt * 1000, m))
@@ -243,7 +279,7 @@ try:
     m, _ = wait_for(on({"general": "a", "hospitals": "a", "alpha": "a"}), 15)
     check(bool(got) and bool(cn) and m is not None,
           "12 databasehost-control and the SystemRam moved: the configuration tuple written into the new one by the merge, as signed (%.0f ms); "
-          "%d capability tuples held there; the AppHosts the same: %s" % (dt * 1000, len(cn or []), m))
+          "%d capability tuples announced there; the AppHosts the same: %s" % (dt * 1000, len(cn or []), m))
 
     os.makedirs(T + "/e/apps")
     json.dump({"name": "node-e", "guid": "guid-e", "addrs": [{"ip": "127.0.5.1", "kind": "own"}]}, open(T + "/e/facts.json", "w"))

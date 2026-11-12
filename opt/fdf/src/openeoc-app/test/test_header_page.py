@@ -19,7 +19,7 @@ def up(pg):
     pg.add_init_script(STUB); pg.goto("file://" + os.path.join(APP, "ui", "index.html"))
     dl = lambda o: pg.evaluate("l => rtDeliver(l)", json.dumps(o))
     pg.evaluate("rtInit({dev:'p1',name:'Pixel',door:'10.170.170.1',role:'team',team:'Charlie',platform:'android',layers:[],enrolled:{lead:true}})")
-    pg.wait_for_selector("#pick:not([hidden])"); pg.click("[data-pick=team]"); pg.click("#connect button[type=submit], #connect .go")
+    pg.wait_for_selector("#pick:not([hidden])"); pg.click("[data-pick=team]"); pg.click("#saNew"); pg.click("#connect button[type=submit], #connect .go")   # [NOTHING_UNTIL_ASKED_V1]
     dl({"ev": "connected", "role": "team", "view": "team", "team": "Charlie", "name": "Pixel", "dev": "p1", "door": "10.170.170.1", "build": "t"})
     dl({"ev": "mission", "id": "standing", "name": "Standing operations", "bag": {"name": "Standing operations"}})
     pg.wait_for_timeout(400)

@@ -25,7 +25,18 @@ FROGNET_FILES=(
   etc/NetworkManager/dispatcher.d/90-frognet-merge
   etc/apache2/sites-available/000-default.conf
   etc/sudoers.d/frognet-snapshot
+  opt/frognet_semantic/BUILD
   opt/frognet_semantic/core/build_id.py
+  opt/frognet_semantic/core/frognet_held.py
+  opt/frognet_semantic/core/frognet_tuples.py
+  opt/frognet_semantic/daemon/engine/server.py
+  opt/frognet_semantic/daemon/engine/session.py
+  etc/tmpfiles.d/frognet-held.conf
+  var/www/html/api.php
+  var/www/html/held_fire.php
+  var/www/html/schema_fixups.sql
+  var/www/html/Create_Database.sql
+  usr/local/bin/installer/frognet_install.sh
   opt/frognet_semantic/core/frognet_role_elect.py
   opt/frognet_semantic/core/app_hosts.py
   opt/frognet_semantic/core/frognet_service_hosts.py
@@ -93,15 +104,25 @@ for b in "$H/build/static/"{fdf-client,fdf-events,fdf-participants,fdf-attention
 W=$(mktemp -d); trap 'rm -rf "$W"' EXIT
 fdf_tree() {   # $1 = root, $2 = binary dir, $3.. = binary names (as installed: fdf-ram-static -> fdf-ram)
   local R=$1 BD=$2; shift 2; mkdir -p "$R/opt"
-  cp -a "$TOP/fdf" "$R/opt/fdf"; rm -rf "$R/opt/fdf/var" "$R/opt/fdf/hub/hub.env" "$R/opt/fdf/www/dc" "$R/opt/fdf/www/rt"; find "$R" -name __pycache__ -prune -exec rm -rf {} +
+  cp -a "$TOP/fdf" "$R/opt/fdf"; rm -rf "$R/opt/fdf/var" "$R/opt/fdf/hub/hub.env" "$R/opt/fdf/www/dc" "$R/opt/fdf/www/openeoc"; find "$R" -name __pycache__ -prune -exec rm -rf {} +
   for b in "$@"; do cp "$BD/${b%%:*}" "$R/opt/fdf/bin/${b##*:}"; done
   chmod 755 "$R/opt/fdf/bin/"*; }      # every /opt/fdf/bin entry runs (the installer execs fdf-region-join)
-# [ONE_FILE_UPDATE_V1] a node bundle carries the DisasterComm pages and their door (/opt/fdf/www/dc, /opt/fdf/www/rt) and
+# [ONE_FILE_UPDATE_V1] a node bundle carries the DisasterComm pages and their door (/opt/fdf/www/dc, /opt/fdf/www/openeoc) and
 # their Apache conf: every node is a device's edge, so every node's door answers (one file, John 2026-11-04)
-node_pages() { local R=$1; cp -a "$TOP/fdf/www/dc" "$R/opt/fdf/www/dc"; cp -a "$TOP/fdf/www/rt" "$R/opt/fdf/www/rt"
-  rm -f "$R/opt/fdf/www/rt/"*.py "$R/opt/fdf/www/rt/"*.mjs; find "$R/opt/fdf/www" -name __pycache__ -prune -exec rm -rf {} +
+node_pages() { local R=$1; cp -a "$TOP/fdf/www/dc" "$R/opt/fdf/www/dc"; cp -a "$TOP/fdf/www/openeoc" "$R/opt/fdf/www/openeoc"
+  rm -f "$R/opt/fdf/www/openeoc/"*.py "$R/opt/fdf/www/openeoc/"*.mjs; find "$R/opt/fdf/www" -name __pycache__ -prune -exec rm -rf {} +
   mkdir -p "$R/etc/apache2/conf-available"; cp "$TOP/../bundles/addins/dc/fdf-dc.conf" "$R/etc/apache2/conf-available/"; }
-frognet_patch() { local R=$1 f; for f in "${FROGNET_FILES[@]}"; do mkdir -p "$R/$(dirname "$f")"; cp -p "$REPO/$f" "$R/$f"; done; }
+# [FROGNET_RUNTIME_WHOLE_V1] (Seattle3B 2026-11-08: r50 shipped daemon/engine/server.py alone; the node's older
+# core/semcache_wire.py has no OP_REQ_SAME_MISS and frognet-daemon died on import) the node patch carries FrogNet's
+# whole runtime from one tree, never a mix: core, daemon, proxy, discovery, internet_tunnels_v3, frognet_route, the
+# top-level modules, the web root, usr/local/bin and lib, the units, tmpfiles and sysctl -- the node manifest's files
+# (frognet_node_files), less what is the node's own: the database password files (config.php, DB_CONFIG.json are
+# placeholders in the tree), the simulator's env, tests and caches.
+frognet_runtime() { ( . "$REPO/usr/local/lib/frognet_world_manifest.sh" && frognet_node_files "$REPO" ) | grep -E \
+  '^(opt/frognet_semantic/(core|daemon|proxy|discovery|internet_tunnels_v3|frognet_route)/|opt/frognet_semantic/[^/]+\.py$|opt/frognet_semantic/BUILD$|var/www/html/|usr/local/bin/|usr/local/lib/|etc/systemd/system/[^/]+\.(service|socket|timer)$|etc/tmpfiles\.d/|etc/sysctl\.d/)' \
+  | grep -vE '(^var/www/html/config\.php$|^opt/frognet_semantic/DB_CONFIG\.json$|/sim/sim\.env$|/__pycache__/|/\.pytest_cache/|/tests?/|\.pyc$)'; }
+frognet_patch() { local R=$1 f; { printf '%s\n' "${FROGNET_FILES[@]}"; frognet_runtime; } | sort -u | while read -r f; do
+  [ "$f" = var/www/html/config.php ] && continue; [ -f "$REPO/$f" ] || continue; mkdir -p "$R/$(dirname "$f")"; cp -p "$REPO/$f" "$R/$f"; done; }
 build_file() { printf 'package=%s\nbuild=%s\nbuilt=%s\nfor=%s\n' "$1" "$TAG" "$NOW" "$2" > "$3/opt/fdf/BUILD"; }
 # [FILES_ONLY_TAR_V1] files only, no directory entries: extracting at / must not reset the owner or mode of /etc, /usr,
 # /var/www/html or any other existing directory (a missing one is created).
@@ -109,11 +130,11 @@ tarit() { (cd "$1" && find . \( -type f -o -type l \) | sed 's|^\./||' | sort | 
 # ---- x86 node
 R=$W/node; fdf_tree "$R" "$H/build/static" fdf-client fdf-events fdf-participants fdf-attention fdf-where ram; cp "$H/build/bin/fdf-ram-static" "$R/opt/fdf/bin/fdf-ram"
 node_pages "$R"; frognet_patch "$R"; build_file fdf-node.tgz "x86_64 FrogNet node or leaf" "$R"
-tarit "$R" > "$W/fdf-node.tgz"; sed 's/__ARCH__/x86_64/' "$TOP/deliverables/header.sh" | cat - "$W/fdf-node.tgz" > "$OUT/fdf-install-x86_64-$TAG.run"
+tarit "$R" > "$W/fdf-node.tgz"; cp "$W/fdf-node.tgz" "$OUT/fdf-node-x86_64-$TAG.tgz"; sed 's/__ARCH__/x86_64/' "$TOP/deliverables/header.sh" | cat - "$W/fdf-node.tgz" > "$OUT/fdf-install-x86_64-$TAG.run"
 # ---- arm64 node
 R=$W/arm; fdf_tree "$R" "$H/build/arm64" fdf-client fdf-events fdf-participants fdf-attention fdf-where ram fdf-ram
 node_pages "$R"; frognet_patch "$R"; build_file fdf-node-arm64.tgz "aarch64 FrogNet node (Pi)" "$R"
-tarit "$R" > "$W/fdf-node-arm64.tgz"; sed 's/__ARCH__/aarch64/' "$TOP/deliverables/header.sh" | cat - "$W/fdf-node-arm64.tgz" > "$OUT/fdf-install-aarch64-$TAG.run"
+tarit "$R" > "$W/fdf-node-arm64.tgz"; cp "$W/fdf-node-arm64.tgz" "$OUT/fdf-node-aarch64-$TAG.tgz"; sed 's/__ARCH__/aarch64/' "$TOP/deliverables/header.sh" | cat - "$W/fdf-node-arm64.tgz" > "$OUT/fdf-install-aarch64-$TAG.run"
 # ---- region holder, one per processor ([HOLDER_PER_ARCH_V1]: a Pi holds a LAN region as well as a droplet holds one)
 R=$W/drop; fdf_tree "$R" "$H/build/static" fdf-client fdf-events fdf-participants fdf-attention fdf-where ram; cp "$H/build/bin/fdf-ram-static" "$R/opt/fdf/bin/fdf-ram"
 mkdir -p "$R/etc"; cp -a "$TOP/deliverables/etc-droplet/systemd" "$R/etc/"
@@ -141,5 +162,5 @@ chmod +x "$OUT"/*.run
 if [ -n "${FDF_DIST:-}" ]; then mkdir -p "$FDF_DIST"
   cp "$OUT/fdf-install-x86_64-$TAG.run" "$FDF_DIST/fdf-install-x86_64.run"; cp "$OUT/fdf-install-aarch64-$TAG.run" "$FDF_DIST/fdf-install-aarch64.run"
   cp "$OUT/fdf-droplet-x86_64-$TAG.tgz" "$FDF_DIST/fdf-droplet.tgz"; cp "$OUT/fdf-droplet-aarch64-$TAG.tgz" "$FDF_DIST/fdf-droplet-aarch64.tgz"; echo "dist: $FDF_DIST holds $TAG under the fixed names"; fi
-for f in "$OUT"/fdf-install-x86_64-$TAG.run "$OUT"/fdf-install-aarch64-$TAG.run "$OUT"/fdf-droplet-x86_64-$TAG.tgz "$OUT"/fdf-droplet-aarch64-$TAG.tgz "$OUT"/frognet-tree-$TAG.tgz; do printf '%s  %s bytes  sha256 %s\n' "${f##*/}" "$(stat -c %s "$f")" "$(sha256sum "$f" | cut -c1-16)"; done
+for f in "$OUT"/fdf-node-x86_64-$TAG.tgz "$OUT"/fdf-node-aarch64-$TAG.tgz "$OUT"/fdf-install-x86_64-$TAG.run "$OUT"/fdf-install-aarch64-$TAG.run "$OUT"/fdf-droplet-x86_64-$TAG.tgz "$OUT"/fdf-droplet-aarch64-$TAG.tgz "$OUT"/frognet-tree-$TAG.tgz; do printf '%s  %s bytes  sha256 %s\n' "${f##*/}" "$(stat -c %s "$f")" "$(sha256sum "$f" | cut -c1-16)"; done
 echo "built $TAG at $NOW"

@@ -167,8 +167,10 @@ Not yet claimed complete: authentication/CGA, allowed-RLOC policy, AMS, site-id 
 - Not yet claimed: liveness of governed registrations; re-governance on site-policy change; multiple governors.
 
 ## Liveness of native registrations (v0.44)
-- A native registration resolves only while its ETR's single liveness cell (etr-live/<xtr_id>) is fresh; death is
-  derived from time, nothing is written. UDP-path registrations are unaffected.
+- A native registration resolves only while its ETR's single liveness cell (etr-live/<xtr_id>) is there. The ETR
+  writes it once; it is held by the ETR's session and removed by the memory when that session ends, and every read
+  held on etr-live is handed the removal (v0.65, [LIVE_WHILE_ITS_SESSION_IS_V1]; v0.44-v0.64 refreshed {alive_until}
+  on a heartbeat and derived death from time). UDP-path registrations are unaffected.
 
 ## Re-governance (v0.45)
 - A native registration resolves only while a site currently authorizes it (derived at read from the held site

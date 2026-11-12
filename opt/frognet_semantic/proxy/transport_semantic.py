@@ -341,6 +341,28 @@ def _clear_request_reference(target_ip: str, opcode: int, inst: str) -> None:
         _request_references.pop((target_ip, opcode, inst), None)
 
 
+
+# [DIAG-REF] (Seattle7 2026-11-08: "DIFF decode failed: a splice without its reference string (row.UpdatedAt, absent
+# from the reference)", 31 since boot; Seattle5 0) every move of a response reference, on both ends, with the same
+# fingerprint: the instance, the keys, a hash of the values, who moved it and why. The first line where the two ends'
+# hashes for one instance part is the cause.
+import sys as _dr_sys, time as _dr_time, hashlib as _dr_hl, threading as _dr_th
+def _diag_ref(side, peer, opcode, inst, action, ref, extra=""):
+    try:
+        f = _dr_sys._getframe(2)
+        who = "%s:%d<%s:%d" % (f.f_code.co_name, f.f_lineno, f.f_back.f_code.co_name if f.f_back else "?", f.f_back.f_lineno if f.f_back else 0)
+        if ref is None:
+            keys, h = "-", "none"
+        else:
+            keys = ",".join(sorted(str(k) for k in ref))
+            h = _dr_hl.sha1(json.dumps(ref, sort_keys=True, default=repr).encode("utf-8", "replace")).hexdigest()[:10]
+        _dr_sys.stderr.write("[DIAG-REF] t=%.3f side=%s peer=%s opcode=%s inst=%r action=%s hash=%s keys=[%s] by=%s thr=%s %s\n"
+                             % (_dr_time.time(), side, peer, opcode, inst, action, h, keys, who, _dr_th.current_thread().name, extra))
+        _dr_sys.stderr.flush()
+    except Exception as _e:
+        _dr_sys.stderr.write("[DIAG-REF] log failed: %r\n" % (_e,))
+
+
 def _get_response_reference(target_ip: str, opcode: int, inst: str) -> Optional[Dict[str, Any]]:
     trace_enter('transport_semantic._get_response_reference', target_ip=repr(target_ip), opcode=repr(opcode), inst=repr(inst))
     with _ref_lock:
@@ -352,11 +374,13 @@ def _set_response_reference(target_ip: str, opcode: int, inst: str, ref: Dict[st
     trace_enter('transport_semantic._set_response_reference', target_ip=repr(target_ip), opcode=repr(opcode), inst=repr(inst), ref=repr(ref))
     with _ref_lock:
         _response_references[(target_ip, opcode, inst)] = ref.copy()
+    _diag_ref("proxy", target_ip, opcode, inst, "set", ref)
 
 
 def _clear_response_reference(target_ip: str, opcode: int, inst: str) -> None:
     with _ref_lock:
         _response_references.pop((target_ip, opcode, inst), None)
+    _diag_ref("proxy", target_ip, opcode, inst, "clear", None)
 
 
 # ====================================================================
@@ -3266,8 +3290,10 @@ def _handle_resp_diff(handler, codec, resp_tpl, same_id: bytes, sem_blob: bytes,
         send_error_reply(handler, 503, "Empty sem_blob in RESP_DIFF")
         return 0
 
+    reference = None
     try:
         reference = _get_response_reference(target_ip, opcode, inst)
+        _diag_ref("proxy", target_ip, opcode, inst, "decode-against", reference, "same_id=%s blob=%dB" % (same_id.hex(), len(sem_blob)))
         fields = codec.decode_reply(sem_blob, resp_tpl, TokenStore(resp_tpl.tokens), reference)
         new_ref = {k: v for k, v in fields}
         _set_response_reference(target_ip, opcode, inst, new_ref)
@@ -3310,6 +3336,9 @@ def _handle_resp_diff(handler, codec, resp_tpl, same_id: bytes, sem_blob: bytes,
         _debug("BrokenPipe in DIFF path (client closed)")
         return 0
     except Exception as e:
+        _diag_ref("proxy", target_ip, opcode, inst, "DECODE-FAILED", reference,
+                  "same_id=%s blob=%dB blob_hex=%s tpl_fields=%r err=%r" % (same_id.hex(), len(sem_blob), sem_blob[:96].hex(),
+                  getattr(resp_tpl, "fields", None) or getattr(resp_tpl, "field_names", None), e))
         send_error_reply(handler, 502, f"DIFF decode failed: {e!r}")
         return 0
 

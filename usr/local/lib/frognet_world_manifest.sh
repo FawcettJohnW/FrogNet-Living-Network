@@ -106,6 +106,8 @@ FROGNET_WORLD_PATHS=(
     # (phase B1); both FrogNet files ship so a reset can restore them.
     etc/sysctl.d/90-frognet-forwarding.conf
     etc/sysctl.d/99-frognet.conf
+    # [HELD_READ_IN_API_V1] /run/frognet/held, where held_fire.php hands a fire to its holder's socket (mode 1777)
+    etc/tmpfiles.d/frognet-held.conf
     etc/setup_iptables
 
     # [UNITS_ARE_PART_OF_THE_WORLD_V1] The DIRECTORY, not a drop-in inside it.
@@ -209,6 +211,9 @@ FROGNET_THIRD_PARTY=(
     # LICENSE.txt and NOTICE.md; the GPL notice is never stamped on them.
     opt/frognet_semantic/ribbit/examples/mqtt/stock
     opt/frognet_semantic/ribbit/examples/mqtt/front
+    # Meshtastic firmware (Meshtastic LLC et al.), GPL-3.0, vendored for the Meshtastic example: front/ the firmware the
+    # example builds on the RAM. It carries its own LICENSE; the GPL-2.0-only notice is never stamped on it.
+    opt/frognet_semantic/ribbit/examples/meshtastic/front
 )
 
 FROGNET_NEVER_SHIP=(

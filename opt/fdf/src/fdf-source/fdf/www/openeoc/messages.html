@@ -1,0 +1,60 @@
+<!doctype html>
+<!-- Copyright (C) 2016-2026 Fawcett Innovations LLC. SPDX-License-Identifier: GPL-2.0-only
+     messages.html -- [TEAM_RAM_V1] the radio log app's messages (APP-SETUP-AND-OPERATION.md: messages are not a role).
+     Announcements to everyone and direct messages between people are in the general RAM; a team's messages are in the
+     team's own RAM. Each message is its sender's own cell, written once. A direct message is addressed by the device's station ID (its host name, hidden)
+     (the addressee's hostname) and kept in the addressee's variable; who may read which is the app's access. -->
+<html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Messages</title>
+<link rel="stylesheet" href="openeoc.css"></head><body>
+<nav><a href="log.html">Radio Log</a> · <a href="rangers.html">Rangers</a> · <a href="map.html">Map</a> · <a href="print309.html">ICS-309</a> · <a href="board.html">Board</a> · <b>Messages</b> · <a href="summary.html">Summary</a> · <a href="aar.html">After-action</a></nav>
+<h1>Messages <small id="mis"></small></h1>
+<div id="say"></div>
+<form id="send"><fieldset><label>To <select name="to"></select></label>
+  <label>Message <input name="text" size="40" required></label> <button>Send</button> <small id="me"></small></fieldset></form>
+<h2>Announcements</h2><table><tbody id="ann"></tbody></table>
+<h2>Direct</h2><table><tbody id="dm"></tbody></table>
+<h2>Team <small id="tm"></small></h2><table><tbody id="team"></tbody></table>
+<script type="module">
+import * as RT from './openeoc.js'
+const $ = (s) => document.querySelector(s), say = (t) => { $('#say').textContent = t }
+window.RT_NOTE = say
+const m = RT.currentMission()
+let who = new Map(), ann = new Map(), dmIn = new Map(), team = new Map()
+const line = (b, extra) => '<tr><td>' + RT.esc(new Date(b.atMs).toLocaleTimeString()) + '</td><td>' + RT.esc(b.from) + (extra ? ' ' + extra : '') + '</td><td>' + RT.esc(b.text) + '</td></tr>'
+const byTime = (a, b) => b.atMs - a.atMs                                     // newest first
+function draw() {
+  const d = RT.device(), sel = $('#send').to, cur = sel.value
+  sel.innerHTML = '<option value="*">everyone</option>' + (d.team ? '<option value="@">team ' + RT.esc(d.team) + '</option>' : '') +
+    [...who.values()].filter(r => r.bag.station && r.bag.station !== d.station).sort((a, b) => a.bag.name.localeCompare(b.bag.name))
+      .map(r => '<option value="' + RT.esc(r.bag.station) + '">' + RT.esc(r.bag.name) + (r.bag.host && r.bag.host !== r.bag.name ? ' (' + RT.esc(r.bag.host) + ')' : '') + (r.bag.team ? ', ' + RT.esc(r.bag.team) : '') + '</option>').join('')
+  if ([...sel.options].some(o => o.value === cur)) sel.value = cur
+  $('#ann').innerHTML = [...ann.values()].map(r => r.bag).sort(byTime).map(b => line(b)).join('')
+  const out = RT.sent('openeoc-dm', m.id + '.').map(([v, , b]) => ({ ...b, to: v.slice(m.id.length + 1) }))
+  $('#dm').innerHTML = [...[...dmIn.values()].map(r => r.bag), ...out].sort(byTime)
+    .map(b => line(b, b.to && b.dev === d.id ? '→ ' + RT.esc(b.to) : '→ me')).join('')
+  $('#team').innerHTML = [...team.values()].map(r => r.bag).sort(byTime).map(b => line(b)).join('')
+}
+try { await RT.connect() } catch (e) { say('not connected: ' + e.message); throw e }   // the client connects first
+const d = RT.device()
+$('#me').textContent = 'as ' + (d.name || RT.shownName(d)) + (d.host && d.name && d.host !== d.name ? ' (' + d.host + ')' : '') + (d.team ? ', team ' + d.team : ', no team')
+if (!m) say('choose or start a mission on the Radio Log first')
+else {
+  $('#mis').textContent = m.name
+  RT.watch('openeoc-who', m.id, (c) => { who = c; draw() })
+  RT.watch('openeoc-msg', m.id, (c) => { ann = c; draw() }, (e) => say('the RAM did not answer (' + e.message + '); reading again'))
+  RT.watch('openeoc-dm', m.id + '.' + d.station, (c) => { dmIn = c; draw() })
+  if (d.team) { $('#tm').textContent = d.team + ' (its own RAM)'
+                RT.watch(RT.inTeam('openeoc-team', d.team), m.id, (c) => { team = c; draw() }, (e) => say('team ' + d.team + ': ' + e.message)) }
+  $('#send').onsubmit = async (ev) => {
+    ev.preventDefault(); const f = ev.target, to = f.to.value, text = f.text.value.trim(); if (!text) return
+    const bag = { from: d.name || d.id, station: d.station, text, atMs: Date.now() }, i = d.id + '.' + bag.atMs
+    try {
+      if (to === '*') await RT.write('openeoc-msg', m.id, i, bag)
+      else if (to === '@') await RT.write(RT.inTeam('openeoc-team', d.team), m.id, i, { ...bag, team: d.team })
+      else { await RT.write('openeoc-dm', m.id + '.' + to, i, { ...bag, to }); draw() }
+      f.text.value = ''; say('')
+    } catch (e) { say('not sent: ' + e.message) }
+  }
+}
+</script></body></html>
