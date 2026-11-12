@@ -160,52 +160,41 @@ def plane_hook_sources():
 # PLANE 3 -- every waiting read blocks, with a satisfiable condition
 # ---------------------------------------------------------------------------
 def plane_blocking_reads():
-    print("\n=== PLANE 3: waiting reads block, and can be satisfied ===")
-    path = os.path.join(_tuplespace(), "psychedelic_backend.py")
-    src = open(path, encoding="utf-8").read()
-    tree = ast.parse(src)
-
-    calls = [n for n in ast.walk(tree) if isinstance(n, ast.Call)
-             and isinstance(n.func, ast.Attribute)
-             and n.func.attr == "_read_all"]
-    check(len(calls) >= 2, f"_read_all call sites found ({len(calls)})")
-    for c in calls:
-        kw = {k.arg for k in c.keywords}
-        op = (c.args[0].value if c.args and isinstance(c.args[0], ast.Constant)
-              else "<expr>")
-        check("wait_s" in kw, f"line {c.lineno} ({op}): passes wait_s")
-        check("min_rows" in kw, f"line {c.lineno} ({op}): passes min_rows")
-        # The condition has to match the number of WRITERS for that operation.
-        mr = [k.value for k in c.keywords if k.arg == "min_rows"]
-        if mr:
-            bad = isinstance(mr[0], ast.Attribute) and mr[0].attr == "_size"
-            check(not bad,
-                  f"line {c.lineno} ({op}): min_rows is not self._size "
-                  f"(a broadcast has one writer; W is unsatisfiable)")
-
-    bc = [c for c in calls
-          if c.args and getattr(c.args[0], "value", None) == "bc"]
-    if bc:
-        mr = [k.value for k in bc[0].keywords if k.arg == "min_rows"][0]
-        check(isinstance(mr, ast.Constant) and mr.value == 1,
-              "broadcast waits for min_rows=1 (the root is the only producer)")
-
-    tb = open(os.path.join(_tuplespace(), "torch_backend.py"),
-              encoding="utf-8").read()
-    t = ast.parse(tb)
-    mod = {n.targets[0].id for n in t.body
-           if isinstance(n, ast.Assign) and isinstance(n.targets[0], ast.Name)}
-    check("BLOCK_CAP" in mod,
-          "BLOCK_CAP is module-level (was a local, so broadcast could not "
-          "reach it)")
+    print("\n=== PLANE 3: every wait is one held read in the memory ===")
+    # [ALL_IN_THE_REGION_V1] A rank waits by holding one read on the cell it needs, in FrogTorch's own RAM. The
+    # loops this plane used to check -- reads re-asked until rows appeared, consumers acknowledging, a root
+    # waiting for the acknowledgements, BLOCK_CAP re-arming every 5 s -- are what was removed. fail-on-old: none of it
+    # may come back.
+    gone = {"psychedelic_backend.py": ("_await_consumers", "_consumed", "_read_fresh", "_PLANES",
+                                       "_shared_plane"),
+            "torch_backend.py": ("BLOCK_CAP",)}
+    for f, names in gone.items():
+        tree = ast.parse(open(os.path.join(_tuplespace(), f), encoding="utf-8").read())
+        seen = {n.name for n in ast.walk(tree) if isinstance(n, (ast.FunctionDef, ast.ClassDef))}
+        seen |= {n.attr for n in ast.walk(tree) if isinstance(n, ast.Attribute)}
+        seen |= {n.id for n in ast.walk(tree) if isinstance(n, ast.Name)}
+        for nm in names:
+            check(nm not in seen, f"fail-on-old: {f} has no {nm}")
+    # no sleeping anywhere a rank waits; the one sleep left is the diagnostic watchdog's report interval
+    for f in ("psychedelic_backend.py", "torch_backend.py", "ddp_hook.py", "frogtrain.py", "torch_store.py",
+              "frogtorch.py", "frogtorch_ram.py", "frogtorch_ram_client.py", "reduce_by_read.py"):
+        tree = ast.parse(open(os.path.join(_tuplespace(), f), encoding="utf-8").read())
+        bad = []
+        for fn in [n for n in ast.walk(tree) if isinstance(n, ast.FunctionDef)]:
+            if fn.name in ("_psy_start_watchdog", "_loop"):
+                continue
+            for c in ast.walk(fn):
+                if (isinstance(c, ast.Call) and isinstance(c.func, ast.Attribute) and c.func.attr == "sleep"
+                        and isinstance(c.func.value, ast.Name) and c.func.value.id == "time"):
+                    bad.append(f"{fn.name}:{c.lineno}")
+        check(not bad, f"{f}: no time.sleep where a rank waits ({', '.join(bad) or 'none'})")
 
 
 # ---------------------------------------------------------------------------
-# PLANE 4 -- behaviour: a waiting store must collapse the ask count
+# PLANE 4 -- behaviour: a broadcast asks once, and never falls back to asking again
 # ---------------------------------------------------------------------------
 def plane_ask_count():
-    print("\n=== PLANE 4: a store that honours wait_s collapses the asks ===")
-    import time
+    print("\n=== PLANE 4: a broadcast is one held read, and a failed read is an error ===")
     import types
 
     path = os.path.join(_tuplespace(), "psychedelic_backend.py")
@@ -214,9 +203,6 @@ def plane_ask_count():
           if isinstance(n, ast.FunctionDef) and n.name == "broadcast"][0]
     body = ast.get_source_segment(src, fn)
 
-    # broadcast registers its wait with _PsyWait; the stub needs it or the
-    # body raises NameError and the ask count comes back 0, which reads as a
-    # pass on a test that never ran.
     class _NullWait:
         def __init__(self, **kw):
             pass
@@ -227,9 +213,7 @@ def plane_ask_count():
         def __exit__(self, *a):
             return False
 
-    ns = {"time": time, "_base": types.SimpleNamespace(BLOCK_CAP=5.0),
-          "READ_CURRENT": 0, "_PsyWait": _NullWait,
-          "_psy": lambda *a, **k: None}
+    ns = {"_base": types.SimpleNamespace(_Work=lambda t: t), "_PsyWait": _NullWait}
     exec("class _S:\n" + "\n".join("    " + l for l in body.splitlines()), ns)
 
     class _T:
@@ -245,46 +229,37 @@ def plane_ask_count():
         def to(self, x):
             return self
 
-    def run(store_waits):
-        asks = {"n": 0}
+    def run(rank, read):
+        log = {"reads": [], "published": []}
         s = ns["_S"].__new__(ns["_S"])
-        s._rank, s._size, s._timeout_s = 1, 4, 3.0
+        s._rank, s._size, s._timeout_s, s._incarnation = rank, 4, 3.0, "i0"
         s._next_seq = lambda: 7
-        s._publish_tensor = lambda *a: None
-        s._consumed = lambda *a: None
-        s._await_consumers = lambda *a: None
-        s._client = types.SimpleNamespace(
-            read=lambda *a, **k: (None, 0, False))
-        t0 = time.time()
+        s._my_region = lambda: "r"
+        s._server = types.SimpleNamespace(publish=lambda *a, **k: log["published"].append(a[0]))
 
-        def _read_all(op, seq, wait_s=0.0, min_rows=0):
-            asks["n"] += 1
-            if store_waits and wait_s > 0:
-                time.sleep(min(wait_s, 0.25))
-            if time.time() - t0 > 0.6:
-                return {0: {"host": "h", "port": 1, "name": "n",
-                            "gen": 1, "shape": [1], "dtype": "f"}}
-            return {}
-
-        s._read_all = _read_all
+        def _read_peer(peer, name, seq, t, wait_s=0.0, retain=False):
+            log["reads"].append((peer, name, wait_s))
+            return read()
+        s._read_peer = _read_peer
+        err = None
         try:
             s.broadcast([_T()], types.SimpleNamespace(rootRank=0))
-        except Exception:
-            pass
-        return asks["n"]
+        except Exception as e:
+            err = e
+        return log, err
 
-    waiting = run(True)
-    spinning = run(False)
-    print(f"        asks against a waiting store : {waiting}")
-    print(f"        asks against a spinning store: {spinning}")
-    # A count of zero means the body raised, not that it was efficient.
-    check(waiting > 0 and spinning > 0,
-          f"both arms actually ran (waiting={waiting}, spinning={spinning})")
-    check(waiting * 5 < spinning,
-          f"blocking read collapses the ask count ({spinning} -> {waiting})")
-    check(spinning > waiting,
-          "degrades to polling against a store that ignores the parameters, "
-          "rather than breaking")
+    log, err = run(0, lambda: _T())
+    check(err is None and log["published"] == ["i0.bc.7"] and not log["reads"],
+          f"the root writes its cell and reads nothing ({log})")
+    log, err = run(2, lambda: _T())
+    check(err is None and log["reads"] == [(0, "i0.bc.7", 3.0)] and not log["published"],
+          f"a non-root holds ONE read on the root's cell, for the group timeout ({log['reads']})")
+
+    def gone():
+        raise TimeoutError("held read expired")
+    log, err = run(2, gone)
+    check(isinstance(err, TimeoutError) and len(log["reads"]) == 1,
+          f"fail-on-old: a read that fails is raised, not asked again ({len(log['reads'])} read(s), {err!r})")
 
 
 
@@ -471,10 +446,10 @@ def plane_read_ahead_keying():
 
 
 # ---------------------------------------------------------------------------
-# PLANE 7 -- a finished rank does not take its plane away
+# PLANE 7 -- a finished rank leaves; nothing it published goes with its process
 # ---------------------------------------------------------------------------
 def plane_linger():
-    print("\n=== PLANE 7: a rank that finishes waits for the rest ===")
+    print("\n=== PLANE 7: a rank that finishes leaves; its buckets stay in its region ===")
     import time
     import types
 
@@ -491,50 +466,30 @@ def plane_linger():
     check("done" in [a.arg for a in bp.args.args],
           "fail-on-old: the bag carries whether the rank is finished")
 
-    bench = open(os.path.join(_SEM, "agent_workload", "ddpbench.py"),
+    # the live harness (agent_workload/ddpbench.py was dropped 2026-09-15)
+    bench = open(os.path.normpath(os.path.join(_SEM, "..", "..", "usr", "local", "frognet-ai", "ddpbench.py")),
                  encoding="utf-8").read()
-    _has_linger = "_STATE.linger()" in bench
-    check(_has_linger,
-          "fail-on-old: the harness lingers before the process ends -- without "
-          "it the rank returns from the training loop and the process exit "
-          "closes its TensorServer under peers that are still reading")
-    check(_has_linger
-          and bench.index("_STATE.linger()") < bench.index("destroy_process_group"),
-          "and does it before tearing the group down")
+    check("_STATE.linger(" in bench and bench.index("_STATE.linger(") < bench.index("destroy_process_group"),
+          "the harness publishes its done bag before tearing the group down")
 
     if not fn:
         return
     body = ast.get_source_segment(src, fn[0])
-    ns = {"time": time}
+    ns = {}
     exec("class _S:\n" + "\n".join("    " + l for l in body.splitlines()), ns)
-
-    def run(peers_finish, timeout_s=6.0):
-        """peers_finish: which peers ever publish done."""
-        st = ns["_S"].__new__(ns["_S"])
-        st.rank, st.world, st.step, st.timeout_s = 0, 4, 40, timeout_s
-        published = []
-        st.bag_publish = lambda step, done=False: published.append((step, done))
-        bags = {r: {"step": 40, "done": (r in peers_finish)}
-                for r in (1, 2, 3)}
-        st.bag_read = lambda wait_s=0.0, min_rows=0: bags
-        msgs = []
-        t0 = time.time()
-        ok = st.linger(logger=msgs.append)
-        return ok, time.time() - t0, published, " ".join(msgs)
-
-    ok, dt, pub, msg = run({1, 2, 3})
-    check(ok, "returns once every peer reports done")
-    check(pub == [(40, True)],
-          f"publishes its own done exactly once ({pub})")
-    check(dt < 2.0, f"and does not sit out the timeout when it need not ({dt:.1f}s)")
-
-    ok, dt, pub, msg = run({1, 2})
-    check(not ok, "fail-on-old: a peer that never finishes is not waited on forever")
-    check(4.0 < dt < 12.0, f"the wait is bounded by the group timeout ({dt:.1f}s)")
-    check("3" in msg and "EXPIRED" in msg,
-          "and the expiry names the rank it was waiting on")
-    check(pub == [(40, True)],
-          "it still published its own done, so nobody waits on IT")
+    # [ALL_IN_THE_REGION_V1] a rank's buckets are in its region, not its process: a rank that finishes first leaves
+    # while its peers are still reading them. linger waits for nobody.
+    st = ns["_S"].__new__(ns["_S"])
+    st.rank, st.world, st.step, st.timeout_s = 0, 4, 40, 6.0
+    published, reads = [], []
+    st.bag_publish = lambda step, done=False: published.append((step, done))
+    st.bag_read = lambda *a, **k: reads.append(1) or {}
+    t0 = time.time()
+    ok = st.linger(logger=lambda m: None)
+    dt = time.time() - t0
+    check(ok and published == [(40, True)], f"publishes its own done exactly once ({published})")
+    check(not reads, "fail-on-old: and reads nobody's bag -- there is nothing to wait for")
+    check(dt < 0.5, f"returns at once ({dt:.2f}s)")
 
 
 def _api_php():

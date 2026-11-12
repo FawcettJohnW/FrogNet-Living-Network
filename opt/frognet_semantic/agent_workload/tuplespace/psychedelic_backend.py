@@ -90,7 +90,7 @@ from . import frogtorch_ram_client as T  # [ALL_IN_THE_REGION_V1] FrogTorch's ow
 from .frogtorch_ram_client import Placement, RegionPlane
 
 from . import torch_backend as _base
-from .tensor_plane import READ_CURRENT, TensorClient, TensorServer
+from .tensor_plane import READ_CURRENT, TensorClient
 
 
 # ---------------------------------------------------------------------------

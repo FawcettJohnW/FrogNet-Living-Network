@@ -89,14 +89,6 @@ from . import frogtorch_ram_client as T  # [ALL_IN_THE_REGION_V1] FrogTorch's ow
 #: variable per process group, one SCOPE per rank per operation per round.
 SERVICE = os.environ.get("FROGNET_C10D_SERVICE", "c10d")
 
-#: [ASK_ONCE_AND_WAIT_V1] Cap on how long the STORE may hold one read open.
-#: The loop still re-evaluates its deadline every BLOCK_CAP seconds, and a
-#: store that honours wait_s cannot pin a connection for the whole 300 s
-#: timeout. Was a local inside _collect_descriptors, which left broadcast and
-#: _await_consumers in psychedelic_backend with no value to reach for -- they
-#: spun at a 2 ms ceiling instead. One knob, module level, so every waiting
-#: loop in both backends uses the same bound.
-BLOCK_CAP = float(os.environ.get("FROGNET_BLOCK_CAP_S", "5.0"))
 
 #: [NEVER_TWO_THINGS_IN_ONE_CELL_V1] A cell name carries the operation, the
 #: sequence number within the group and the contributing rank. Two collectives
@@ -491,9 +483,8 @@ class FrogNetBackend(_CBackend):
         # The blocking read was added for the rendezvous and every other
         # caller kept polling: this one asked "are they there yet" hundreds
         # of times a second per rank, when the store will hold the question
-        # open until the rows exist. wait_s/min_rows are passed through; a
-        # store that does not implement them ignores them and answers
-        # immediately, so the caller's loop still works unchanged.
+        # open until the rows exist. One held read: the caller does not ask
+        # again ([ALL_IN_THE_REGION_V1]).
         for r in T.get_all(self._service(op, seq), dbhost=self._dbhost,
                            wait_s=wait_s, min_rows=min_rows):
             v = r.get("var", "")
@@ -756,10 +747,6 @@ class FrogNetBackend(_CBackend):
     def all_to_all_single(self, output_tensor, input_tensor, output_split_sizes, input_split_sizes, opts=None):
         """PyTorch 2.15's name for alltoall_base ([TORCH_2_15_NAMES_V1])."""
         return self.alltoall_base(output_tensor, input_tensor, output_split_sizes, input_split_sizes, opts)
-
-    def all_gather_single(self, output_tensor, input_tensor, opts=None):
-        """PyTorch 2.15's name for _allgather_base ([TORCH_2_15_NAMES_V1])."""
-        return self._allgather_base(output_tensor, input_tensor, opts)
 
     def alltoall_base(self, output_tensor, input_tensor, output_split_sizes,
                       input_split_sizes, opts=None):

@@ -62,7 +62,7 @@ from .frogtorch_ram_client import RegionPlane
 
 from .finite import FiniteWatch
 from .reduce_by_read import ReduceGroup, default_accept
-from .tensor_plane import TensorClient, TensorServer
+from .tensor_plane import TensorClient
 from .torch_store import FrogNetStore, SERVICE
 
 # [IMPORT_GUARD_V2] 2026-09-25: diag is first-party and the tree is always on the path; a stub hid a broken install.

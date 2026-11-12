@@ -92,7 +92,7 @@ import torch.distributed as dist
 from . import frogtorch_ram_client as T  # [ALL_IN_THE_REGION_V1] FrogTorch's own RAM
 from .frogtorch_ram_client import Placement, RegionPlane
 
-from .tensor_plane import READ_CURRENT, TensorClient, TensorServer
+from .tensor_plane import READ_CURRENT, TensorClient
 
 SERVICE = os.environ.get("FROGNET_HOOK_SERVICE", "ddphook")
 
