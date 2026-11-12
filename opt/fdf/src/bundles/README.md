@@ -1,4 +1,4 @@
-# FD&F bundles: one per machine type, add-ins on top
+# CroakOS bundles: one per machine type, add-ins on top
 
 Every file carries its build in its name. Each installer looks at the machine first and refuses the wrong one,
 saying which bundle is right.
