@@ -92,7 +92,7 @@ case "$BASE" in ""|*[!0-9]*) echo "run id must be a number"; exit 2 ;; esac
 
 STORE=databasehost.frognet:80
 OUT=/tmp/nb3
-WORLD=4
+WORLD=7
 STEPS=40
 WARMUP=8
 # ~17 MB of gradients at 1024. Below about 512 the grad<->bucket copies are
@@ -112,10 +112,13 @@ TREE="${FROGNET_TREE:-/opt/frognet_semantic}"
 GATE_WAIT="${FROGNET_GATE_WAIT:-3600}"
 
 case "$ADDR" in
-    10.250.250.100) RANK=0; NAME=AI-Host   ;;
-    10.250.250.1)   RANK=1; NAME=Seattle5  ;;
+    10.250.250.1)   RANK=0; NAME=Seattle5   ;;
+    10.251.251.1)   RANK=1; NAME=Seattle3B  ;;
     10.170.170.1)   RANK=2; NAME=Seattle7  ;;
-    10.123.123.1)   RANK=3; NAME=HappyDog ;;
+    10.123.123.1)   RANK=3; NAME=New-York-1 ;;
+    10.28.28.1)     RANK=4; NAME=New-York-2 ;;
+    10.155.155.1)   RANK=5; NAME=BABox ;;
+    10.188.188.1)   RANK=6; NAME=BAMacBook ;;
     *) echo "unknown address $ADDR"; exit 2 ;;
 esac
 

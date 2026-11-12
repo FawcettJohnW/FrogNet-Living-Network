@@ -39,12 +39,12 @@
 # else.
 #
 # Six runs, in order:
-#   N+0  world 4  psychedelic/shard   with New York
-#   N+1  world 4  psychedelic/stack   with New York
-#   N+2  world 4  gloo                with New York
-#   N+3  world 3  psychedelic/shard   local only
-#   N+4  world 3  psychedelic/stack   local only
-#   N+5  world 3  gloo                local only
+#   N+0  world 7  psychedelic/shard   Seattle + New York + BA
+#   N+1  world 7  psychedelic/stack   Seattle + New York + BA
+#   N+2  world 7  gloo                Seattle + New York + BA
+#   N+3  world 3  psychedelic/shard   Seattle only (ranks 0-2)
+#   N+4  world 3  psychedelic/stack   Seattle only
+#   N+5  world 3  gloo                Seattle only
 #
 # Both reduce patterns at both world sizes, plus gloo at both.
 #
@@ -71,7 +71,7 @@ if [ -z "$ADDR" ] || [ -z "$BASE" ]; then
     echo
     echo "  e.g.  sh runme.sh 10.250.250.1 34"
     echo
-    echo "  Uses mesh34..mesh39. Same number on all four nodes,"
+    echo "  Uses mesh34..mesh39. Same number on all seven nodes,"
     echo "  and one never used before -- run ids are not reused."
     exit 2
 fi
@@ -104,12 +104,15 @@ POOL=1
 MANUAL="${FROGNET_MANUAL_GATE:-0}"
 
 case "$ADDR" in
-    10.250.250.100) RANK=0; NAME=AI-Host   ;;
-    10.250.250.1)   RANK=1; NAME=Seattle5  ;;
+    10.250.250.1)   RANK=0; NAME=Seattle5   ;;
+    10.251.251.1)   RANK=1; NAME=Seattle3B  ;;
     10.170.170.1)   RANK=2; NAME=Seattle7  ;;
-    10.123.123.1)   RANK=3; NAME=HappyDog ;;
+    10.123.123.1)   RANK=3; NAME=New-York-1 ;;
+    10.28.28.1)     RANK=4; NAME=New-York-2 ;;
+    10.155.155.1)   RANK=5; NAME=BABox ;;
+    10.188.188.1)   RANK=6; NAME=BAMacBook ;;
     *) echo "I do not know which rank $ADDR is."
-       echo "Known: 10.250.250.100=0  10.250.250.1=1  10.170.170.1=2  10.199.199.1=3"
+       echo "Known: 10.250.250.1=0 10.251.251.1=1 10.170.170.1=2 10.123.123.1=3 10.28.28.1=4 10.155.155.1=5 10.188.188.1=6"
        exit 2 ;;
 esac
 
@@ -198,7 +201,7 @@ echo "A fleet running different code measures two things and reports one."
 echo
 echo "run ids: mesh$BASE mesh$(( BASE + 1 )) mesh$(( BASE + 2 )) \
 mesh$(( BASE + 3 )) mesh$(( BASE + 4 )) mesh$(( BASE + 5 ))"
-echo "         the same four on every node, and never reused."
+echo "         the same seven on every node, and never reused."
 echo
 
 # [THE_PRIMARY_SAYS_GO_THROUGH_THE_STORE_V1]
@@ -220,7 +223,7 @@ wait_for_go() {
     echo
     echo ">>> $LABEL"
     if [ "$MANUAL" = "1" ]; then
-        echo ">>> press <return> on all four nodes together"
+        echo ">>> press <return> on all seven nodes together"
         read _ignored
         return 0
     fi
@@ -266,18 +269,18 @@ do_run() {   # id, world, backend, reduce, label
     fi
 }
 
-do_run "mesh$BASE"           4 psychedelic shard "world 4, WITH New York"
-do_run "mesh$(( BASE + 1 ))" 4 psychedelic stack "world 4, WITH New York"
-do_run "mesh$(( BASE + 2 ))" 4 gloo        ""    "world 4, WITH New York, control"
-do_run "mesh$(( BASE + 3 ))" 3 psychedelic shard "world 3, local only"
-do_run "mesh$(( BASE + 4 ))" 3 psychedelic stack "world 3, local only"
-do_run "mesh$(( BASE + 5 ))" 3 gloo        ""    "world 3, local only, control"
+do_run "mesh$BASE"           7 psychedelic shard "world 7, Seattle + New York + BA"
+do_run "mesh$(( BASE + 1 ))" 7 psychedelic stack "world 7, Seattle + New York + BA"
+do_run "mesh$(( BASE + 2 ))" 7 gloo        ""    "world 7, Seattle + New York + BA, control"
+do_run "mesh$(( BASE + 3 ))" 3 psychedelic shard "world 3, Seattle only"
+do_run "mesh$(( BASE + 4 ))" 3 psychedelic stack "world 3, Seattle only"
+do_run "mesh$(( BASE + 5 ))" 3 gloo        ""    "world 3, Seattle only, control"
 
 echo
 echo "=============================================================="
 echo " done on $NAME."
 echo
-echo " Copy $OUT from all four nodes onto one machine, then:"
+echo " Copy $OUT from all seven nodes onto one machine, then:"
 echo "   python3 proof_collect.py $OUT"
 echo "   python3 plot_proof.py    $OUT plots/"
 echo "=============================================================="
