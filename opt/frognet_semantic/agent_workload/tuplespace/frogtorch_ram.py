@@ -52,7 +52,7 @@ from agent_workload.aiconnect.service import BULK_LEN_FMT
 from .tensor_plane import (GONE_NEVER_PUBLISHED, GONE_SUPERSEDED, GONE_WAIT_EXPIRED, MAX_SERVER_WAIT_S,
                            READ_BY_IDENTITY, REPLY_DATA, REPLY_GONE, REPLY_SAME, _digest, _recv_frame, _send_frame)
 
-BUILD = "frogtorch_ram 20261111-r2 [ALL_IN_THE_REGION_V1] [SESSION_TENSORS_V1]"
+BUILD = "frogtorch_ram 20261112-r3 [ALL_IN_THE_REGION_V1] [SESSION_TENSORS_V1] [THE_ANNOUNCEMENT_IS_READ_BACK_V1]"
 #: Capability tuples live in the SystemRam (AI_READ_FIRST 10): every election reads capability there.
 SYSTEM_RAM = os.environ.get("FROGTORCH_SYSTEM_RAM", "databasehost.frognet")
 REPLY_OKAY = b"OKAY"
@@ -379,6 +379,15 @@ def _announce(port: int) -> None:
     T.put("frogtorch", "can", "%s:%d" % (me, port),
           {"host": me, "port": port, "mem_mb": int(mem_mb), "build": BUILD},
           dbhost=SYSTEM_RAM, own=True)
+    # [THE_ANNOUNCEMENT_IS_READ_BACK_V1] A put the SystemRam did not keep (Seattle3B at boot: 503s while its
+    # connections came up) left this machine's region invisible and its ranks placed elsewhere. Read it back; if it is
+    # not there, exit non-zero -- systemd restarts this service in 2 s and the next start announces again.
+    rows = T.get_all("frogtorch", dbhost=SYSTEM_RAM)
+    if not any(r.get("var") == "can" and isinstance(r.get("value"), dict) and r["value"].get("host") == me
+               and int(r["value"].get("port") or 0) == port for r in rows):
+        raise SystemExit("[frogtorch-ram] the SystemRam (%s) did not keep this machine's announcement %s:%d; "
+                         "exiting so systemd restarts and announces again" % (SYSTEM_RAM, me, port))
+    print("[frogtorch-ram] announced %s:%d in the SystemRam (%s)" % (me, port, SYSTEM_RAM), flush=True)
 
 
 def main(argv=None) -> int:

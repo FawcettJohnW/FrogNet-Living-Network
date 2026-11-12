@@ -243,7 +243,18 @@ class Placement:
         by_host: Dict[str, Tuple[str, int]] = {}
         for hp in r.regions:
             by_host.setdefault(hp[0], hp)
-        self.of_rank = {k: by_host.get(ip, r.regions[k % len(r.regions)]) for k, ip in ips.items()}
+        # [A_RANK_LIVES_ON_ITS_OWN_MACHINE_V1] A rank's cells go in its own machine's region, and nowhere else. This
+        # used to fall back to region (rank mod H) -- another machine's memory, possibly across the continent -- when
+        # the rank's machine had no region announced: Seattle3B's rank wrote every tensor to New-York-1 over its Wi-Fi
+        # (ddp5624) because its frogtorch-ram's announcement had been lost. No fallbacks: say which machine is missing.
+        absent = sorted((k, ip) for k, ip in ips.items() if ip not in by_host)
+        if absent:
+            raise RuntimeError(
+                "frogtorch: no FrogTorch RAM announced for %s in the SystemRam (announced: %s). Each rank's tensors "
+                "live in its own machine's frogtorch-ram; on that machine: systemctl restart frogtorch-ram"
+                % (", ".join("rank %d at %s" % kv for kv in absent),
+                   " ".join("%s:%d" % hp for hp in r.regions) or "none"))
+        self.of_rank = {k: by_host[ip] for k, ip in ips.items()}
 
     def region(self, rank: int) -> Tuple[str, int]:
         return self.of_rank[rank]
