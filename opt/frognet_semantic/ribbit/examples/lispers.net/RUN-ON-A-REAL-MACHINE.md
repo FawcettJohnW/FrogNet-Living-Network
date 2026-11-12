@@ -110,7 +110,9 @@ program, pid in `logs/lisp-service.pid`.
 It opens the session (the semantic socket and the high-speed data socket) and registers each role it plays as a
 capability tuple of its own, addressed by what reaches it -- `lisp / capability|map-server / udp:A:P`,
 `capability|map-resolver / udp:A:P`, `capability|etr / xtr:<id>`, `capability|itr / participant:<id>` -- never by
-which machine offers it. It starts its roles, waits `startup_wait_s`, then each role reads, with one plain read, the
-capabilities it uses (an ETR the map-servers, an ITR the map-resolvers, a map-server the ETRs' prefixes). The
-heartbeat rewrites its capability tuples every `heartbeat_s`. SIGTERM or SIGINT stops it cleanly. The fields are
+which machine offers it. Each tuple is written once and lives as long as the service's session ([CAPABILITIES_HELD_V1]):
+when the service stops, crashes, or its host stops answering, the memory removes it. Each role holds a read on the
+capabilities it uses (an ETR the map-servers, an ITR the map-resolvers, a map-server the ETRs' prefixes) and handles
+each as it arrives or goes -- no startup wait, no heartbeat. An ETR's liveness is likewise one cell its session holds
+([LIVE_WHILE_ITS_SESSION_IS_V1]). SIGTERM or SIGINT stops it cleanly (exit 0); losing the memory stops it with exit 3. The fields are
 documented at the top of tools/lisp_service.cpp; tools/test_lisp_service.py writes two complete configurations.

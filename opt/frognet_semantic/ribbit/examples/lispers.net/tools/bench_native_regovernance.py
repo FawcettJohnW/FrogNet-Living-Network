@@ -31,7 +31,7 @@ ms=P(); etr=P(); itr=P(); SITE,PF,R='198.36.0.0/16','198.36.1.0/24','192.0.2.136
 try:
  call(ms,'site.add',iid='0',prefix=SITE,group='',accept_more_specifics=True); call(ms,'resolver.wait_site',iid='0',prefix=SITE,group='',active=True)
  call(ms,'ms_governor.start',iid='0',group='',name='ms-rgb')
- call(etr,'etr.identity',name='etr-rgb',xtr_id='3d3d'); call(etr,'etr_liveness.start',interval_s=5,lifetime_s=60)
+ call(etr,'etr.identity',name='etr-rgb',xtr_id='3d3d'); call(etr,'etr_liveness.start')
  call(etr,'database_mapping.add',iid='0',prefix=PF,group='',rloc_set=[R])
  assert call(itr,'resolver.wait',iid='0',prefix=PF,group='',present=True,rloc=R,timeout_s=5)=='good'
  off=[];on=[]

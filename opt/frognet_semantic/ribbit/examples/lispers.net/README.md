@@ -177,15 +177,15 @@ A minimal map-server configuration (JSON):
   "ram": {"host": "<RAM_HOST>", "port": <RAM_PORT>, "api": "/lisper-api"},
   "roles": ["map-server", "map-resolver"],
   "udp": {"address": "<this machine's address>", "port": 4342},
-  "heartbeat_s": 10,
-  "startup_wait_s": 5,
   "sites": [{"iid": "0", "prefix": "198.18.0.0/16", "group": "", "accept_more_specifics": true,
              "key_id": 1, "password": "<the site's key>"}]
 }
 ```
 
 `udp.address` is the address other LISP machines reach this one at (it is advertised in the memory, so not
-`0.0.0.0`). Every key is described at the top of `tools/lisp_service.cpp`. `tools/make_hw_configs.py` writes matching
+`0.0.0.0`). There is no heartbeat and no startup wait: the capability tuples live as long as the service's
+session, and each role holds a read on the ones it uses. A configuration that still says `heartbeat_s`,
+`startup_wait_s` or an ETR `liveness` is refused, by name. Every key is described at the top of `tools/lisp_service.cpp`. `tools/make_hw_configs.py` writes matching
 lispers.net and Ribbit configurations from the test fixture, for the two-host DDT tests in `REAL-HARDWARE-TESTS.md`.
 
 ## 9. Where this has run -- and a request
