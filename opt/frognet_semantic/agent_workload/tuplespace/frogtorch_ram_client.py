@@ -13,10 +13,9 @@ Three things, and nothing else:
               INTO a region, addressed by name and owner, and the call returns as soon as they are queued. A reader
               holds a read on the region, never on the producer.
 
-Placement ([A_CELL_LIVES_WITH_ITS_OWNER_V1]): a rank's cells go to the region on the rank's own machine, so the
-traffic is the same shape it was when each rank served its own -- but the memory is a service, not the rank. When a
-machine has no region of its own, rank r's cells go to region r mod (number of regions). Every rank derives this from
-the members' own cells: no rank is told.
+Placement ([A_RANK_LIVES_ON_ITS_OWN_MACHINE_V1]): every rank has its own machine's region, derived by every rank from
+the members' own cells. A rank READS only its own region; a writer puts a cell into the region of the rank that will
+read it ([THE_ANSWER_IS_WRITTEN_WHERE_IT_IS_READ_V1]). A machine with no region announced is an error, named.
 
 No fallbacks. A region that cannot be reached raises; a held read that runs out of time returns what is there and the
 caller decides it has failed.
@@ -200,11 +199,14 @@ class Ram:
         return talk(self.session(self.control()))
 
     # ---- tensors --------------------------------------------------------------------------------------------
-    def tput(self, hp: Tuple[str, int], name: str, gen: int, blob, inc=None, ack: bool = True) -> None:
+    def tput(self, hp: Tuple[str, int], name: str, gen: int, blob, inc=None, ack: bool = True,
+             life: str = "data") -> None:
+        head = {"op": "tput", "name": name, "gen": int(gen), "inc": inc, "life": life}
         if ack:
-            self.session(hp).call({"op": "tput", "name": name, "gen": int(gen), "inc": inc}, blob)
+            self.session(hp).call(head, blob)
         else:
-            self.session(hp).send({"op": "tput", "name": name, "gen": int(gen), "inc": inc, "ack": False}, blob)
+            head["ack"] = False
+            self.session(hp).send(head, blob)
 
 
 _RAM: Optional[Ram] = None
@@ -315,7 +317,9 @@ class RegionPlane:
                 # [A_WRITE_IS_NOT_A_CONVERSATION_V1] streamed: this thread does not wait for the region between
                 # writes (it used to wait for each OKAY, one round trip per tensor). Order is the connection's own;
                 # a write the region could not take ends the session, and the next send here raises.
-                self.ram.tput(hp, name, gen, blob, inc, ack=False)
+                # life="session": the cell is held by this writer's session and goes when the process does, so a
+                # run leaves nothing in anyone's memory ([SESSION_TENSORS_V1]).
+                self.ram.tput(hp, name, gen, blob, inc, ack=False, life="session")
             except BaseException as e:             # the next publish raises it: a lost write is never silent
                 self.fault = e
 

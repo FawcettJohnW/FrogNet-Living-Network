@@ -90,7 +90,7 @@ from . import frogtorch_ram_client as T  # [ALL_IN_THE_REGION_V1] FrogTorch's ow
 from .frogtorch_ram_client import Placement, RegionPlane
 
 from . import torch_backend as _base
-from .tensor_plane import READ_CURRENT, TensorClient
+from .tensor_plane import READ_BY_IDENTITY, READ_CURRENT, TensorClient
 
 
 # ---------------------------------------------------------------------------
@@ -321,8 +321,6 @@ class PsychedelicBackend(_base.FrogNetBackend):
         #: reads are issued concurrently, whether the far one is overlapped
         #: or serialised. List append is atomic in CPython, so the pool
         #: threads need no lock here.
-        #: In-flight speculative phase-1 reads: (seq, dtype) -> (futs, buf)
-        self._ahead = {}
         #: [THE_LENGTH_IS_A_CONSEQUENCE_NOT_A_GUESS_V1 - John 2026-09-14] The
         #: largest phase-1 slice length this rank has seen, per dtype. Both
         #: landing areas are sized from it and neither is sized from the round
@@ -562,31 +560,6 @@ class PsychedelicBackend(_base.FrogNetBackend):
     #: keeping for exactly that.
     REDUCE = os.environ.get("FROGNET_PSY_REDUCE", "shard")
 
-    #: [ASK_BEFORE_YOU_NEED_IT_V1] Read-ahead on the sharded path.
-    #:
-    #: A peer read on a 97 ms link at 0.7 MB/s is mostly waiting. This path
-    #: issued round N's reads during round N and blocked on them, so every
-    #: round paid the full latency again.
-    #:
-    #: Everything about round N+1 is known before it starts -- same peers,
-    #: same slice index, seq+1 -- and the plane's read already BLOCKS until
-    #: the state exists. So the request can be in flight a whole round
-    #: early, parked on the peer's server, and the answer arrives the
-    #: instant the peer publishes.
-    #:
-    #: A speculative read that is never used costs a held socket and a
-    #: parked thread, both of which the link already has. A wrong guess
-    #: costs the round it would have waited anyway.
-    # [THE_LENGTH_IS_A_CONSEQUENCE_NOT_A_GUESS_V1 - John 2026-09-14] Read-ahead
-    # does not guess a length at all. It cannot know the next round's slice
-    # length -- DDP buckets are not uniform and the backend does not see the
-    # bucket order -- and it no longer has to: the read states a name and a
-    # generation, the frame states its own size, and the landing area is the
-    # largest slice seen so far. What was left of GUESS_WIDE_THEN_CORRECT_V1 --
-    # a 4x multiplier and a retry on ValueError -- was correcting for a
-    # question nothing needed to ask.
-    READAHEAD = os.environ.get("FROGNET_PSY_READAHEAD", "0") not in ("0", "no")
-
     #: [A_WAIT_CAP_MUST_FOLLOW_THE_DEADLINE_V1]
     #:
     #: Every peer read capped its wait at a hardcoded 30 s, in seven places,
@@ -638,80 +611,6 @@ class PsychedelicBackend(_base.FrogNetBackend):
     #: one framing desync. FROGNET_PSY_VERIFY=0 trades that for the time.
     VERIFY = os.environ.get("FROGNET_PSY_VERIFY", "1") not in ("0", "no")
 
-    def _drop_ahead(self) -> None:
-        """Abandon speculative reads.
-
-        Their futures are left to finish on their own: cancelling a read
-        mid-frame would desynchronise the link, and a completed read nobody
-        wants costs only bytes already asked for.
-
-        [A_WRONG_GUESS_MUST_COST_NOTHING_V1 - John 2026-09-14] But their
-        EXCEPTIONS have to be collected, or the interpreter reports them when
-        the future is garbage collected and -- worse -- the retry machinery
-        inside the read spends the full budget on a question that is already
-        known to be wrong.
-        """
-        for futs, _buf in self._ahead.values():
-            for f in futs.values():
-                f.cancel()
-                if f.done():
-                    # A guess that failed is not an error. Consume the
-                    # exception so it is neither raised nor reported later.
-                    f.exception()
-        self._ahead.clear()
-
-    def _read_ahead(self, seq, like, peers, r, wait, pool) -> None:
-        """Issue the NEXT round's phase-1 reads now.
-
-        Speculative reads need their own landing area -- the current round
-        is still reading into `_stage` -- so this has a second buffer. Only
-        one round is ever guessed ahead, so two are enough.
-
-        [THE_LENGTH_IS_A_CONSEQUENCE_NOT_A_GUESS_V1 - John 2026-09-14]
-
-        There is nothing left in here to guess. The cell name is
-        `<peer-inc>.ars.<seq>.<r>`: peer, round and this rank's slice index,
-        all of them known a round early. What the previous version ALSO had
-        to state was how many elements that cell would hold, because the read
-        asserted `dst.numel()` against the frame -- and it stated it from the
-        round it was standing in. DDP hands out buckets of 262657 and 791552
-        elements alternately, so it was wrong on every round, the guess missed
-        every time (prefetch_hit=False in every log of every ddp54xx arm) and
-        read-ahead bought nothing at all while still holding a socket and a
-        thread per peer.
-
-        So the length comes out of both places it was stated. The dict is
-        keyed on the round and the dtype -- peer is inside `futs`, and the
-        slice index cannot change within a run -- and the read is issued
-        `exact=False` into a row sized from the high-water mark, which is
-        large enough for any bucket seen so far. The FIRST round at a new
-        maximum still fails, once, and is discarded exactly as a wrong guess
-        always was; every round after it hits.
-        """
-        key = (seq, str(like.dtype))
-        if key in self._ahead:
-            return
-        self._drop_ahead()
-        buf = self._ahead_stage(len(peers), like)
-        futs = {}
-        for i, p in enumerate(peers):
-            futs[p] = pool.submit(
-                self._read_slice_into, buf[i], p,
-                # [READ_AHEAD_IS_A_THIRD_CONVERSATION_V1 - John 2026-09-14]
-                # "pf", not "p1". A link is keyed host:port#channel and carries
-                # one request/reply at a time under its lock -- which is why
-                # phase 1 and phase 2 have separate channels. Issuing the
-                # speculative round on "p1" made it a THIRD conversation on the
-                # live phase-1 socket: it holds that link for its full wait
-                # asking a peer for state it has not produced, so the live read
-                # queues behind it (observed: 65-73 s per peer on ddp2201), and
-                # when two frames interleave the next length header is read out
-                # of the middle of the other's payload -- the garbage length is
-                # what failed the receive buffer size check with ValueError.
-                "%s.ars.%d.%d" % (self._peer_inc(p), seq, r), seq, wait, "pf",
-                False)
-        self._ahead[key] = (futs, buf)
-
     def _hwm(self, ln: int, like) -> int:
         """[THE_LENGTH_IS_A_CONSEQUENCE_NOT_A_GUESS_V1 - John 2026-09-14] The
         largest phase-1 slice length seen for this dtype.
@@ -727,20 +626,6 @@ class PsychedelicBackend(_base.FrogNetBackend):
         if ln > cur:
             self._ln_hwm[k] = cur = ln
         return cur
-
-    def _ahead_stage(self, rows: int, like):
-        """Landing area for speculative reads, separate from _stage.
-
-        Sized to the high-water mark, so the speculative read never has to
-        state a length. Reallocated only when a bigger bucket appears.
-        """
-        wide = max(1, self._hwm(0, like))
-        k = (rows, wide, str(like.dtype))
-        buf = getattr(self, "_ahead_buf", None)
-        if buf is None or getattr(self, "_ahead_key", None) != k:
-            buf = torch.empty(rows * wide, dtype=like.dtype)
-            self._ahead_buf, self._ahead_key = buf, k
-        return [buf[i * wide:(i + 1) * wide] for i in range(rows)]
 
     def _stage(self, rows: int, ln: int, like):
         """[ALLOCATE_ONCE_NOT_ONCE_PER_FRAME_V1] Landing area for the peer
@@ -870,19 +755,53 @@ class PsychedelicBackend(_base.FrogNetBackend):
             self._peer_ms.setdefault(r, []).append(
                 (time.perf_counter() - _t0) * 1000.0)
 
+    def _region_of(self, rank: int):
+        d = self._rendezvous()[rank]
+        return (d["host"], int(d["port"]))
+
+    def _read_local_into(self, dst, owner: int, name: str, gen: int, wait_s: float, channel: str) -> int:
+        """[THE_ANSWER_IS_WRITTEN_WHERE_IT_IS_READ_V1] A held read on THIS machine's region for the cell `owner`
+        wrote here. The owner's write crossed the network once, one way, unanswered; this read never leaves the
+        machine. READ_BY_IDENTITY: the generation must be exactly `gen` -- a newer one is an error, not an answer."""
+        host, port = self._region_of(self._rank)
+        key = RegionPlane.key(name, owner)
+        _t0 = time.perf_counter()
+        try:
+            with _PsyWait(phase=channel, rank=self._rank, seq=gen, peer=owner, cell=key, gen=gen, host=host,
+                          port=port, bytes=(dst.numel() * dst.element_size()), wait_s=wait_s, _be=self):
+                return self._peer_client(owner).read_into(
+                    dst, "r%d" % owner, host, port, key, gen, mode=READ_BY_IDENTITY, wait_s=wait_s,
+                    verify=self.VERIFY, channel=channel, exact=True)[2]
+        except Exception as e:
+            if hasattr(e, "add_note"):
+                e.add_note("rank %d reading %s (written by rank %d) from its own region %s:%d"
+                           % (self._rank, key, owner, host, port))
+            raise
+        finally:
+            self._peer_ms.setdefault(owner, []).append((time.perf_counter() - _t0) * 1000.0)
+
     def _allreduce_sharded(self, t: torch.Tensor, seq: int, op) -> None:
-        """Reduce-scatter by read, then all-gather by read."""
-        # [ASK_THE_CODE_THAT_ALREADY_KNOWS_V1] _op_name exists on the base
-        # backend and resolves a ReduceOp against RedOpType. Writing a
-        # second identifier here that matched on str(op) got the answer
-        # wrong for every op including SUM, because a ReduceOp's str() is
-        # its repr.
-        #
-        # Accumulation here is pairwise rather than one reduction over a
-        # stack, so the op must be associative and element-wise. All of
-        # these are; AVG is not, because a mean of means is not the mean
-        # unless the slices are equal, and the remainder makes them
-        # unequal. Saying so beats a wrong answer delivered quickly.
+        """Reduce-scatter, then all-gather -- by WRITING into the consumer's memory and reading locally.
+
+        [THE_ANSWER_IS_WRITTEN_WHERE_IT_IS_READ_V1 - John 2026-11-12: "No acks. No waiting except through held
+        reads ... per-node RAM disperses the work across the LAN, but this is not messaging."]
+
+        Rank k owns slice k. Phase 1: every rank WRITES its slice k into rank k's region, for every k != itself --
+        one-way streams, nothing answers them. Rank k holds a read on its OWN region for each peer's slice k,
+        reduces, and WRITES the reduced slice into every peer's region. Phase 2: every rank holds a read on its own
+        region for each peer's reduced slice. Bytes on the wire per rank: 2(W-1)n/W out, the same in -- ring's
+        count -- and no request ever crosses the network: the only waits are held reads on the local memory.
+
+        Before (2026-11-11): every rank wrote its slices into its OWN region, and every reader sent a read request
+        across the WAN to the owner's region and waited for the reply -- twice per round, per peer -- plus a
+        whole-tensor write nobody read, under a name that changed every round, so the region grew without bound.
+
+        Cells are named by SLOT, not by round: `<inc>.c<owner>.ars.<k>` and `<inc>.c<owner>.arr`, generation = the
+        round. A slot is overwritten one round later, and never before its reader has it: the owner cannot write
+        round s+1 to rank k until it has round s's reduced slice from k, which k writes only after reading the
+        owner's round-s slice. The algorithm's own dependency is the release; nothing is acknowledged. The cells are
+        held by the writer's session, so they go when the process does.
+        """
         name = self._op_name(op)
         _ACC = {
             "SUM": lambda a, b: a.add_(b),
@@ -896,8 +815,8 @@ class PsychedelicBackend(_base.FrogNetBackend):
         acc_fn = _ACC.get(name)
         if acc_fn is None:
             raise NotImplementedError(
-                "FROGNET_PSY_REDUCE=shard cannot express ReduceOp %r "
-                "pairwise. Use FROGNET_PSY_REDUCE=stack for it." % name)
+                "FROGNET_PSY_REDUCE=shard cannot express ReduceOp %r pairwise. Use FROGNET_PSY_REDUCE=stack for it."
+                % name)
         _t_pub = time.perf_counter()
         W, r = self._size, self._rank
         flat = t.reshape(-1)
@@ -905,172 +824,45 @@ class PsychedelicBackend(_base.FrogNetBackend):
         inc = self._peer_inc(r)
         wait = self._peer_wait()
         pool = self._pool()
-
-        # Phase 1. Publish this rank's contribution as W named slices, so a
-        # peer can take the one it owns and nothing else.
-        # [POINT_AT_THE_BYTES_DO_NOT_COPY_THEM_V1]
-        #
-        # Published without copying. Serialising every slice was a full
-        # pass over the tensor before the first byte was even asked for,
-        # and the copy exists to freeze a state against changing under its
-        # own name. Here nothing can:
-        #
-        #   range k is read by exactly one peer, peer k
-        #   range k is overwritten by exactly one thing, peer k's reduced
-        #     slice arriving in phase 2
-        #   peer k cannot produce that slice without first reading this one
-        #
-        # so the arrival that overwrites the range is the receipt that the
-        # range was taken. The algorithm's own dependency does the work an
-        # acknowledgement would, and no copy or handshake is needed.
-        #
-        # Slice r is skipped: this rank reads its own range from peers and
-        # never serves it. Publishing it was W slices of work to serve W-1.
-        for k, (st, ln) in enumerate(parts):
-            if ln and k != r:
-                self._server.publish("%s.ars.%d.%d" % (inc, seq, k), seq,
-                                     flat[st:st + ln], incarnation=str(r),
-                                     copy=False)
-        self._phase_ms["publish"].append((time.perf_counter()-_t_pub)*1000.0)
-        _t_p1 = time.perf_counter()
+        peers = [q for q in range(W) if q != r]
         st_r, ln_r = parts[r]
         own = flat[st_r:st_r + ln_r]
-        peers = [q for q in range(W) if q != r]
 
-        # [ASK_FOR_IT_BEFORE_YOU_NEED_IT_V1]
-        #
-        # Both phases read from every peer, so a slow link is paid TWICE per
-        # collective. Measured at world 4 with a transcontinental member:
-        # every rank's median read of that peer was ~2.1 s, phase 1 median
-        # 2293 ms, phase 2 median 2685 ms. Each phase is essentially one
-        # read of the slow link, and shard came out 1.53x slower than gloo.
-        #
-        # The second read does not have to WAIT for the first. A phase-2
-        # read asks for a peer's REDUCED slice, which depends on that peer
-        # finishing its own phase 1 -- not on anything this rank does. So
-        # issue it now, right after publishing, and leave it blocked at the
-        # peer's plane on wait_s. It returns the moment that peer publishes,
-        # and its round trip overlaps this rank's own reduce instead of
-        # following it.
-        #
-        # Nothing about the model changes: a reader asks for a state and the
-        # plane holds the question open until it exists. What changes is
-        # when the asking happens.
-        #
-        # The destinations are disjoint -- phase 2 writes the slices this
-        # rank does NOT own, phase 1 accumulates into the one it does -- so
-        # the two sets of reads cannot touch the same elements.
+        # Phase 1, out: slice k goes INTO rank k's memory (copied at publish, so `flat` may change after).
+        for k in peers:
+            st, ln = parts[k]
+            if ln:
+                self._server.publish("%s.ars.%d" % (inc, k), seq, flat[st:st + ln], incarnation=str(r),
+                                     region=self._region_of(k))
+        self._phase_ms["publish"].append((time.perf_counter() - _t_pub) * 1000.0)
+        _t_p1 = time.perf_counter()
+
+        # Both phases' held reads go up now, all on this machine's region: phase 2's are parked before any peer
+        # has reduced, so each reduced slice is in place the moment it lands.
         p2 = {}
         for p in peers:
             st_p, ln_p = parts[p]
             if ln_p:
-                p2[p] = pool.submit(
-                    self._read_slice_into, flat[st_p:st_p + ln_p], p,
-                    "%s.arr.%d" % (self._peer_inc(p), seq), seq, wait, "p2")
-
+                p2[p] = pool.submit(self._read_local_into, flat[st_p:st_p + ln_p], p,
+                                    "%s.arr" % self._peer_inc(p), seq, wait, "p2")
         if ln_r:
-            # Peer slices land in a staging buffer allocated once, not one
-            # tensor per peer per round. They cannot be accumulated straight
-            # into `own` because the reads run concurrently and add_ is not
-            # a place two threads may meet.
-            # [ASK_BEFORE_YOU_NEED_IT_V1] Take whatever the previous round
-            # already asked for. A hit is a read that has been sitting on
-            # the peer's server since before this round began, so its
-            # latency was paid during the last round's arithmetic.
-            # [THE_LENGTH_IS_A_CONSEQUENCE_NOT_A_GUESS_V1 - John 2026-09-14]
-            # The guess is keyed on the round and the dtype. It used to carry
-            # `ln_r` as well, which made every bucket-size change a miss --
-            # and DDP alternates two bucket sizes, so it was EVERY round.
-            self._hwm(ln_r, own)
-            key = (seq, str(own.dtype))
-            pre = self._ahead.pop(key, None)
-            hit, futs = False, None
-            if pre is not None:
-                futs, wide = pre
-                # A speculative read that could not be served is a wrong guess
-                # and costs the round it would have had anyway -- but it is
-                # not silent. The only way to be here is a bucket larger than
-                # any seen when the guess was issued, which happens once per
-                # distinct bucket size and never again.
-                got = {}
-                for p in peers:
-                    try:
-                        got[p] = futs[p].result()
-                    except Exception as e:
-                        _psy("AHEAD_REFUSED", rank=self._rank, peer=p, seq=seq,
-                             ln=ln_r, err=repr(str(e))[:200])
-                        got = None
-                        break
-                if got is not None:
-                    # Every rank derives its slices from the same bucket
-                    # numel, and the cell name pins peer, round and slice
-                    # index -- so a different element count is not a wrong
-                    # guess, it is two ranks holding different buckets under
-                    # one name. That is a fault and is raised, not retried
-                    # into a normal-looking round.
-                    bad = {p: v for p, v in got.items() if v != ln_r}
-                    if bad:
-                        raise RuntimeError(
-                            "rank %d round %d: own slice is %d elements but "
-                            "%s answered with %s for the same round and slice "
-                            "index. The ranks do not agree on the bucket."
-                            % (self._rank, seq, ln_r,
-                               ", ".join("r%d" % p for p in sorted(bad)),
-                               sorted(bad.values())))
-                    hit = True
-                    stage = [wide[i][:ln_r] for i in range(len(peers))]
-                    futs = None
-            if not hit:
-                if futs:
-                    # [A_WRONG_GUESS_MUST_COST_NOTHING_V1] Collect the
-                    # abandoned guess's exceptions here. Breaking out of the
-                    # loop above leaves the remaining futures unread, and an
-                    # unretrieved exception is reported by the interpreter at
-                    # collection time -- from a thread, with no round attached.
-                    for f in (futs or {}).values():
-                        f.cancel()
-                        if f.done():
-                            f.exception()
-                self._drop_ahead()      # a miss voids the rest of the guess
-                stage = self._stage(W - 1, ln_r, own)
-                futs = {}
-                for i, p in enumerate(peers):
-                    futs[p] = pool.submit(
-                        self._read_slice_into, stage[i], p,
-                        "%s.ars.%d.%d" % (self._peer_inc(p), seq, r), seq,
-                        wait, "p1")
+            stage = self._stage(W - 1, ln_r, own)
+            futs = {p: pool.submit(self._read_local_into, stage[i], p, "%s.ars.%d" % (self._peer_inc(p), r), seq,
+                                   wait, "p1")
+                    for i, p in enumerate(peers)}
             for i, p in enumerate(peers):
-                # [DIAG_PSY_STALL_V1] This is where the round blocks. Register
-                # the wait so the watchdog can say which peer, which cell and
-                # which generation -- and whether the read is even running yet
-                # or still queued behind the speculative round.
-                with _PsyWait(phase="p1", rank=self._rank, seq=seq, peer=p,
-                              cell="%s.ars.%d.%d" % (self._peer_inc(p), seq, r),
-                              gen=seq, ln=ln_r, wait_s=wait,
-                              prefetch_hit=hit, _be=self):
-                    if futs is not None:
-                        futs[p].result()
+                futs[p].result()
                 acc_fn(own, stage[i])
-            # Ask for the next round now, while this one still has work.
-            if self.READAHEAD:
-                self._read_ahead(seq + 1, own, peers, r, wait, pool)
+        self._phase_ms["phase1"].append((time.perf_counter() - _t_p1) * 1000.0)
 
-        self._phase_ms["phase1"].append((time.perf_counter()-_t_p1)*1000.0)
+        # Phase 2, out: the reduced slice goes into every peer's memory.
         _t_p2 = time.perf_counter()
-        # Publishing this rank's reduced slice releases every peer that is
-        # already blocked reading it.
-        #
-        # [WRITE_WHERE_THE_ANSWER_GOES_V1] `flat` is a view of `t`, so the
-        # phase-2 reads above wrote the answer directly. Safe only in this
-        # order: every byte a peer can still read was published as a CLONE,
-        # so mutating `t` cannot change what anyone else sees.
-        # The reduced slice is what every peer is waiting on, so this one
-        # is published immediately rather than queued behind anything.
-        self._server.publish("%s.arr.%d" % (inc, seq), seq, own,
-                             incarnation=str(r))
-        for p, f in p2.items():
+        if ln_r:
+            for p in peers:
+                self._server.publish("%s.arr" % inc, seq, own, incarnation=str(r), region=self._region_of(p))
+        for f in p2.values():
             f.result()
-        self._phase_ms["phase2"].append((time.perf_counter()-_t_p2)*1000.0)
+        self._phase_ms["phase2"].append((time.perf_counter() - _t_p2) * 1000.0)
 
     def _inbox_get(self, r: int, seq: int, like: torch.Tensor,
                    timeout_s: float) -> torch.Tensor:
@@ -1511,9 +1303,6 @@ class PsychedelicBackend(_base.FrogNetBackend):
             # step. `_gen` remains for `_publish_tensor`, whose readers get
             # the generation from the store descriptor and so never had
             # this problem.
-            self._server.publish(name, seq, t,
-                                 incarnation=str(self._rank))
-            # The generation, and nothing the reader already knows.
 
 
             # [BLAST_IT_ALL_AT_RAM_V1] All of them, at once.
@@ -1529,6 +1318,8 @@ class PsychedelicBackend(_base.FrogNetBackend):
             if self.REDUCE == "shard":
                 self._allreduce_sharded(t, seq, op)
                 continue
+            # stack: every peer reads this rank's whole tensor (only this path does)
+            self._server.publish(name, seq, t, incarnation=str(self._rank))
             self._start_prefetch(t, seq)
             parts = [None] * self._size
             parts[self._rank] = t.clone()
