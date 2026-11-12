@@ -622,7 +622,10 @@ class PsychedelicBackend(_base.FrogNetBackend):
     # largest slice seen so far. What was left of GUESS_WIDE_THEN_CORRECT_V1 --
     # a 4x multiplier and a retry on ValueError -- was correcting for a
     # question nothing needed to ask.
-    READAHEAD = os.environ.get("FROGNET_PSY_READAHEAD", "0") not in ("0", "no")
+    # On by default (John, 2026-09-14: "Read-ahead stays on"; measured on the five-machine fleet 2026-11-12: ddp5744
+    # with it 11.7 s first step / 181 s to warmup / 79 s at step 5 / 12773 ms best, against ddp5340 without it
+    # 44.1 / 256 / 147 / 17919, and the gloo control 28.3 / 162 / 81 / 14493). FROGNET_PSY_READAHEAD=0 turns it off.
+    READAHEAD = os.environ.get("FROGNET_PSY_READAHEAD", "1") not in ("0", "no")
 
     #: [A_WAIT_CAP_MUST_FOLLOW_THE_DEADLINE_V1]
     #:
@@ -2008,12 +2011,12 @@ def _create(store, rank, size, timeout):
 
 
 #: Said once per process, so a run's own log shows which code is running.
-BUILD = ("psychedelic 20260915-september-revived-r1 (the September tensor path, as it ran ddp5801; "
+BUILD = ("psychedelic 20260915-september-revived-r2 (the September tensor path, as it ran ddp5801; "
          "control cells in the one RAM; PyTorch 2.15 port)")
 
 
 def register(name: str = "psychedelic") -> None:
-    print("[psychedelic] %s" % BUILD, flush=True)
+    print("[psychedelic] %s; read-ahead %s" % (BUILD, "on" if PsychedelicBackend.READAHEAD else "OFF"), flush=True)
     # [NO_FLIGHT_RECORDER_ON_A_PYTHON_BACKEND_V1] PyTorch 2.15 attaches its flight recorder to every group whose
     # backend does not record itself, and attaching it to a Python-subclassed backend segfaults. 0 is its own off
     # switch; a caller who set it keeps their value. (2.15 port; not in the September code.)
