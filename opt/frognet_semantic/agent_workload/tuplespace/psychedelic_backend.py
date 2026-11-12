@@ -564,10 +564,11 @@ class PsychedelicBackend(_base.FrogNetBackend):
         for c in list(self._clients.values()):
             n += c.abort()
         for s_ in list(getattr(self, "_streams", {}).values()):
-            try:
-                s_.sock.shutdown(__import__("socket").SHUT_RDWR)
-            except OSError:
-                pass
+            for sk in getattr(s_, "socks", [s_.sock]):
+                try:
+                    sk.shutdown(__import__("socket").SHUT_RDWR)
+                except OSError:
+                    pass
         ex = self._exec
         if ex is not None:
             ex.shutdown(wait=False, cancel_futures=True)
@@ -2338,8 +2339,8 @@ def _create(store, rank, size, timeout):
 
 
 #: Said once per process, so a run's own log shows which code is running.
-BUILD = ("psychedelic 20261112-september-family-link-r8 (the September tensor path; "
-         "one held read per peer on the family it writes for this rank; the write fires it; every ready cell interleaved on the link; all_reduce returns at once, rounds in flight together "
+BUILD = ("psychedelic 20261112-september-family-link-r9 (the September tensor path; "
+         "one held read per peer on the family it writes for this rank; the write fires it; every ready cell interleaved on the link; 3 channel sets per link; records sized to 20 ms; short unsent queue; all_reduce returns at once, rounds in flight together "
          "and the bytes go on one permanent link, without pause; "
          "control cells in the one RAM; PyTorch 2.15 port)")
 
