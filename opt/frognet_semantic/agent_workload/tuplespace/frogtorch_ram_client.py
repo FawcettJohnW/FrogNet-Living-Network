@@ -25,6 +25,7 @@ from __future__ import annotations
 
 import json
 import os
+import sys
 import queue
 import socket
 import threading
@@ -40,8 +41,19 @@ REGIONS_WAIT_S = float(os.environ.get("FROGTORCH_REGIONS_WAIT_S", "300"))
 CALL_TIMEOUT_S = float(os.environ.get("FROGTORCH_CALL_TIMEOUT_S", "330"))
 
 
-def my_ip() -> str:
+def system_ram_tuples():
+    """core.frognet_tuples, for the SystemRam. [CORE_ON_THE_PATH_V1] Its held read (frognet_held, the node's api.php
+    hold) is imported by bare name, as the node's daemons import it with core/ on sys.path; a FrogTorch process
+    imports core as a package, so core/ is put on the path here, once, before the first held read."""
     from core import frognet_tuples as T
+    d = os.path.dirname(os.path.abspath(T.__file__))
+    if d not in sys.path:
+        sys.path.append(d)
+    return T
+
+
+def my_ip() -> str:
+    T = system_ram_tuples()
     return T.my_ip()
 
 
@@ -66,7 +78,7 @@ def discover_regions() -> List[Tuple[str, int]]:
             h, p = part.strip().rsplit(":", 1)
             out.append((h, int(p)))
         return sorted(out, key=_sort_key)
-    from core import frognet_tuples as T
+    T = system_ram_tuples()
     rows = T.get_all("frogtorch", dbhost=SYSTEM_RAM, wait_s=REGIONS_WAIT_S, min_rows=1)
     out = sorted({(r["value"]["host"], int(r["value"]["port"])) for r in rows
                   if r.get("var") == "can" and isinstance(r.get("value"), dict)}, key=_sort_key)

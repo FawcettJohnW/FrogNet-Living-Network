@@ -369,7 +369,8 @@ class RamServer:
 def _announce(port: int) -> None:
     """[CAPABILITY_ANNOUNCED_V1] This machine can hold FrogTorch regions: a capability tuple in the SystemRam,
     written by this service and gone with it."""
-    from core import frognet_tuples as T
+    from .frogtorch_ram_client import system_ram_tuples
+    T = system_ram_tuples()
     me = T.my_ip()
     try:
         mem_mb = os.sysconf("SC_PAGE_SIZE") * os.sysconf("SC_PHYS_PAGES") // (1 << 20)

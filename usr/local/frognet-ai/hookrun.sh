@@ -175,7 +175,7 @@ fi
 gate() {
     python3 "$GATE" --role barrier --runid "$1" --arm 0 \
         --rank "$RANK" --world "$WORLD" --wait "$GATE_WAIT" \
-        --store "$STORE" --tree "$TREE" || exit 2
+        --tree "$TREE" || exit 2
 }
 
 # [DO_NOT_CLOBBER_THE_CALLER_S_COUNTER_V1] These were named ID/BE/HOOK,

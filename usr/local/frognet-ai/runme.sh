@@ -230,11 +230,11 @@ wait_for_go() {
         # the start times tight.
         sleep 2
         python3 "$GATE" --role primary --runid "$GID" --arm 0 \
-            --store "$STORE" --tree "$TREE" || exit 2
+            --tree "$TREE" || exit 2
     else
         echo ">>> waiting for rank 0 to open this arm"
         python3 "$GATE" --role follower --runid "$GID" --arm 0 \
-            --store "$STORE" --tree "$TREE" || exit 2
+            --tree "$TREE" || exit 2
     fi
 }
 

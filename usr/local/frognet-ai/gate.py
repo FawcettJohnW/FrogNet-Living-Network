@@ -18,13 +18,14 @@
 ################################################################
 """gate.py -- the primary says go, everyone else waits for it.
 
-    gate.py --role primary  --runid mesh34 --arm 0 --store host:port --tree T
-    gate.py --role follower --runid mesh34 --arm 0 --store host:port --tree T
+    gate.py --role primary  --runid mesh34 --arm 0 --tree T
+    gate.py --role follower --runid mesh34 --arm 0 --tree T
     gate.py --role barrier  --runid ddp800 --arm 0 --rank R --world W \
-            --store host:port --tree T
+            --tree T
 
 The primary writes one cell and returns. A follower blocks until that cell
-exists, using the store's own blocking read -- one request held open, not a
+exists, using a held read in FrogTorch's RAM ([ALL_IN_THE_REGION_V1]: the
+gate cells live in the FrogTorch RAM every machine runs, not in the api.php store) -- one request held open, not a
 poll -- and returns when it appears.
 
 A barrier is symmetric: every rank writes its OWN cell and then waits for
@@ -63,10 +64,9 @@ import os
 import sys
 import time
 
-#: [HOLD_INSIDE_THE_RPC_BUDGET_V1] Seconds to hold one blocking read open.
-#: Must stay under the proxy's RPC budget in front of the store (15 s), or
-#: the proxy kills the read and reports it as a store failure.
-GATE_HOLD_S = float(os.environ.get("FROGNET_GATE_HOLD_S", "10"))
+#: Seconds one held read in FrogTorch's RAM may stay parked. The region bounds
+#: it itself; there is no proxy in front of it any more.
+GATE_HOLD_S = 300.0   # one held read in the region; it re-arms only when the region's own bound ends it
 
 
 def _arrivals(rows, var):
@@ -97,7 +97,6 @@ def main():
                     choices=["primary", "follower", "barrier"])
     ap.add_argument("--runid", required=True)
     ap.add_argument("--arm", required=True)
-    ap.add_argument("--store", required=True)
     ap.add_argument("--tree", default="/opt/frognet_semantic")
     ap.add_argument("--pypath", default="/etc/frognet_bundles/communicator")
     ap.add_argument("--wait", type=float, default=1800.0,
@@ -117,7 +116,7 @@ def main():
     os.environ.setdefault("FROGNET_DIAG", "0")
     os.environ.setdefault("FROGNET_SENTINEL_DIR", "/tmp/netbench1.sentinel")
     os.makedirs("/tmp/netbench1.sentinel", exist_ok=True)
-    from core import frognet_tuples as T
+    from agent_workload.tuplespace import frogtorch_ram_client as T
 
     service = "nb1.%s.gate" % a.runid
     var = "arm%s" % a.arm
@@ -133,7 +132,7 @@ def main():
         #
         # A failed write is a failed gate. Say so and stop.
         ok = T.put(service, var, var, {"t": time.time()},
-                   dbhost=a.store, own=False)
+                   own=False)
         if ok is False:
             print("gate: could not publish %s/%s -- the store refused the "
                   "write, so this arm was never opened. Followers may be "
@@ -151,7 +150,7 @@ def main():
         # others proceed W-1 strong while this one runs anyway.
         scope = "%s.r%d" % (var, a.rank)
         ok = T.put(service, var, scope, {"rank": a.rank, "t": time.time()},
-                   dbhost=a.store, own=False)
+                   own=False)
         if ok is False:
             print("gate: rank %d could not publish its arrival at %s/%s -- "
                   "the store refused the write. This rank never entered the "
@@ -182,7 +181,7 @@ def main():
         seen = set()
         while time.time() < deadline:
             left = deadline - time.time()
-            rows = T.get_all(service, dbhost=a.store,
+            rows = T.get_all(service,
                              wait_s=min(left, GATE_HOLD_S), min_rows=a.world)
             seen = _arrivals(rows, var)
             if len(seen) >= a.world:
@@ -202,7 +201,7 @@ def main():
     deadline = time.time() + a.wait
     while time.time() < deadline:
         left = deadline - time.time()
-        rows = T.get_all(service, dbhost=a.store,
+        rows = T.get_all(service,
                          wait_s=min(left, GATE_HOLD_S), min_rows=1)
         for r in rows:
             if r.get("var") != var:
