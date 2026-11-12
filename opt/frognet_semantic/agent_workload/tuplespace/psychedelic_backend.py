@@ -92,6 +92,9 @@ from . import frogtorch_ram_client as T  # [ALL_IN_THE_REGION_V1] FrogTorch's ow
 from .frogtorch_ram_client import Placement, linger
 from .memory_plane import MemoryPlane
 
+#: Said once per group, by every rank, so a run's own log shows what each rank is running.
+BUILD = "psychedelic 20261112-r7 [ONE_RAM_V1] [THE_BITS_STAY_WHERE_THEY_ARE_V1] [THE_CALLER_DOES_NOT_WAIT_FOR_THE_MEMORY_V1]"
+
 from . import torch_backend as _base
 from .tensor_plane import READ_BY_IDENTITY, READ_CURRENT, TensorClient
 
@@ -468,8 +471,14 @@ class PsychedelicBackend(_base.FrogNetBackend):
         """[ALL_IN_THE_REGION_V1] Where each rank's cells live. Every rank writes its own member cell (held by its
         session) and holds ONE read until all `size` are there; the placement is derived, not exchanged."""
         pl = Placement(self._ram, "%s.%s" % (self._group, self._incarnation), self._rank, self._size,
-                       self._timeout_s, port=self._server.port)
+                       self._timeout_s, port=self._server.port, build=BUILD)
         found = {r: {"host": pl.region(r)[0], "port": pl.region(r)[1]} for r in range(self._size)}
+        builds = {k: pl.builds.get(k) for k in range(self._size)}
+        print("[psychedelic] %s rank %d: the one RAM %s:%d; this rank's memory %s:%d"
+              % (BUILD, self._rank, *self._ram.control(), found[self._rank]["host"], self._server.port), flush=True)
+        if len(set(builds.values())) != 1:
+            raise RuntimeError("psychedelic: the ranks are not running the same code: %s"
+                               % ", ".join("rank %d %s" % (k, b or "(an older build)") for k, b in builds.items()))
         self._peers = found
         return found
 

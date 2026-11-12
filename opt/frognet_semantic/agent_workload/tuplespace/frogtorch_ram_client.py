@@ -265,18 +265,22 @@ def _delete_by_id(dbhost, row_id) -> int:
 class Placement:
     """Which region a rank's cells live in. Derived by every rank from the members' own cells."""
 
-    def __init__(self, r: Ram, group: str, rank: int, size: int, timeout_s: float, port: int):
+    def __init__(self, r: Ram, group: str, rank: int, size: int, timeout_s: float, port: int,
+                 build: Optional[str] = None):
         self.ram, self.rank, self.size = r, rank, size
         svc = "frogtorch.members.%s" % group
         me = os.environ.get("FROGTORCH_MEMBER_IP") or my_ip()     # a test running "machines" on loopback names them
         # [THE_BITS_STAY_WHERE_THEY_ARE_V1] the reference: where this rank's memory is, written once, in the one RAM
-        r.put(svc, "r%d" % rank, "r%d" % rank, {"ip": me, "port": int(port), "pid": os.getpid()}, life="session")
+        r.put(svc, "r%d" % rank, "r%d" % rank, {"ip": me, "port": int(port), "pid": os.getpid(), "build": build},
+              life="session")
         rows = r.get_all(svc, wait_s=timeout_s, min_rows=size)
         ips: Dict[int, Tuple[str, int]] = {}
+        self.builds: Dict[int, Optional[str]] = {}
         for row in rows:
             v = row.get("var", "")
             if v.startswith("r"):
-                ips[int(v[1:])] = (row["value"]["ip"], int(row["value"]["port"]))
+                ips[int(v[1:])] = (row["value"]["ip"], int(row["value"].get("port") or 0))
+                self.builds[int(v[1:])] = row["value"].get("build")
         missing = sorted(set(range(size)) - set(ips))
         if missing:
             raise RuntimeError("frogtorch: ranks %s never wrote their member cell within %.0fs"
