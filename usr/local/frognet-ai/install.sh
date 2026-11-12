@@ -242,8 +242,8 @@ fi
 # ---- prove it works -----------------------------------------------------
 echo
 # [TORCH_ASKED_THEN_INSTALLED_V1] FrogTorch's runs need PyTorch; the FrogTorch RAM and AIConnect do not. A machine
-# without it is asked once, and if the answer is yes, this installs it: the CPU build from PyPI on aarch64 (piwheels
-# and PyPI carry it), the CPU index on x86-64 (PyPI's x86-64 wheel drags in the CUDA libraries). --no-cache-dir: a
+# without it is asked once, and if the answer is yes, this installs it from PyTorch's CPU index on every architecture
+# (PyPI's wheel drags in the CUDA libraries, on aarch64 as well). --no-cache-dir: a
 # 2 GB Pi was OOM-killed buffering the wheel (2026-09-14); with less than 3 GB of memory and swap, it offers a 2 GB
 # swap file first.
 if ! python3 -c "import torch" 2>/dev/null; then
@@ -265,10 +265,9 @@ if ! python3 -c "import torch" 2>/dev/null; then
                     || fail "could not add the swap file" ;;
             esac
         fi
-        case "$(uname -m)" in
-        x86_64) IDX="--index-url https://download.pytorch.org/whl/cpu" ;;
-        *)      IDX="" ;;
-        esac
+        # PyTorch's CPU index, on every architecture: PyPI's torch (x86-64 and, since 2.15, aarch64 too) pulls in
+        # the CUDA libraries -- several GB a Pi can never use.
+        IDX="--index-url https://download.pytorch.org/whl/cpu"
         PIPX=""
         python3 -m pip install --help 2>/dev/null | grep -q -- "--break-system-packages" && PIPX="--break-system-packages"
         if python3 -m pip install $PIPX --no-cache-dir $IDX torch; then
