@@ -48,6 +48,25 @@ def worker(rank, backend, ns):
     t = big[rank].clone()
     dist.all_reduce(t)
     check("all_reduce big", t, sum(big))
+    if backend == "psychedelic":
+        # [THE_CALLER_DOES_NOT_WAIT_FOR_THE_MEMORY_V1] all_reduce returns before the round is done: rank 3 arrives
+        # 2 s late, and the others' calls still come straight back. Three queued, then a broadcast behind them:
+        # every answer right, in call order.
+        if rank == 3:
+            time.sleep(2.0)
+        ts = [big[rank].clone() * (i + 1) for i in range(3)]
+        t0 = time.perf_counter()
+        works = [dist.all_reduce(x, async_op=True) for x in ts]
+        took = time.perf_counter() - t0
+        if rank != 3 and took > 0.5:
+            fails.append("all_reduce held its caller %.2f s; it should return at once" % took)
+        b = base[rank].clone()
+        dist.broadcast(b, src=1)
+        for w in works:
+            w.wait()
+        for i, x in enumerate(ts):
+            check("queued all_reduce %d" % i, x, sum(big) * (i + 1))
+        check("broadcast behind queued all_reduces", b, base[1])
     t = base[rank].clone()
     dist.broadcast(t, src=2)
     check("broadcast", t, base[2])

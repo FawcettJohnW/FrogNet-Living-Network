@@ -150,10 +150,19 @@ def plane_hook_sources():
         body = ast.get_source_segment(src, fns[0])
         check("parts = [t.clone()]" not in body,
               f"{name}: no self-first accumulator")
-        check("slots[state.rank] = t.clone()" in body,
-              f"{name}: self placed at its own rank index")
-        check("parts = [x for x in slots if x is not None]" in body,
-              f"{name}: skipped peers leave a hole, order preserved")
+        check("return _gather(state, t, key, n," in body,
+              f"{name}: its sum is _gather's, which keys every bucket by rank")
+    # [EVERY_PEER_AT_ONCE_V1] The rank order lives in _gather now: self at its own rank, peers by rank, a
+    # skipped peer simply absent, the stack built over the ranks in ascending order.
+    g = [n for n in ast.walk(tree) if isinstance(n, ast.FunctionDef) and n.name == "_gather"]
+    check(bool(g), "_gather exists")
+    if g:
+        gb = ast.get_source_segment(src, g[0])
+        check("{state.rank: t.clone()}" in gb, "_gather: self placed at its own rank index")
+        check("slots[r] = x" in gb, "_gather: each peer lands at its own rank index")
+        check("torch.stack([slots[q] for q in sorted(slots)])" in gb,
+              "_gather: skipped peers leave a hole, order preserved")
+        check("state.pool().submit(_read" in gb, "_gather: every peer's read is up at once")
 
 
 # ---------------------------------------------------------------------------

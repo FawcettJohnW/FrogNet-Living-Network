@@ -128,12 +128,18 @@ class Region:
                 k.cond.wait(left)
 
     def digest_of(self, name: str):
+        """The value with its digest, computed the first time it is asked for -- OUTSIDE the region's lock: a crc
+        over a few MB under the one lock stalled every other write and read in the region for its length."""
         with self._lock:
             v = self._tensors[name].value
-            if v[3] is None:
-                v = (v[0], v[1], v[2], _digest(v[1]))
-                self._tensors[name].value = v
+        if v[3] is not None:
             return v
+        d = (v[0], v[1], v[2], _digest(v[1]))
+        with self._lock:
+            k = self._tensors.get(name)
+            if k is not None and k.value is not None and k.value[1] is v[1]:
+                k.value = d                   # still the same write: keep the digest for the next reader
+        return d
 
     # ---- control cells --------------------------------------------------------------------------------------
     def _skey(self, service: str) -> _Key:
@@ -290,7 +296,8 @@ class RamServer:
                 if op is None:
                     self._tensor_read(conn, req)
                 elif op == "tput":
-                    blob = bytes(_recv_frame(conn))
+                    # the frame's own buffer, kept as it is: bytes() here was one more full copy of every write
+                    blob = _recv_frame(conn)
                     R.tput(req["name"], req["gen"], blob, req.get("inc"), req.get("life", "data"), session,
                            req.get("acct"))
                     # [A_WRITE_IS_NOT_A_CONVERSATION_V1] a write is answered only if the writer asked to be told;

@@ -83,6 +83,8 @@ def main():
                               "--port", str(p), "--no-announce"], env=env) for h, p in zip(HOSTS, ports)]
     time.sleep(0.5)                       # test setup only: the hosts' listeners come up
     results = [run_arm(a, env) for a in ("gloo", "psychedelic", "psychedelic+faithful")]
+    # the skipping hooks: ranks need not agree (that is the policy), but every rank must finish and train
+    skipping = [run_arm(a, env) for a in ("psychedelic+fresh_only", "psychedelic+every_k")]
     for p in rams:
         p.terminate()
     ok = True
@@ -95,6 +97,10 @@ def main():
         if ref is None:
             ref = r["heldout"][0]
         if abs(r["heldout"][0] - ref) > 1e-3:
+            ok = False
+    for r in skipping:
+        print(json.dumps(r))
+        if "rc" in r or len(r["heldout"]) != 4 or max(r["heldout"]) > 2 * ref:
             ok = False
     print("ddp: %s" % ("ALL PASS" if ok else "FAIL"))
     sys.exit(0 if ok else 1)

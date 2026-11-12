@@ -86,6 +86,8 @@ from typing import Any, Dict, List, Optional
 import torch
 import torch.distributed as dist
 
+from torch._C._distributed_c10d import _create_work_from_future
+
 from . import frogtorch_ram_client as T  # [ALL_IN_THE_REGION_V1] FrogTorch's own RAM
 from .frogtorch_ram_client import Placement, RegionPlane
 
@@ -339,6 +341,11 @@ class PsychedelicBackend(_base.FrogNetBackend):
         #: How much of a collective is spent asking "is it there yet".
         self.polls = 0
         self.poll_s = 0.0
+        #: [THE_CALLER_DOES_NOT_WAIT_FOR_THE_MEMORY_V1] all_reduce runs here, one at a time, in the order it was
+        #: called; the caller gets a Work at once. `_last` is the newest one queued.
+        self._coll = None
+        self._coll_lock = threading.Lock()
+        self._last = None
 
     # -- publish a descriptor, serve the bytes --------------------------
 
@@ -1252,88 +1259,63 @@ class PsychedelicBackend(_base.FrogNetBackend):
     # -- the collectives that carry a tensor ----------------------------
 
     def allreduce(self, tensors, opts=None):
-        """[ONE_MULTIPLEXED_QUESTION_BEATS_N_SERIAL_ONES_V1]
-
-        The store read is not a useless check. It is ONE request that comes
-        back with every rank's state, multiplexed by the web server, and in
-        its blocking form it is a barrier: one round trip that saves N
-        waits.
-
-        Removing it and asking each peer directly cost more than it saved at
-        size, because the reads then serialise -- rank 0 waits for rank 1 to
-        publish, then waits for rank 2, and at 128 KB the waiting compounds:
-
-             elements   barrier   direct+wait
-                1,024   17.5 ms       11.7 ms
-               16,384   16.0          15.5
-              131,072   29.2          40.4
-
-        So the barrier stays. What rendezvous removed for good is the part
-        of the descriptor that never changes: a rank's plane address is
-        published once at join, not restated every round. The cell now
-        carries only the generation -- the one thing that is new.
-        """
+        """all_reduce. shard (the default): numbered now, run on the collective thread, Work returned at once.
+        stack: run here, after anything queued."""
         op = getattr(opts, "reduceOp", None)
-        for t in tensors:
-            # Not _next_seq(): see _ar_seq. Every rank calls all_reduce the
-            # same number of times in the same order, which is the same
-            # reason they agree on _next_seq -- so counting only all_reduces
-            # keeps them in step AND keeps the sequence gapless.
-            with self._lock:
+        if self.REDUCE != "shard":
+            self._drain()
+            for t in tensors:
+                with self._lock:
+                    self._ar_seq += 1
+                    seq = self._ar_seq
+                self._allreduce_stack(t, seq, op)
+            return _base._Work(tensors)
+        # [THE_CALLER_DOES_NOT_WAIT_FOR_THE_MEMORY_V1] The rounds are numbered NOW, in call order -- every rank
+        # calls all_reduce in the same order, which is what makes the numbers agree -- and run on this backend's
+        # collective thread, one after another. The caller gets its Work immediately. Under DDP that is the
+        # difference between backward computing the next bucket's gradients while this one's reads are held,
+        # and backward standing still for every bucket: gloo has always returned at once; this returned only
+        # when both phases were done.
+        seqs = []
+        with self._lock:
+            for _ in tensors:
                 self._ar_seq += 1
-                seq = self._ar_seq
-            name = "%s.%s.%d" % (self._peer_inc(self._rank), "ar", seq)
-            # [ONE_NUMBER_IS_THE_IDENTITY_V1]
-            #
-            # This published under generation `self._gen` while the NAME
-            # carries `seq`, and the reader -- which has no descriptor for
-            # this op and so derives everything from the name -- asks for
-            # generation `seq`. Two counters, used as one identity.
-            #
-            # They drift because they count different things: `seq` comes
-            # from `_next_seq()`, which `barrier()` also advances, while
-            # `_gen` advances only here. One barrier is enough. After it,
-            # every reader asks for a generation one higher than the
-            # publisher will ever reach under that name, the plane's wait
-            # can never be satisfied, and every read burns its full
-            # `wait_s` before returning the data anyway.
-            #
-            # Measured: 30013, 30015, 30002, 29999 ms per all_reduce at
-            # 1024 elements -- the 30 s read timeout, once per collective,
-            # exactly. The data was correct throughout, because the name is
-            # the identity. Only the freshness check was wrong.
-            #
-            # The name is per-seq, so the generation of that name IS seq.
-            # Deriving both from the same number makes them agree by
-            # construction rather than by two counters happening to stay in
-            # step. `_gen` remains for `_publish_tensor`, whose readers get
-            # the generation from the store descriptor and so never had
-            # this problem.
+                seqs.append(self._ar_seq)
+        fut = torch.futures.Future()
 
+        def run():
+            try:
+                for t, seq in zip(tensors, seqs):
+                    self._allreduce_sharded(t, seq, op)
+            except BaseException as e:
+                fut.set_exception(e)
+                raise
+            fut.set_result(list(tensors))
+        with self._coll_lock:
+            if self._coll is None:
+                from concurrent.futures import ThreadPoolExecutor
+                self._coll = ThreadPoolExecutor(max_workers=1, thread_name_prefix="psy-coll")
+            self._last = self._coll.submit(run)
+        return _create_work_from_future(fut)
 
-            # [BLAST_IT_ALL_AT_RAM_V1] All of them, at once.
-            #
-            # Reading peers one at a time meant waiting for each in turn,
-            # and at 128 KB that serialising cost more than the barrier it
-            # replaced -- 40.4 ms against 29.2. These are socket waits, not
-            # arithmetic: they overlap even on one core, because a thread
-            # blocked on recv is not holding the interpreter.
-            # [THE_STATE_SHOULD_ALREADY_BE_HERE_V1] The prefetchers have
-            # been reading the next round while this rank was computing, so
-            # this is usually a dictionary lookup rather than a round trip.
-            if self.REDUCE == "shard":
-                self._allreduce_sharded(t, seq, op)
-                continue
-            # stack: every peer reads this rank's whole tensor (only this path does)
-            self._server.publish(name, seq, t, incarnation=str(self._rank))
-            self._start_prefetch(t, seq)
-            parts = [None] * self._size
-            parts[self._rank] = t.clone()
-            for r in range(self._size):
-                if r != self._rank:
-                    parts[r] = self._inbox_get(r, seq, t, self._timeout_s)
-            t.copy_(self._combine(parts, op))
-        return _base._Work(tensors)
+    def _drain(self) -> None:
+        """Every all_reduce already called has finished. Any other collective starts only then, so each rank runs
+        its collectives in the order it called them, as before; a failure in one of them is raised here."""
+        last = self._last
+        if last is not None:
+            last.result()
+
+    def _allreduce_stack(self, t, seq: int, op) -> None:
+        """FROGNET_PSY_REDUCE=stack: every peer reads this rank's whole tensor (only this path writes it)."""
+        name = "%s.%s.%d" % (self._peer_inc(self._rank), "ar", seq)
+        self._server.publish(name, seq, t, incarnation=str(self._rank))
+        self._start_prefetch(t, seq)
+        parts = [None] * self._size
+        parts[self._rank] = t.clone()
+        for r in range(self._size):
+            if r != self._rank:
+                parts[r] = self._inbox_get(r, seq, t, self._timeout_s)
+        t.copy_(self._combine(parts, op))
 
 
     def broadcast(self, tensors, opts=None):
@@ -1589,6 +1571,23 @@ class PsychedelicBackend(_base.FrogNetBackend):
         s["states_offered"] = self._server.states_offered
         s["states_materialised"] = self._server.states_materialised
         return s
+
+
+def _after_pending(fn):
+    def wrapped(self, *a, **k):
+        self._drain()
+        return fn(self, *a, **k)
+    wrapped.__name__, wrapped.__qualname__, wrapped.__doc__ = fn.__name__, fn.__qualname__, fn.__doc__
+    return wrapped
+
+
+#: [THE_CALLER_DOES_NOT_WAIT_FOR_THE_MEMORY_V1] every collective but all_reduce starts after the all_reduces
+#: already called -- the inherited ones included.
+for _n in ("broadcast", "allgather", "reduce", "gather", "scatter", "all_to_all_single", "alltoall_base",
+           "alltoall", "reduce_scatter", "all_gather_single", "allgather_single", "allgather_into_tensor_coalesced",
+           "allgather_coalesced", "send", "recv", "recv_anysource", "barrier"):
+    setattr(PsychedelicBackend, _n, _after_pending(getattr(PsychedelicBackend, _n)))
+del _n
 
 
 def _create(store, rank, size, timeout):
