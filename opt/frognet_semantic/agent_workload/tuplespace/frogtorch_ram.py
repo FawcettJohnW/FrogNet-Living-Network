@@ -283,11 +283,15 @@ class RamServer:
                 elif op == "tput":
                     blob = bytes(_recv_frame(conn))
                     R.tput(req["name"], req["gen"], blob, req.get("inc"), req.get("life", "data"), session)
-                    _send_frame(conn, REPLY_OKAY, json.dumps({"gen": req["gen"]}).encode())
+                    # [A_WRITE_IS_NOT_A_CONVERSATION_V1] a write is answered only if the writer asked to be told;
+                    # FrogTorch's tensor writes stream, and the readers are what the cell landing releases
+                    if req.get("ack", True):
+                        _send_frame(conn, REPLY_OKAY, json.dumps({"gen": req["gen"]}).encode())
                 elif op == "cput":
                     i = R.cput(req["service"], req["var"], req["scope"], req.get("value"),
                                req.get("life", "data"), session)
-                    _send_frame(conn, REPLY_OKAY, json.dumps({"id": i}).encode())
+                    if req.get("ack", True):                # [A_WRITE_IS_NOT_A_CONVERSATION_V1]
+                        _send_frame(conn, REPLY_OKAY, json.dumps({"id": i}).encode())
                 elif op == "cget":
                     rows = R.cget(req["service"], req.get("var"), int(req.get("min_rows", 0)),
                                   float(req.get("wait_s", 0.0)), int(req.get("after", -1)), req.get("unlike"))
@@ -302,8 +306,9 @@ class RamServer:
                     _send_frame(conn, REPLY_OKAY,
                                 json.dumps({"removed": R.cdelvar(req["service"], req["var"])}).encode())
                 elif op == "qpush":
-                    _send_frame(conn, REPLY_OKAY, json.dumps(
-                        {"id": R.qpush(req["service"], req["var"], req.get("value"), session)}).encode())
+                    i = R.qpush(req["service"], req["var"], req.get("value"), session)
+                    if req.get("ack", True):                # [A_WRITE_IS_NOT_A_CONVERSATION_V1]
+                        _send_frame(conn, REPLY_OKAY, json.dumps({"id": i}).encode())
                 elif op == "qpop":
                     v, ok = R.qpop(req["service"], req["var"], float(req.get("wait_s", 0.0)))
                     _send_frame(conn, REPLY_OKAY, json.dumps({"value": v, "ok": ok}).encode())

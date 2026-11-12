@@ -101,6 +101,12 @@ class _Session:
         self.sk.settimeout(CALL_TIMEOUT_S)
         self.sk.setsockopt(socket.IPPROTO_TCP, socket.TCP_NODELAY, 1)
 
+    def send(self, head: Dict[str, Any], payload=None) -> None:
+        """A request nobody answers: written to the connection and done. A failure shows as the connection failing."""
+        _send_frame(self.sk, json.dumps(head).encode())
+        if payload is not None:
+            _send_frame(self.sk, payload)
+
     def call(self, head: Dict[str, Any], payload=None):
         if payload is None:
             _send_frame(self.sk, json.dumps(head).encode())
@@ -150,14 +156,17 @@ class Ram:
 
     # ---- the cell calls, core.frognet_tuples' shape --------------------------------------------------------
     def put(self, service, var, scope, value, dbhost=None, timeout=None, own=False, life="data") -> bool:
-        head = {"op": "cput", "service": service, "var": var, "scope": scope, "value": value, "life": life}
+        # [A_WRITE_IS_NOT_A_CONVERSATION_V1] A put is written and done: nothing waits for the region to say it has
+        # it. Whoever needs the cell holds a read on it; a write the region could not take ends the session.
+        head = {"op": "cput", "service": service, "var": var, "scope": scope, "value": value, "life": life,
+                "ack": False}
         if life == "session":
             with self._member_lock:
                 if self._member_session is None:
                     self._member_session = _Session(*self.control())
-                self._member_session.call(head)
+                self._member_session.send(head)
             return True
-        self.session(self.control()).call(head)
+        self.session(self.control()).send(head)
         return True
 
     def get_all(self, service, dbhost=None, fresh_s=0, timeout=None, wait_s=0.0, min_rows=0, name_like=None,
@@ -180,16 +189,22 @@ class Ram:
         """One of the region's own operations, run in the memory (compare-and-set, the queue). A cell an op writes
         with life="session" is held by this process's member session, so it goes when the process goes."""
         kw["op"] = name
+        if name == "qpush":
+            kw["ack"] = False                       # [A_WRITE_IS_NOT_A_CONVERSATION_V1] a push is a write
+        talk = (lambda sess: (sess.send(kw), {})[1]) if kw.get("ack") is False else (lambda sess: sess.call(kw))
         if kw.get("life") == "session":
             with self._member_lock:
                 if self._member_session is None:
                     self._member_session = _Session(*self.control())
-                return self._member_session.call(kw)
-        return self.session(self.control()).call(kw)
+                return talk(self._member_session)
+        return talk(self.session(self.control()))
 
     # ---- tensors --------------------------------------------------------------------------------------------
-    def tput(self, hp: Tuple[str, int], name: str, gen: int, blob, inc=None) -> None:
-        self.session(hp).call({"op": "tput", "name": name, "gen": int(gen), "inc": inc}, blob)
+    def tput(self, hp: Tuple[str, int], name: str, gen: int, blob, inc=None, ack: bool = True) -> None:
+        if ack:
+            self.session(hp).call({"op": "tput", "name": name, "gen": int(gen), "inc": inc}, blob)
+        else:
+            self.session(hp).send({"op": "tput", "name": name, "gen": int(gen), "inc": inc, "ack": False}, blob)
 
 
 _RAM: Optional[Ram] = None
@@ -297,7 +312,10 @@ class RegionPlane:
                 return
             name, gen, blob, inc = item
             try:
-                self.ram.tput(hp, name, gen, blob, inc)
+                # [A_WRITE_IS_NOT_A_CONVERSATION_V1] streamed: this thread does not wait for the region between
+                # writes (it used to wait for each OKAY, one round trip per tensor). Order is the connection's own;
+                # a write the region could not take ends the session, and the next send here raises.
+                self.ram.tput(hp, name, gen, blob, inc, ack=False)
             except BaseException as e:             # the next publish raises it: a lost write is never silent
                 self.fault = e
 
