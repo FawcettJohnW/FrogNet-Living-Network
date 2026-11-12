@@ -76,7 +76,7 @@ import threading
 import time
 from typing import Any, Callable, Dict, List, Optional, Tuple
 
-from core import frognet_tuples as T
+from . import frogtorch_ram_client as T  # [ALL_IN_THE_REGION_V1] FrogTorch's own RAM
 from core import stat_schema
 
 from .finite import (STAGE_PEER_READ, STAGE_PUBLISH, STAGE_REDUCE_OUT,
@@ -427,6 +427,7 @@ class ReduceGroup:
                                     incarnation=self.incarnation)
                 value["loc"].update(host=self.server_host,
                                     port=self.server.port,
+                                    name=self.server.cell_name(self.name),   # the owner is in the address
                                     inc=self.incarnation)
 
         with self._lock:

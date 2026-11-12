@@ -57,7 +57,8 @@ import threading
 import time
 from typing import Any, Callable, Dict, List, Optional
 
-from core import frognet_tuples as T
+from . import frogtorch_ram_client as T  # [ALL_IN_THE_REGION_V1] FrogTorch's own RAM
+from .frogtorch_ram_client import RegionPlane
 
 from .finite import FiniteWatch
 from .reduce_by_read import ReduceGroup, default_accept
@@ -108,8 +109,15 @@ class Worker:
         #: over one, and the space carries only descriptors. Without it, the
         #: tensors travel in the cells, which is honest for small ones and is
         #: the only mode that works before a plane exists.
-        self.server = (TensorServer(bind_ip, watch=self.watch)
-                       if data_plane else None)
+        # [ALL_IN_THE_REGION_V1] With a data plane, tensors go into this machine's FrogTorch region and readers
+        # read them there; this process serves nothing.
+        self.server = None
+        if data_plane:
+            _ram = T.ram()
+            self.server = RegionPlane(_ram, self.name)
+            self.server.region = _ram.local_region(self.name)
+            self.server.port = self.server.region[1]
+            advertise_host = self.server.region[0]
         self.client = (TensorClient(self.name, watch=self.watch)
                        if data_plane else None)
         self.advertise_host = advertise_host
@@ -248,18 +256,14 @@ class Worker:
         state, not a rendezvous -- nobody is waiting on this worker, and a
         worker that never arrives costs only this caller's timeout.
         """
-        deadline = time.time() + timeout
-        while True:
-            ws = self.peers(name)
-            if len(ws) >= n:
-                diag("DIAG-FROGTORCH", "wait_for satisfied", name=name,
-                     want=n, have=len(ws), workers=ws)
-                return ws
-            if time.time() >= deadline:
-                raise TimeoutError(
-                    "wait_for(%r, %d): only %d publishing after %.0fs: %s"
-                    % (name, n, len(ws), timeout, ws))
-            time.sleep(0.05)
+        from .reduce_by_read import SERVICE as _RSVC
+        T.get_all(_RSVC, var=name, wait_s=timeout, min_rows=n)     # [ONE_HELD_READ_V1] held until n are there
+        ws = self.peers(name)
+        if len(ws) < n:
+            raise TimeoutError("wait_for(%r, %d): only %d publishing after %.0fs: %s"
+                               % (name, n, len(ws), timeout, ws))
+        diag("DIAG-FROGTORCH", "wait_for satisfied", name=name, want=n, have=len(ws), workers=ws)
+        return ws
 
     def retire(self) -> None:
         """Stop participating. Publishes the fact rather than vanishing."""

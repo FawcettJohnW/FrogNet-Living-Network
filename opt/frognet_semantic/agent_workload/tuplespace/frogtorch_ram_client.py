@@ -116,6 +116,15 @@ class Ram:
     def control(self) -> Tuple[str, int]:
         return self.regions[0]
 
+    def local_region(self, owner) -> Tuple[str, int]:
+        """The region on this machine, else one chosen from the owner's name the same way by everyone."""
+        import zlib
+        me = os.environ.get("FROGTORCH_MEMBER_IP") or my_ip()
+        for hp in self.regions:
+            if hp[0] == me:
+                return hp
+        return self.regions[zlib.crc32(str(owner).encode()) % len(self.regions)]
+
     def session(self, hp: Tuple[str, int]) -> _Session:
         d = getattr(self._local, "s", None)
         if d is None:
@@ -138,10 +147,10 @@ class Ram:
         return True
 
     def get_all(self, service, dbhost=None, fresh_s=0, timeout=None, wait_s=0.0, min_rows=0, name_like=None,
-                var=None, after=-1) -> List[Dict[str, Any]]:
+                var=None, after=-1, unlike=None) -> List[Dict[str, Any]]:
         r = self.session(self.control()).call({"op": "cget", "service": service, "var": var,
                                                 "min_rows": int(min_rows), "wait_s": float(wait_s),
-                                                "after": int(after)})
+                                                "after": int(after), "unlike": unlike})
         rows = r.get("rows", [])
         if fresh_s:
             rows = [x for x in rows if x.get("age_s", 0) <= fresh_s]
@@ -154,8 +163,14 @@ class Ram:
         return int(self.session(self.control()).call({"op": "cdel", "id": int(row_id)}).get("removed", 0))
 
     def op(self, name: str, **kw) -> Dict[str, Any]:
-        """One of the region's own operations, run in the memory (compare-and-set, the queue)."""
+        """One of the region's own operations, run in the memory (compare-and-set, the queue). A cell an op writes
+        with life="session" is held by this process's member session, so it goes when the process goes."""
         kw["op"] = name
+        if kw.get("life") == "session":
+            with self._member_lock:
+                if self._member_session is None:
+                    self._member_session = _Session(*self.control())
+                return self._member_session.call(kw)
         return self.session(self.control()).call(kw)
 
     # ---- tensors --------------------------------------------------------------------------------------------
@@ -181,8 +196,9 @@ def put(service, var, scope, value, dbhost=None, timeout=None, own=False, life="
 
 
 def get_all(service, dbhost=None, fresh_s=0, timeout=None, wait_s=0.0, min_rows=0, name_like=None, var=None,
-            after=-1):
-    return ram().get_all(service, fresh_s=fresh_s, wait_s=wait_s, min_rows=min_rows, var=var, after=after)
+            after=-1, unlike=None):
+    return ram().get_all(service, fresh_s=fresh_s, wait_s=wait_s, min_rows=min_rows, var=var, after=after,
+                         unlike=unlike)
 
 
 def get(service, var, dbhost=None, fresh_s=0, timeout=None, wait_s=0.0, min_rows=0):
@@ -242,8 +258,11 @@ class RegionPlane:
         self.fault: Optional[BaseException] = None
 
     @staticmethod
-    def key(name: str, owner: int) -> str:
-        return "%s@%d" % (name, owner)
+    def key(name: str, owner) -> str:
+        return "%s@%s" % (name, owner)
+
+    def cell_name(self, name: str) -> str:
+        return self.key(name, self.owner)
 
     def _writer(self, hp):
         q = self._queues[hp]

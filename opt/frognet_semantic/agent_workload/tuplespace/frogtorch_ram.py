@@ -130,14 +130,16 @@ class Region:
             k.cond.notify_all()
             return self._next_id
 
-    def cget(self, service, var, min_rows: int, wait_s: float, after: int = -1) -> List[Dict[str, Any]]:
-        """Held until at least min_rows cells match and, with after >= 0, one of them is newer than after."""
+    def cget(self, service, var, min_rows: int, wait_s: float, after: int = -1, unlike=None) -> List[Dict[str, Any]]:
+        """Held until at least min_rows cells match and, with after >= 0, one of them is newer than after; with
+        unlike (a list of ids), until the cells there are not exactly those -- a write OR a removal ends it."""
         deadline = time.monotonic() + min(wait_s, MAX_SERVER_WAIT_S)
         with self._lock:
             k = self._skey(service)
             while True:
                 rows = [r for (v, _s), r in k.value.items() if var is None or v == var]
-                ready = len(rows) >= min_rows and (after < 0 or any(r["id"] > after for r in rows))
+                ready = (len(rows) >= min_rows and (after < 0 or any(r["id"] > after for r in rows))
+                         and (unlike is None or {r["id"] for r in rows} != set(unlike)))
                 if ready or wait_s <= 0:
                     now = time.time()
                     return [{"id": r["id"], "var": r["var"], "scope": r["scope"], "value": r["value"],
@@ -161,7 +163,7 @@ class Region:
     # c10d's Store contract has primitives that are not "write your own cell": compare-and-set and a queue. They are
     # done here, in one call, against the memory itself -- the region's own API, as every vendor region does -- not
     # by a conversation between ranks.
-    def ccas(self, service, var, expected, desired, session):
+    def ccas(self, service, var, expected, desired, session, life="data"):
         with self._lock:
             k = self._skey(service)
             rows = [r for (v, _s), r in k.value.items() if v == var]
@@ -171,7 +173,7 @@ class Region:
                     del k.value[key]
                 self._next_id += 1
                 k.value[(var, "")] = {"id": self._next_id, "var": var, "scope": "", "value": desired,
-                                      "t": time.time(), "life": "data", "session": session}
+                                      "t": time.time(), "life": life, "session": session}
                 k.cond.notify_all()
                 return desired
             return cur
@@ -266,12 +268,13 @@ class RamServer:
                     _send_frame(conn, REPLY_OKAY, json.dumps({"id": i}).encode())
                 elif op == "cget":
                     rows = R.cget(req["service"], req.get("var"), int(req.get("min_rows", 0)),
-                                  float(req.get("wait_s", 0.0)), int(req.get("after", -1)))
+                                  float(req.get("wait_s", 0.0)), int(req.get("after", -1)), req.get("unlike"))
                     _send_frame(conn, REPLY_OKAY, json.dumps({"rows": rows}).encode())
                 elif op == "cdel":
                     _send_frame(conn, REPLY_OKAY, json.dumps({"removed": R.cdel(int(req["id"]))}).encode())
                 elif op == "ccas":
-                    v = R.ccas(req["service"], req["var"], req.get("expected"), req.get("desired"), session)
+                    v = R.ccas(req["service"], req["var"], req.get("expected"), req.get("desired"), session,
+                               req.get("life", "data"))
                     _send_frame(conn, REPLY_OKAY, json.dumps({"value": v}).encode())
                 elif op == "cdelvar":
                     _send_frame(conn, REPLY_OKAY,

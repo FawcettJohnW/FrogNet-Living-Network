@@ -108,7 +108,7 @@ import time
 import zlib
 from typing import Any, Callable, Dict, List, Optional, Tuple
 
-from core import frognet_tuples as T
+from . import frogtorch_ram_client as T  # [ALL_IN_THE_REGION_V1] FrogTorch's own RAM
 
 from .reduce_by_read import ReduceGroup, default_accept
 from .tensor_plane import TensorClient, TensorServer
@@ -242,81 +242,50 @@ class Claims:
              {"done": sorted(done)}, self.dbhost)
 
     def survey(self) -> Tuple[Dict[int, str], set]:
-        """Who owns what, and what is finished, as everyone sees it.
-
-        [MEMORY_IS_NOT_A_TRANSPORT_V1] The resolution rule: earliest envelope
-        wins a contested shard, ties by name. Both are facts every reader has
-        in front of it, so every reader reaches the same answer without
-        asking anyone. A claim whose cell has gone stale is not counted --
-        its worker stopped refreshing, which is what dying looks like from
-        here.
-        """
-        # [A_CELL_CANNOT_BE_READ_IN_TWO_DIRECTIONS_V1] Liveness comes from the
-        # PROGRESS cell, which every working worker rewrites every step. The
-        # claim cell's envelope is when the claim began and must not move
-        # while the worker holds it, so it cannot also be the liveness signal.
-        done = set()
-        seen_age: Dict[str, Optional[float]] = {}
-        for who, v, age, _ts in _rows("progress", self.dbhost):
-            done.update(int(x) for x in (v.get("done") or []))
-            seen_age[who] = age
-
-        owner: Dict[int, Tuple[str, float]] = {}
-        for who, v, _age, ts in _rows("claim", self.dbhost):
-            sh = v.get("shard")
-            if sh is None:
-                continue
-            if who != self.worker:
-                age = seen_age.get(who)
-                # A worker with no progress cell at all has published no
-                # liveness. It is not counted, and that is not a default: a
-                # claim with nothing refreshing behind it is exactly what a
-                # worker that died leaves.
-                if age is None or age > CLAIM_STALE_S:
-                    diag("DIAG-TRAIN", "claim abandoned", shard=sh, was=who,
-                         progress_age_s=age)
-                    continue
-            cur = owner.get(sh)
-            if cur is None or (ts, who) < (cur[1], cur[0]):
-                owner[sh] = (who, ts)
-
-        return {k: v[0] for k, v in owner.items()}, done
+        """Who owns what, and what is finished. [ALL_IN_THE_REGION_V1] Ownership is the shard's owner cell, set by
+        compare-and-set and held by its owner's session; a worker that left has no cell. Finished work is every
+        worker's own progress cell. Nothing here is judged by age."""
+        owner: Dict[int, str] = {}
+        done: set = set()
+        for r in T.get_all(SERVICE, wait_s=0.0):
+            v = r.get("var", "")
+            if v.startswith("owner.s"):
+                owner[int(v[len("owner.s"):])] = r.get("value")
+            elif v == "progress":
+                done.update(int(x) for x in (r.get("value") or {}).get("done", []))
+        return owner, done
 
     def take(self, n_shards: int, my_done: List[int]) -> Optional[int]:
         """Claim a shard, or None when there is nothing left to do.
 
-        Declare first, then read: a worker that read first and declared
-        second could see a shard free that another had already taken in
-        between, and both would believe they owned it. Declaring first means
-        the loser can always see the winner's claim.
+        [ALL_IN_THE_REGION_V1] A claim is the region's own compare-and-set on the shard's owner cell, held by this
+        worker's session: whoever sets it first owns it, every later claimant is told who did, and the cell goes
+        when its owner's session goes -- which frees the shard. Nothing waits for other declarations to land, and
+        nothing judges liveness by a cell's age.
         """
-        owner, done = self.survey()
-        free = [s for s in range(n_shards)
-                if s not in done and s not in owner]
+        _owner, done = self.survey()
+        free = [s for s in range(n_shards) if s not in done]
         if not free:
-            # Nothing unclaimed. Anything claimed but stale is fair game, and
-            # survey() has already dropped those.
             self.mine = None
             self.declare(None, my_done)
             return None
-            # [THE_SPREAD_MUST_REPLAY_V1] hash() on a str is salted per
-        # interpreter unless PYTHONHASHSEED is set, so this picked a
-        # different shard on every run and a demonstration could not be
-        # replayed. The point is only that workers spread out rather than
-        # all reaching for free[0]; any stable function of the name does
-        # that, and this one is stable across processes and hosts.
-        want = (free[zlib.crc32(self.worker.encode()) % len(free)]
-                if len(free) > 1 else free[0])
-        self.declare(want, my_done)
-        time.sleep(POLL_S)                    # let others' declarations land
-        owner, done = self.survey()
-        if owner.get(want) != self.worker:
-            diag("DIAG-TRAIN", "lost a contested shard", shard=want,
-                 winner=owner.get(want), me=self.worker)
-            return self.take(n_shards, my_done) if len(free) > 1 else None
-        self.mine = want
-        diag("DIAG-TRAIN", "claimed", shard=want, worker=self.worker)
-        return want
+        start = zlib.crc32(self.worker.encode()) % len(free)
+        for sh in free[start:] + free[:start]:
+            got = T.ram().op("ccas", service=SERVICE, var="owner.s%d" % sh, expected=None,
+                             desired=self.worker, life="session")["value"]
+            if got == self.worker:
+                self.declare(sh, my_done)
+                self.mine = sh
+                diag("DIAG-TRAIN", "claimed", shard=sh, worker=self.worker)
+                return sh
+        self.mine = None
+        self.declare(None, my_done)
+        return None
+
+    def wait_change(self, timeout_s: float) -> None:
+        """Hold until any claim or progress cell changes: an owner finishing or leaving is what frees work."""
+        ids = [r["id"] for r in T.get_all(SERVICE, wait_s=0.0)]
+        T.get_all(SERVICE, wait_s=timeout_s, unlike=ids)
 
 
 class Trainer:
@@ -398,7 +367,7 @@ class Trainer:
                 # that dies is noticed -- and so this worker's parameters
                 # keep converging with theirs rather than going stale.
                 self._reconcile(get_params, set_params)
-                time.sleep(POLL_S)
+                self.claims.wait_change(max(0.0, deadline - time.time()))   # [ONE_HELD_READ_V1] not a poll
                 continue
 
             if shard in self.done:
