@@ -64,6 +64,10 @@ def run_arm(arm, env):
     for r in range(WORLD):
         e = dict(env)
         e["FROGTORCH_MEMBER_IP"] = HOSTS[r // 2]
+        # as ddpbench does: every arm's services named by its run id, so an arm never reads the last arm's cells
+        for k, v in (("FROGNET_C10D_SERVICE", "c10d"), ("FROGNET_PSY_SERVICE", "psyc10d"),
+                     ("FROGNET_TORCH_SERVICE", "torch"), ("FROGNET_HOOK_SERVICE", "ddphook")):
+            e[k] = "nb1.%s.%s" % (ns, v)
         procs.append(subprocess.Popen([sys.executable, "-m", "agent_workload.tests.test_regions_ddp", "--rank",
                                        str(r), arm, ns, outs[r]], env=e))
     rc = [p.wait(timeout=600) for p in procs]

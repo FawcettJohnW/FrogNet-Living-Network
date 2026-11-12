@@ -86,17 +86,10 @@ from typing import Any, Dict, List, Optional
 import torch
 import torch.distributed as dist
 
-from torch._C._distributed_c10d import _create_work_from_future
-
-from . import frogtorch_ram_client as T  # [ALL_IN_THE_REGION_V1] FrogTorch's own RAM
-from .frogtorch_ram_client import Placement, linger
-from .memory_plane import MemoryPlane
-
-#: Said once per group, by every rank, so a run's own log shows what each rank is running.
-BUILD = "psychedelic 20261112-r7 [ONE_RAM_V1] [THE_BITS_STAY_WHERE_THEY_ARE_V1] [THE_CALLER_DOES_NOT_WAIT_FOR_THE_MEMORY_V1]"
+from . import frogtorch_ram_client as T  # [ONE_RAM_V1] the control cells: the one RAM on databasehost.frognet; the September code, otherwise unchanged
 
 from . import torch_backend as _base
-from .tensor_plane import READ_BY_IDENTITY, READ_CURRENT, TensorClient
+from .tensor_plane import READ_CURRENT, TensorClient, TensorServer
 
 
 # ---------------------------------------------------------------------------
@@ -265,6 +258,18 @@ def op_of(name: str) -> str:
 #: It does NOT fix the general case -- a departed PROCESS still takes its
 #: bytes -- and it deliberately adds no acknowledgement, so nobody waits for
 #: anybody.
+_PLANES = {}
+_PLANES_LOCK = threading.Lock()
+
+
+def _shared_plane(host: str) -> TensorServer:
+    with _PLANES_LOCK:
+        srv = _PLANES.get(host)
+        if srv is None:
+            srv = _PLANES[host] = TensorServer(host)
+        return srv
+
+
 class PsychedelicBackend(_base.FrogNetBackend):
     """Same collectives, same results, FrogNet's own transport.
 
@@ -279,13 +284,11 @@ class PsychedelicBackend(_base.FrogNetBackend):
                  timeout: datetime.timedelta = datetime.timedelta(seconds=300),
                  group: str = "default", dbhost: Optional[str] = None):
         super().__init__(store, rank, size, timeout, group, dbhost)
-        # [THE_BITS_STAY_WHERE_THEY_ARE_V1] This rank's tensors stay in its own memory; the one RAM holds only where
-        # that memory is. Peers hold reads on it there. The cell names carry the group incarnation, so a new group
-        # cannot read a dead group's tensors.
-        self._ram = T.ram()
-        self._server = MemoryPlane(rank)
-        import atexit
-        atexit.register(self._linger)
+        host = os.environ.get("FROGNET_PSY_HOST", "127.0.0.1")
+        # The plane's cell names carry the group incarnation too, so a new
+        # group cannot read a dead group's tensors.
+        self._server = _shared_plane(host)
+        self._server_host = host
         self._client = TensorClient("psy-r%d" % rank)
         self._gen = 0
         #: [ONE_NUMBER_IS_THE_IDENTITY_V1, second half]
@@ -313,7 +316,6 @@ class PsychedelicBackend(_base.FrogNetBackend):
         self._inbox: Dict[Any, torch.Tensor] = {}
         self._inbox_cv = threading.Condition()
         self._prefetching = False
-        self._pf_fault: Optional[BaseException] = None
         self._pf_threads: List[threading.Thread] = []
         #: [A_PREFETCHER_IS_BOUND_TO_A_SHAPE_V1] Which generation of
         #: prefetchers is current, and how many of them are still alive.
@@ -329,6 +331,8 @@ class PsychedelicBackend(_base.FrogNetBackend):
         #: reads are issued concurrently, whether the far one is overlapped
         #: or serialised. List append is atomic in CPython, so the pool
         #: threads need no lock here.
+        #: In-flight speculative phase-1 reads: (seq, dtype) -> (futs, buf)
+        self._ahead = {}
         #: [THE_LENGTH_IS_A_CONSEQUENCE_NOT_A_GUESS_V1 - John 2026-09-14] The
         #: largest phase-1 slice length this rank has seen, per dtype. Both
         #: landing areas are sized from it and neither is sized from the round
@@ -347,11 +351,6 @@ class PsychedelicBackend(_base.FrogNetBackend):
         #: How much of a collective is spent asking "is it there yet".
         self.polls = 0
         self.poll_s = 0.0
-        #: [THE_CALLER_DOES_NOT_WAIT_FOR_THE_MEMORY_V1] all_reduce runs here, one at a time, in the order it was
-        #: called; the caller gets a Work at once. `_last` is the newest one queued.
-        self._coll = None
-        self._coll_lock = threading.Lock()
-        self._last = None
 
     # -- publish a descriptor, serve the bytes --------------------------
 
@@ -468,37 +467,45 @@ class PsychedelicBackend(_base.FrogNetBackend):
             return self._rendezvous_locked()
 
     def _rendezvous_locked(self) -> Dict[int, Any]:
-        """[ALL_IN_THE_REGION_V1] Where each rank's cells live. Every rank writes its own member cell (held by its
-        session) and holds ONE read until all `size` are there; the placement is derived, not exchanged."""
-        pl = Placement(self._ram, "%s.%s" % (self._group, self._incarnation), self._rank, self._size,
-                       self._timeout_s, port=self._server.port, build=BUILD)
-        found = {r: {"host": pl.region(r)[0], "port": pl.region(r)[1]} for r in range(self._size)}
-        builds = {k: pl.builds.get(k) for k in range(self._size)}
-        print("[psychedelic] %s rank %d: the one RAM %s:%d; this rank's memory %s:%d"
-              % (BUILD, self._rank, *self._ram.control(), found[self._rank]["host"], self._server.port), flush=True)
-        if len(set(builds.values())) != 1:
-            raise RuntimeError("psychedelic: the ranks are not running the same code: %s"
-                               % ", ".join("rank %d %s" % (k, b or "(an older build)") for k, b in builds.items()))
-        self._peers = found
-        return found
-
-    def _linger(self) -> None:
-        """At exit: this rank's memory stays up until every peer is done reading it, or gone."""
-        if self._peers is None:
-            return
-        try:
-            self._drain()
-        except BaseException:
-            pass
-        left = linger(self._ram, "%s.%s" % (self._group, self._incarnation), self._rank, self._size,
-                      self._timeout_s)
-        if left:
-            print("[psychedelic] rank %d leaving; ranks %s still reading after %.0fs"
-                  % (self._rank, left, self._timeout_s), flush=True)
-
-    def _my_region(self):
-        d = self._rendezvous()[self._rank]
-        return (d["host"], int(d["port"]))
+        # The descriptor says WHICH incarnation this address belongs to. A
+        # cell left by a previous group is then visibly not ours.
+        T.put("%s.rv.%s" % (SERVICE, self._group), _scope(self._rank),
+              _scope(self._rank),
+              {"host": self._server_host, "port": self._server.port,
+               "inc": self._incarnation},
+              dbhost=self._dbhost, own=False)
+        deadline = time.time() + self._timeout_s
+        found: Dict[int, Any] = {}
+        while time.time() < deadline:
+            for row in T.get_all("%s.rv.%s" % (SERVICE, self._group),
+                                 dbhost=self._dbhost,
+                                 wait_s=min(5.0, self._timeout_s),
+                                 min_rows=self._size):
+                v = row.get("var", "")
+                d = row.get("value")
+                if not (v.startswith("r") and isinstance(d, dict)):
+                    continue
+                # [AN_ADDRESS_MEANS_NOTHING_WITHOUT_AN_INCARNATION_V1]
+                # A cell from an earlier group carries an earlier
+                # incarnation. Skipping it means this rank keeps waiting for
+                # the peer that is actually here, rather than completing the
+                # rendezvous against an address that will refuse the
+                # connection. A cell with no incarnation at all predates this
+                # and is also not ours.
+                if d.get("inc") != self._incarnation:
+                    continue
+                try:
+                    found[int(v[1:])] = d
+                except ValueError:
+                    pass
+            if set(range(self._size)).issubset(found):
+                self._peers = found
+                return found
+        raise RuntimeError(
+            "psychedelic backend: rendezvous incomplete after %.0fs -- "
+            "ranks %s never published an address"
+            % (self._timeout_s,
+               sorted(set(range(self._size)) - set(found))))
 
     def _pool(self):
         """[BLAST_IT_ALL_AT_RAM_V1] Made once, on first use.
@@ -592,6 +599,31 @@ class PsychedelicBackend(_base.FrogNetBackend):
     #: keeping for exactly that.
     REDUCE = os.environ.get("FROGNET_PSY_REDUCE", "shard")
 
+    #: [ASK_BEFORE_YOU_NEED_IT_V1] Read-ahead on the sharded path.
+    #:
+    #: A peer read on a 97 ms link at 0.7 MB/s is mostly waiting. This path
+    #: issued round N's reads during round N and blocked on them, so every
+    #: round paid the full latency again.
+    #:
+    #: Everything about round N+1 is known before it starts -- same peers,
+    #: same slice index, seq+1 -- and the plane's read already BLOCKS until
+    #: the state exists. So the request can be in flight a whole round
+    #: early, parked on the peer's server, and the answer arrives the
+    #: instant the peer publishes.
+    #:
+    #: A speculative read that is never used costs a held socket and a
+    #: parked thread, both of which the link already has. A wrong guess
+    #: costs the round it would have waited anyway.
+    # [THE_LENGTH_IS_A_CONSEQUENCE_NOT_A_GUESS_V1 - John 2026-09-14] Read-ahead
+    # does not guess a length at all. It cannot know the next round's slice
+    # length -- DDP buckets are not uniform and the backend does not see the
+    # bucket order -- and it no longer has to: the read states a name and a
+    # generation, the frame states its own size, and the landing area is the
+    # largest slice seen so far. What was left of GUESS_WIDE_THEN_CORRECT_V1 --
+    # a 4x multiplier and a retry on ValueError -- was correcting for a
+    # question nothing needed to ask.
+    READAHEAD = os.environ.get("FROGNET_PSY_READAHEAD", "0") not in ("0", "no")
+
     #: [A_WAIT_CAP_MUST_FOLLOW_THE_DEADLINE_V1]
     #:
     #: Every peer read capped its wait at a hardcoded 30 s, in seven places,
@@ -625,9 +657,7 @@ class PsychedelicBackend(_base.FrogNetBackend):
         should be done with a measurement, not an inference. Mine was an
         inference and it was wrong.
         """
-        # [ONE_HELD_READ_V1] A read on a region is held by the region until the owner writes. Its bound is the
-        # collective's own deadline; there is no shorter wait to retry after.
-        return float(self._timeout_s)
+        return max(1.0, min(self.PEER_WAIT_S, self._timeout_s))
 
     #: [A_DIGEST_IS_COMPUTED_WHEN_IT_IS_ASKED_FOR_V1] Verify slice payloads?
     #:
@@ -638,10 +668,84 @@ class PsychedelicBackend(_base.FrogNetBackend):
     #: hundreds. What it does still buy is integrity: proof the bytes on the
     #: wire are the bytes that were published.
     #:
-    #: Default OFF (2026-11-12, John: optional, like everything else that is not the data). It read every byte
-    #: twice more per read -- once in the region, once here -- on Pis, for a check TCP already makes on the link
-    #: and the frame's length and tag already make on the framing. FROGNET_PSY_VERIFY=1 turns it back on.
-    VERIFY = os.environ.get("FROGNET_PSY_VERIFY", "0") not in ("0", "no")
+    #: Default ON. A corrupted payload with verification off is a wrong
+    #: answer rather than an error, and this transport has already produced
+    #: one framing desync. FROGNET_PSY_VERIFY=0 trades that for the time.
+    VERIFY = os.environ.get("FROGNET_PSY_VERIFY", "1") not in ("0", "no")
+
+    def _drop_ahead(self) -> None:
+        """Abandon speculative reads.
+
+        Their futures are left to finish on their own: cancelling a read
+        mid-frame would desynchronise the link, and a completed read nobody
+        wants costs only bytes already asked for.
+
+        [A_WRONG_GUESS_MUST_COST_NOTHING_V1 - John 2026-09-14] But their
+        EXCEPTIONS have to be collected, or the interpreter reports them when
+        the future is garbage collected and -- worse -- the retry machinery
+        inside the read spends the full budget on a question that is already
+        known to be wrong.
+        """
+        for futs, _buf in self._ahead.values():
+            for f in futs.values():
+                f.cancel()
+                if f.done():
+                    # A guess that failed is not an error. Consume the
+                    # exception so it is neither raised nor reported later.
+                    f.exception()
+        self._ahead.clear()
+
+    def _read_ahead(self, seq, like, peers, r, wait, pool) -> None:
+        """Issue the NEXT round's phase-1 reads now.
+
+        Speculative reads need their own landing area -- the current round
+        is still reading into `_stage` -- so this has a second buffer. Only
+        one round is ever guessed ahead, so two are enough.
+
+        [THE_LENGTH_IS_A_CONSEQUENCE_NOT_A_GUESS_V1 - John 2026-09-14]
+
+        There is nothing left in here to guess. The cell name is
+        `<peer-inc>.ars.<seq>.<r>`: peer, round and this rank's slice index,
+        all of them known a round early. What the previous version ALSO had
+        to state was how many elements that cell would hold, because the read
+        asserted `dst.numel()` against the frame -- and it stated it from the
+        round it was standing in. DDP hands out buckets of 262657 and 791552
+        elements alternately, so it was wrong on every round, the guess missed
+        every time (prefetch_hit=False in every log of every ddp54xx arm) and
+        read-ahead bought nothing at all while still holding a socket and a
+        thread per peer.
+
+        So the length comes out of both places it was stated. The dict is
+        keyed on the round and the dtype -- peer is inside `futs`, and the
+        slice index cannot change within a run -- and the read is issued
+        `exact=False` into a row sized from the high-water mark, which is
+        large enough for any bucket seen so far. The FIRST round at a new
+        maximum still fails, once, and is discarded exactly as a wrong guess
+        always was; every round after it hits.
+        """
+        key = (seq, str(like.dtype))
+        if key in self._ahead:
+            return
+        self._drop_ahead()
+        buf = self._ahead_stage(len(peers), like)
+        futs = {}
+        for i, p in enumerate(peers):
+            futs[p] = pool.submit(
+                self._read_slice_into, buf[i], p,
+                # [READ_AHEAD_IS_A_THIRD_CONVERSATION_V1 - John 2026-09-14]
+                # "pf", not "p1". A link is keyed host:port#channel and carries
+                # one request/reply at a time under its lock -- which is why
+                # phase 1 and phase 2 have separate channels. Issuing the
+                # speculative round on "p1" made it a THIRD conversation on the
+                # live phase-1 socket: it holds that link for its full wait
+                # asking a peer for state it has not produced, so the live read
+                # queues behind it (observed: 65-73 s per peer on ddp2201), and
+                # when two frames interleave the next length header is read out
+                # of the middle of the other's payload -- the garbage length is
+                # what failed the receive buffer size check with ValueError.
+                "%s.ars.%d.%d" % (self._peer_inc(p), seq, r), seq, wait, "pf",
+                False)
+        self._ahead[key] = (futs, buf)
 
     def _hwm(self, ln: int, like) -> int:
         """[THE_LENGTH_IS_A_CONSEQUENCE_NOT_A_GUESS_V1 - John 2026-09-14] The
@@ -658,6 +762,20 @@ class PsychedelicBackend(_base.FrogNetBackend):
         if ln > cur:
             self._ln_hwm[k] = cur = ln
         return cur
+
+    def _ahead_stage(self, rows: int, like):
+        """Landing area for speculative reads, separate from _stage.
+
+        Sized to the high-water mark, so the speculative read never has to
+        state a length. Reallocated only when a bigger bucket appears.
+        """
+        wide = max(1, self._hwm(0, like))
+        k = (rows, wide, str(like.dtype))
+        buf = getattr(self, "_ahead_buf", None)
+        if buf is None or getattr(self, "_ahead_key", None) != k:
+            buf = torch.empty(rows * wide, dtype=like.dtype)
+            self._ahead_buf, self._ahead_key = buf, k
+        return [buf[i * wide:(i + 1) * wide] for i in range(rows)]
 
     def _stage(self, rows: int, ln: int, like):
         """[ALLOCATE_ONCE_NOT_ONCE_PER_FRAME_V1] Landing area for the peer
@@ -741,7 +859,6 @@ class PsychedelicBackend(_base.FrogNetBackend):
         copies once, into `dst`.
         """
         d = self._rendezvous()[r]
-        name = MemoryPlane.key(name, r)
         _t0 = time.perf_counter()
         try:
             # [DIAG_PSY_STALL_V1] One registered wait per slice read. A read
@@ -787,53 +904,19 @@ class PsychedelicBackend(_base.FrogNetBackend):
             self._peer_ms.setdefault(r, []).append(
                 (time.perf_counter() - _t0) * 1000.0)
 
-    def _region_of(self, rank: int):
-        d = self._rendezvous()[rank]
-        return (d["host"], int(d["port"]))
-
-    def _read_owner_into(self, dst, owner: int, name: str, gen: int, wait_s: float, channel: str) -> int:
-        """[THE_BITS_STAY_WHERE_THEY_ARE_V1] A held read on the OWNER's memory, found by the reference in the one
-        RAM. The read is the interrupt that fires when the owner stores `gen`; the bytes then go once, from the
-        owner's memory into `dst`. READ_BY_IDENTITY: the generation must be exactly `gen` -- a newer one is an
-        error, not an answer."""
-        host, port = self._region_of(owner)
-        key = MemoryPlane.key(name, owner)
-        _t0 = time.perf_counter()
-        try:
-            with _PsyWait(phase=channel, rank=self._rank, seq=gen, peer=owner, cell=key, gen=gen, host=host,
-                          port=port, bytes=(dst.numel() * dst.element_size()), wait_s=wait_s, _be=self):
-                return self._peer_client(owner).read_into(
-                    dst, "r%d" % owner, host, port, key, gen, mode=READ_BY_IDENTITY, wait_s=wait_s,
-                    verify=self.VERIFY, channel=channel, exact=True)[2]
-        except Exception as e:
-            if hasattr(e, "add_note"):
-                e.add_note("rank %d reading %s from rank %d's memory at %s:%d" % (self._rank, key, owner, host, port))
-            raise
-        finally:
-            self._peer_ms.setdefault(owner, []).append((time.perf_counter() - _t0) * 1000.0)
-
     def _allreduce_sharded(self, t: torch.Tensor, seq: int, op) -> None:
-        """Reduce-scatter, then all-gather: every rank stores its own truth in its own memory and holds reads on
-        the others'.
-
-        [THE_BITS_STAY_WHERE_THEY_ARE_V1 - John 2026-11-12: "You do not copy bits from one machine to another. You
-        leave them where they were and use references." / "One RAM host for all PyTorch work."] The one RAM holds
-        where each rank's memory is (Placement, once); the tensors never go anywhere but from the owner's memory
-        into the reader's tensor. This is the September shape (ddp5401/5801) with a real held read for the wait.
-        Not the per-machine frogtorch-ram regions of 2026-11-11/12, which staged every byte in a host process.
-
-        Rank k owns slice k. Phase 1: every rank stores slice k (k != itself) -- the range of the bucket itself, no
-        copy; rank k holds a read on each peer's memory for that peer's slice k, and reduces. Phase 2: rank k stores
-        its reduced slice ONCE (one copy: the bucket is DDP's again once this returns); every peer holds a read on
-        it. Bytes on the wire per rank: 2(W-1)n/W out, the same in -- ring's count.
-
-        Cells are named by SLOT, not by round: `<inc>.c<owner>.ars.<k>` and `<inc>.c<owner>.arr`, generation = the
-        round. A slot is overwritten one round later, and never before its reader has it: the owner cannot store
-        round s+1's slice k until it has round s's reduced slice from k, which k stores only after reading the
-        owner's round-s slice; and it cannot store round s+1's reduced slice until every peer has stored round
-        s+1's slice for it, which each does only after reading round s's reduced slice. The algorithm's own
-        dependency is the release; nothing is acknowledged.
-        """
+        """Reduce-scatter by read, then all-gather by read."""
+        # [ASK_THE_CODE_THAT_ALREADY_KNOWS_V1] _op_name exists on the base
+        # backend and resolves a ReduceOp against RedOpType. Writing a
+        # second identifier here that matched on str(op) got the answer
+        # wrong for every op including SUM, because a ReduceOp's str() is
+        # its repr.
+        #
+        # Accumulation here is pairwise rather than one reduction over a
+        # stack, so the op must be associative and element-wise. All of
+        # these are; AVG is not, because a mean of means is not the mean
+        # unless the slices are equal, and the remainder makes them
+        # unequal. Saying so beats a wrong answer delivered quickly.
         name = self._op_name(op)
         _ACC = {
             "SUM": lambda a, b: a.add_(b),
@@ -847,8 +930,8 @@ class PsychedelicBackend(_base.FrogNetBackend):
         acc_fn = _ACC.get(name)
         if acc_fn is None:
             raise NotImplementedError(
-                "FROGNET_PSY_REDUCE=shard cannot express ReduceOp %r pairwise. Use FROGNET_PSY_REDUCE=stack for it."
-                % name)
+                "FROGNET_PSY_REDUCE=shard cannot express ReduceOp %r "
+                "pairwise. Use FROGNET_PSY_REDUCE=stack for it." % name)
         _t_pub = time.perf_counter()
         W, r = self._size, self._rank
         flat = t.reshape(-1)
@@ -856,51 +939,172 @@ class PsychedelicBackend(_base.FrogNetBackend):
         inc = self._peer_inc(r)
         wait = self._peer_wait()
         pool = self._pool()
-        peers = [q for q in range(W) if q != r]
+
+        # Phase 1. Publish this rank's contribution as W named slices, so a
+        # peer can take the one it owns and nothing else.
+        # [POINT_AT_THE_BYTES_DO_NOT_COPY_THEM_V1]
+        #
+        # Published without copying. Serialising every slice was a full
+        # pass over the tensor before the first byte was even asked for,
+        # and the copy exists to freeze a state against changing under its
+        # own name. Here nothing can:
+        #
+        #   range k is read by exactly one peer, peer k
+        #   range k is overwritten by exactly one thing, peer k's reduced
+        #     slice arriving in phase 2
+        #   peer k cannot produce that slice without first reading this one
+        #
+        # so the arrival that overwrites the range is the receipt that the
+        # range was taken. The algorithm's own dependency does the work an
+        # acknowledgement would, and no copy or handshake is needed.
+        #
+        # Slice r is skipped: this rank reads its own range from peers and
+        # never serves it. Publishing it was W slices of work to serve W-1.
+        for k, (st, ln) in enumerate(parts):
+            if ln and k != r:
+                self._server.publish("%s.ars.%d.%d" % (inc, seq, k), seq,
+                                     flat[st:st + ln], incarnation=str(r),
+                                     copy=False)
+        self._phase_ms["publish"].append((time.perf_counter()-_t_pub)*1000.0)
+        _t_p1 = time.perf_counter()
         st_r, ln_r = parts[r]
         own = flat[st_r:st_r + ln_r]
+        peers = [q for q in range(W) if q != r]
 
-        # Phase 1, out: slice k in THIS rank's own memory, for every k but itself. Nothing leaves the process.
-        for k in peers:
-            st, ln = parts[k]
-            if ln:
-                # copy=False: the cell IS this range of the bucket. Range k is read only by rank k and is next
-                # written only by rank k's reduced slice arriving, which k cannot produce before it has read this
-                # one; the algorithm's own dependency is the release ([POINT_AT_THE_BYTES_DO_NOT_COPY_THEM_V1]).
-                self._server.publish("%s.ars.%d" % (inc, k), seq, flat[st:st + ln], incarnation=str(r),
-                                     copy=False)
-        self._phase_ms["publish"].append((time.perf_counter() - _t_pub) * 1000.0)
-        _t_p1 = time.perf_counter()
-
-        # Both phases' held reads go up now. Phase 2's sit on each owner's region before that owner has reduced,
-        # so each reduced slice comes back the moment it is written; its round trip overlaps this rank's reduce.
-        # The destinations are disjoint (phase 2 fills the slices this rank does not own, phase 1 stages the one
-        # it does), so the two sets of reads never touch the same elements.
+        # [ASK_FOR_IT_BEFORE_YOU_NEED_IT_V1]
+        #
+        # Both phases read from every peer, so a slow link is paid TWICE per
+        # collective. Measured at world 4 with a transcontinental member:
+        # every rank's median read of that peer was ~2.1 s, phase 1 median
+        # 2293 ms, phase 2 median 2685 ms. Each phase is essentially one
+        # read of the slow link, and shard came out 1.53x slower than gloo.
+        #
+        # The second read does not have to WAIT for the first. A phase-2
+        # read asks for a peer's REDUCED slice, which depends on that peer
+        # finishing its own phase 1 -- not on anything this rank does. So
+        # issue it now, right after publishing, and leave it blocked at the
+        # peer's plane on wait_s. It returns the moment that peer publishes,
+        # and its round trip overlaps this rank's own reduce instead of
+        # following it.
+        #
+        # Nothing about the model changes: a reader asks for a state and the
+        # plane holds the question open until it exists. What changes is
+        # when the asking happens.
+        #
+        # The destinations are disjoint -- phase 2 writes the slices this
+        # rank does NOT own, phase 1 accumulates into the one it does -- so
+        # the two sets of reads cannot touch the same elements.
         p2 = {}
         for p in peers:
             st_p, ln_p = parts[p]
             if ln_p:
-                p2[p] = pool.submit(self._read_owner_into, flat[st_p:st_p + ln_p], p,
-                                    "%s.arr" % self._peer_inc(p), seq, wait, "p2")
-        if ln_r:
-            stage = self._stage(W - 1, ln_r, own)
-            futs = {p: pool.submit(self._read_owner_into, stage[i], p, "%s.ars.%d" % (self._peer_inc(p), r), seq,
-                                   wait, "p1")
-                    for i, p in enumerate(peers)}
-            # one fixed order whatever order they land in; each slice is reduced by one rank only, so every rank
-            # ends with the same bits
-            for i, p in enumerate(peers):
-                futs[p].result()
-                acc_fn(own, stage[i])
-        self._phase_ms["phase1"].append((time.perf_counter() - _t_p1) * 1000.0)
+                p2[p] = pool.submit(
+                    self._read_slice_into, flat[st_p:st_p + ln_p], p,
+                    "%s.arr.%d" % (self._peer_inc(p), seq), seq, wait, "p2")
 
-        # Phase 2, out: the reduced slice, once, into this rank's own memory.
-        _t_p2 = time.perf_counter()
         if ln_r:
-            self._server.publish("%s.arr" % inc, seq, own, incarnation=str(r))
-        for f in p2.values():
+            # Peer slices land in a staging buffer allocated once, not one
+            # tensor per peer per round. They cannot be accumulated straight
+            # into `own` because the reads run concurrently and add_ is not
+            # a place two threads may meet.
+            # [ASK_BEFORE_YOU_NEED_IT_V1] Take whatever the previous round
+            # already asked for. A hit is a read that has been sitting on
+            # the peer's server since before this round began, so its
+            # latency was paid during the last round's arithmetic.
+            # [THE_LENGTH_IS_A_CONSEQUENCE_NOT_A_GUESS_V1 - John 2026-09-14]
+            # The guess is keyed on the round and the dtype. It used to carry
+            # `ln_r` as well, which made every bucket-size change a miss --
+            # and DDP alternates two bucket sizes, so it was EVERY round.
+            self._hwm(ln_r, own)
+            key = (seq, str(own.dtype))
+            pre = self._ahead.pop(key, None)
+            hit, futs = False, None
+            if pre is not None:
+                futs, wide = pre
+                # A speculative read that could not be served is a wrong guess
+                # and costs the round it would have had anyway -- but it is
+                # not silent. The only way to be here is a bucket larger than
+                # any seen when the guess was issued, which happens once per
+                # distinct bucket size and never again.
+                got = {}
+                for p in peers:
+                    try:
+                        got[p] = futs[p].result()
+                    except Exception as e:
+                        _psy("AHEAD_REFUSED", rank=self._rank, peer=p, seq=seq,
+                             ln=ln_r, err=repr(str(e))[:200])
+                        got = None
+                        break
+                if got is not None:
+                    # Every rank derives its slices from the same bucket
+                    # numel, and the cell name pins peer, round and slice
+                    # index -- so a different element count is not a wrong
+                    # guess, it is two ranks holding different buckets under
+                    # one name. That is a fault and is raised, not retried
+                    # into a normal-looking round.
+                    bad = {p: v for p, v in got.items() if v != ln_r}
+                    if bad:
+                        raise RuntimeError(
+                            "rank %d round %d: own slice is %d elements but "
+                            "%s answered with %s for the same round and slice "
+                            "index. The ranks do not agree on the bucket."
+                            % (self._rank, seq, ln_r,
+                               ", ".join("r%d" % p for p in sorted(bad)),
+                               sorted(bad.values())))
+                    hit = True
+                    stage = [wide[i][:ln_r] for i in range(len(peers))]
+                    futs = None
+            if not hit:
+                if futs:
+                    # [A_WRONG_GUESS_MUST_COST_NOTHING_V1] Collect the
+                    # abandoned guess's exceptions here. Breaking out of the
+                    # loop above leaves the remaining futures unread, and an
+                    # unretrieved exception is reported by the interpreter at
+                    # collection time -- from a thread, with no round attached.
+                    for f in (futs or {}).values():
+                        f.cancel()
+                        if f.done():
+                            f.exception()
+                self._drop_ahead()      # a miss voids the rest of the guess
+                stage = self._stage(W - 1, ln_r, own)
+                futs = {}
+                for i, p in enumerate(peers):
+                    futs[p] = pool.submit(
+                        self._read_slice_into, stage[i], p,
+                        "%s.ars.%d.%d" % (self._peer_inc(p), seq, r), seq,
+                        wait, "p1")
+            for i, p in enumerate(peers):
+                # [DIAG_PSY_STALL_V1] This is where the round blocks. Register
+                # the wait so the watchdog can say which peer, which cell and
+                # which generation -- and whether the read is even running yet
+                # or still queued behind the speculative round.
+                with _PsyWait(phase="p1", rank=self._rank, seq=seq, peer=p,
+                              cell="%s.ars.%d.%d" % (self._peer_inc(p), seq, r),
+                              gen=seq, ln=ln_r, wait_s=wait,
+                              prefetch_hit=hit, _be=self):
+                    if futs is not None:
+                        futs[p].result()
+                acc_fn(own, stage[i])
+            # Ask for the next round now, while this one still has work.
+            if self.READAHEAD:
+                self._read_ahead(seq + 1, own, peers, r, wait, pool)
+
+        self._phase_ms["phase1"].append((time.perf_counter()-_t_p1)*1000.0)
+        _t_p2 = time.perf_counter()
+        # Publishing this rank's reduced slice releases every peer that is
+        # already blocked reading it.
+        #
+        # [WRITE_WHERE_THE_ANSWER_GOES_V1] `flat` is a view of `t`, so the
+        # phase-2 reads above wrote the answer directly. Safe only in this
+        # order: every byte a peer can still read was published as a CLONE,
+        # so mutating `t` cannot change what anyone else sees.
+        # The reduced slice is what every peer is waiting on, so this one
+        # is published immediately rather than queued behind anything.
+        self._server.publish("%s.arr.%d" % (inc, seq), seq, own,
+                             incarnation=str(r))
+        for p, f in p2.items():
             f.result()
-        self._phase_ms["phase2"].append((time.perf_counter() - _t_p2) * 1000.0)
+        self._phase_ms["phase2"].append((time.perf_counter()-_t_p2)*1000.0)
 
     def _inbox_get(self, r: int, seq: int, like: torch.Tensor,
                    timeout_s: float) -> torch.Tensor:
@@ -914,8 +1118,6 @@ class PsychedelicBackend(_base.FrogNetBackend):
                 got = self._inbox.pop((r, seq), None)
                 if got is not None:
                     return got.reshape(like.shape).to(like.dtype)
-                if self._pf_fault is not None:
-                    raise self._pf_fault
                 if not self._prefetching:
                     break
                 # [A_SAFETY_NET_IS_NOT_A_SCHEDULE_V1] This waited 0.05 s.
@@ -924,11 +1126,8 @@ class PsychedelicBackend(_base.FrogNetBackend):
                 # granularity turned it into the schedule: profiled at 16 K
                 # elements, time.sleep was 21% of an all_reduce, the single
                 # largest line, above the socket read and the arithmetic.
-                self._inbox_cv.wait(max(0.0, deadline - time.time()))
-            if self._prefetching:
-                raise RuntimeError("psychedelic backend: rank %d waited %.0fs for rank %d's ar.%d and the "
-                                   "prefetcher never delivered it" % (self._rank, timeout_s, r, seq))
-        # No prefetcher for this shape: this read is the only one.
+                self._inbox_cv.wait(0.0005)
+        # No prefetcher, or it has not got there: do it directly.
         return self._read_peer(
             r, "%s.%s.%d" % (self._peer_inc(r), "ar", seq), seq, like,
             wait_s=self._peer_wait())
@@ -1016,7 +1215,7 @@ class PsychedelicBackend(_base.FrogNetBackend):
                            and epoch == self._pf_epoch
                            and seq >= self._want + self.LOOKAHEAD):
                         # Woken by _inbox_get when the application advances.
-                        self._inbox_cv.wait()      # every change to _want, the epoch or the inbox notifies
+                        self._inbox_cv.wait(0.002)
                     if epoch != self._pf_epoch:
                         return
                 if self._stop.is_set():
@@ -1027,12 +1226,12 @@ class PsychedelicBackend(_base.FrogNetBackend):
                         r, "%s.%s.%d" % (self._peer_inc(r), "ar", seq), seq,
                         like, wait_s=self._peer_wait(), channel="pf",
                         retain=True)
-                except Exception as e:
-                    # [NO_FALLBACK_V1] A failed read ends this prefetcher and the collective hears why. It does
-                    # not read the same cell again.
-                    with self._inbox_cv:
-                        self._pf_fault = e
-                        self._inbox_cv.notify_all()
+                except Exception:
+                    # A peer that stops publishing ends this prefetcher. The
+                    # collective path reads directly and reports the real
+                    # failure there, where a caller is waiting to hear it --
+                    # which only works if `_prefetching` is cleared, and it
+                    # is, in the finally below.
                     return
                 with self._inbox_cv:
                     # The shape may have changed while this read was in
@@ -1117,7 +1316,6 @@ class PsychedelicBackend(_base.FrogNetBackend):
         # That costs nothing for a caller whose content changes every
         # round, and every caller here is one.
         d = self._rendezvous()[r]
-        name = MemoryPlane.key(name, r)
         peer = "r%d" % r
         cli = self._peer_client(r)
         # `retain` says the caller keeps the tensor past its next read on
@@ -1193,11 +1391,10 @@ class PsychedelicBackend(_base.FrogNetBackend):
         # Two sources, and both are used below: `t` here, written by the
         # producer, and the store's own envelope (`ts_env`, `age_s`), which
         # costs nothing because get_all already returns it.
-        _hp = self._my_region()
-        self._put(op, seq, {"host": _hp[0],
-                            "port": _hp[1],
-                            # Same number the plane was published under; the owner is part of the address.
-                            "name": MemoryPlane.key(name, self._rank), "gen": seq,
+        self._put(op, seq, {"host": self._server_host,
+                            "port": self._server.port,
+                            # Same number the plane was published under.
+                            "name": name, "gen": seq,
                             "t": time.time(),
                             "shape": list(t.shape), "dtype": str(t.dtype)})
         # [DO_NOT_WRITE_WHAT_NOBODY_READS_V1] `self._mark_done(op, seq)`
@@ -1206,6 +1403,67 @@ class PsychedelicBackend(_base.FrogNetBackend):
         # experiment, kept after it was rejected. It measured 32.1 -> 50.4 ms
         # when it was tried, and every broadcast and reduce has been paying
         # a store round trip for it since.
+
+    def _consumed(self, op: str, seq: int) -> None:
+        """Mark that this rank has taken what it needed from the plane."""
+        T.put(self._service(op + ".done", seq), _scope(self._rank),
+              _scope(self._rank), {"n": 1}, dbhost=self._dbhost, own=False)
+
+    def _await_consumers(self, op: str, seq: int) -> None:
+        """[A_PRODUCER_ON_A_PLANE_OUTLIVES_ITS_READERS_V1]
+        Do not leave until everyone has taken it.
+
+        With payload in the SPACE, a contribution outlived its producer --
+        the cell was simply still there. With payload on the PLANE it lives
+        in the producer's process, so a root that published and returned
+        could be torn down while a peer was still fetching:
+
+            ConnectionRefusedError: [Errno 111] Connection refused
+              tensor_plane.read -> _link -> create_connection
+
+        That is lifecycle invariant 4 in a new form, and it is the price of
+        taking payload off the control plane. It is paid here, once, by the
+        producer waiting for presence of a small consumed-marker per reader
+        -- flat cells, one read per poll, no payload. Not an acknowledgement
+        protocol: the reader publishes that it is done, and absence is what
+        the producer waits on, as everywhere else.
+        """
+        want = set(r for r in range(self._size) if r != self._rank)
+        if not want:
+            return
+        deadline = time.time() + self._timeout_s
+        wait = 0.00005
+        seen = set()
+        while time.time() < deadline:
+            # [ASK_ONCE_AND_WAIT_V1 - John 2026-09-14] Same spin as broadcast
+            # had: a 2 ms ceiling asking whether the readers are done yet.
+            #
+            # min_rows is len(want) -- every rank EXCEPT this one publishes a
+            # consumed-marker, so the producer is waiting for W-1 rows, not W.
+            # Asking for W would never be satisfied and the read would hold for
+            # the full wait on every pass.
+            _left = deadline - time.time()
+            # [DIAG_PSY_STALL_V1 - John 2026-09-14] This wait was NOT
+            # registered, which is why a rank sitting here printed nothing at
+            # all while every reader and server thread showed idle. A producer
+            # waiting on its readers is exactly what a deadlock looks like, and
+            # it was the one state with no line.
+            with _PsyWait(phase="await_consumers", rank=self._rank, seq=seq,
+                          op=op, want=sorted(want), have=sorted(seen),
+                          missing=sorted(want - seen),
+                          min_rows=len(want), _be=self):
+                seen = set(self._read_all(
+                    op + ".done", seq,
+                    wait_s=min(_left, _base.BLOCK_CAP) if _left > 0 else 0.0,
+                    min_rows=len(want)).keys())
+            if want.issubset(seen):
+                return
+            time.sleep(wait)
+            wait = min(wait * 2.0, 0.002)
+        raise RuntimeError(
+            "psychedelic backend: %s seq %d -- rank %d still holds bytes "
+            "nobody collected; readers %s never reported consuming them"
+            % (op, seq, self._rank, sorted(want - seen)))
 
     def _seed_have(self, peer: str, host: str, port: int, name: str,
                    cli=None, channel: str = "d") -> None:
@@ -1240,6 +1498,56 @@ class PsychedelicBackend(_base.FrogNetBackend):
         if ck not in c._cache:
             c._cache[ck] = prev
 
+    def _read_fresh(self, op: str, seq: int, since: float,
+                    wait_s: float = 0.0) -> Dict[int, Any]:
+        """[WHEN_IS_PART_OF_WHAT_V1] Cells for this round, written since it
+        began -- not merely cells that exist.
+
+        Checks both clocks and takes the stricter. The producer's own `t` is
+        authoritative about when it published; the envelope's `ts_env` is
+        the store's, at one-second resolution, and is there whether or not a
+        producer bothered to stamp its value. A cell that fails either is
+        not this round's.
+        """
+        out: Dict[int, Any] = {}
+        # [ASK_ONCE_AND_WAIT_V1] Let the store hold the question open until
+        # every rank has published, instead of asking again every couple of
+        # milliseconds. Measured before: 2-5 polls per collective, 5-10 ms,
+        # a third of a small all_reduce spent on the question rather than
+        # the work.
+        #
+        # `min_rows` is the world size because a collective needs every
+        # rank. A store that does not implement waiting answers immediately
+        # and the caller's loop below still runs, so this degrades to
+        # polling rather than breaking.
+        for r in T.get_all(self._service(op, seq), dbhost=self._dbhost,
+                           wait_s=wait_s, min_rows=self._size):
+            v = r.get("var", "")
+            if not v.startswith("r"):
+                continue
+            val = r.get("value")
+            if not isinstance(val, dict):
+                continue
+            # [WHEN_IS_PART_OF_WHAT_V1] The producer's own clock is not
+            # evidence. `wrote` is time.time() on the machine that published;
+            # `since` is time.time() here. Comparing them makes a peer whose
+            # clock runs a second slow look stale to everyone, and the
+            # collective then waits out its timeout reporting peers that
+            # never published -- which is not what happened.
+            #
+            # frognet_tuples.get_all already fixed exactly this by moving to
+            # the store's envelope, which is one clock for all writers. That
+            # is the timestamp to judge by, and it is already applied above.
+            # This second check re-imported the defect on the reduce path.
+            ts = r.get("ts_env")
+            if ts is not None and ts + 1 < int(since):
+                continue                      # store agrees it is older
+            try:
+                out[int(v[1:])] = val
+            except ValueError:
+                continue
+        return out
+
     def _gather_tensors(self, op: str, seq: int,
                         like: torch.Tensor) -> List[torch.Tensor]:
         """Descriptors first -- that is the barrier, and it costs a flat
@@ -1248,15 +1556,27 @@ class PsychedelicBackend(_base.FrogNetBackend):
         # THIS round, judged by when the cell was written rather than by
         # whether one exists. `since` is taken before this rank publishes,
         # so its own contribution is inside the window too.
-        # [ONE_HELD_READ_V1] The round's cells are named by incarnation and seq, so every cell under this name
-        # is this round's: one read, held until all `size` are there, answers it. No clock, no re-asking.
-        self._round_started.pop((op, seq), None)
+        since = self._round_started.pop((op, seq), time.time())
+        deadline = time.time() + self._timeout_s
+        wait = 0.00005
+        seen: Dict[int, Any] = {}
         want = set(range(self._size))
-        self.polls += 1
-        _t0 = time.perf_counter()
-        seen = self._read_all(op, seq, wait_s=self._timeout_s, min_rows=self._size)
-        self.poll_s += time.perf_counter() - _t0
-        if not want.issubset(seen.keys()):
+        while time.time() < deadline:
+            self.polls += 1
+            _t0 = time.perf_counter()
+            # First ask blocks until the set is complete; if the store does
+            # not wait, the loop falls back to asking again.
+            _blk = os.environ.get("FROGNET_PSY_BLOCKREAD", "1") != "0"
+            seen = self._read_fresh(
+                op, seq, since,
+                wait_s=min(2.0, self._timeout_s) if _blk else 0.0)
+            self.poll_s += time.perf_counter() - _t0
+            # [COMPLETION_IS_A_RANK_SET_NOT_A_COUNT_V1]
+            if want.issubset(seen.keys()):
+                break
+            time.sleep(wait)
+            wait = min(wait * 2.0, 0.002)
+        else:
             raise RuntimeError(
                 "psychedelic backend: %s seq %d incomplete after %.0fs -- "
                 "ranks %s published nothing since this round began. A "
@@ -1284,79 +1604,149 @@ class PsychedelicBackend(_base.FrogNetBackend):
     # -- the collectives that carry a tensor ----------------------------
 
     def allreduce(self, tensors, opts=None):
-        """all_reduce. shard (the default): numbered now, run on the collective thread, Work returned at once.
-        stack: run here, after anything queued."""
+        """[ONE_MULTIPLEXED_QUESTION_BEATS_N_SERIAL_ONES_V1]
+
+        The store read is not a useless check. It is ONE request that comes
+        back with every rank's state, multiplexed by the web server, and in
+        its blocking form it is a barrier: one round trip that saves N
+        waits.
+
+        Removing it and asking each peer directly cost more than it saved at
+        size, because the reads then serialise -- rank 0 waits for rank 1 to
+        publish, then waits for rank 2, and at 128 KB the waiting compounds:
+
+             elements   barrier   direct+wait
+                1,024   17.5 ms       11.7 ms
+               16,384   16.0          15.5
+              131,072   29.2          40.4
+
+        So the barrier stays. What rendezvous removed for good is the part
+        of the descriptor that never changes: a rank's plane address is
+        published once at join, not restated every round. The cell now
+        carries only the generation -- the one thing that is new.
+        """
         op = getattr(opts, "reduceOp", None)
-        if self.REDUCE != "shard":
-            self._drain()
-            for t in tensors:
-                with self._lock:
-                    self._ar_seq += 1
-                    seq = self._ar_seq
-                self._allreduce_stack(t, seq, op)
-            return _base._Work(tensors)
-        # [THE_CALLER_DOES_NOT_WAIT_FOR_THE_MEMORY_V1] The rounds are numbered NOW, in call order -- every rank
-        # calls all_reduce in the same order, which is what makes the numbers agree -- and run on this backend's
-        # collective thread, one after another. The caller gets its Work immediately. Under DDP that is the
-        # difference between backward computing the next bucket's gradients while this one's reads are held,
-        # and backward standing still for every bucket: gloo has always returned at once; this returned only
-        # when both phases were done.
-        seqs = []
-        with self._lock:
-            for _ in tensors:
+        for t in tensors:
+            # Not _next_seq(): see _ar_seq. Every rank calls all_reduce the
+            # same number of times in the same order, which is the same
+            # reason they agree on _next_seq -- so counting only all_reduces
+            # keeps them in step AND keeps the sequence gapless.
+            with self._lock:
                 self._ar_seq += 1
-                seqs.append(self._ar_seq)
-        fut = torch.futures.Future()
+                seq = self._ar_seq
+            name = "%s.%s.%d" % (self._peer_inc(self._rank), "ar", seq)
+            # [ONE_NUMBER_IS_THE_IDENTITY_V1]
+            #
+            # This published under generation `self._gen` while the NAME
+            # carries `seq`, and the reader -- which has no descriptor for
+            # this op and so derives everything from the name -- asks for
+            # generation `seq`. Two counters, used as one identity.
+            #
+            # They drift because they count different things: `seq` comes
+            # from `_next_seq()`, which `barrier()` also advances, while
+            # `_gen` advances only here. One barrier is enough. After it,
+            # every reader asks for a generation one higher than the
+            # publisher will ever reach under that name, the plane's wait
+            # can never be satisfied, and every read burns its full
+            # `wait_s` before returning the data anyway.
+            #
+            # Measured: 30013, 30015, 30002, 29999 ms per all_reduce at
+            # 1024 elements -- the 30 s read timeout, once per collective,
+            # exactly. The data was correct throughout, because the name is
+            # the identity. Only the freshness check was wrong.
+            #
+            # The name is per-seq, so the generation of that name IS seq.
+            # Deriving both from the same number makes them agree by
+            # construction rather than by two counters happening to stay in
+            # step. `_gen` remains for `_publish_tensor`, whose readers get
+            # the generation from the store descriptor and so never had
+            # this problem.
+            self._server.publish(name, seq, t,
+                                 incarnation=str(self._rank))
+            # The generation, and nothing the reader already knows.
 
-        def run():
-            try:
-                for t, seq in zip(tensors, seqs):
-                    self._allreduce_sharded(t, seq, op)
-            except BaseException as e:
-                fut.set_exception(e)
-                raise
-            fut.set_result(list(tensors))
-        with self._coll_lock:
-            if self._coll is None:
-                from concurrent.futures import ThreadPoolExecutor
-                self._coll = ThreadPoolExecutor(max_workers=1, thread_name_prefix="psy-coll")
-            self._last = self._coll.submit(run)
-        return _create_work_from_future(fut)
 
-    def _drain(self) -> None:
-        """Every all_reduce already called has finished. Any other collective starts only then, so each rank runs
-        its collectives in the order it called them, as before; a failure in one of them is raised here."""
-        last = self._last
-        if last is not None:
-            last.result()
-
-    def _allreduce_stack(self, t, seq: int, op) -> None:
-        """FROGNET_PSY_REDUCE=stack: every peer reads this rank's whole tensor (only this path writes it)."""
-        name = "%s.%s.%d" % (self._peer_inc(self._rank), "ar", seq)
-        self._server.publish(name, seq, t, incarnation=str(self._rank))
-        self._start_prefetch(t, seq)
-        parts = [None] * self._size
-        parts[self._rank] = t.clone()
-        for r in range(self._size):
-            if r != self._rank:
-                parts[r] = self._inbox_get(r, seq, t, self._timeout_s)
-        t.copy_(self._combine(parts, op))
+            # [BLAST_IT_ALL_AT_RAM_V1] All of them, at once.
+            #
+            # Reading peers one at a time meant waiting for each in turn,
+            # and at 128 KB that serialising cost more than the barrier it
+            # replaced -- 40.4 ms against 29.2. These are socket waits, not
+            # arithmetic: they overlap even on one core, because a thread
+            # blocked on recv is not holding the interpreter.
+            # [THE_STATE_SHOULD_ALREADY_BE_HERE_V1] The prefetchers have
+            # been reading the next round while this rank was computing, so
+            # this is usually a dictionary lookup rather than a round trip.
+            if self.REDUCE == "shard":
+                self._allreduce_sharded(t, seq, op)
+                continue
+            self._start_prefetch(t, seq)
+            parts = [None] * self._size
+            parts[self._rank] = t.clone()
+            for r in range(self._size):
+                if r != self._rank:
+                    parts[r] = self._inbox_get(r, seq, t, self._timeout_s)
+            t.copy_(self._combine(parts, op))
+        return _base._Work(tensors)
 
 
     def broadcast(self, tensors, opts=None):
-        """[ALL_IN_THE_REGION_V1] The root writes its tensor into its region; every other rank holds a read on
-        that cell. The root returns as soon as its write is queued: the memory, not the root, keeps the bytes, so
-        nobody has to say they are done with them."""
         root = getattr(opts, "rootRank", 0)
         for t in tensors:
             seq = self._next_seq()
-            name = "%s.%s.%d" % (self._incarnation, "bc", seq)
             if self._rank == root:
-                self._server.publish(name, seq, t, incarnation=str(self._rank))
-                continue
-            with _PsyWait(phase="broadcast", rank=self._rank, seq=seq, op="bc", root=root, _be=self):
-                got = self._read_peer(root, name, seq, t, wait_s=self._timeout_s, retain=True)
-            t.copy_(got.reshape(t.shape).to(t.dtype))
+                self._publish_tensor("bc", seq, t)
+            deadline = time.time() + self._timeout_s
+            wait = 0.00005
+            while time.time() < deadline:
+                # [ASK_ONCE_AND_WAIT_V1 - John 2026-09-14] Let the store hold
+                # the question open instead of asking again every 2 ms.
+                #
+                # This loop called _read_all() with no wait_s, so it spun at up
+                # to 500 asks/second for a descriptor exactly one rank writes.
+                # Measured on Seattle5 during ddp1921: 649 requests in 11.5 s
+                # for a single key, max 1 in flight, so the proxy's coalescing
+                # had nothing to join -- serial polls cannot coalesce. The
+                # blocking read reached the collective path (torch_backend:559)
+                # and never reached broadcast.
+                #
+                # min_rows is 1, NOT self._size: a broadcast has one producer,
+                # the root. Waiting for W rows on a key only the root ever
+                # writes is a condition that can never be satisfied, so the
+                # store would hold for the full wait and return empty every
+                # time -- slower than the spin it replaced.
+                #
+                # A store that does not implement waiting answers immediately
+                # and the backoff below still runs, so this degrades to polling
+                # rather than breaking.
+                _left = deadline - time.time()
+                # [DIAG_PSY_STALL_V1] Registered for the same reason as
+                # _await_consumers: a rank waiting on the root's descriptor
+                # otherwise sits silent with every thread idle.
+                with _PsyWait(phase="broadcast", rank=self._rank, seq=seq,
+                              op="bc", root=root, min_rows=1, _be=self):
+                    d = self._read_all(
+                        "bc", seq,
+                        wait_s=min(_left, _base.BLOCK_CAP) if _left > 0 else 0.0,
+                        min_rows=1).get(root)
+                if d is not None:
+                    if self._rank != root:
+                        got, _n, _same = self._client.read(
+                            "r%d" % root, d["host"], int(d["port"]),
+                            d["name"], int(d["gen"]), d["shape"], d["dtype"],
+                            mode=READ_CURRENT)
+                        t.copy_(got.reshape(t.shape).to(t.dtype))
+                        self._consumed("bc", seq)
+                    break
+                time.sleep(wait)
+                wait = min(wait * 2.0, 0.002)
+            else:
+                raise RuntimeError(
+                    "psychedelic backend: broadcast seq %d -- root %d never "
+                    "published a descriptor" % (seq, root))
+            if self._rank == root:
+                # The bytes are in THIS process. Leaving now can pull them
+                # out from under a peer mid-fetch.
+                self._await_consumers("bc", seq)
         return _base._Work(tensors)
 
     def reduce(self, tensors, opts=None):
@@ -1598,23 +1988,6 @@ class PsychedelicBackend(_base.FrogNetBackend):
         return s
 
 
-def _after_pending(fn):
-    def wrapped(self, *a, **k):
-        self._drain()
-        return fn(self, *a, **k)
-    wrapped.__name__, wrapped.__qualname__, wrapped.__doc__ = fn.__name__, fn.__qualname__, fn.__doc__
-    return wrapped
-
-
-#: [THE_CALLER_DOES_NOT_WAIT_FOR_THE_MEMORY_V1] every collective but all_reduce starts after the all_reduces
-#: already called -- the inherited ones included.
-for _n in ("broadcast", "allgather", "reduce", "gather", "scatter", "all_to_all_single", "alltoall_base",
-           "alltoall", "reduce_scatter", "all_gather_single", "allgather_single", "allgather_into_tensor_coalesced",
-           "allgather_coalesced", "send", "recv", "recv_anysource", "barrier"):
-    setattr(PsychedelicBackend, _n, _after_pending(getattr(PsychedelicBackend, _n)))
-del _n
-
-
 def _create(store, rank, size, timeout):
     # [A_GROUP_MUST_BE_NAMED_BY_ITS_MEMBERS_V1]
     #
@@ -1634,9 +2007,15 @@ def _create(store, rank, size, timeout):
                               group=_base._group_id(store, size, rank))
 
 
+#: Said once per process, so a run's own log shows which code is running.
+BUILD = ("psychedelic 20260915-september-revived-r1 (the September tensor path, as it ran ddp5801; "
+         "control cells in the one RAM; PyTorch 2.15 port)")
+
+
 def register(name: str = "psychedelic") -> None:
+    print("[psychedelic] %s" % BUILD, flush=True)
     # [NO_FLIGHT_RECORDER_ON_A_PYTHON_BACKEND_V1] PyTorch 2.15 attaches its flight recorder to every group whose
-    # backend does not record itself, and attaching it to a Python-subclassed backend segfaults in
-    # _maybe_attach_flight_recorder. 0 is PyTorch's own off switch. A caller who set it keeps their value.
+    # backend does not record itself, and attaching it to a Python-subclassed backend segfaults. 0 is its own off
+    # switch; a caller who set it keeps their value. (2.15 port; not in the September code.)
     os.environ.setdefault("TORCH_FR_BUFFER_SIZE", "0")
     dist.Backend.register_backend(name, _create, devices=["cpu"])

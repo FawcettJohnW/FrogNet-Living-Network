@@ -81,7 +81,7 @@ from torch._C._distributed_c10d import (Work as _CWork,
                                          _create_work_from_future,
                                          _register_work)
 
-from . import frogtorch_ram_client as T  # [ALL_IN_THE_REGION_V1] FrogTorch's own RAM
+from . import frogtorch_ram_client as T  # [ONE_RAM_V1] the control cells: the one RAM on databasehost.frognet; the September code, otherwise unchanged
 
 #: The service and variable a collective's cells live under, so a run's
 #: collective traffic is distinguishable from application state in the same
@@ -89,6 +89,14 @@ from . import frogtorch_ram_client as T  # [ALL_IN_THE_REGION_V1] FrogTorch's ow
 #: variable per process group, one SCOPE per rank per operation per round.
 SERVICE = os.environ.get("FROGNET_C10D_SERVICE", "c10d")
 
+#: [ASK_ONCE_AND_WAIT_V1] Cap on how long the STORE may hold one read open.
+#: The loop still re-evaluates its deadline every BLOCK_CAP seconds, and a
+#: store that honours wait_s cannot pin a connection for the whole 300 s
+#: timeout. Was a local inside _collect_descriptors, which left broadcast and
+#: _await_consumers in psychedelic_backend with no value to reach for -- they
+#: spun at a 2 ms ceiling instead. One knob, module level, so every waiting
+#: loop in both backends uses the same bound.
+BLOCK_CAP = float(os.environ.get("FROGNET_BLOCK_CAP_S", "5.0"))
 
 #: [NEVER_TWO_THINGS_IN_ONE_CELL_V1] A cell name carries the operation, the
 #: sequence number within the group and the contributing rank. Two collectives
@@ -200,11 +208,11 @@ def _native():
             build_directory=os.environ.get("FROGNET_C10D_BUILD_DIR",
                                            "/tmp/frognet_work_build"),
             verbose=False)
-    except Exception as e:
-        # [NO_FALLBACK_V1 - 2026-11-11] This used to fall back to the Python Work, which is wrong for
-        # point-to-point (recv from any source cannot say who sent). A box that cannot build the shim is told so.
-        raise RuntimeError("frognet: cannot build the c10d Work shim frognet_work.cpp (%s). It needs a C++20 "
-                           "compiler and ninja on this machine." % e) from e
+    except Exception:
+        # Falls back to the Python Work, which is correct for collectives
+        # and known-incomplete for point-to-point. Better than refusing to
+        # run at all on a box with no compiler.
+        _NATIVE = None
     return _NATIVE
 
 
@@ -483,8 +491,9 @@ class FrogNetBackend(_CBackend):
         # The blocking read was added for the rendezvous and every other
         # caller kept polling: this one asked "are they there yet" hundreds
         # of times a second per rank, when the store will hold the question
-        # open until the rows exist. One held read: the caller does not ask
-        # again ([ALL_IN_THE_REGION_V1]).
+        # open until the rows exist. wait_s/min_rows are passed through; a
+        # store that does not implement them ignores them and answers
+        # immediately, so the caller's loop still works unchanged.
         for r in T.get_all(self._service(op, seq), dbhost=self._dbhost,
                            wait_s=wait_s, min_rows=min_rows):
             v = r.get("var", "")
@@ -536,12 +545,51 @@ class FrogNetBackend(_CBackend):
         deadline = time.time() + self._timeout_s
         want = set(range(self._size))
         out: Dict[int, Any] = {}
-        # [ONE_HELD_READ_V1] One read, held by the region until every rank has written. (This was a poll loop
-        # with a backoff; the region holds the read, so there is nothing to sleep between.)
+        # [POLL_AT_THE_SPEED_OF_THE_ANSWER_V1] A flat 2 ms sleep was the cost
+        # of a collective, not the reads. Three scoped reads measure 1.76 ms
+        # while an all_reduce took 24 ms -- about thirteen cycles, and the
+        # sleeping was ~26 ms of it. Ranks publish within microseconds of
+        # each other, so the first few waits should be short; the backoff
+        # only grows for a genuinely late peer, where spinning would be
+        # rude.
+        wait = 0.00005
+        # [SAY_WHO_IS_MISSING_V1 - John 2026-09-29] A barrier (and every other
+        # gather) printed only how many rows came back -- "rows n=3" every
+        # 5 s -- so a run stuck waiting for one rank could not say WHICH rank
+        # without opening the other three logs. Every incomplete pass now
+        # names the ranks present and the ranks missing, at most once a
+        # second; a pass that completes after having waited says so.
         t0 = time.time()
-        out = self._read_all(op, seq, wait_s=max(0.0, deadline - time.time()), min_rows=self._size)
-        if want.issubset(out.keys()):
-            return [out[r] for r in range(self._size)]
+        said = 0.0
+        while time.time() < deadline:
+            remaining = deadline - time.time()
+            if remaining <= 0:
+                break
+            # One request that BLOCKS until the rank set is complete,
+            # instead of hundreds that each ask and hang up. Against an
+            # updated store this is a single round trip per collective; the
+            # backoff below only still runs against a store that ignores the
+            # parameters, or when the server's own wait expired first.
+            out = self._read_all(op, seq,
+                                 wait_s=min(remaining, BLOCK_CAP),
+                                 min_rows=self._size)
+            # [COMPLETION_IS_A_RANK_SET_NOT_A_COUNT_V1] The condition is that
+            # the expected rank set is contained in what was observed for
+            # THIS collective identity. A count is only the efficient form of
+            # that while the keys are guaranteed to be exactly these ranks --
+            # and a future naming bug could satisfy a count without it.
+            if want.issubset(out.keys()):
+                if said:
+                    _say_gather("GATHER_DONE", op, seq, self._rank,
+                                sorted(out.keys()), [], time.time() - t0)
+                return [out[r] for r in range(self._size)]
+            if time.time() - said >= 1.0:
+                said = time.time()
+                _say_gather("GATHER_WAIT", op, seq, self._rank,
+                            sorted(set(out.keys()) & want),
+                            sorted(want - set(out.keys())), said - t0)
+            time.sleep(wait)
+            wait = min(wait * 2.0, 0.002)
         missing = sorted(want - set(out.keys()))
         _say_gather("GATHER_FAIL", op, seq, self._rank,
                     sorted(set(out.keys()) & want), missing, time.time() - t0)
@@ -679,9 +727,13 @@ class FrogNetBackend(_CBackend):
             seq = self._next_seq()
             if self._rank == root:
                 self._put("bc", seq, self._enc(t))
-            v = self._read_all("bc", seq, wait_s=self._timeout_s, min_rows=1).get(root)   # [ONE_HELD_READ_V1]
-            if v is not None:
-                t.copy_(self._dec(v, t))
+            deadline = time.time() + self._timeout_s
+            while time.time() < deadline:
+                v = self._read_all("bc", seq).get(root)
+                if v is not None:
+                    t.copy_(self._dec(v, t))
+                    break
+                time.sleep(0.002)
             else:
                 raise RuntimeError(
                     "frognet backend: broadcast seq %d -- root %d never "
@@ -735,9 +787,13 @@ class FrogNetBackend(_CBackend):
                 ins = input_tensors[i] if i < len(input_tensors) \
                     else input_tensors[0]
                 self._put("sc", seq, {"parts": [self._enc(t) for t in ins]})
-            v = self._read_all("sc", seq, wait_s=self._timeout_s, min_rows=1).get(root)   # [ONE_HELD_READ_V1]
-            if v is not None:
-                out.copy_(self._dec(v["parts"][self._rank], out))
+            deadline = time.time() + self._timeout_s
+            while time.time() < deadline:
+                v = self._read_all("sc", seq).get(root)
+                if v is not None:
+                    out.copy_(self._dec(v["parts"][self._rank], out))
+                    break
+                time.sleep(0.002)
             else:
                 raise RuntimeError(
                     "frognet backend: scatter seq %d -- root %d never "
@@ -745,7 +801,7 @@ class FrogNetBackend(_CBackend):
         return _Work(output_tensors)
 
     def all_to_all_single(self, output_tensor, input_tensor, output_split_sizes, input_split_sizes, opts=None):
-        """PyTorch 2.15's name for alltoall_base ([TORCH_2_15_NAMES_V1])."""
+        """PyTorch 2.15's name for alltoall_base ([TORCH_2_15_NAMES_V1]; 2.15 port)."""
         return self.alltoall_base(output_tensor, input_tensor, output_split_sizes, input_split_sizes, opts)
 
     def alltoall_base(self, output_tensor, input_tensor, output_split_sizes,
@@ -828,61 +884,94 @@ class FrogNetBackend(_CBackend):
                 o.copy_(self._dec(cells[r]["parts"][i], o))
         return _Work(output_lists)
 
-    def _p2p_service(self, dst: int, tag: int) -> str:
-        return "%s.%s.%s.p2p.%d.%d" % (SERVICE, self._incarnation, self._group, dst, tag)
-
     def send(self, tensors, dst_rank, tag=0):
-        """Point to point without a message: the sender writes its own cell, addressed `<src>.<n>` under the
-        receiver's p2p service. [A_PAIR_KEEPS_ITS_OWN_CLOCK_V1] Sender and receiver each count per (peer, tag),
-        starting at 1, so both derive the same cell name without exchanging one; PyTorch orders point-to-point per
-        pair, so the counters stay in step. Separate from the collective clock: send and recv involve two ranks."""
+        """Point to point, still without a message: the sender publishes a
+        cell only the addressee reads.
+
+        [A_PAIR_KEEPS_ITS_OWN_CLOCK_V1] Sender and receiver each count per
+        (peer, tag), starting at 1, so both derive the same cell name
+        without exchanging one. PyTorch orders point-to-point per pair, so
+        the two counters stay in step.
+
+        This is separate from the collective clock -- send and recv involve
+        two ranks, not all of them, and advancing the collective clock here
+        left uninvolved ranks a step behind and deadlocked the next
+        collective.
+        """
         for t in tensors:
             k = (dst_rank, tag)
             self._p2p_out[k] = self._p2p_out.get(k, 0) + 1
-            T.put(self._p2p_service(dst_rank, tag), "%d.%d" % (self._rank, self._p2p_out[k]),
-                  _scope(self._rank), self._enc(t))
+            self._put("p2p.%d.%d.%d" % (self._rank, dst_rank, tag),
+                      self._p2p_out[k], self._enc(t))
         return _Work(tensors, register_for=tensors)
 
     def recv(self, tensors, src_rank, tag=0):
-        """One held read on the one cell this message will be."""
         for t in tensors:
             k = (src_rank, tag)
             self._p2p_in[k] = self._p2p_in.get(k, 0) + 1
-            var = "%d.%d" % (src_rank, self._p2p_in[k])
-            rows = T.get_all(self._p2p_service(self._rank, tag), var=var, wait_s=self._timeout_s, min_rows=1)
-            if not rows:
-                raise RuntimeError("frognet backend: recv from rank %d tag %d (message %d) timed out -- no cell "
-                                   "was written for it" % (src_rank, tag, self._p2p_in[k]))
-            t.copy_(self._dec(rows[0]["value"], t))
+            op = "p2p.%d.%d.%d" % (src_rank, self._rank, tag)
+            seq = self._p2p_in[k]
+            deadline = time.time() + self._timeout_s
+            wait = 0.00005
+            while time.time() < deadline:
+                got = self._read_all(op, seq)
+                if src_rank in got:
+                    t.copy_(self._dec(got[src_rank], t))
+                    break
+                time.sleep(wait)
+                wait = min(wait * 2.0, 0.002)
+            else:
+                raise RuntimeError(
+                    "frognet backend: recv from rank %d tag %d (message %d) "
+                    "timed out -- no cell was published for it"
+                    % (src_rank, tag, seq))
         return _Work(tensors, register_for=tensors)
 
     def recv_anysource(self, tensors, tag=0):
-        """[P2P_02] Receive from whichever rank has written. Every cell addressed to this rank and tag is under one
-        service, so ONE held read -- woken by any new cell there -- sees every sender. A cell is taken when it is
-        that sender's next one; each sender's messages are consumed in order, as PyTorch specifies. The sender is
-        carried on the Work, because distributed_c10d.recv() asks it (`work._source_rank()`)."""
-        svc = self._p2p_service(self._rank, tag)
+        """[P2P_02] Receive from whichever rank has published.
+
+        `dist.recv(tensor)` with no `src` routes here. The message model
+        needs a wildcard match in the transport for this; shared state does
+        not -- the receiver simply reads the cells addressed to it and takes
+        one that exists. Any sender's cell is already visible; nothing has to
+        be matched or steered.
+
+        The rank that sent is recovered from the cell's own name and carried
+        on the returned Work, because distributed_c10d.recv() asks it
+        (`work._source_rank()`) and returns that to the caller. A
+        receive-from-anyone is meaningless if the receiver cannot then say
+        who it was.
+
+        Ordering is per pair, as PyTorch specifies: each sender's messages
+        are consumed in order, and the counter for that pair advances only
+        when one of its messages is taken.
+        """
         got_from = None
         for t in tensors:
             deadline = time.time() + self._timeout_s
-            after = -1
-            got_from = None
-            while got_from is None:
-                left = deadline - time.time()
-                rows = T.get_all(svc, wait_s=max(0.0, left), min_rows=1, after=after) if left > 0 else []
-                if not rows:
-                    raise RuntimeError("frognet backend: recv_anysource tag %d timed out -- no rank wrote a cell "
-                                       "addressed to rank %d" % (tag, self._rank))
-                by = {r["var"]: r for r in rows}
+            wait = 0.00005
+            while time.time() < deadline:
                 for src in range(self._size):
-                    nxt = self._p2p_in.get((src, tag), 0) + 1
-                    row = by.get("%d.%d" % (src, nxt))
-                    if src != self._rank and row is not None:
-                        t.copy_(self._dec(row["value"], t))
-                        self._p2p_in[(src, tag)] = nxt
+                    if src == self._rank:
+                        continue
+                    k = (src, tag)
+                    seq = self._p2p_in.get(k, 0) + 1
+                    op = "p2p.%d.%d.%d" % (src, self._rank, tag)
+                    cell = self._read_all(op, seq)
+                    if src in cell:
+                        t.copy_(self._dec(cell[src], t))
+                        self._p2p_in[k] = seq
                         got_from = src
                         break
-                after = max(r["id"] for r in rows)      # nothing new for us: hold until something newer is written
+                if got_from is not None:
+                    break
+                time.sleep(wait)
+                wait = min(wait * 2.0, 0.002)
+            else:
+                raise RuntimeError(
+                    "frognet backend: recv_anysource tag %d timed out -- no "
+                    "rank published a cell addressed to rank %d"
+                    % (tag, self._rank))
         return _Work(tensors, src=got_from)
 
     def barrier(self, opts=None):
@@ -954,7 +1043,7 @@ def _create(store, rank, size, timeout):
 def register(name: str = "frognet") -> None:
     """Make `init_process_group(backend='frognet')` work."""
     # [NO_FLIGHT_RECORDER_ON_A_PYTHON_BACKEND_V1] PyTorch 2.15 attaches its flight recorder to every group whose
-    # backend does not record itself, and attaching it to a Python-subclassed backend segfaults in
-    # _maybe_attach_flight_recorder. 0 is PyTorch's own off switch. A caller who set it keeps their value.
+    # backend does not record itself, and attaching it to a Python-subclassed backend segfaults. 0 is its own off
+    # switch; a caller who set it keeps their value. (2.15 port; not in the September code.)
     os.environ.setdefault("TORCH_FR_BUFFER_SIZE", "0")
     dist.Backend.register_backend(name, _create, devices=["cpu"])

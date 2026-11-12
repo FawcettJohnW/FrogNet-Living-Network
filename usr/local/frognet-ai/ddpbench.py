@@ -198,6 +198,17 @@ def main():
             print("    [%s] %s" % (time.strftime("%H:%M:%S"), msg),
                   flush=True)
 
+        # [SAY_WHERE_THE_TIME_WENT_V1] with every progress line, per peer: how long this rank's reads waited for
+        # that peer to store, and how long the bytes were on the link -- so a slow peer and a slow link are told
+        # apart while the run is going, not after it.
+        _pg = dist.distributed_c10d._get_default_group()
+        _impl = (_pg._get_backend(torch.device("cpu")) if hasattr(_pg, "_get_backend") else None)
+
+        def where():
+            line = _impl.progress() if hasattr(_impl, "progress") else ""
+            if line:
+                print("        %s" % line, flush=True)
+
         note("group formed, %d ranks; %.1f MB of gradients"
              % (a.world, r["grad_mb"]))
         for i in range(a.warmup):
@@ -206,7 +217,9 @@ def main():
             if i == 0:
                 note("first step done in %.1f s (this one pays the "
                      "connection setup)" % (time.perf_counter() - t0))
+                where()
         note("warmup done (%d steps), measuring %d" % (a.warmup, a.steps))
+        where()
 
         samples = []
         every = max(1, a.steps // 8)
@@ -221,6 +234,7 @@ def main():
                      "elapsed %.0f s" % (i + 1, a.steps, samples[-1],
                                          done[0],
                                          time.perf_counter() - t_meas))
+                where()
         samples.sort()
         r["ms_step_min"] = samples[0]
         r["ms_step_med"] = samples[len(samples) // 2]
