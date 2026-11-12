@@ -129,13 +129,15 @@ class Ram:
         return self.regions[0]
 
     def local_region(self, owner) -> Tuple[str, int]:
-        """The region on this machine, else one chosen from the owner's name the same way by everyone."""
-        import zlib
+        """The region on this machine. [A_RANK_LIVES_ON_ITS_OWN_MACHINE_V1] There is no other choice: this used to
+        hash the owner onto some other machine's region when this machine had none announced."""
         me = os.environ.get("FROGTORCH_MEMBER_IP") or my_ip()
         for hp in self.regions:
             if hp[0] == me:
                 return hp
-        return self.regions[zlib.crc32(str(owner).encode()) % len(self.regions)]
+        raise RuntimeError("frogtorch: no FrogTorch RAM announced for this machine (%s) in the SystemRam "
+                           "(announced: %s); here: systemctl restart frogtorch-ram"
+                           % (me, " ".join("%s:%d" % hp for hp in self.regions) or "none"))
 
     def session(self, hp: Tuple[str, int]) -> _Session:
         d = getattr(self._local, "s", None)

@@ -318,8 +318,10 @@ class RamServer:
                     _send_frame(conn, REPLY_OKAY, json.dumps({"build": BUILD}).encode())
                 else:
                     raise ValueError("unknown op %r" % op)
-        except (ConnectionError, OSError, ValueError):
-            pass
+        except (ConnectionError, OSError):
+            pass                                   # the session closed: what follows is its cells going with it
+        except ValueError as e:                    # a request this host cannot serve: said, then the session ends
+            print("[frogtorch-ram] session %s ended: %s" % (session, e), flush=True)
         finally:
             self.sessions -= 1
             R.session_gone(session)
