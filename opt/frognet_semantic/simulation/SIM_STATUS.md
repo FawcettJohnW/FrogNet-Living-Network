@@ -1,4 +1,4 @@
-# Simulator status (2026-10-13)
+# Simulator status (last full run 2026-10-13; updated 2026-11-11)
 
 The simulator runs the real planner, committer, proxy and daemon over modelled or namespaced environments. Run it from
 the checkout's root:
@@ -21,6 +21,19 @@ Its last run (`docs/cleanup-2026-10/t6a-logs/runall.txt` in the repository; the 
 | D | the discovery oracle suite | PASS |
 
 The gate prints `GATE: FAIL (2 tier(s) failed)`: the two FAIL rows, the same two since T4b.
+
+Since that run, `run_all.py` has changed in two ways. Neither has a recorded full run yet.
+
+- **Both FAIL rows were removed from the gate on 2026-10-16** (`[PYTORCH_TIERS_PULLED_V1]`). They tested
+  `agent_workload/`, which was not in this tree. `simulation/collective_tier.py` and
+  `simulation/test_aiconnect_ramp_oracle.py` are kept, and run where `agent_workload/` is. The PyTorch work comes into
+  the tree with `agent_workload/` (PR #15). The collectives tier still reads `agent_workload/ddpbench.py`, the duplicate
+  dropped on 2026-09-15; the copy the campaigns run is `usr/local/frognet-ai/ddpbench.py`. The tier has to read that
+  copy before both tiers go back into the gate.
+- **TIER 3 is back, as FD&F discovery from memory** (`[S_SCALE_TIER_V1]`). It runs a real fdf-ram, an fdf-client per
+  node and fdf_graph's plans at S=20, E=1, 2 and 5, and outputs the complete verification plan. It needs the fdf-ram,
+  fdf-client and fdf-events binaries (`FDF_SIM_BIN`, or the day-claims package's, or rinab's `build/static`). The old
+  internet rendezvous tier it replaces is described below.
 
 What it covers and does not:
 

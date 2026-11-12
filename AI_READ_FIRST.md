@@ -358,6 +358,19 @@ answer exists; nothing is ever re-asked").
 
 ---
 
+# FD&F IS THE ARCHITECTURE. CROAKOS IS THE IMPLEMENTATION.
+
+**FD&F** (Farinacci, Day & Fawcett) names the architecture: RINA names, LISP locates,
+Ribbit holds the state, and every member reaches the others only through the shared
+RAM. **CroakOS** is the distributed operating system that implements it: an
+Internet-crossing operating system that offers memory and scheduling (held reads)
+instead of messaging between computers. Say "FD&F" for the design and "CroakOS"
+for the software that runs: its binaries, installers, commands, regions and roles
+(John, 2026-11-10). The code keeps the `fdf` name in its paths and commands
+(`opt/fdf`, `fdf-app`, `fdf-region-join`, `fdf_version.hpp`); do not rename them.
+
+---
+
 # A HELD READ IS A READ, NOT A NOTIFICATION SERVICE
 
 FrogNet Memory exposes state, and a read can wait for it: **a held read**. It is
@@ -384,7 +397,7 @@ semantics. Topology is the fabric's business, so the fabric reports it. What a
 value means, and when a change to it matters, is the application's business, so
 the fabric does not interpret it.
 
-**How the FD&F code keeps this** (`[EVENTS_NOT_TIMERS_V1]`, `[MEMBER_IS_A_TUPLE_V1]`, 2026-11-03; details in
+**How the CroakOS code keeps this** (`[EVENTS_NOT_TIMERS_V1]`, `[MEMBER_IS_A_TUPLE_V1]`, 2026-11-03; details in
 `opt/fdf/docs/FDF-TECHNICAL-DESIGN.md` §G.5a). Each member writes its own truth, `(pond, member, <ns>)`, and every
 program that needs the members holds a read on that family: no relay turns the region's notices into lines (that was
 `fdf-events`), no service copies one writer's cells into another's (that was the chat service), no id is claimed from a
@@ -592,6 +605,10 @@ reconciled. The procedure is in `opt/fdf/docs/APP-SETUP-AND-OPERATION.md`.
    ControlRam) are IP addresses the merge's elections write in `/etc/hosts`; the role is that host's default
    `api.php`. There is no separate RAM manager for them, no RAM port (`ram_port`, 8841, `--ram-port`,
    `FDF_LAN_RAM_PORT`, `ensure_lan_ram`, `lan-rams.json` are gone) and no LAN fallback list.
+   Two kinds (John, 2026-11-10): **independent**, where every node holds its own and nothing is selected (the
+   FrogNetHost role, installed by `setup_lillypad` and kept by `frognet-host serve`), and **floating**, where one host
+   among the machines that can see each other holds it and selection moves it on a split or merge (the SystemRam,
+   the ControlRam, and the app roles `<app>Host.frognet` / `<team>Host.<app>`). Magnum Croakus §17a.
 2. **Port 80 only**, except services (an AppRam, the region's RAM manager on 8840: each keeps its own port). A role
    may add an optional `<Role>_api.php` beside `api.php`.
 3. **Tuples on api.php:** SensorType = service, SensorName = `<variable>.<instance>`, SensorAddress = the writer (the
@@ -707,6 +724,18 @@ where a description slides back into the conventional model.
   write-then-read-back, sessions. All compile; each gives back the property the
   model removes. The test: does the pattern require another program to exist,
   respond, or agree? (spec 10.3b)
+- **Authorization is by role, on the machine. Reach is a separate question.** Do
+  not describe "write your own truth" as an unenforced convention, and do not treat
+  "anything that reaches the RAM port" as a statement about authorization. Every
+  service is a role, held by one machine at a time. A role comes up when its lead
+  logs into the app's admin app on the same network as the parent role, which can be
+  across the Internet when the device already has a tunnel. The role is authenticated
+  by network membership, plus a challenge when it connects to the machine holding the
+  role, and authorization is set on that machine (accounts, file ownership,
+  firewall). A child can take on its parent's authorization transparently, but is not
+  required to. What a device can reach at all is set by its admission level and the
+  hub. (`opt/fdf/docs/FDF-TECHNICAL-DESIGN.md` §9.1, `ORGANIZATIONS.md` §9.3,
+  `ribbit/RIBBIT.md`)
 
 ---
 
