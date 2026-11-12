@@ -521,12 +521,19 @@ class _NoLock:
 # SEG is a time/syscall tradeoff, not an MTU: TCP does the MTU. One sendmsg
 # per record, header and payload gathered, nothing copied.
 # ---------------------------------------------------------------------------
-STREAM_SEG = int(os.environ.get("FROGNET_STREAM_SEG", str(1 << 20)))
+STREAM_SEG = int(os.environ.get("FROGNET_STREAM_SEG", str(256 << 10)))
 STREAM_DIAG = os.environ.get("FROGNET_STREAM_DIAG", "1") not in ("0", "no")
 # A cell whose send or landing takes longer than this is logged even with
 # per-cell diagnostics off.
 STREAM_SLOW_MS = float(os.environ.get("FROGNET_STREAM_SLOW_MS", "2000"))
 _REC = struct.Struct(">IIII")
+# [ONE_LINK_MANY_CELLS_V1 - 2026-11-12] Every record on a link names the
+# delivery it belongs to, so the owner can interleave every cell that is ready
+# -- the proxy's one-session-many-requests shape, with FNWP's round-robin of
+# segments across payloads -- and a 2.5 MB cell no longer holds an 840 KB one
+# behind it. kind 'H' carries the delivery's JSON header, kind 'D' its bytes.
+#     [kind:1][id:4][total:4][offset:4][len:4][body]
+_REC2 = struct.Struct(">cIIII")
 # [SHORT_QUEUES_ON_THE_DATA_LINK_V1 - 2026-11-12] Congestion control for the
 # sending side of every data link. ddp5434 measured the default (loss-based)
 # control at 1.3-2.2 MB/s per WAN link with 400-1150 retransmits, and on the
@@ -654,54 +661,65 @@ class _Subscriber:
             self._cv.notify()
 
     def run(self, conn, stop) -> None:
+        """Interleave every ready cell onto the link, one record at a time
+        round-robin, in the order they became ready; a cell starts the moment
+        it is ready even if others are mid-flight."""
         conn.settimeout(None)
+        active = []          # [cid, name, gen, mv, n, off, keep, t_pub, t_req, depth, t0, seg_max]
         while not stop.is_set():
             with self._cv:
-                while not self._q and not stop.is_set():
+                while not self._q and not active and not stop.is_set():
                     self._cv.wait(1.0)
-                if not self._q:
+                fresh, self._q = self._q, []
+            for (cid, name, gen, inc, blob, keep, t_pub, t_req, depth) in fresh:
+                mv = memoryview(blob).cast("B")
+                t0 = time.time()
+                hdr = json.dumps({"name": name, "gen": gen, "inc": inc, "n": len(mv),
+                                  "id": cid, "t_pub": t_pub, "t_req": t_req,
+                                  "t_send": t0, "depth": depth,
+                                  "active": len(active)}).encode()
+                _sendmsg_all(conn, [_REC2.pack(b"H", cid & 0xFFFFFFFF, len(mv), 0, len(hdr)), hdr])
+                active.append([cid, name, gen, mv, len(mv), 0, keep, t_pub, t_req,
+                               depth, t0, 0.0])
+            if not active:
+                continue
+            nxt = []
+            for d in active:
+                cid, name, gen, mv, n, off = d[0], d[1], d[2], d[3], d[4], d[5]
+                if off < n:
+                    ln = min(STREAM_SEG, n - off)
+                    ts = time.perf_counter()
+                    _sendmsg_all(conn, [_REC2.pack(b"D", cid & 0xFFFFFFFF, n, off, ln),
+                                        mv[off:off + ln]])
+                    d[11] = max(d[11], time.perf_counter() - ts)
+                    d[5] = off = off + ln
+                if off < n:
+                    nxt.append(d)
                     continue
-                cid, name, gen, inc, blob, keep, t_pub, t_req, depth = self._q.pop(0)
-                left = len(self._q)
-            mv = memoryview(blob).cast("B")
-            n = len(mv)
-            t0 = time.time()
-            _send_frame(conn, json.dumps({
-                "name": name, "gen": gen, "inc": inc, "n": n, "id": cid,
-                "t_pub": t_pub, "t_req": t_req, "t_send": t0,
-                "depth": depth}).encode())
-            seg_max = 0.0
-            off = 0
-            while off < n:
-                ln = min(STREAM_SEG, n - off)
-                ts = time.perf_counter()
-                _sendmsg_all(conn, [_REC.pack(ln, cid & 0xFFFFFFFF, n, off),
-                                    mv[off:off + ln]])
-                seg_max = max(seg_max, time.perf_counter() - ts)
-                off += ln
-            t1 = time.time()
-            del keep, blob, mv
-            self.sent += 1
-            self.bytes += n
-            self.send_s += t1 - t0
-            self._sent_cb(name)
-            ms = (t1 - t0) * 1000.0
-            if STREAM_DIAG or ms >= STREAM_SLOW_MS:
-                # held_ms: request arrived -> cell published (<0: it existed
-                #   already). ready_ms: max(request, publish) -> first byte to
-                #   the kernel, i.e. queued behind this link's other cells.
-                # send_ms: first -> last byte accepted by the kernel; with a
-                #   full window that is the network or the reader.
-                # seg_max_ms: the longest single record -- one huge value
-                #   among small ones is a stall, not a slow link.
-                _sdiag("SENT %s gen=%d to=%s at=%s bytes=%d held_ms=%s "
-                       "ready_ms=%.1f send_ms=%.1f seg_max_ms=%.1f MBps=%.1f "
-                       "depth=%d left=%d %s"
-                       % (name, gen, self.reader, self.who, n,
-                          ("family" if t_req == self.t_family else
-                           "%.1f" % ((t_pub - t_req) * 1000.0)),
-                          (t0 - max(t_pub, t_req)) * 1000.0, ms, seg_max * 1000.0,
-                          (n / 1e6) / max(t1 - t0, 1e-6), depth, left, _ti(conn)))
+                t1 = time.time()
+                self.sent += 1
+                self.bytes += n
+                self.send_s += t1 - d[10]
+                self._sent_cb(name)
+                ms = (t1 - d[10]) * 1000.0
+                if STREAM_DIAG or ms >= STREAM_SLOW_MS:
+                    t_pub, t_req = d[7], d[8]
+                    # held_ms: request -> publish ("family" for a standing read).
+                    # ready_ms: ready -> first byte offered. send_ms: first ->
+                    # last byte accepted by the kernel, shared with alongside=
+                    # other cells interleaved on this link. seg_max_ms: the
+                    # longest single record -- one huge value is a stall.
+                    _sdiag("SENT %s gen=%d to=%s at=%s bytes=%d held_ms=%s "
+                           "ready_ms=%.1f send_ms=%.1f seg_max_ms=%.1f MBps=%.1f "
+                           "depth=%d alongside=%d %s"
+                           % (name, gen, self.reader, self.who, n,
+                              ("family" if t_req == self.t_family else
+                               "%.1f" % ((t_pub - t_req) * 1000.0)),
+                              (d[10] - max(t_pub, t_req)) * 1000.0, ms,
+                              d[11] * 1000.0, (n / 1e6) / max(t1 - d[10], 1e-6),
+                              d[9], len(active) - 1, _ti(conn)))
+                d[3] = d[6] = None
+            active = nxt
 
 
 class StreamSubscription:
@@ -785,37 +803,47 @@ class StreamSubscription:
     def _run(self) -> None:
         sk = self.sock
         try:
+            open_ = {}       # id -> [hdr, target, direct, got, t_first, bad_dst]
             while True:
-                hdr = json.loads(bytes(_recv_frame(sk)).decode())
-                name, n, cid = hdr["name"], int(hdr["n"]), int(hdr["id"])
-                with self._cv:
-                    dst = self._dst.pop(name, None)
-                    bad_dst = dst is not None and len(dst) != n
-                    if dst is not None and not bad_dst:
-                        target, direct = dst, True
-                    else:
-                        target, direct = self._buf(n), False
-                mv = memoryview(target).cast("B") if not isinstance(target, memoryview) else target
-                got = 0
-                t_first = None
-                while got < n:
-                    ln, rid, total, off = _REC.unpack(bytes(_recv_exact(sk, _REC.size)))
-                    if t_first is None:
-                        t_first = time.time()
-                    if rid != (cid & 0xFFFFFFFF) or total != n or off != got:
+                kind, rid, total, off, ln = _REC2.unpack(bytes(_recv_exact(sk, _REC2.size)))
+                if kind == b"H":
+                    hdr = json.loads(bytes(_recv_exact(sk, ln)).decode())
+                    name, n = hdr["name"], int(hdr["n"])
+                    with self._cv:
+                        dst = self._dst.pop(name, None)
+                        bad_dst = dst is not None and len(dst) != n
+                        if dst is not None and not bad_dst:
+                            target, direct = dst, True
+                        else:
+                            target, direct = self._buf(n), False
+                    mv = target if isinstance(target, memoryview) else memoryview(target).cast("B")
+                    open_[rid] = [hdr, mv, direct, 0, None, (len(dst) if bad_dst else None), target]
+                    if n:
+                        continue
+                    e = open_[rid]
+                else:
+                    e = open_.get(rid)
+                    if e is None or e[1] is None or total != int(e[0]["n"]) or off != e[3]:
                         raise ConnectionError(
-                            "%s: record id=%d total=%d off=%d inside cell %s "
-                            "id=%d n=%d at %d -- stream out of step"
-                            % (self.label, rid, total, off, name, cid, n, got))
-                    _recv_exact(sk, ln, into=mv[off:off + ln])
-                    got += ln
+                            "%s: data record id=%d total=%d off=%d does not continue any "
+                            "open delivery (open: %s) -- link out of step"
+                            % (self.label, rid, total, off,
+                               {k: (v[0]["name"], v[3]) for k, v in open_.items()}))
+                    if e[4] is None:
+                        e[4] = time.time()
+                    _recv_exact(sk, ln, into=e[1][off:off + ln])
+                    e[3] += ln
+                    if e[3] < int(e[0]["n"]):
+                        continue
+                hdr, direct, t_first, bad = e[0], e[2], e[4], e[5]
+                name, n = hdr["name"], int(hdr["n"])
+                del open_[rid]
                 t_land = time.time()
                 with self._cv:
                     t_ask = self._asked.pop(name, None)
-                cell = {"name": name, "gen": hdr["gen"], "n": n,
-                        "direct": direct, "buf": None if direct else target,
-                        "t_land": t_land, "hdr": hdr, "t_ask": t_ask,
-                        "bad_dst": (len(dst) if bad_dst else None)}
+                cell = {"name": name, "gen": hdr["gen"], "n": n, "direct": direct,
+                        "buf": None if direct else e[6], "t_land": t_land, "hdr": hdr,
+                        "t_ask": t_ask, "bad_dst": bad}
                 with self._cv:
                     self._landed[name] = cell
                     self.cells += 1
@@ -827,26 +855,21 @@ class StreamSubscription:
                     self._cv.notify_all()
                 wire = (t_land - (t_first or t_land)) * 1000.0
                 if STREAM_DIAG or wire >= STREAM_SLOW_MS:
-                    # since_pub_ms / since_send_ms cross hosts: clock skew is
-                    # in them. wire_ms is first record -> last byte, local.
-                    # ask_to_land_ms is local: this rank's request -> last
-                    # byte here. owner_held_ms / owner_ready_ms are the
-                    # owner's own clock: request held waiting for publish,
-                    # then queued behind the link's other cells.
-                    # owner_ready_ms: written -> first byte out, on the
-                    # owner's clock (queued behind that link's other cells).
-                    # since_send_ms: owner's first byte -> last byte here,
-                    # across clocks, so skew is in it; wire_ms is all local.
+                    # wire_ms: first data record -> last byte, local clock, and
+                    # SHARED with open= other cells interleaved on this link.
+                    # owner_ready_ms is on the owner's clock; since_send_ms
+                    # crosses clocks, so skew is in it.
                     _sdiag("LANDED %s gen=%s from=%s bytes=%d direct=%d "
                            "wire_ms=%.1f ask_to_land_ms=%s owner_held_ms=%s "
-                           "owner_ready_ms=%.1f since_send_ms=%.1f depth=%s %s"
+                           "owner_ready_ms=%.1f since_send_ms=%.1f depth=%s "
+                           "owner_alongside=%s open=%d %s"
                            % (name, hdr["gen"], self.label, n, int(direct), wire,
                               ("%.1f" % ((t_land - t_ask) * 1000.0)) if t_ask else "-",
                               ("family" if t_ask is None
                                else "%.1f" % ((hdr["t_pub"] - hdr["t_req"]) * 1000.0)),
                               (hdr["t_send"] - max(hdr["t_pub"], hdr["t_req"])) * 1000.0,
                               (t_land - hdr["t_send"]) * 1000.0,
-                              hdr.get("depth"), _ti(sk)))
+                              hdr.get("depth"), hdr.get("active"), len(open_), _ti(sk)))
         except BaseException as e:
             import traceback
             with self._cv:

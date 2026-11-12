@@ -346,6 +346,7 @@ class PsychedelicBackend(_base.FrogNetBackend):
         self._pf_epoch = 0
         self._pf_live = 0
         self._stop = threading.Event()
+        self._coll_lock = threading.RLock()
         self._want = 0
         self._shape = None
         self._dtype = None
@@ -1173,20 +1174,101 @@ class PsychedelicBackend(_base.FrogNetBackend):
     # is still finishing. Nothing blocks a thread at exit.
     STREAM = os.environ.get("FROGNET_PSY_STREAM", "1") not in ("0", "no")
 
+    # [CALLERS_FAN_IN_V1 - 2026-11-12] all_reduce returns at once; its rounds
+    # run on collective workers, up to ROUNDS_IN_FLIGHT at a time, so DDP's
+    # buckets are in flight together and alongside the rest of backward --
+    # every bucket's cells multiplexed on the same per-peer links instead of
+    # one round waiting for the last. ROUNDS_IN_FLIGHT=1 keeps rounds in call
+    # order but still off the caller's thread.
+    ROUNDS_IN_FLIGHT = max(1, int(os.environ.get("FROGNET_PSY_ROUNDS_IN_FLIGHT", "2")))
+
+    def _allreduce_async(self, tensors, op):
+        from .torch_backend import _create_work_from_future
+        with self._lock:
+            seqs = []
+            for _ in tensors:
+                self._ar_seq += 1
+                seqs.append(self._ar_seq)
+        fut = torch.futures.Future()
+        t_call = time.time()
+
+        def run():
+            try:
+                for t, seq in zip(tensors, seqs):
+                    self._allreduce_sharded(t, seq, op)
+            except BaseException as e:
+                _psy("ROUND_FAILED", rank=self._rank, seqs=seqs, err=repr(e)[:300])
+                fut.set_exception(e)
+                raise
+            fut.set_result(list(tensors))
+            if _PSY_DIAG:
+                _psy("ROUND_DONE", rank=self._rank, seqs=seqs,
+                     call_to_done_ms="%.1f" % ((time.time() - t_call) * 1000.0))
+        with self._coll_lock:
+            if getattr(self, "_coll", None) is None:
+                from concurrent.futures import ThreadPoolExecutor
+                self._coll = ThreadPoolExecutor(max_workers=self.ROUNDS_IN_FLIGHT,
+                                                thread_name_prefix="psy-round")
+                self._inflight = []
+            self._inflight = [f for f in self._inflight if not f.done()]
+            self._inflight.append(self._coll.submit(run))
+        return _create_work_from_future(fut)
+
+    def _drain(self) -> None:
+        """Every all_reduce already called has finished before any other
+        collective starts, so each rank runs collectives in the order it
+        called them; a failure in one is raised here."""
+        with self._coll_lock:
+            pending = list(getattr(self, "_inflight", None) or [])
+        for f in pending:
+            f.result()
+
+    def _round_stage(self, seq: int, rows: int, ln: int, like):
+        """Staging rows for one round, checked out for that round alone and
+        handed back by _round_stage_done. Rounds finish out of order, so a
+        buffer chosen by seq number would be shared by two live rounds; a
+        checkout cannot be. Freed buffers are reused, so steady state
+        allocates nothing."""
+        wide = self._hwm(ln, like)
+        key = (rows, wide, str(like.dtype))
+        with self._coll_lock:
+            free = getattr(self, "_stage_free", None)
+            if free is None:
+                free = self._stage_free = {}
+            lst = free.get(key)
+            b = lst.pop() if lst else None
+            if not hasattr(self, "_stage_out"):
+                self._stage_out = {}
+        if b is None:
+            b = torch.empty(rows * wide, dtype=like.dtype)
+        with self._coll_lock:
+            self._stage_out[seq] = (key, b)
+        return [b[i * wide:i * wide + ln] for i in range(rows)]
+
+    def _round_stage_done(self, seq: int) -> None:
+        with self._coll_lock:
+            got = getattr(self, "_stage_out", {}).pop(seq, None)
+            if got is not None:
+                self._stage_free.setdefault(got[0], []).append(got[1])
+
     def _stream(self, p: int) -> StreamSubscription:
         subs = getattr(self, "_streams", None)
         if subs is None:
             subs = self._streams = {}
         s = subs.get(p)
-        if s is None:
-            import re as _re
-            d = self._rendezvous()[p]
-            pi = _re.escape(self._peer_inc(p))
-            s = subs[p] = StreamSubscription(
-                "r%d" % self._rank, d["host"], int(d["port"]),
-                "psy-r%d-from-r%d" % (self._rank, p),
-                family=[pi + r"\.ars\.\d+\." + str(self._rank),
-                        pi + r"\.arr\.\d+"])
+        if s is not None:
+            return s
+        import re as _re
+        with self._coll_lock:
+            s = subs.get(p)
+            if s is None:
+                d = self._rendezvous()[p]
+                pi = _re.escape(self._peer_inc(p))
+                s = subs[p] = StreamSubscription(
+                    "r%d" % self._rank, d["host"], int(d["port"]),
+                    "psy-r%d-from-r%d" % (self._rank, p),
+                    family=[pi + r"\.ars\.\d+\." + str(self._rank),
+                            pi + r"\.arr\.\d+"])
         return s
 
     def _take(self, p: int, name: str, seq: int, phase: str, dst=None):
@@ -1228,7 +1310,7 @@ class PsychedelicBackend(_base.FrogNetBackend):
         # this rank's slice, so the overwrite comes after the send -- the
         # September invariant, unchanged. A cell that came early (the peer
         # was a round ahead) is already in a buffer and is taken from there.
-        stage = self._stage(W - 1, ln_r, own) if ln_r else []
+        stage = self._round_stage(seq, W - 1, ln_r, own) if ln_r else []
         for i, p in enumerate(peers):
             pi = self._peer_inc(p)
             st_p, ln_p = parts[p]
@@ -1289,6 +1371,7 @@ class PsychedelicBackend(_base.FrogNetBackend):
                 self._streams[p].release(c)
             w2[p] = c
         p2_ms = (time.perf_counter() - _t_p2) * 1000.0
+        self._round_stage_done(seq)
         self._phase_ms["phase2"].append(p2_ms)
 
         for p, c in list(w1.items()) + list(w2.items()):
@@ -1842,6 +1925,9 @@ class PsychedelicBackend(_base.FrogNetBackend):
         carries only the generation -- the one thing that is new.
         """
         op = getattr(opts, "reduceOp", None)
+        if self.STREAM and self.REDUCE == "shard":
+            return self._allreduce_async(tensors, op)
+        self._drain()
         for t in tensors:
             # Not _next_seq(): see _ar_seq. Every rank calls all_reduce the
             # same number of times in the same order, which is the same
@@ -2211,6 +2297,27 @@ class PsychedelicBackend(_base.FrogNetBackend):
         return s
 
 
+def _drained(name):
+    orig = getattr(PsychedelicBackend, name)
+
+    def wrapper(self, *a, **k):
+        self._drain()
+        return orig(self, *a, **k)
+    wrapper.__name__ = name
+    wrapper.__doc__ = orig.__doc__
+    return wrapper
+
+
+# [CALLERS_FAN_IN_V1] Any collective other than all_reduce waits for the
+# all_reduces called before it, so call order is execution order on every rank.
+for _n in ("broadcast", "reduce", "allgather", "gather", "scatter", "reduce_scatter",
+           "_allgather_base", "allgather_into_tensor_coalesced", "allreduce_coalesced",
+           "alltoall", "alltoall_base", "all_to_all_single", "send", "recv",
+           "recv_anysource", "barrier", "_reduce_scatter_base"):
+    if hasattr(PsychedelicBackend, _n):
+        setattr(PsychedelicBackend, _n, _drained(_n))
+
+
 def _create(store, rank, size, timeout):
     # [A_GROUP_MUST_BE_NAMED_BY_ITS_MEMBERS_V1]
     #
@@ -2231,8 +2338,8 @@ def _create(store, rank, size, timeout):
 
 
 #: Said once per process, so a run's own log shows which code is running.
-BUILD = ("psychedelic 20261112-september-family-link-r7 (the September tensor path; "
-         "one held read per peer on the family it writes for this rank; the write fires it "
+BUILD = ("psychedelic 20261112-september-family-link-r8 (the September tensor path; "
+         "one held read per peer on the family it writes for this rank; the write fires it; every ready cell interleaved on the link; all_reduce returns at once, rounds in flight together "
          "and the bytes go on one permanent link, without pause; "
          "control cells in the one RAM; PyTorch 2.15 port)")
 
