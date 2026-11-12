@@ -167,17 +167,24 @@ put() {   # src, dst
     cp "$src" "$dst"
 }
 
-for f in "$HERE"/tree/tuplespace/*.py; do
-    put "$f" "$TREE/agent_workload/tuplespace/$(basename "$f")"
-done
-for f in "$HERE"/tree/core/*.py; do
-    put "$f" "$TREE/core/$(basename "$f")"
-done
-
-mkdir -p "$BENCH"
-for f in "$HERE"/bench/*; do
-    put "$f" "$BENCH/$(basename "$f")"
-done
+# [IN_PLACE_INSTALL_V1] Unpacked at / (cd / && tar xvzf - < /tmp/<file>), the files are already where they go:
+# there is no tree/ beside this script, nothing to copy, and the record is of what is installed.
+if [ -d "$HERE/tree" ]; then
+    for f in "$HERE"/tree/tuplespace/*.py; do
+        put "$f" "$TREE/agent_workload/tuplespace/$(basename "$f")"
+    done
+    for f in "$HERE"/tree/core/*.py; do
+        put "$f" "$TREE/core/$(basename "$f")"
+    done
+    mkdir -p "$BENCH"
+    for f in "$HERE"/bench/*; do
+        put "$f" "$BENCH/$(basename "$f")"
+    done
+    RECORDED="$HERE/tree/tuplespace/*.py $HERE/tree/core/*.py"
+else
+    say "in place: $TREE/agent_workload as unpacked"
+    RECORDED=""
+fi
 
 if [ "$WITH_API" = "1" ]; then
     if [ -d /var/www/html ]; then
@@ -190,14 +197,20 @@ fi
 # ---- record what was installed -----------------------------------------
 {
     echo "$BUILD"
-    for f in "$HERE"/tree/tuplespace/*.py; do
-        d="$TREE/agent_workload/tuplespace/$(basename "$f")"
-        echo "$(sha256sum "$d" | cut -d' ' -f1) $d"
-    done
-    for f in "$HERE"/tree/core/*.py; do
-        d="$TREE/core/$(basename "$f")"
-        echo "$(sha256sum "$d" | cut -d' ' -f1) $d"
-    done
+    if [ -n "$RECORDED" ]; then
+        for f in "$HERE"/tree/tuplespace/*.py; do
+            d="$TREE/agent_workload/tuplespace/$(basename "$f")"
+            echo "$(sha256sum "$d" | cut -d' ' -f1) $d"
+        done
+        for f in "$HERE"/tree/core/*.py; do
+            d="$TREE/core/$(basename "$f")"
+            echo "$(sha256sum "$d" | cut -d' ' -f1) $d"
+        done
+    else
+        for d in "$TREE"/agent_workload/tuplespace/*.py "$TREE"/agent_workload/aiconnect/*.py; do
+            echo "$(sha256sum "$d" | cut -d' ' -f1) $d"
+        done
+    fi
 } > "$VERSION_FILE"
 
 echo
