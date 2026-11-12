@@ -89,7 +89,8 @@ from typing import Any, Dict, List, Optional
 import torch
 import torch.distributed as dist
 
-from core import frognet_tuples as T
+from . import frogtorch_ram_client as T  # [ALL_IN_THE_REGION_V1] FrogTorch's own RAM
+from .frogtorch_ram_client import Placement, RegionPlane
 
 from .tensor_plane import READ_CURRENT, TensorClient, TensorServer
 
@@ -112,8 +113,9 @@ class FrogNetHookState:
         self.timeout_s = timeout_s
         self.dbhost = (dbhost or os.environ.get("FROGNET_C10D_DBHOST")
                        or T.DEFAULT_DBHOST)
-        self.host = os.environ.get("FROGNET_PSY_HOST", "127.0.0.1")
-        self.server = TensorServer(self.host)
+        # [ALL_IN_THE_REGION_V1] Buckets go into this rank's region; peers read them there, not from this process.
+        self.ram = T.ram()
+        self.server = RegionPlane(self.ram, rank, where=self._my_region)
         self.clients: Dict[int, TensorClient] = {}
         self.peers: Optional[Dict[int, Any]] = None
         self.seq = 0
@@ -154,32 +156,18 @@ class FrogNetHookState:
         return c
 
     def rendezvous(self) -> Dict[int, Any]:
+        """[ALL_IN_THE_REGION_V1] Where each rank's buckets live: every rank writes its member cell and holds one
+        read until all are there. Derived, not exchanged."""
         if self.peers is not None:
             return self.peers
-        svc = "%s.rv.%s" % (SERVICE, self.group)
-        T.put(svc, "r%d" % self.rank, "r%d" % self.rank,
-              {"host": self.host, "port": self.server.port},
-              dbhost=self.dbhost, own=False)
-        deadline = time.time() + self.timeout_s
-        found: Dict[int, Any] = {}
-        while time.time() < deadline:
-            for row in T.get_all(svc, dbhost=self.dbhost,
-                                 wait_s=min(5.0, self.timeout_s),
-                                 min_rows=self.world):
-                v = row.get("var", "")
-                d = row.get("value")
-                if v.startswith("r") and isinstance(d, dict):
-                    try:
-                        found[int(v[1:])] = d
-                    except ValueError:
-                        pass
-            if set(range(self.world)).issubset(found):
-                self.peers = found
-                return found
-        raise RuntimeError(
-            "frognet ddp hook: rendezvous incomplete -- ranks %s never "
-            "published an address"
-            % sorted(set(range(self.world)) - set(found)))
+        pl = Placement(self.ram, "hook.%s" % self.group, self.rank, self.world, self.timeout_s)
+        self.peers = {r: {"host": pl.region(r)[0], "port": pl.region(r)[1]} for r in range(self.world)}
+        self.server.region = pl.region(self.rank)
+        return self.peers
+
+    def _my_region(self):
+        d = self.rendezvous()[self.rank]
+        return (d["host"], int(d["port"]))
 
     def bag_publish(self, step: int, done: bool = False) -> None:
         """[ONE_ASSEMBLY_NOT_N_QUESTIONS_V1] This rank's progress, in one
@@ -270,57 +258,11 @@ class FrogNetHookState:
                          if hasattr(self.server, "stats") else {}}
 
     def linger(self, logger=print) -> bool:
-        """[A_PEER_IS_NOT_GONE_UNTIL_EVERY_PEER_SAYS_SO_V1 - John 2026-09-14]
-
-        Serve until nobody can still be reading, then stop.
-
-        A rank that ran out of steps used to return from the training loop and
-        let the process end, which closes its TensorServer. Its peers were
-        still inside their own steps and still owed a read of this rank's
-        buckets, and what they got was
-
-            Connection refused ... that peer's process is gone
-
-        -- a peer that completed successfully, reported as a transport
-        failure. Measured on ddp5402: rank 3 at 1766 s against the others at
-        ~1558 s, and the arm was lost on the teardown rather than on anything
-        it computed.
-
-        The fix does not touch the arithmetic. Every rank runs the same fixed
-        number of steps, so every rank reaches this point; each one publishes
-        that it is finished and waits until all of them have. A rank cannot
-        set `done` before its own last read has returned, so once every rank
-        has set it there is no read left outstanding anywhere and the plane
-        can go.
-
-        Bounded by the process group's own timeout. A peer that CRASHED never
-        publishes `done`, and this must not turn a dead peer into a hang, so
-        the wait expires and says which ranks it was still waiting on -- that
-        is a result worth having, not a failure to suppress.
-        """
+        """[ALL_IN_THE_REGION_V1] Nothing to wait for. A rank's buckets are in its region, not in its process, so a
+        rank that finishes first can leave while its peers are still reading them. Kept so callers need not
+        change; it publishes the final bag (done) and returns."""
         self.bag_publish(self.step, done=True)
-        want = set(range(self.world)) - {self.rank}
-        deadline = time.time() + self.timeout_s
-        waited = 0.0
-        while time.time() < deadline:
-            bags = self.bag_read(wait_s=min(5.0, self.timeout_s),
-                                 min_rows=self.world)
-            left = {r for r in want
-                    if not (isinstance(bags.get(r), dict)
-                            and bags[r].get("done"))}
-            if not left:
-                logger("HOOK_LINGER rank=%d done after %.1fs; every rank "
-                       "finished, nothing can still be reading this plane"
-                       % (self.rank, waited))
-                return True
-            time.sleep(1.0)
-            waited = self.timeout_s - (deadline - time.time())
-        logger("HOOK_LINGER rank=%d EXPIRED after %.1fs still waiting on "
-               "rank(s) %s -- they never published done, so they are gone or "
-               "stuck, not slow. This plane is closing and their next read of "
-               "it will be refused."
-               % (self.rank, waited, sorted(left)))
-        return False
+        return True
 
     def cell(self, rank: int, key: int) -> str:
         """[THE_NAME_MUST_MEAN_THE_SAME_THING_ON_BOTH_ENDS_V1]
@@ -383,21 +325,9 @@ def _bucket_key(state: "FrogNetHookState", bucket) -> int:
     expose an index -- which restores the old failure, so it says so once
     rather than failing silently somewhere else later.
     """
-    idx = getattr(bucket, "index", None)
-    if callable(idx):
-        try:
-            return int(idx())
-        except Exception:
-            pass
-    if not getattr(state, "_warned_no_index", False):
-        state._warned_no_index = True
-        print("frognet ddp hook: this build of DDP does not expose "
-              "GradBucket.index(); falling back to a per-rank counter, "
-              "which is only correct if every rank processes buckets in "
-              "the same order. Expect StateGone if it does not.",
-              flush=True)
-    state.seq += 1
-    return state.seq
+    # [NO_FALLBACK_V1] A per-rank counter is only right when every rank sees buckets in the same order, and is
+    # silently wrong otherwise. A DDP without GradBucket.index() is refused, not guessed at.
+    return int(bucket.index())
 
 
 def _publish(state: FrogNetHookState, key: int, t: torch.Tensor) -> int:
@@ -421,20 +351,10 @@ def _publish(state: FrogNetHookState, key: int, t: torch.Tensor) -> int:
     # number -- nothing has to be counted separately or agreed with anyone.
     if key == 0:
         state.step = n
-        try:
-            state.bag_publish(n)
-            # [A_MECHANISM_NOBODY_CALLS_IS_NOT_A_MECHANISM_V1] And read the
-            # whole set back. One round trip for every peer's progress. A
-            # policy that wants a barrier passes min_rows; this one does
-            # not, because a rank must not be made to wait in order to find
-            # out who is making it wait.
-            state.bag_read()
-        except Exception:
-            # The bag is an observation, not a dependency. A store that is
-            # slow or absent must not stop a collective that does not need
-            # it; a policy that DOES need it will find the bags stale and
-            # can say so itself.
-            pass
+        state.bag_publish(n)          # [NO_FALLBACK_V1] the bag is in memory now; a failed write is a failure
+        # [A_MECHANISM_NOBODY_CALLS_IS_NOT_A_MECHANISM_V1] And read the whole set back: every peer's progress in one
+        # read. No min_rows: a rank must not be made to wait in order to find out who is making it wait.
+        state.bag_read()
     state.server.publish(state.cell(state.rank, key), n, t,
                          incarnation=str(state.rank))
     return n
@@ -454,7 +374,7 @@ def _read(state: FrogNetHookState, r: int, key: int, want_n: int,
     """
     d = state.rendezvous()[r]
     got, _n, _same = state.client(r).read(
-        "r%d" % r, d["host"], int(d["port"]), state.cell(r, key), want_n,
+        "r%d" % r, d["host"], int(d["port"]), RegionPlane.key(state.cell(r, key), r), want_n,
         list(like.shape), str(like.dtype), mode=READ_CURRENT,
         wait_s=_peer_wait(state))
     return got.reshape(like.shape).to(like.dtype)
