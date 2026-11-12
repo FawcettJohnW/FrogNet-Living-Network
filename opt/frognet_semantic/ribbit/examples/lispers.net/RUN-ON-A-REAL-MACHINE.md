@@ -28,11 +28,11 @@ Each stage starts its own fresh RAM server on 127.0.0.1:8788. Results: `results/
 stage's raw output. Nothing is left running.
 
 ## Against a RAM server on another machine (the cross-Internet run)
-The server must be v0.52 too: the client opens three sockets (requests, returns, data) and a pre-v0.52 server refuses
-the data socket ("does not speak the full FNWP contract"). On the server machine, from the same package:
+The server is `lisper-ram`, built by the same package (the client and the server must come from one tree). On the
+server machine:
 ```
-g++ -std=c++17 -O2 -pthread -Iribbit_cpp tools/ramsrv/ram_server.cpp ribbit_cpp/frogram.cpp -llz4 -lcrypto -o ribbit_cpp/ram-server
-./ribbit_cpp/ram-server --listen 0.0.0.0:8789          # --api /Vendor.Product.ram_interface.php to rename the endpoint
+STAGES=build tools/qualify.sh
+./ribbit_cpp/lisper-ram --listen 0.0.0.0:8789
 ```
 Then on this machine:
 ```
