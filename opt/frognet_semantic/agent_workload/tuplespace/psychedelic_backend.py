@@ -89,7 +89,8 @@ import torch.distributed as dist
 from torch._C._distributed_c10d import _create_work_from_future
 
 from . import frogtorch_ram_client as T  # [ALL_IN_THE_REGION_V1] FrogTorch's own RAM
-from .frogtorch_ram_client import Placement, RegionPlane
+from .frogtorch_ram_client import Placement, linger
+from .memory_plane import MemoryPlane
 
 from . import torch_backend as _base
 from .tensor_plane import READ_BY_IDENTITY, READ_CURRENT, TensorClient
@@ -275,11 +276,13 @@ class PsychedelicBackend(_base.FrogNetBackend):
                  timeout: datetime.timedelta = datetime.timedelta(seconds=300),
                  group: str = "default", dbhost: Optional[str] = None):
         super().__init__(store, rank, size, timeout, group, dbhost)
-        # [ALL_IN_THE_REGION_V1] This rank no longer serves anything. It writes its tensors into the region on its
-        # own machine and reads every other rank's from theirs, by owner. The memory outlives the rank.
-        # The cell names still carry the group incarnation, so a new group cannot read a dead group's tensors.
+        # [THE_BITS_STAY_WHERE_THEY_ARE_V1] This rank's tensors stay in its own memory; the one RAM holds only where
+        # that memory is. Peers hold reads on it there. The cell names carry the group incarnation, so a new group
+        # cannot read a dead group's tensors.
         self._ram = T.ram()
-        self._server = RegionPlane(self._ram, rank, where=self._my_region)
+        self._server = MemoryPlane(rank)
+        import atexit
+        atexit.register(self._linger)
         self._client = TensorClient("psy-r%d" % rank)
         self._gen = 0
         #: [ONE_NUMBER_IS_THE_IDENTITY_V1, second half]
@@ -465,11 +468,24 @@ class PsychedelicBackend(_base.FrogNetBackend):
         """[ALL_IN_THE_REGION_V1] Where each rank's cells live. Every rank writes its own member cell (held by its
         session) and holds ONE read until all `size` are there; the placement is derived, not exchanged."""
         pl = Placement(self._ram, "%s.%s" % (self._group, self._incarnation), self._rank, self._size,
-                       self._timeout_s)
+                       self._timeout_s, port=self._server.port)
         found = {r: {"host": pl.region(r)[0], "port": pl.region(r)[1]} for r in range(self._size)}
-        self._server.region = pl.region(self._rank)
         self._peers = found
         return found
+
+    def _linger(self) -> None:
+        """At exit: this rank's memory stays up until every peer is done reading it, or gone."""
+        if self._peers is None:
+            return
+        try:
+            self._drain()
+        except BaseException:
+            pass
+        left = linger(self._ram, "%s.%s" % (self._group, self._incarnation), self._rank, self._size,
+                      self._timeout_s)
+        if left:
+            print("[psychedelic] rank %d leaving; ranks %s still reading after %.0fs"
+                  % (self._rank, left, self._timeout_s), flush=True)
 
     def _my_region(self):
         d = self._rendezvous()[self._rank]
@@ -716,7 +732,7 @@ class PsychedelicBackend(_base.FrogNetBackend):
         copies once, into `dst`.
         """
         d = self._rendezvous()[r]
-        name = RegionPlane.key(name, r)
+        name = MemoryPlane.key(name, r)
         _t0 = time.perf_counter()
         try:
             # [DIAG_PSY_STALL_V1] One registered wait per slice read. A read
@@ -767,12 +783,12 @@ class PsychedelicBackend(_base.FrogNetBackend):
         return (d["host"], int(d["port"]))
 
     def _read_owner_into(self, dst, owner: int, name: str, gen: int, wait_s: float, channel: str) -> int:
-        """[EVERY_RANK_WRITES_ONLY_ITS_OWN_MEMORY_V1] A held read on the OWNER's region for a cell the owner wrote
-        there. The owner's write never left its machine and nothing answered it; this read is the interrupt that
-        fires when the cell reaches `gen`. READ_BY_IDENTITY: the generation must be exactly `gen` -- a newer one is
-        an error, not an answer."""
+        """[THE_BITS_STAY_WHERE_THEY_ARE_V1] A held read on the OWNER's memory, found by the reference in the one
+        RAM. The read is the interrupt that fires when the owner stores `gen`; the bytes then go once, from the
+        owner's memory into `dst`. READ_BY_IDENTITY: the generation must be exactly `gen` -- a newer one is an
+        error, not an answer."""
         host, port = self._region_of(owner)
-        key = RegionPlane.key(name, owner)
+        key = MemoryPlane.key(name, owner)
         _t0 = time.perf_counter()
         try:
             with _PsyWait(phase=channel, rank=self._rank, seq=gen, peer=owner, cell=key, gen=gen, host=host,
@@ -782,35 +798,32 @@ class PsychedelicBackend(_base.FrogNetBackend):
                     verify=self.VERIFY, channel=channel, exact=True)[2]
         except Exception as e:
             if hasattr(e, "add_note"):
-                e.add_note("rank %d reading %s from rank %d's region %s:%d" % (self._rank, key, owner, host, port))
+                e.add_note("rank %d reading %s from rank %d's memory at %s:%d" % (self._rank, key, owner, host, port))
             raise
         finally:
             self._peer_ms.setdefault(owner, []).append((time.perf_counter() - _t0) * 1000.0)
 
     def _allreduce_sharded(self, t: torch.Tensor, seq: int, op) -> None:
-        """Reduce-scatter, then all-gather: every rank writes its own truth into its own memory and holds reads on
+        """Reduce-scatter, then all-gather: every rank stores its own truth in its own memory and holds reads on
         the others'.
 
-        [EVERY_RANK_WRITES_ONLY_ITS_OWN_MEMORY_V1 - John: "Nobody writes into anybody else's space, period. There
-        is no cross-space write." / "Producers only write into their own space."] A write is DMA into this
-        machine's region, never answered; a held read on another rank's region is the interrupt that fires when the
-        cell lands. Nothing else crosses the network. This is the September shape (ddp5401/5801: the owner
-        publishes in its own plane, peers read it, phase 2's reads parked before anyone has reduced) on the
-        per-machine regions. 2026-11-12's 91e90c2 wrote each slice INTO the consumer's region instead -- a
-        cross-space write -- and is reverted here.
+        [THE_BITS_STAY_WHERE_THEY_ARE_V1 - John 2026-11-12: "You do not copy bits from one machine to another. You
+        leave them where they were and use references." / "One RAM host for all PyTorch work."] The one RAM holds
+        where each rank's memory is (Placement, once); the tensors never go anywhere but from the owner's memory
+        into the reader's tensor. This is the September shape (ddp5401/5801) with a real held read for the wait.
+        Not the per-machine frogtorch-ram regions of 2026-11-11/12, which staged every byte in a host process.
 
-        Rank k owns slice k. Phase 1: every rank writes slice k (k != itself) into its OWN region; rank k holds a
-        read on each peer's region for that peer's slice k, and reduces. Phase 2: rank k writes its reduced slice
-        ONCE into its own region; every peer holds a read on it. Bytes on the wire per rank: 2(W-1)n/W out, the
-        same in -- ring's count.
+        Rank k owns slice k. Phase 1: every rank stores slice k (k != itself) -- the range of the bucket itself, no
+        copy; rank k holds a read on each peer's memory for that peer's slice k, and reduces. Phase 2: rank k stores
+        its reduced slice ONCE (one copy: the bucket is DDP's again once this returns); every peer holds a read on
+        it. Bytes on the wire per rank: 2(W-1)n/W out, the same in -- ring's count.
 
         Cells are named by SLOT, not by round: `<inc>.c<owner>.ars.<k>` and `<inc>.c<owner>.arr`, generation = the
-        round. A slot is overwritten one round later, and never before its reader has it: the owner cannot write
-        round s+1's slice k until it has round s's reduced slice from k, which k writes only after reading the
-        owner's round-s slice; and it cannot write round s+1's reduced slice until every peer has written round
-        s+1's slice to it, which each does only after reading round s's reduced slice. The algorithm's own
-        dependency is the release; nothing is acknowledged. The cells are held by the writer's session, so they
-        go when the process does.
+        round. A slot is overwritten one round later, and never before its reader has it: the owner cannot store
+        round s+1's slice k until it has round s's reduced slice from k, which k stores only after reading the
+        owner's round-s slice; and it cannot store round s+1's reduced slice until every peer has stored round
+        s+1's slice for it, which each does only after reading round s's reduced slice. The algorithm's own
+        dependency is the release; nothing is acknowledged.
         """
         name = self._op_name(op)
         _ACC = {
@@ -838,12 +851,15 @@ class PsychedelicBackend(_base.FrogNetBackend):
         st_r, ln_r = parts[r]
         own = flat[st_r:st_r + ln_r]
 
-        # Phase 1, out: slice k into THIS rank's own memory, for every k but itself (copied at publish, so `flat`
-        # may change after). Local; nothing answers.
+        # Phase 1, out: slice k in THIS rank's own memory, for every k but itself. Nothing leaves the process.
         for k in peers:
             st, ln = parts[k]
             if ln:
-                self._server.publish("%s.ars.%d" % (inc, k), seq, flat[st:st + ln], incarnation=str(r))
+                # copy=False: the cell IS this range of the bucket. Range k is read only by rank k and is next
+                # written only by rank k's reduced slice arriving, which k cannot produce before it has read this
+                # one; the algorithm's own dependency is the release ([POINT_AT_THE_BYTES_DO_NOT_COPY_THEM_V1]).
+                self._server.publish("%s.ars.%d" % (inc, k), seq, flat[st:st + ln], incarnation=str(r),
+                                     copy=False)
         self._phase_ms["publish"].append((time.perf_counter() - _t_pub) * 1000.0)
         _t_p1 = time.perf_counter()
 
@@ -1092,7 +1108,7 @@ class PsychedelicBackend(_base.FrogNetBackend):
         # That costs nothing for a caller whose content changes every
         # round, and every caller here is one.
         d = self._rendezvous()[r]
-        name = RegionPlane.key(name, r)
+        name = MemoryPlane.key(name, r)
         peer = "r%d" % r
         cli = self._peer_client(r)
         # `retain` says the caller keeps the tensor past its next read on
@@ -1172,7 +1188,7 @@ class PsychedelicBackend(_base.FrogNetBackend):
         self._put(op, seq, {"host": _hp[0],
                             "port": _hp[1],
                             # Same number the plane was published under; the owner is part of the address.
-                            "name": RegionPlane.key(name, self._rank), "gen": seq,
+                            "name": MemoryPlane.key(name, self._rank), "gen": seq,
                             "t": time.time(),
                             "shape": list(t.shape), "dtype": str(t.dtype)})
         # [DO_NOT_WRITE_WHAT_NOBODY_READS_V1] `self._mark_done(op, seq)`
@@ -1327,7 +1343,7 @@ class PsychedelicBackend(_base.FrogNetBackend):
             seq = self._next_seq()
             name = "%s.%s.%d" % (self._incarnation, "bc", seq)
             if self._rank == root:
-                self._server.publish(name, seq, t, incarnation=str(self._rank), region=self._my_region())
+                self._server.publish(name, seq, t, incarnation=str(self._rank))
                 continue
             with _PsyWait(phase="broadcast", rank=self._rank, seq=seq, op="bc", root=root, _be=self):
                 got = self._read_peer(root, name, seq, t, wait_s=self._timeout_s, retain=True)

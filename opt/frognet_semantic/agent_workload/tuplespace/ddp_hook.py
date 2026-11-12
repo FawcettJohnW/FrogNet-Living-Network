@@ -90,7 +90,8 @@ import torch
 import torch.distributed as dist
 
 from . import frogtorch_ram_client as T  # [ALL_IN_THE_REGION_V1] FrogTorch's own RAM
-from .frogtorch_ram_client import Placement, RegionPlane
+from .frogtorch_ram_client import Placement, linger as _linger
+from .memory_plane import MemoryPlane
 
 from .tensor_plane import READ_BY_IDENTITY, READ_CURRENT, TensorClient
 
@@ -113,9 +114,9 @@ class FrogNetHookState:
         self.timeout_s = timeout_s
         self.dbhost = (dbhost or os.environ.get("FROGNET_C10D_DBHOST")
                        or T.DEFAULT_DBHOST)
-        # [ALL_IN_THE_REGION_V1] Buckets go into this rank's region; peers read them there, not from this process.
+        # [THE_BITS_STAY_WHERE_THEY_ARE_V1] Buckets stay in this rank's memory; the one RAM holds where it is.
         self.ram = T.ram()
-        self.server = RegionPlane(self.ram, rank, where=self._my_region)
+        self.server = MemoryPlane(rank)
         self.clients: Dict[int, TensorClient] = {}
         self.peers: Optional[Dict[int, Any]] = None
         self.seq = 0
@@ -206,14 +207,10 @@ class FrogNetHookState:
         read until all are there. Derived, not exchanged."""
         if self.peers is not None:
             return self.peers
-        pl = Placement(self.ram, "hook.%s" % self.group, self.rank, self.world, self.timeout_s)
+        pl = Placement(self.ram, "hook.%s" % self.group, self.rank, self.world, self.timeout_s,
+                       port=self.server.port)
         self.peers = {r: {"host": pl.region(r)[0], "port": pl.region(r)[1]} for r in range(self.world)}
-        self.server.region = pl.region(self.rank)
         return self.peers
-
-    def _my_region(self):
-        d = self.rendezvous()[self.rank]
-        return (d["host"], int(d["port"]))
 
     def bag_publish(self, step: int, done: bool = False) -> None:
         """[ONE_ASSEMBLY_NOT_N_QUESTIONS_V1] This rank's progress, in one
@@ -304,11 +301,15 @@ class FrogNetHookState:
                          if hasattr(self.server, "stats") else {}}
 
     def linger(self, logger=print) -> bool:
-        """[ALL_IN_THE_REGION_V1] Nothing to wait for. A rank's buckets are in its region, not in its process, so a
-        rank that finishes first can leave while its peers are still reading them. Kept so callers need not
-        change; it publishes the final bag (done) and returns."""
+        """[A_PEER_IS_NOT_GONE_UNTIL_EVERY_PEER_SAYS_SO_V1] This rank's buckets are in its own memory: it publishes
+        its final bag (done) and holds one read until every peer is done reading, or gone."""
         self.bag_publish(self.step, done=True)
-        return True
+        if self.peers is None:
+            return True
+        left = _linger(self.ram, "hook.%s" % self.group, self.rank, self.world, self.timeout_s)
+        if left:
+            logger("linger: ranks %s still reading after %.0fs" % (left, self.timeout_s))
+        return not left
 
     def cell(self, rank: int, key: int, n: int) -> str:
         """[THE_NAME_MUST_MEAN_THE_SAME_THING_ON_BOTH_ENDS_V1]
@@ -429,7 +430,7 @@ def _read(state: FrogNetHookState, r: int, key: int, want_n: int,
     """
     d = state.rendezvous()[r]
     got, _n, _same = state.client(r).read(
-        "r%d" % r, d["host"], int(d["port"]), RegionPlane.key(state.cell(r, key, want_n), r), want_n,
+        "r%d" % r, d["host"], int(d["port"]), MemoryPlane.key(state.cell(r, key, want_n), r), want_n,
         list(like.shape), str(like.dtype), mode=mode,
         wait_s=_peer_wait(state), channel="b%d" % key)
     return got.reshape(like.shape).to(like.dtype)

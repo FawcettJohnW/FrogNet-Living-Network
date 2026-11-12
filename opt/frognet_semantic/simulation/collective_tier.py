@@ -390,7 +390,7 @@ def plane_read_ahead_keying():
 # PLANE 7 -- a finished rank leaves; nothing it published goes with its process
 # ---------------------------------------------------------------------------
 def plane_linger():
-    print("\n=== PLANE 7: a rank that finishes leaves; its buckets stay in its region ===")
+    print("\n=== PLANE 7: a rank stays until every peer is done reading it, or gone ===")
     import time
     import types
 
@@ -413,24 +413,48 @@ def plane_linger():
     check("_STATE.linger(" in bench and bench.index("_STATE.linger(") < bench.index("destroy_process_group"),
           "the harness publishes its done bag before tearing the group down")
 
-    if not fn:
-        return
-    body = ast.get_source_segment(src, fn[0])
-    ns = {}
-    exec("class _S:\n" + "\n".join("    " + l for l in body.splitlines()), ns)
-    # [ALL_IN_THE_REGION_V1] a rank's buckets are in its region, not its process: a rank that finishes first leaves
-    # while its peers are still reading them. linger waits for nobody.
-    st = ns["_S"].__new__(ns["_S"])
-    st.rank, st.world, st.step, st.timeout_s = 0, 4, 40, 6.0
-    published, reads = [], []
-    st.bag_publish = lambda step, done=False: published.append((step, done))
-    st.bag_read = lambda *a, **k: reads.append(1) or {}
-    t0 = time.time()
-    ok = st.linger(logger=lambda m: None)
-    dt = time.time() - t0
-    check(ok and published == [(40, True)], f"publishes its own done exactly once ({published})")
-    check(not reads, "fail-on-old: and reads nobody's bag -- there is nothing to wait for")
-    check(dt < 0.5, f"returns at once ({dt:.2f}s)")
+    # [A_PEER_IS_NOT_GONE_UNTIL_EVERY_PEER_SAYS_SO_V1] a rank's buckets are in its own memory again
+    # ([THE_BITS_STAY_WHERE_THEY_ARE_V1]): a rank that finishes stays until every peer is done or gone. One held
+    # read on the members family, against a real RAM.
+    if _SEM not in sys.path:
+        sys.path.insert(0, _SEM)
+    import threading
+    from agent_workload.tuplespace.frogtorch_ram import RamServer
+    from agent_workload.tuplespace.frogtorch_ram_client import Ram, linger
+    srv = RamServer("127.0.0.1", 0)
+    hp = ("127.0.0.1", srv.port)
+    _env = os.environ.get("FROGTORCH_RAMS")
+    os.environ["FROGTORCH_RAMS"] = "127.0.0.1:%d" % srv.port      # the one RAM, configured: no SystemRam here
+    try:
+        r0, r1, r2 = Ram(regions=[hp]), Ram(regions=[hp]), Ram(regions=[hp])
+        for k, r in enumerate((r0, r1, r2)):
+            r.put("frogtorch.members.t7", "r%d" % k, "r%d" % k, {"ip": "x", "port": 1}, life="session")
+
+        def r1_done():
+            time.sleep(0.5)
+            r1.put("frogtorch.members.t7", "d1", "d1", {"t": 0}, life="session")
+
+        def r2_gone():
+            time.sleep(1.0)
+            r2._member_session.close()
+        threading.Thread(target=r1_done).start()
+        threading.Thread(target=r2_gone).start()
+        t0 = time.time()
+        left = linger(r0, "t7", 0, 3, 10.0)
+        dt = time.time() - t0
+        check(left == [] and 0.9 < dt < 5, "waits for one peer to say done and one to go, then leaves (%.2fs)" % dt)
+        r3 = Ram(regions=[hp])
+        r3.put("frogtorch.members.t7b", "r0", "r0", {"ip": "x", "port": 1}, life="session")
+        r3.put("frogtorch.members.t7b", "r1", "r1", {"ip": "x", "port": 1}, life="session")
+        t0 = time.time()
+        left = linger(r3, "t7b", 0, 2, 1.0)
+        check(left == [1] and time.time() - t0 < 3, "a peer that never finishes is named when the wait runs out")
+    finally:
+        srv.close()
+        if _env is None:
+            os.environ.pop("FROGTORCH_RAMS", None)
+        else:
+            os.environ["FROGTORCH_RAMS"] = _env
 
 
 def _api_php():
@@ -481,58 +505,61 @@ def plane_name_like_is_a_like():
               "and the store still builds a LIKE clause from that suffix")
 
 # ---------------------------------------------------------------------------
-# PLANE 9 -- a write is a store into the memory; a read lands where it is used
+# PLANE 9 -- the bits stay where they are; the one RAM holds the reference
 # ---------------------------------------------------------------------------
 def plane_two_copies():
-    """[A_WRITE_IS_A_STORE_INTO_THE_MEMORY_V1] [THE_PAYLOAD_LANDS_WHERE_IT_IS_USED_V1] Behaviour, on a real region:
-    a published tensor is stored once into a shared-memory segment the region maps (no bytes on the session), a
-    read lands straight in the destination, a segment is reused only after the region lets it go, and nothing is
-    left in /dev/shm. Fail-on-old: fd1f19f sent every tensor's bytes through the session (tput)."""
-    print("\n=== PLANE 9: one copy into memory, one off the link ===")
-    import socket, subprocess, time
+    """[THE_BITS_STAY_WHERE_THEY_ARE_V1] Behaviour: a rank's MemoryPlane holds a read until the generation asked for
+    is stored, the bytes come straight from the owner's memory into the reader's tensor, a copy=False cell is the
+    caller's own tensor, a buffer is refilled only when nothing refers to it. Source: no rank's tensor is written
+    into any RAM host (fail-on-old: 271a754 stored every tensor in the machine's frogtorch-ram)."""
+    print("\n=== PLANE 9: the bits stay in the owner's memory ===")
+    import threading, time
     import torch
     if _SEM not in sys.path:
         sys.path.insert(0, _SEM)
-    from agent_workload.tuplespace import frogtorch_ram_client as T
-    from agent_workload.tuplespace.frogtorch_ram_client import RegionPlane
+    from agent_workload.tuplespace.memory_plane import MemoryPlane
     from agent_workload.tuplespace.tensor_plane import TensorClient, READ_BY_IDENTITY
-    sk = socket.socket(); sk.bind(("127.0.0.1", 0)); port = sk.getsockname()[1]; sk.close()
-    p = subprocess.Popen([sys.executable, "-m", "agent_workload.tuplespace.frogtorch_ram", "--bind", "127.0.0.1",
-                          "--port", str(port), "--no-announce"], cwd=_SEM, stdout=subprocess.DEVNULL)
-    try:
-        time.sleep(0.8)
-        hp = ("127.0.0.1", port)
-        pl = RegionPlane(T.Ram(regions=[hp]), 0, where=lambda: hp)
-        cli = TensorClient("tier9")
-        a, b = torch.randn(300_000), torch.randn(300_000)
-        dst = torch.empty(300_000)
-        for g, src in ((1, a), (2, b), (3, a), (4, b)):
-            pl.publish("t9", g, src)
-            cli.read_into(dst, "r0", hp[0], hp[1], RegionPlane.key("t9", 0), g, mode=READ_BY_IDENTITY,
-                          wait_s=10, verify=True, exact=True)
-            if not torch.equal(dst, src):
-                break
-        check(torch.equal(dst, b), "every generation read back exactly, digest verified")
-        st = T.Ram(regions=[hp]).session(hp).call({"op": "stats"})
-        check(st["bytes_in"] == 4 * 300_000 * 4 and st["tputs"] == 4, "four stores counted by the region (%s)"
-              % {k: st[k] for k in ("bytes_in", "tputs")})
-        check(len(pl._segs) <= 2, "segments reused once the region let them go (%d made for 4 writes)"
-              % len(pl._segs))
-        src = open(os.path.join(_tuplespace(), "frogtorch_ram_client.py"), encoding="utf-8").read()
-        pub = src[src.index("    def publish(self, name: str, generation: int, tensor"):]
-        pub = pub[:pub.index("self.states_offered += 1")]
-        check("tensor_bytes(" not in pub and '"op": "tput"' not in src[src.index("class RegionPlane"):],
-              "fail-on-old: a publish sends no tensor bytes on the session")
-        tp = open(os.path.join(_tuplespace(), "tensor_plane.py"), encoding="utf-8").read()
-        check("return self._read_direct(" in tp, "fail-on-old: a sized read lands straight in its destination")
-        check('"FROGNET_PSY_VERIFY", "0"' in open(os.path.join(_tuplespace(), "psychedelic_backend.py"),
-                                                  encoding="utf-8").read(), "the digest is off unless asked for")
-    finally:
-        p.terminate()
-        p.wait()
-    time.sleep(0.2)
-    check(not [f for f in os.listdir("/dev/shm") if f.startswith("frogtorch.%d." % os.getpid())],
-          "nothing of this process left in /dev/shm")
+    mp = MemoryPlane(0, bind="127.0.0.1")
+    cli = TensorClient("tier9")
+    a, b = torch.randn(300_000), torch.randn(300_000)
+    dst = torch.empty(300_000)
+    got = {}
+
+    def late():
+        time.sleep(0.4)
+        mp.publish("t9", 1, a)
+    th = threading.Thread(target=late)
+    th.start()
+    t0 = time.perf_counter()
+    cli.read_into(dst, "r0", "127.0.0.1", mp.port, MemoryPlane.key("t9", 0), 1, mode=READ_BY_IDENTITY, wait_s=10,
+                  verify=True, exact=True)
+    held = time.perf_counter() - t0
+    th.join()
+    check(torch.equal(dst, a) and 0.3 < held < 5, "a read is held until the owner stores it (%.2fs), then exact"
+          % held)
+    for g, src in ((2, b), (3, a), (4, b)):
+        mp.publish("t9", g, src)
+        cli.read_into(dst, "r0", "127.0.0.1", mp.port, MemoryPlane.key("t9", 0), g, mode=READ_BY_IDENTITY,
+                      wait_s=10, verify=True, exact=True)
+    check(torch.equal(dst, b), "every generation read back exactly, digest verified")
+    check(mp.stats()["buffers"] <= 2, "buffers reused once nothing refers to them (%d for 4 stores)"
+          % mp.stats()["buffers"])
+    live = torch.arange(1000, dtype=torch.float32)
+    mp.publish("v9", 1, live, copy=False)
+    live += 1                                 # copy=False: the cell IS the caller's tensor
+    small = torch.empty(1000)
+    cli.read_into(small, "r0", "127.0.0.1", mp.port, MemoryPlane.key("v9", 0), 1, mode=READ_BY_IDENTITY, wait_s=5,
+                  exact=True)
+    check(torch.equal(small, live), "a copy=False cell is the owner's own tensor, not a copy")
+    mp.close()
+    src = {f: open(os.path.join(_tuplespace(), f), encoding="utf-8").read()
+           for f in ("psychedelic_backend.py", "ddp_hook.py", "frogtrain.py", "frogtorch.py")}
+    check(all("RegionPlane" not in t for t in src.values()), "fail-on-old: no rank writes tensors into a RAM host")
+    check(all("MemoryPlane(" in t for t in src.values()), "every rank's tensors stay in its own MemoryPlane")
+    ram = open(os.path.join(_tuplespace(), "frogtorch_ram.py"), encoding="utf-8").read()
+    check('"tshm"' not in ram, "fail-on-old: the RAM host stores no rank's tensors")
+    tp = open(os.path.join(_tuplespace(), "tensor_plane.py"), encoding="utf-8").read()
+    check("return self._read_direct(" in tp, "a sized read lands straight in its destination")
 
 
 def main():

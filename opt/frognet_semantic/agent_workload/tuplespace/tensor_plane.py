@@ -504,9 +504,10 @@ class _NoLock:
         return False
 
 
-# [ALL_IN_THE_REGION_V1] TensorServer -- a rank serving its own tensors from its own process, waiting on its own
-# condition in 50 ms slices -- is gone. Tensors live in the machine's FrogTorch RAM (frogtorch_ram.py), published
-# through frogtorch_ram_client.RegionPlane; TensorClient reads them there with the same SAME/DATA/GONE contract.
+# [THE_BITS_STAY_WHERE_THEY_ARE_V1] A rank's tensors are in its own memory (memory_plane.MemoryPlane, which holds a
+# read on a cell until its owner stores the generation asked for -- TensorServer did it in 50 ms slices). The one
+# RAM (frogtorch_ram.py, on databasehost.frognet's machine) holds where each rank's memory is. TensorClient reads a
+# MemoryPlane, and the RAM, with the same SAME/DATA/GONE contract.
 
 
 def _state_gone(worker, name, generation, want_digest, rest) -> "StateGone":

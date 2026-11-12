@@ -1,21 +1,18 @@
 """frogtorch_ram_client.py -- a rank's side of FrogTorch's RAM ([ALL_IN_THE_REGION_V1], 2026-11-11).
 
-Three things, and nothing else:
+Two things, and nothing else:
 
   Regions     which FrogTorch RAM hosts exist, in one deterministic order every rank computes the same way.
               From the capability family in the SystemRam (each frogtorch_ram service writes its own), or from
               FROGTORCH_RAMS="host:port,host:port" when the regions are configured rather than discovered.
-  cells       put / get_all / get / remove on the CONTROL region (the first region): the same calls, arguments and
+  cells       put / get_all / get / remove on the one RAM, control(): the same calls, arguments and
               row shape (var, scope, value, id, age_s, ts_env) as core.frognet_tuples, so the backends read and
               write memory exactly as before -- only the memory is FrogTorch's own. A read with wait_s and min_rows
               is HELD by the region until enough cells are there; it is never re-asked.
-  RegionPlane what a rank publishes tensors through. Same publish() as tensor_plane.TensorServer, but the bytes go
-              INTO a region, addressed by name and owner, and the call returns as soon as they are queued. A reader
-              holds a read on the region, never on the producer.
 
-Placement ([A_RANK_LIVES_ON_ITS_OWN_MACHINE_V1]): every rank has its own machine's region, derived by every rank from
-the members' own cells. A rank READS only its own region; a writer puts a cell into the region of the rank that will
-read it ([THE_ANSWER_IS_WRITTEN_WHERE_IT_IS_READ_V1]). A machine with no region announced is an error, named.
+Tensors are not here ([THE_BITS_STAY_WHERE_THEY_ARE_V1]): they stay in the memory of the rank that made them
+(memory_plane.MemoryPlane, in its own process). The one RAM -- the region on the machine `databasehost.frognet`
+resolves to, control() -- holds membership and each rank's reference (where its memory is); Placement reads them.
 
 No fallbacks. A region that cannot be reached raises; a held read that runs out of time returns what is there and the
 caller decides it has failed.
@@ -25,7 +22,6 @@ from __future__ import annotations
 import json
 import os
 import sys
-import queue
 import socket
 import threading
 import time
@@ -169,17 +165,6 @@ class Ram:
         self._control = c
         return c
 
-    def local_region(self, owner) -> Tuple[str, int]:
-        """The region on this machine. [A_RANK_LIVES_ON_ITS_OWN_MACHINE_V1] There is no other choice: this used to
-        hash the owner onto some other machine's region when this machine had none announced."""
-        me = os.environ.get("FROGTORCH_MEMBER_IP") or my_ip()
-        for hp in self.regions:
-            if hp[0] == me:
-                return hp
-        raise RuntimeError("frogtorch: no FrogTorch RAM announced for this machine (%s) in the SystemRam "
-                           "(announced: %s); here: systemctl restart frogtorch-ram"
-                           % (me, " ".join("%s:%d" % hp for hp in self.regions) or "none"))
-
     def session(self, hp: Tuple[str, int]) -> _Session:
         d = getattr(self._local, "s", None)
         if d is None:
@@ -280,159 +265,42 @@ def _delete_by_id(dbhost, row_id) -> int:
 class Placement:
     """Which region a rank's cells live in. Derived by every rank from the members' own cells."""
 
-    def __init__(self, r: Ram, group: str, rank: int, size: int, timeout_s: float):
+    def __init__(self, r: Ram, group: str, rank: int, size: int, timeout_s: float, port: int):
         self.ram, self.rank, self.size = r, rank, size
         svc = "frogtorch.members.%s" % group
         me = os.environ.get("FROGTORCH_MEMBER_IP") or my_ip()     # a test running "machines" on loopback names them
-        r.put(svc, "r%d" % rank, "r%d" % rank, {"ip": me, "pid": os.getpid()}, life="session")
+        # [THE_BITS_STAY_WHERE_THEY_ARE_V1] the reference: where this rank's memory is, written once, in the one RAM
+        r.put(svc, "r%d" % rank, "r%d" % rank, {"ip": me, "port": int(port), "pid": os.getpid()}, life="session")
         rows = r.get_all(svc, wait_s=timeout_s, min_rows=size)
-        ips: Dict[int, str] = {}
+        ips: Dict[int, Tuple[str, int]] = {}
         for row in rows:
             v = row.get("var", "")
             if v.startswith("r"):
-                ips[int(v[1:])] = row["value"]["ip"]
+                ips[int(v[1:])] = (row["value"]["ip"], int(row["value"]["port"]))
         missing = sorted(set(range(size)) - set(ips))
         if missing:
             raise RuntimeError("frogtorch: ranks %s never wrote their member cell within %.0fs"
                                % (missing, timeout_s))
-        by_host: Dict[str, Tuple[str, int]] = {}
-        for hp in r.regions:
-            by_host.setdefault(hp[0], hp)
-        # [A_RANK_LIVES_ON_ITS_OWN_MACHINE_V1] A rank's cells go in its own machine's region, and nowhere else. This
-        # used to fall back to region (rank mod H) -- another machine's memory, possibly across the continent -- when
-        # the rank's machine had no region announced: Seattle3B's rank wrote every tensor to New-York-1 over its Wi-Fi
-        # (ddp5624) because its frogtorch-ram's announcement had been lost. No fallbacks: say which machine is missing.
-        absent = sorted((k, ip) for k, ip in ips.items() if ip not in by_host)
-        if absent:
-            raise RuntimeError(
-                "frogtorch: no FrogTorch RAM announced for %s in the SystemRam (announced: %s). Each rank's tensors "
-                "live in its own machine's frogtorch-ram; on that machine: systemctl restart frogtorch-ram"
-                % (", ".join("rank %d at %s" % kv for kv in absent),
-                   " ".join("%s:%d" % hp for hp in r.regions) or "none"))
-        self.of_rank = {k: by_host[ip] for k, ip in ips.items()}
+        self.of_rank = ips
 
     def region(self, rank: int) -> Tuple[str, int]:
+        """Where rank's memory is: its MemoryPlane, in its own process."""
         return self.of_rank[rank]
 
 
-# ---------------------------------------------------------------------------------------------------- the plane
-class _WriterSeg:
-    """One shared-memory segment this process stores tensors in. The region maps it ([A_WRITE_IS_A_STORE_INTO_THE_
-    MEMORY_V1]); byte 0 says whose turn it is: the writer sets SEG_BUSY before storing, the region sets SEG_FREE once
-    no cell and no send refers to it."""
-    __slots__ = ("name", "mm", "cap")
-
-    def __init__(self, name: str, cap: int):
-        import mmap
-        from .frogtorch_ram import SEG_BUSY, SEG_HDR, SHM_DIR
-        path = os.path.join(SHM_DIR, name)
-        fd = os.open(path, os.O_RDWR | os.O_CREAT | os.O_EXCL, 0o600)
-        try:
-            os.ftruncate(fd, SEG_HDR + cap)
-            self.mm = mmap.mmap(fd, SEG_HDR + cap)
-        finally:
-            os.close(fd)
-        self.mm[0] = SEG_BUSY
-        self.name, self.cap = name, cap
-
-
-class RegionPlane:
-    """Publish tensors into this machine's region. tensor_plane.TensorServer's publish(), aimed at memory.
-
-    A tensor cell's address is `<name>@<owner>`: names repeat across ranks (every rank publishes "<group>.arr.<seq>"),
-    and in a shared memory the owner is part of the address.
-
-    [A_WRITE_IS_A_STORE_INTO_THE_MEMORY_V1] publish() stores the tensor's bytes in a shared-memory segment the region
-    maps -- one copy, which is also the freeze: the caller may reuse its buffer the moment publish() returns -- and
-    queues a small write naming that memory. The region sends reads straight from it. Before, the bytes were copied
-    into a Python buffer, sent over loopback into the region process and copied again there: four copies to the link
-    where there is now one. A segment is stored into again only after the region has let it go.
-
-    Writes to one region are queued in order on one writer thread, so a later write can never overtake an earlier
-    one. A region on another machine is refused: a rank writes only its own machine's memory.
-    """
-
-    def __init__(self, r: Ram, owner: int, where=None):
-        self.ram, self.owner, self.where = r, owner, where
-        self.region: Optional[Tuple[str, int]] = None      # this owner's region, once placement is known
-        self.port = 0
-        self.states_offered = 0
-        self.states_materialised = 0
-        self._queues: Dict[Tuple[str, int], "queue.Queue"] = {}
-        self._qlock = threading.Lock()
-        self.fault: Optional[BaseException] = None
-        self._segs: List[_WriterSeg] = []
-        self._seg_lock = threading.Lock()
-        self._local: Dict[Tuple[str, int], bool] = {}
-
-    @staticmethod
-    def key(name: str, owner) -> str:
-        return "%s@%s" % (name, owner)
-
-    def cell_name(self, name: str) -> str:
-        return self.key(name, self.owner)
-
-    def _writer(self, hp):
-        q = self._queues[hp]
-        while True:
-            item = q.get()
-            if item is None:
-                return
-            name, gen, seg, nbytes, inc = item
-            try:
-                # [A_WRITE_IS_NOT_A_CONVERSATION_V1] streamed, never answered. Order is the connection's own; a write
-                # the region could not take ends the session, and the next send here raises. life="session": the
-                # cell is held by this writer's session and goes when the process does ([SESSION_TENSORS_V1]).
-                self.ram.session(hp).send({"op": "tshm", "name": name, "gen": int(gen), "inc": inc, "seg": seg,
-                                           "nbytes": int(nbytes), "life": "session"})
-            except BaseException as e:             # the next publish raises it: a lost write is never silent
-                self.fault = e
-
-    def _check_local(self, hp) -> None:
-        ok = self._local.get(hp)
-        if ok is None:
-            from .frogtorch_ram import boot_id
-            theirs = self.ram.session(hp).call({"op": "version"}).get("boot_id")
-            ok = self._local[hp] = bool(theirs) and theirs == boot_id()
-        if not ok:
-            raise RuntimeError("frogtorch: region %s:%d is not on this machine; a rank writes only its own machine's "
-                               "memory [A_RANK_LIVES_ON_ITS_OWN_MACHINE_V1]" % hp)
-
-    def _segment(self, n: int) -> _WriterSeg:
-        """A segment of at least n bytes that the region has let go of, taken (marked BUSY); a new one if none is."""
-        from .frogtorch_ram import SEG_BUSY, SEG_FREE
-        with self._seg_lock:
-            best = None
-            for g in self._segs:
-                if g.cap >= n and g.mm[0] == SEG_FREE and (best is None or g.cap < best.cap):
-                    best = g
-            if best is None:
-                cap = 1 << max(16, (max(1, n) - 1).bit_length())
-                best = _WriterSeg("frogtorch.%d.%d" % (os.getpid(), len(self._segs)), cap)
-                self._segs.append(best)
-            best.mm[0] = SEG_BUSY
-            return best
-
-    def publish(self, name: str, generation: int, tensor, incarnation=None, copy=True, region=None) -> None:
-        if self.fault is not None:
-            raise ConnectionError("frogtorch: an earlier write to a region failed: %r" % (self.fault,))
-        import torch
-        from .frogtorch_ram import SEG_HDR
-        hp = region or self.region or self.where()
-        self._check_local(hp)
-        src = tensor.detach().to("cpu").contiguous().reshape(-1)
-        if src.dtype == torch.bool:
-            src = src.to(torch.uint8)
-        src = src.view(torch.uint8)
-        n = src.numel()
-        seg = self._segment(n)
-        if n:
-            torch.frombuffer(seg.mm, dtype=torch.uint8, count=n, offset=SEG_HDR).copy_(src)   # the one copy
-        with self._qlock:
-            q = self._queues.get(hp)
-            if q is None:
-                q = self._queues[hp] = queue.Queue()
-                threading.Thread(target=self._writer, args=(hp,), daemon=True,
-                                 name="region-writer-%s:%d" % hp).start()
-        q.put((self.key(name, self.owner), int(generation), seg.name, n, incarnation))
-        self.states_offered += 1
+def linger(r: Ram, group: str, rank: int, size: int, timeout_s: float) -> List[int]:
+    """[A_PEER_IS_NOT_GONE_UNTIL_EVERY_PEER_SAYS_SO_V1] A rank's tensors are in its own memory, so it must not take
+    that memory away while a peer may still read it. It writes its done cell beside its member cell and holds ONE
+    read on the members family until every rank has either written done or is gone (its session-held member cell
+    went with it). Returns the ranks still not done when the read ran out of time (empty when all are)."""
+    svc = "frogtorch.members.%s" % group
+    r.put(svc, "d%d" % rank, "d%d" % rank, {"t": time.time()}, life="session")
+    deadline = time.monotonic() + timeout_s
+    ids = None
+    while True:
+        rows = r.get_all(svc, wait_s=0.0 if ids is None else max(0.0, deadline - time.monotonic()), unlike=ids)
+        have = {row.get("var", "") for row in rows}
+        waiting = [k for k in range(size) if "d%d" % k not in have and "r%d" % k in have]
+        if not waiting or time.monotonic() >= deadline:
+            return waiting
+        ids = sorted(row["id"] for row in rows)

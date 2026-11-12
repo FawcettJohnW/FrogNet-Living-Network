@@ -25,15 +25,13 @@ Wire: the framing tensor_plane already speaks (<!Q len><payload>), so TensorClie
 
   tensor read   {name, gen, mode, have, want, inc, wait_s, verify}            -> SAME|DATA|GONE, as TensorServer
                 (the digest is computed only when the reader asks to verify, or names a digest)
-  tensor store  {"op":"tshm", name, gen, inc, seg, nbytes, life}               -> nothing
-                (a rank on THIS machine stored the bytes in its shared-memory segment /dev/shm/<seg>; the cell
-                 becomes that memory, and reads are sent straight from it -- [A_WRITE_IS_A_STORE_INTO_THE_MEMORY_V1])
   tensor write  {"op":"tput", name, gen, inc, life?, ack?, acct?}  then the bytes -> nothing (OKAY {gen} only if ack)
-                (a writer on another machine: AIConnect's objects)
+                (AIConnect's objects; PyTorch's tensors are NOT here -- they stay in each rank's own memory,
+                 memory_plane.py [THE_BITS_STAY_WHERE_THEY_ARE_V1], and this RAM holds where that memory is)
                 (acct: the bytes are added to stats' by_acct[acct] -- how a writer that is never answered
                  learns what landed)
                 (life="session": the cell goes when the writer's session closes -- AIConnect's objects)
-  version       {"op":"version"}                                   -> OKAY {build, boot_id}
+  version       {"op":"version"}                                   -> OKAY {build}
   counters      {"op":"stats"}                                     -> OKAY {bytes_in, tputs, held_bytes, by_acct, ...}
   cell write    {"op":"cput", service, var, scope, value, life, ack?}          -> nothing (OKAY {id} only if ack)
   cell read     {"op":"cget", service, var?, min_rows, wait_s, after?}          -> OKAY {rows:[...]}
@@ -61,8 +59,8 @@ from agent_workload.aiconnect.service import BULK_LEN_FMT
 from .tensor_plane import (GONE_NEVER_PUBLISHED, GONE_SUPERSEDED, GONE_WAIT_EXPIRED,
                            READ_BY_IDENTITY, REPLY_DATA, REPLY_GONE, REPLY_SAME, _digest, _recv_frame, _send_frame)
 
-BUILD = ("frogtorch_ram 20261112-r5 [ALL_IN_THE_REGION_V1] [SESSION_TENSORS_V1] [THE_ANNOUNCEMENT_IS_READ_BACK_V1] "
-         "[HELD_FOR_THE_CALLERS_DEADLINE_V1] [DELIVERY_IS_COUNTED_WHERE_IT_LANDS_V1] [A_WRITE_IS_A_STORE_INTO_THE_MEMORY_V1]")
+BUILD = ("frogtorch_ram 20261112-r6 [ALL_IN_THE_REGION_V1] [SESSION_TENSORS_V1] [THE_ANNOUNCEMENT_IS_READ_BACK_V1] "
+         "[HELD_FOR_THE_CALLERS_DEADLINE_V1] [DELIVERY_IS_COUNTED_WHERE_IT_LANDS_V1]")
 #: Capability tuples live in the SystemRam (AI_READ_FIRST 10): every election reads capability there.
 SYSTEM_RAM = os.environ.get("FROGTORCH_SYSTEM_RAM", "databasehost.frognet")
 REPLY_OKAY = b"OKAY"
@@ -78,56 +76,6 @@ class _Key:
         self.value = None
 
 
-#: [A_WRITE_IS_A_STORE_INTO_THE_MEMORY_V1] A segment's first SEG_HDR bytes are its header; byte 0 is its state:
-#: SEG_BUSY while the writer fills it and while the region holds it as a cell or is sending from it, SEG_FREE once
-#: the region has let it go -- the writer may then fill it again. The writer sets BUSY, the region sets FREE: each
-#: side makes one transition, so nothing has to be agreed. The payload follows the header.
-SEG_HDR = 64
-SEG_FREE, SEG_BUSY = 0, 1
-SHM_DIR = "/dev/shm"
-
-
-def boot_id() -> str:
-    """Which running machine this is: two processes with the same boot id share /dev/shm."""
-    try:
-        with open("/proc/sys/kernel/random/boot_id") as f:
-            return f.read().strip()
-    except OSError:
-        return ""
-
-
-class _Seg:
-    """One writer's shared-memory segment, mapped into the region. `refs`: 1 while it is a cell's value, +1 for each
-    read being sent from it. `dead`: its writer's session is gone -- unmapped once nothing refers to it."""
-    __slots__ = ("name", "mm", "view", "refs", "dead")
-
-    def __init__(self, name: str):
-        import mmap
-        fd = os.open(os.path.join(SHM_DIR, name), os.O_RDWR)
-        try:
-            self.mm = mmap.mmap(fd, os.fstat(fd).st_size)
-        finally:
-            os.close(fd)
-        # the name is not needed again: the writer and the region each keep their mapping, and nothing is left in
-        # /dev/shm whichever of them dies first
-        try:
-            os.unlink(os.path.join(SHM_DIR, name))
-        except OSError:
-            pass
-        self.name, self.view, self.refs, self.dead = name, memoryview(self.mm), 0, False
-
-    def let_go(self) -> None:
-        """No cell and no send refers to it any more (the region's lock is held)."""
-        if self.dead:
-            self.view.release()
-            try:
-                self.mm.close()
-            except BufferError:          # a payload view still alive in a finishing send; the GC closes it
-                pass
-        else:
-            self.mm[0] = SEG_FREE
-
-
 class Region:
     """The memory: tensor cells by name, control cells by (service, var, scope)."""
 
@@ -137,7 +85,6 @@ class Region:
         self._services: Dict[str, _Key] = {}          # service -> {(var, scope): row}
         self._next_id = 0
         self._session_tensors: Dict[str, set] = {}    # [SESSION_TENSORS_V1] session -> names it holds
-        self._segs: Dict[str, Dict[str, _Seg]] = {}   # session -> its mapped segments, by name
         self.tputs = 0
         self.bytes_in = self.bytes_out = 0
         self.bytes_by_acct: Dict[str, int] = {}       # [DELIVERY_IS_COUNTED_WHERE_IT_LANDS_V1] writer-named tallies
@@ -154,49 +101,10 @@ class Region:
              acct: Optional[str] = None) -> None:
         with self._lock:
             k = self._tkey(name)
-            self._release(k.value)
-            k.value = (int(gen), blob, inc, None, None)
+            k.value = (int(gen), blob, inc, None)
             self.bytes_in += len(blob)
             if acct:
                 self.bytes_by_acct[acct] = self.bytes_by_acct.get(acct, 0) + len(blob)
-            self.tputs += 1
-            if life == "session":
-                self._session_tensors.setdefault(session, set()).add(name)
-            k.cond.notify_all()
-
-    def _release(self, v) -> None:
-        """A value is no longer a cell's (lock held): its segment, if it has one, loses that reference."""
-        if v is not None and v[4] is not None:
-            self.unpin(v, locked=True)
-
-    def unpin(self, v, locked: bool = False) -> None:
-        if v is None or v[4] is None:
-            return
-        if not locked:
-            with self._lock:
-                return self.unpin(v, locked=True)
-        seg = v[4]
-        seg.refs -= 1
-        if seg.refs == 0:
-            seg.let_go()
-
-    def tshm(self, name: str, gen: int, seg_name: str, nbytes: int, inc, life: str, session: str) -> None:
-        """[A_WRITE_IS_A_STORE_INTO_THE_MEMORY_V1] The writer stored the bytes in its segment `seg_name`; the cell
-        becomes that memory. Nothing is copied here."""
-        segs = self._segs.setdefault(session, {})
-        seg = segs.get(seg_name)
-        if seg is None:
-            seg = segs[seg_name] = _Seg(seg_name)
-        if SEG_HDR + int(nbytes) > len(seg.mm):
-            raise ValueError("write %r claims %d bytes; segment %s holds %d" % (name, nbytes, seg_name,
-                                                                                len(seg.mm) - SEG_HDR))
-        blob = seg.view[SEG_HDR:SEG_HDR + int(nbytes)]
-        with self._lock:
-            k = self._tkey(name)
-            self._release(k.value)
-            seg.refs += 1
-            k.value = (int(gen), blob, inc, None, seg)
-            self.bytes_in += int(nbytes)
             self.tputs += 1
             if life == "session":
                 self._session_tensors.setdefault(session, set()).add(name)
@@ -210,17 +118,13 @@ class Region:
                     "by_acct": dict(self.bytes_by_acct)}
 
     def tget(self, name: str, want_gen, wait_s: float):
-        """The current value, once it has reached want_gen (held until then, up to wait_s). A value in a segment
-        comes back PINNED: the caller sends from it, then unpin()s it, so the writer cannot refill that memory under
-        a send."""
+        """The current value, once it has reached want_gen (held until then, up to wait_s)."""
         deadline = time.monotonic() + wait_s      # [HELD_FOR_THE_CALLERS_DEADLINE_V1] no cap of the host's own
         with self._lock:
             k = self._tkey(name)
             while True:
                 v = k.value
                 if v is not None and (want_gen is None or v[0] >= int(want_gen)):
-                    if v[4] is not None:
-                        v[4].refs += 1
                     return v, True
                 left = deadline - time.monotonic()
                 if left <= 0:
@@ -233,7 +137,7 @@ class Region:
         cell if the cell is still `v`."""
         if v[3] is not None:
             return v
-        d = (v[0], v[1], v[2], _digest(v[1]), v[4])
+        d = (v[0], v[1], v[2], _digest(v[1]))
         with self._lock:
             k = self._tensors.get(name)
             if k is not None and k.value is v:
@@ -349,13 +253,8 @@ class Region:
             for name in self._session_tensors.pop(session, ()):
                 k = self._tensors.pop(name, None)
                 if k is not None:
-                    self._release(k.value)
                     k.value = None
                     k.cond.notify_all()
-            for seg in self._segs.pop(session, {}).values():
-                seg.dead = True
-                if seg.refs == 0:
-                    seg.let_go()
             for k in self._services.values():
                 gone = [key for key, r in k.value.items() if r["life"] == "session" and r["session"] == session]
                 for key in gone:
@@ -408,10 +307,6 @@ class RamServer:
                     # FrogTorch's tensor writes stream, and the readers are what the cell landing releases
                     if req.get("ack", True):
                         _send_frame(conn, REPLY_OKAY, json.dumps({"gen": req["gen"]}).encode())
-                elif op == "tshm":
-                    # [A_WRITE_IS_A_STORE_INTO_THE_MEMORY_V1] never answered
-                    R.tshm(req["name"], req["gen"], req["seg"], req["nbytes"], req.get("inc"),
-                           req.get("life", "data"), session)
                 elif op == "cput":
                     i = R.cput(req["service"], req["var"], req["scope"], req.get("value"),
                                req.get("life", "data"), session)
@@ -445,7 +340,7 @@ class RamServer:
                     st["accepts"] = self.accepts
                     _send_frame(conn, REPLY_OKAY, json.dumps(st).encode())
                 elif op == "version":
-                    _send_frame(conn, REPLY_OKAY, json.dumps({"build": BUILD, "boot_id": boot_id()}).encode())
+                    _send_frame(conn, REPLY_OKAY, json.dumps({"build": BUILD}).encode())
                 else:
                     raise ValueError("unknown op %r" % op)
         except (ConnectionError, OSError):
@@ -476,26 +371,22 @@ class RamServer:
                                                       "want_gen": want_gen,
                                                       "waited_s": time.monotonic() - _t0}).encode())
             return
-        try:
-            need_digest = want_digest is not None or have is not None or bool(req.get("verify", False))
-            gen, blob, inc, digest, _seg = R.digest_of(name, v) if need_digest else v
-            if mode == READ_BY_IDENTITY and ((want_inc is not None and inc is not None and want_inc != inc)
-                                             or (want_digest is not None and want_digest != digest)
-                                             or (want_gen is not None and int(want_gen) != int(gen))):
-                _send_frame(conn, REPLY_GONE, json.dumps({"reason": GONE_SUPERSEDED, "gen": gen,
-                                                          "digest": digest, "inc": inc}).encode())
-                return
-            if have is not None and have == digest:
-                R.same_replies += 1
-                _send_frame(conn, REPLY_SAME, json.dumps({"gen": gen, "digest": digest, "inc": inc}).encode())
-                return
-            R.data_replies += 1
-            R.bytes_out += len(blob)
-            head = json.dumps({"gen": gen, "digest": digest, "inc": inc}).encode()
-            # straight from the writer's memory onto the link: the kernel's copy is the only one
-            _send_frame(conn, REPLY_DATA, struct.pack(BULK_LEN_FMT, len(head)), head, blob)
-        finally:
-            R.unpin(v)
+        need_digest = want_digest is not None or have is not None or bool(req.get("verify", False))
+        gen, blob, inc, digest = R.digest_of(name, v) if need_digest else v
+        if mode == READ_BY_IDENTITY and ((want_inc is not None and inc is not None and want_inc != inc)
+                                         or (want_digest is not None and want_digest != digest)
+                                         or (want_gen is not None and int(want_gen) != int(gen))):
+            _send_frame(conn, REPLY_GONE, json.dumps({"reason": GONE_SUPERSEDED, "gen": gen,
+                                                      "digest": digest, "inc": inc}).encode())
+            return
+        if have is not None and have == digest:
+            R.same_replies += 1
+            _send_frame(conn, REPLY_SAME, json.dumps({"gen": gen, "digest": digest, "inc": inc}).encode())
+            return
+        R.data_replies += 1
+        R.bytes_out += len(blob)
+        head = json.dumps({"gen": gen, "digest": digest, "inc": inc}).encode()
+        _send_frame(conn, REPLY_DATA, struct.pack(BULK_LEN_FMT, len(head)), head, blob)
 
     def close(self):
         try:

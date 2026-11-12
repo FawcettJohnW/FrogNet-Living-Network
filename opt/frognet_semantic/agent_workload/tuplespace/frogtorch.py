@@ -58,7 +58,7 @@ import time
 from typing import Any, Callable, Dict, List, Optional
 
 from . import frogtorch_ram_client as T  # [ALL_IN_THE_REGION_V1] FrogTorch's own RAM
-from .frogtorch_ram_client import RegionPlane
+from .memory_plane import MemoryPlane
 
 from .finite import FiniteWatch
 from .reduce_by_read import ReduceGroup, default_accept
@@ -113,11 +113,8 @@ class Worker:
         # read them there; this process serves nothing.
         self.server = None
         if data_plane:
-            _ram = T.ram()
-            self.server = RegionPlane(_ram, self.name)
-            self.server.region = _ram.local_region(self.name)
-            self.server.port = self.server.region[1]
-            advertise_host = self.server.region[0]
+            self.server = MemoryPlane(self.name)            # [THE_BITS_STAY_WHERE_THEY_ARE_V1]
+            advertise_host = T.my_ip()
         self.client = (TensorClient(self.name, watch=self.watch)
                        if data_plane else None)
         self.advertise_host = advertise_host

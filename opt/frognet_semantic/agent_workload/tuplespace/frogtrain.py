@@ -309,12 +309,9 @@ class Trainer:
         # [ALL_IN_THE_REGION_V1] Parameters go into this machine's FrogTorch region; this process serves nothing.
         self.server = None
         if data_plane:
-            from .frogtorch_ram_client import RegionPlane
-            _ram = T.ram()
-            self.server = RegionPlane(_ram, self.name)
-            self.server.region = _ram.local_region(self.name)
-            self.server.port = self.server.region[1]
-            advertise_host = self.server.region[0]
+            from .memory_plane import MemoryPlane
+            self.server = MemoryPlane(self.name)            # [THE_BITS_STAY_WHERE_THEY_ARE_V1]
+            advertise_host = T.my_ip()
         self.client = TensorClient(self.name) if data_plane else None
         self.params = ReduceGroup(
             "params", self.name, dbhost=self.dbhost,
