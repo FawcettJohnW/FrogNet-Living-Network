@@ -59,10 +59,9 @@ def main():
     for s in T.SITES:                                            # the sites as lisp-service passes them to site.add
         x = T.ribbit_site_args(s); sites.append(x)
     rauth = {"name": "acceptance-auth", "ram": ram, "roles": ["map-server"], "udp": {"address": a.auth_ip, "port": a.ribbit_udp},
-             "heartbeat_s": 5, "startup_wait_s": 5, "sites": sites, "ms_authoritative_prefixes": ["198.18.0.0/15"]}
+             "sites": sites, "ms_authoritative_prefixes": ["198.18.0.0/15"]}
     if a.peer_ip: rauth["ms_peers"] = [a.peer_ip]
-    rmr = {"name": "acceptance-mr", "ram": ram, "roles": ["map-resolver"], "udp": {"address": a.mr_ip, "port": a.ribbit_udp},
-           "heartbeat_s": 5, "startup_wait_s": 5}
+    rmr = {"name": "acceptance-mr", "ram": ram, "roles": ["map-resolver"], "udp": {"address": a.mr_ip, "port": a.ribbit_udp}}
     for d, cfg in (("ribbit-auth", rauth), ("ribbit-mr", rmr)):
         os.makedirs(os.path.join(a.out, d), exist_ok=True)
         json.dump(cfg, open(os.path.join(a.out, d, "lisp-service.config"), "w"), indent=1)
