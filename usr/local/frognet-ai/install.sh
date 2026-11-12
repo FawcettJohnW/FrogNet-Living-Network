@@ -241,6 +241,45 @@ fi
 
 # ---- prove it works -----------------------------------------------------
 echo
+# [TORCH_ASKED_THEN_INSTALLED_V1] FrogTorch's runs need PyTorch; the FrogTorch RAM and AIConnect do not. A machine
+# without it is asked once, and if the answer is yes, this installs it: the CPU build from PyPI on aarch64 (piwheels
+# and PyPI carry it), the CPU index on x86-64 (PyPI's x86-64 wheel drags in the CUDA libraries). --no-cache-dir: a
+# 2 GB Pi was OOM-killed buffering the wheel (2026-09-14); with less than 3 GB of memory and swap, it offers a 2 GB
+# swap file first.
+if ! python3 -c "import torch" 2>/dev/null; then
+    echo
+    echo "  PyTorch is not installed. FrogTorch's runs need it (the FrogTorch RAM and AIConnect do not)."
+    printf "  Install the CPU build of PyTorch now? [y/N] "
+    read ans < /dev/tty || ans=""
+    case "$ans" in
+    y|Y|yes|YES)
+        have_kb=$(awk '/MemAvailable:|SwapFree:/ {s+=$2} END {print s}' /proc/meminfo)
+        if [ "$have_kb" -lt 3000000 ] && [ ! -f /swapfile.frognet-ai ]; then
+            printf "  Only %d MB of memory and swap free; pip needs about 3 GB. Add a 2 GB swap file (/swapfile.frognet-ai)? [y/N] " $((have_kb / 1024))
+            read sw < /dev/tty || sw=""
+            case "$sw" in
+            y|Y|yes|YES)
+                fallocate -l 2G /swapfile.frognet-ai && chmod 600 /swapfile.frognet-ai \
+                    && mkswap /swapfile.frognet-ai >/dev/null && swapon /swapfile.frognet-ai \
+                    && say "2 GB swap on /swapfile.frognet-ai (this boot only)" \
+                    || fail "could not add the swap file" ;;
+            esac
+        fi
+        case "$(uname -m)" in
+        x86_64) IDX="--index-url https://download.pytorch.org/whl/cpu" ;;
+        *)      IDX="" ;;
+        esac
+        PIPX=""
+        python3 -m pip install --help 2>/dev/null | grep -q -- "--break-system-packages" && PIPX="--break-system-packages"
+        if python3 -m pip install $PIPX --no-cache-dir $IDX torch; then
+            say "torch $(python3 -c 'import torch;print(torch.__version__)') installed"
+        else
+            fail "pip could not install torch (its output is above)"
+        fi ;;
+    *)  say "torch not installed: FrogTorch runs will not start on this machine" ;;
+    esac
+fi
+
 echo "verifying:"
 PYP=""
 [ -d /etc/frognet_bundles/communicator ] && PYP=/etc/frognet_bundles/communicator
