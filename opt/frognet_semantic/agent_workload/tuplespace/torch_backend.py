@@ -196,6 +196,13 @@ def _native():
     _NATIVE_TRIED = True
     if os.environ.get("FROGNET_C10D_NATIVE") == "0":
         return None
+    _t0 = time.time()
+    _bdir = os.environ.get("FROGNET_C10D_BUILD_DIR", "/var/cache/frognet/frognet_work_build")
+    _had = os.path.exists(os.path.join(_bdir, "frognet_work.so"))
+    try:
+        os.makedirs(_bdir, exist_ok=True)    # survives a reboot, unlike /tmp
+    except OSError:
+        pass
     try:
         from torch.utils.cpp_extension import load
         src = os.path.join(os.path.dirname(os.path.abspath(__file__)),
@@ -206,8 +213,13 @@ def _native():
             # at::symint::sizes<T> fails to resolve.
             extra_cflags=["-O2", "-std=c++20", "-DC10_NODEPRECATED"],
             build_directory=os.environ.get("FROGNET_C10D_BUILD_DIR",
-                                           "/tmp/frognet_work_build"),
+                                           "/var/cache/frognet/frognet_work_build"),
             verbose=False)
+        # [SAY_WHAT_THE_START_COST_V1] A cleared /tmp (a reboot) rebuilds this
+        # shim inside init_process_group -- minutes on a Pi, with every other
+        # rank waiting and nothing on screen. Say it.
+        print("[frognet] native Work shim %s in %.1f s (%s)"
+              % ("loaded" if _had else "BUILT", time.time() - _t0, _bdir), flush=True)
     except Exception:
         # Falls back to the Python Work, which is correct for collectives
         # and known-incomplete for point-to-point. Better than refusing to
@@ -399,10 +411,9 @@ class FrogNetBackend(_CBackend):
         if self._exec is None:
             with self._lock:
                 if self._exec is None:
-                    from concurrent.futures import ThreadPoolExecutor
-                    self._exec = ThreadPoolExecutor(
-                        max_workers=max(2, self._size),
-                        thread_name_prefix="frognet-c10d")
+                    # [ADAPTIVE_POOL_V1] up when needed, retired when idle
+                    from .tensor_plane import AdaptivePool
+                    self._exec = AdaptivePool("frognet-c10d")
         return self._exec
 
     def _publish(self, op: str, seq: int, value):

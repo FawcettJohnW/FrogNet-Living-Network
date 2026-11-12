@@ -614,19 +614,23 @@ def writable_bytes(t):
     return memoryview(t.numpy()).cast("B")
 
 
-STREAM_SETS = max(1, int(os.environ.get("FROGNET_STREAM_SETS", "3")))
+# Defaults are r8's link shape: one flow per peer, no unsent cap, records of at
+# least 256 KB. r9 and r10, which defaulted to 3 flows, a 64 KB unsent cap and
+# 20 ms records, ran about 2x slower to warmup on the 5-node mesh (ddp5761,
+# ddp3499: 271 s against r7's 137 s). The mechanisms stay, behind these knobs.
+STREAM_SETS = max(1, int(os.environ.get("FROGNET_STREAM_SETS", "1")))
 # [THE_CEILING_IS_A_TIME_NOT_A_SIZE_V1 - from dataplane.hpp / fnav.py] One
 # record owns its socket for at most this long: records are sized from the
 # rate that socket is measured to achieve, times this.
 STREAM_CEIL_S = float(os.environ.get("FROGNET_STREAM_CEIL_MS", "20")) / 1000.0
-STREAM_SEG_MIN = int(os.environ.get("FROGNET_STREAM_SEG_MIN", str(16 << 10)))
+STREAM_SEG_MIN = int(os.environ.get("FROGNET_STREAM_SEG_MIN", str(256 << 10)))
 STREAM_SEG_MAX = int(os.environ.get("FROGNET_STREAM_SEG_MAX", str(1 << 20)))
 # [THE_BUFFER_IS_THE_LATENCY_V1 - from frogram.cpp / ram_host.cpp] Ribbit caps
 # SO_SNDBUF at 16-32 KB. On a 100-150 ms WAN link that would cap the
 # congestion window too (SO_SNDBUF holds unacknowledged bytes), so the cap is
 # put on what the kernel holds UNSENT instead: TCP_NOTSENT_LOWAT. The queue in
 # our own socket stays short, and the window still grows to the path.
-STREAM_NOTSENT = int(os.environ.get("FROGNET_STREAM_NOTSENT", str(64 << 10)))
+STREAM_NOTSENT = int(os.environ.get("FROGNET_STREAM_NOTSENT", "0"))
 _TCP_NOTSENT_LOWAT = getattr(socket, "TCP_NOTSENT_LOWAT", 25)
 
 
@@ -666,6 +670,126 @@ def _lz4():
                 "python3-lz4, or set FROGNET_STREAM_LZ4=0" % sys.executable) from e
         _LZ4 = _b
     return _LZ4
+
+
+class AdaptivePool:
+    """[ADAPTIVE_POOL_V1] John's rule for every pool: a thread starts when one
+    is needed and retires after IDLE_S idle; no fixed size, no cap at cores-1.
+    Growth is triggered by wait time (starvation): a task that has sat queued
+    for STARVE_S with no worker free gets a new thread. The first task never
+    waits. Threads are daemons, so nothing here holds the interpreter at exit.
+    submit() returns a concurrent.futures.Future."""
+
+    def __init__(self, name: str, idle_s: float = None, starve_s: float = None, cap: int = 0):
+        self.name = name
+        self.idle_s = idle_s if idle_s is not None else float(os.environ.get("FROGNET_POOL_IDLE_S", "60"))
+        self.starve_s = starve_s if starve_s is not None else float(os.environ.get("FROGNET_POOL_STARVE_MS", "2")) / 1000.0
+        self.cap = cap
+        self._cv = threading.Condition()
+        self._q = []
+        self._threads = 0
+        self._idle = 0
+        self._n = 0
+        self._closed = False
+        self.started = self.retired = self.peak = 0
+
+    def submit(self, fn, *a, **k):
+        from concurrent.futures import Future
+        f = Future()
+        with self._cv:
+            if self._closed:
+                raise RuntimeError("%s: pool is shut down" % self.name)
+            self._q.append((f, fn, a, k, time.perf_counter()))
+            if self._idle > len(self._q) - 1:
+                self._cv.notify()
+            elif self._threads == 0:
+                self._start()
+            else:
+                threading.Timer(self.starve_s, self._starved).start()
+        return f
+
+    def _starved(self) -> None:
+        with self._cv:
+            if self._q and self._idle == 0 and not self._closed and \
+                    time.perf_counter() - self._q[0][4] >= self.starve_s * 0.9 and \
+                    (not self.cap or self._threads < self.cap):
+                self._start()
+
+    def _start(self) -> None:
+        self._threads += 1
+        self._n += 1
+        self.started += 1
+        self.peak = max(self.peak, self._threads)
+        threading.Thread(target=self._work, daemon=True,
+                         name="%s_%d" % (self.name, self._n)).start()
+
+    def _work(self) -> None:
+        while True:
+            with self._cv:
+                self._idle += 1
+                t_idle = time.time()
+                while not self._q and not self._closed:
+                    left = self.idle_s - (time.time() - t_idle)
+                    if left <= 0:
+                        break
+                    self._cv.wait(left)
+                self._idle -= 1
+                if not self._q:
+                    self._threads -= 1
+                    self.retired += 1
+                    return
+                f, fn, a, k, _t = self._q.pop(0)
+            if not f.set_running_or_notify_cancel():
+                continue
+            try:
+                f.set_result(fn(*a, **k))
+            except BaseException as e:
+                f.set_exception(e)
+
+    def shutdown(self, wait: bool = False, cancel_futures: bool = False) -> None:
+        with self._cv:
+            self._closed = True
+            if cancel_futures:
+                for f, *_ in self._q:
+                    f.cancel()
+                self._q.clear()
+            self._cv.notify_all()
+
+    def stats(self) -> Dict[str, int]:
+        return {"threads": self._threads, "idle": self._idle, "queued": len(self._q),
+                "started": self.started, "retired": self.retired, "peak": self.peak}
+
+
+# [SAME_DIFF_ON_THE_LINK_V1] The semantic engine's idea on the data link: a
+# cell is differenced against the last cell of the SAME INSTANCE this link
+# carried (fnwp_engine's INSTANCE_REFERENCES -- the family and the cell's
+# size, never another instance that shares the template). Exact, lossless,
+# in BLOCK-sized blocks: only blocks whose bytes changed go. No changed block
+# is SAME. A family is probed (two cells kept and compared) and dropped for
+# DIFF_REPROBE cells when more than DIFF_MAX_CHANGED of its blocks change --
+# dense gradients change every block every step, so here it never fires;
+# frozen layers, embeddings, parameters that did not move, and repeated
+# control state are where it pays.
+STREAM_DIFF = os.environ.get("FROGNET_STREAM_DIFF", "1") not in ("0", "no")
+DIFF_BLOCK = int(os.environ.get("FROGNET_STREAM_DIFF_BLOCK", str(64 << 10)))
+DIFF_MAX_CHANGED = float(os.environ.get("FROGNET_STREAM_DIFF_MAX_CHANGED", "0.5"))
+DIFF_REPROBE = int(os.environ.get("FROGNET_STREAM_DIFF_REPROBE", "64"))
+
+
+def _changed_blocks(new, old, bs: int):
+    """Indices of the bs-byte blocks where `new` differs from `old` (same length)."""
+    import numpy as _np
+    a = _np.frombuffer(new, dtype=_np.uint8)
+    b = _np.frombuffer(old, dtype=_np.uint8)
+    n = len(a)
+    full = n // bs
+    idx = []
+    if full:
+        ne = (a[:full * bs].reshape(full, bs) != b[:full * bs].reshape(full, bs)).any(axis=1)
+        idx = _np.nonzero(ne)[0].tolist()
+    if n % bs and (a[full * bs:] != b[full * bs:]).any():
+        idx.append(full)
+    return idx, full + (1 if n % bs else 0)
 
 
 def _family_key(name: str) -> str:
@@ -723,18 +847,19 @@ def native_link():
             t0 = time.time()
             from torch.utils.cpp_extension import load
             src = os.path.join(os.path.dirname(os.path.abspath(__file__)), "frognet_link.cpp")
+            os.makedirs(os.environ.get("FROGNET_LINK_BUILD_DIR",
+                                       "/var/cache/frognet/frognet_link_build"), exist_ok=True)
             try:
                 _NATIVE_LINK = load(name="frognet_link", sources=[src],
                                     extra_cflags=["-O2", "-std=c++20", "-DC10_NODEPRECATED"],
                                     build_directory=os.environ.get(
-                                        "FROGNET_LINK_BUILD_DIR", "/tmp/frognet_link_build"),
+                                        "FROGNET_LINK_BUILD_DIR", "/var/cache/frognet/frognet_link_build"),
                                     verbose=False)
             except Exception as e:
                 raise RuntimeError(
                     "frognet_link.cpp did not build on this machine (%s: %s). The native "
-                    "link is the default; FROGNET_PLANE_NATIVE=0 runs the Python link instead."
+                    "link was asked for (FROGNET_PLANE_NATIVE=1); unset it to run the Python link."
                     % (type(e).__name__, str(e)[:400])) from e
-            os.makedirs("/tmp/frognet_link_build", exist_ok=True)
             _sdiag("NATIVE %s loaded in %.1f s" % (_NATIVE_LINK.BUILD, time.time() - t0))
         return _NATIVE_LINK
 
@@ -765,6 +890,9 @@ class _Subscriber:
         self.stop = threading.Event()
         self.socks: Dict[int, Any] = {}
         self._lz4_skip: Dict[str, int] = {}
+        self._diff: Dict[str, Dict[str, Any]] = {}
+        self.diff_ok = False          # the reader said it keeps instances (Python landing)
+        self.diff_tries = self.diff_used = self.diff_saved = 0
         self.lz4_tries = self.lz4_used = self.lz4_saved = 0
         self.rate: Dict[int, float] = {}       # set -> bytes/s, EWMA
         self.set_bytes: Dict[int, int] = {}
@@ -813,10 +941,53 @@ class _Subscriber:
                                                  LZ4_REPROBE))
         return None
 
+    def _maybe_diff(self, name, mv):
+        """(payload, meta) to send in place of `mv`, or None to send it whole.
+        meta tells the reader what to keep and how to rebuild."""
+        # One flow only: a difference is against the PREVIOUS cell of the
+        # instance, so the two must land in the order they were sent, which
+        # one flow with in-order interleaving guarantees and several do not.
+        if (not (STREAM_DIFF and self.diff_ok) or self.nsets > 1
+                or len(mv) < 2 * DIFF_BLOCK or self._nat is not None):
+            return None, {}
+        key = "%s/%d" % (_family_key(name), len(mv))
+        st = self._diff.setdefault(key, {"prev": None, "skip": 0, "on": False})
+        if st["skip"] > 0:
+            st["skip"] -= 1
+            return None, {}
+        if st["prev"] is None:
+            # Start a probe: keep this cell, and ask the reader to keep it too.
+            st["prev"] = bytes(mv)
+            st["pname"] = name
+            return None, {"dkeep": key}
+        idx, nb = _changed_blocks(mv, st["prev"], DIFF_BLOCK)
+        frac = len(idx) / max(1, nb)
+        self.diff_tries += 1
+        if frac > DIFF_MAX_CHANGED:
+            if STREAM_DIAG or self.diff_tries <= 2:
+                _sdiag("DIFF %s to=%s changed=%d/%d blocks -> sending whole; instance %s "
+                       "not differenced again for %d cells"
+                       % (name, self.reader, len(idx), nb, key, DIFF_REPROBE))
+            st["prev"], st["skip"], st["on"] = None, DIFF_REPROBE, False
+            return None, {"ddrop": key}
+        n = len(mv)
+        parts = [bytes(mv[i * DIFF_BLOCK:min(n, (i + 1) * DIFF_BLOCK)]) for i in idx]
+        base_name = st.get("pname")
+        st["prev"], st["on"], st["pname"] = bytes(mv), True, name
+        self.diff_used += 1
+        self.diff_saved += n - sum(len(p) for p in parts)
+        return b"".join(parts), {"dkey": key, "dblocks": idx, "dbs": DIFF_BLOCK, "dn": n,
+                                 "dbase": base_name}
+
     def push(self, name, gen, inc, blob, keep, t_pub, t_req) -> None:
         orig = name
         mv = memoryview(blob).cast("B")
         zn = None
+        dpay, dmeta = self._maybe_diff(name, mv)
+        if dpay is not None:
+            blob, keep = dpay, None
+            mv = memoryview(blob).cast("B")
+            name = name + "#d"
         z = self._maybe_lz4(name, mv)
         if z is not None:
             blob, zn = z
@@ -829,17 +1000,19 @@ class _Subscriber:
                 cid = self._id
                 d = {"id": cid, "name": name, "orig": orig, "gen": gen, "n": len(mv),
                      "t_pub": t_pub, "t_req": t_req, "depth": len(self._meta),
-                     "t_push": time.time(), "zn": zn}
+                     "t_push": time.time(), "zn": zn, "dmeta": dmeta}
                 self._meta[cid] = d
             head = _head_body(name, {"gen": gen, "inc": inc, "n": len(mv), "id": cid,
                                      "t_pub": t_pub, "t_req": t_req, "t_send": d["t_push"],
-                                     "depth": d["depth"], "active": d["depth"], "zn": zn})
+                                     "depth": d["depth"], "active": d["depth"], "zn": zn,
+                                     **dmeta})
             self._nat.push(cid, head, _addr(mv) if len(mv) else 0, len(mv), (blob, keep))
             return
         with self._cv:
             self._id += 1
             self._active.append({
-                "id": self._id, "name": name, "orig": orig, "zn": zn, "gen": gen,
+                "id": self._id, "name": name, "orig": orig, "zn": zn, "dmeta": dmeta,
+                "gen": gen,
                 "inc": inc, "mv": mv,
                 "n": len(mv), "next": 0, "done": 0, "hdr": False, "keep": keep,
                 "t_pub": t_pub, "t_req": t_req, "depth": len(self._active),
@@ -960,7 +1133,7 @@ class _Subscriber:
                     "gen": d["gen"], "inc": d["inc"], "n": d["n"], "id": d["id"],
                     "t_pub": d["t_pub"], "t_req": d["t_req"], "t_send": d["t0"],
                     "depth": d["depth"], "active": len(self._active), "set": si,
-                    "zn": d.get("zn")})
+                    "zn": d.get("zn"), **(d.get("dmeta") or {})})
                 _sendmsg_all(conn, [_REC2.pack(b"H", d["id"] & 0xFFFFFFFF, d["n"], 0,
                                                len(hdr)), hdr])
                 if d["n"] == 0:
@@ -1007,6 +1180,11 @@ class StreamSubscription:
         self.err = None
         self.cells = self.direct = self.buffered = self.bytes = self.requests = 0
         self.wire_ewma = 0.0
+        self._dprev: Dict[str, Any] = {}
+        self.diff_cells = 0
+        self._takers: Dict[str, int] = {}
+        self.coalesced = 0
+        self._direct_views: Dict[str, Any] = {}
         self.family = list(family)
         token = uuid.uuid4().hex
         self.socks = []
@@ -1018,6 +1196,7 @@ class StreamSubscription:
             sk.settimeout(None)
             _send_frame(sk, json.dumps({"op": "subscribe", "from": me, "token": token,
                                         "set": si, "sets": self.nsets,
+                                        "diff": bool(STREAM_DIFF and not PLANE_NATIVE),
                                         "family": self.family if si == 0 else []}).encode())
             ack = json.loads(bytes(_recv_frame(sk)).decode())
             set_cc(sk)
@@ -1142,6 +1321,43 @@ class StreamSubscription:
                 e["bad"] = len(dst) if dst is not None else None
             hdr["name"], hdr["n"], hdr["zbytes"] = base, zn, n
             name, n, direct = base, zn, e["direct"]
+        if name.endswith("#d") and hdr.get("dkey"):
+            # [SAME_DIFF_ON_THE_LINK_V1] Rebuild from the last cell of this
+            # instance, patched with the blocks that changed.
+            base, key, bs, dn = name[:-2], hdr["dkey"], int(hdr["dbs"]), int(hdr["dn"])
+            prev, pname = self._dprev.get(key, (None, None))
+            if prev is None or len(prev) != dn or pname != hdr.get("dbase"):
+                raise ConnectionError("%s: DIFF for %s against %s (instance %s); this reader "
+                                      "holds %s -- link out of step"
+                                      % (self.label, base, hdr.get("dbase"), key, pname))
+            src = e["target"]
+            pay = memoryview(src.numpy() if hasattr(src, "numpy") else src).cast("B")
+            out = bytearray(prev)
+            off = 0
+            for i in hdr["dblocks"]:
+                ln = min(dn, (i + 1) * bs) - i * bs
+                out[i * bs:i * bs + ln] = pay[off:off + ln]
+                off += ln
+            self._dprev[key] = (bytes(out), base)
+            dst = self._dst.pop(base, None)
+            self._keep.pop(base, None)
+            if dst is not None and len(dst) == dn:
+                memoryview(dst).cast("B")[:] = out
+                e["direct"], e["target"], e["bad"] = True, None, None
+            else:
+                e["direct"], e["target"] = False, out
+                e["bad"] = len(dst) if dst is not None else None
+            hdr["name"], hdr["n"], hdr["dbytes"] = base, dn, n
+            name, n, direct = base, dn, e["direct"]
+            self.diff_cells += 1
+        elif hdr.get("dkeep"):
+            # The owner is probing this instance: keep a copy to difference against.
+            tgt = e.get("mv") if e["direct"] else e["target"]
+            if tgt is not None:
+                self._dprev[hdr["dkeep"]] = (bytes(memoryview(tgt.numpy() if hasattr(tgt, "numpy")
+                                                              else tgt).cast("B")), name)
+        if hdr.get("ddrop"):
+            self._dprev.pop(hdr["ddrop"], None)
         t_land = time.time()
         t_ask = self._asked.pop(name, None)
         cell = {"name": name, "gen": hdr["gen"], "n": n, "direct": direct,
@@ -1258,7 +1474,11 @@ class StreamSubscription:
         `early` (it had landed before anyone asked)."""
         t0 = time.time()
         with self._cv:
-            cell = self._landed.pop(name, None)
+            # [COALESCE_TAKERS_V1] Every taker waiting on the same cell gets
+            # the one landing (the proxy's _coalesced_rpc on the reader side):
+            # the cell leaves _landed when the last of them has it.
+            self._takers[name] = self._takers.get(name, 0) + 1
+            cell = self._landed.get(name)
             early = cell is not None
             if cell is None and dst is not None:
                 self._register(name, dst)
@@ -1266,12 +1486,14 @@ class StreamSubscription:
             while cell is None:
                 if self.err:
                     self._dst.pop(name, None)
+                    self._takers.pop(name, None)
                     raise ConnectionError("%s: stream from %s:%d is down: %s"
                                           % (self.label, self.host, self.port,
                                              self.err))
                 left = deadline - time.time()
                 if left <= 0:
                     self._dst.pop(name, None)
+                    self._takers.pop(name, None)
                     if self._nat is not None:
                         self._nat.forget(name)
                         self._keep.pop(name, None)
@@ -1281,7 +1503,14 @@ class StreamSubscription:
                         % (self.label, name, self.host, self.port, timeout_s,
                            sorted(self._landed)[:8], self.cells))
                 self._cv.wait(left)
-                cell = self._landed.pop(name, None)
+                cell = self._landed.get(name)
+            left_takers = self._takers.get(name, 1) - 1
+            if left_takers <= 0:
+                self._takers.pop(name, None)
+                self._landed.pop(name, None)
+            else:
+                self._takers[name] = left_takers
+                self.coalesced += 1
         cell["waited_ms"] = (time.time() - t0) * 1000.0
         cell["early"] = early
         if cell.get("bad_dst") is not None:
@@ -1293,6 +1522,7 @@ class StreamSubscription:
 
     def stats(self) -> Dict[str, Any]:
         return {"cells": self.cells, "direct": self.direct, "sets": self.nsets,
+                "diff_cells": self.diff_cells, "coalesced": self.coalesced,
                 "requests": self.requests, "asked_open": len(self._asked),
                 "buffered": self.buffered, "mbytes": round(self.bytes / 1e6, 2),
                 "unclaimed": len(self._landed), "err": self.err}
@@ -1542,6 +1772,7 @@ class TensorServer:
         if si == 0:
             sub = _Subscriber(req.get("from", who), who, self._sent,
                               req.get("family") or (), token, int(req.get("sets", 1)))
+            sub.diff_ok = bool(req.get("diff"))
             with self._sub_lock:
                 # Cells of the family already written fire the held read now,
                 # in write order; later ones fire it as they are written.

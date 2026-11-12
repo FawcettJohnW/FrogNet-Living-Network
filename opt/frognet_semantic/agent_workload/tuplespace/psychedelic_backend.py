@@ -196,11 +196,13 @@ def _psy_pool_state(be) -> str:
     same from the outside and are not the same problem."""
     try:
         ex = getattr(be, "_exec", None)
-        if ex is None:
-            return "pool=none"
-        q = ex._work_queue.qsize()
-        threads = len(ex._threads)
-        return "pool_workers=%d pool_queued=%d" % (threads, q)
+        parts = []
+        for nm, pool in (("read", ex), ("round", getattr(be, "_coll", None))):
+            if pool is not None and hasattr(pool, "stats"):
+                st = pool.stats()
+                parts.append("%s_pool=%d/%didle queued=%d peak=%d" % (
+                    nm, st["threads"], st["idle"], st["queued"], st["peak"]))
+        return " ".join(parts) or "pool=none"
     except Exception as e:
         return "pool=unreadable(%s)" % type(e).__name__
 
@@ -565,14 +567,10 @@ class PsychedelicBackend(_base.FrogNetBackend):
         overlap on one core as readily as on many.
         """
         if self._exec is None:
-            from concurrent.futures import ThreadPoolExecutor
-            self._exec = ThreadPoolExecutor(
-                # [ASK_FOR_IT_BEFORE_YOU_NEED_IT_V1] Both phases' reads are
-                # now in flight together: 2(W-1) at once, not W-1. A pool
-                # smaller than that serialises the very reads the change
-                # exists to overlap.
-                max_workers=max(4, 2 * self._size),
-                thread_name_prefix="psy-read")
+            from .tensor_plane import AdaptivePool
+            self._exec = AdaptivePool("psy-read")
+            # [ADAPTIVE_POOL_V1] Was a fixed max(4, 2W) ThreadPoolExecutor: now a
+            # read gets a worker when it needs one, and an idle worker retires.
             # [EXIT_ENDS_THE_WAIT_V1] concurrent.futures joins its workers at
             # interpreter exit. A worker blocked in a read-ahead for a round
             # that will never be published held ddp5744 there for up to
@@ -1210,7 +1208,9 @@ class PsychedelicBackend(_base.FrogNetBackend):
     # every bucket's cells multiplexed on the same per-peer links instead of
     # one round waiting for the last. ROUNDS_IN_FLIGHT=1 keeps rounds in call
     # order but still off the caller's thread.
-    ROUNDS_IN_FLIGHT = max(1, int(os.environ.get("FROGNET_PSY_ROUNDS_IN_FLIGHT", "2")))
+    # [ADAPTIVE_POOL_V1] 0 (the default) is no cap: a round gets a worker
+    # when it needs one. A number caps rounds in flight.
+    ROUNDS_IN_FLIGHT = max(0, int(os.environ.get("FROGNET_PSY_ROUNDS_IN_FLIGHT", "0")))
 
     def _allreduce_async(self, tensors, op):
         from .torch_backend import _create_work_from_future
@@ -1236,9 +1236,8 @@ class PsychedelicBackend(_base.FrogNetBackend):
                      call_to_done_ms="%.1f" % ((time.time() - t_call) * 1000.0))
         with self._coll_lock:
             if getattr(self, "_coll", None) is None:
-                from concurrent.futures import ThreadPoolExecutor
-                self._coll = ThreadPoolExecutor(max_workers=self.ROUNDS_IN_FLIGHT,
-                                                thread_name_prefix="psy-round")
+                from .tensor_plane import AdaptivePool
+                self._coll = AdaptivePool("psy-round", cap=self.ROUNDS_IN_FLIGHT)
                 self._inflight = []
             self._inflight = [f for f in self._inflight if not f.done()]
             self._inflight.append(self._coll.submit(run))
@@ -2383,8 +2382,8 @@ def _create(store, rank, size, timeout):
 
 
 #: Said once per process, so a run's own log shows which code is running.
-BUILD = ("psychedelic 20261112-september-family-link-r10 (the September tensor path; "
-         "one held read per peer on the family it writes for this rank; the write fires it; every ready cell interleaved on the link; 3 channel sets per link; records sized to 20 ms; short unsent queue; per-peer stall timing; LZ4 when it shrinks; native link optional; all_reduce returns at once, rounds in flight together "
+BUILD = ("psychedelic 20261112-september-family-link-r11 (the September tensor path; "
+         "one held read per peer on the family it writes for this rank; the write fires it; every ready cell interleaved on the link; channel sets, 20 ms records and unsent cap available (off by default); per-peer stall timing; LZ4 when it shrinks; exact block DIFF/SAME per instance; coalesced takers; adaptive pools; native link optional; all_reduce returns at once, rounds in flight together "
          "and the bytes go on one permanent link, without pause; "
          "control cells in the one RAM; PyTorch 2.15 port)")
 
