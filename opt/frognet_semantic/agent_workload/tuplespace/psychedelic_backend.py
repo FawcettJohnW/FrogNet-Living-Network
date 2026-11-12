@@ -90,7 +90,7 @@ from . import frogtorch_ram_client as T  # [ONE_RAM_V1] the control cells: the o
 
 from . import torch_backend as _base
 from .tensor_plane import (READ_CURRENT, StreamSubscription, TensorClient,
-                           TensorServer, tcp_info, writable_bytes)
+                           TensorServer, plane_view, tcp_info, writable_bytes)
 
 
 # ---------------------------------------------------------------------------
@@ -165,6 +165,32 @@ class _PsyWait:
         return False
 
 
+class _PeerTiming:
+    """[PER_PEER_TIMING_V1] The proxy's _PeerLatency shape
+    (proxy/transport_semantic.py): an EWMA of what a peer's cells actually
+    take, fed only by successful landings, clamped so one pathological cell
+    cannot teach it to wait forever. Here it sets when a wait is reported as a
+    stall; nothing in this path retries, so it never changes what is waited
+    for -- only how soon a slow peer is named."""
+
+    def __init__(self, alpha: float = 0.2, floor_s: float = 0.05,
+                 ceiling_s: float = 60.0, mult: float = 4.0, min_stall_s: float = 2.0):
+        self.ewma = None
+        self.alpha, self.floor, self.ceiling = alpha, floor_s, ceiling_s
+        self.mult, self.min_stall = mult, min_stall_s
+        self.n = 0
+
+    def observe(self, s: float) -> None:
+        s = max(self.floor, min(self.ceiling, s))
+        self.ewma = s if self.ewma is None else (1 - self.alpha) * self.ewma + self.alpha * s
+        self.n += 1
+
+    def stall_s(self) -> float:
+        if self.ewma is None:
+            return _PSY_STALL_S
+        return max(self.min_stall, min(_PSY_STALL_S, self.mult * self.ewma))
+
+
 def _psy_pool_state(be) -> str:
     """Executor depth and busy count. A queued read and a slow peer look the
     same from the outside and are not the same problem."""
@@ -193,7 +219,10 @@ def _psy_start_watchdog() -> None:
                 snap = {k: dict(v) for k, v in _psy_waits.items()}
             for wid, f in snap.items():
                 el = now - f["t0"]
-                if el < _PSY_STALL_S:
+                # [PER_PEER_TIMING_V1] A wait is a stall when it is long for
+                # THAT peer -- several times what its cells normally take --
+                # not when it passes one number for every link.
+                if el < float(f.get("stall_s") or _PSY_STALL_S):
                     continue
                 last = reported.get(wid, 0.0)
                 if now - last < _PSY_STALL_EVERY_S:
@@ -1272,14 +1301,31 @@ class PsychedelicBackend(_base.FrogNetBackend):
                             pi + r"\.arr\.\d+"])
         return s
 
+    def _timing(self, p: int) -> "_PeerTiming":
+        tm = getattr(self, "_peer_timing", None)
+        if tm is None:
+            tm = self._peer_timing = {}
+        t = tm.get(p)
+        if t is None:
+            t = tm[p] = _PeerTiming()
+        return t
+
     def _take(self, p: int, name: str, seq: int, phase: str, dst=None):
         sub = self._stream(p)
         d = self._rendezvous()[p]
+        tm = self._timing(p)
         with _PsyWait(phase=phase, rank=self._rank, seq=seq, peer=p, cell=name,
                       gen=seq, host=d["host"], port=d["port"], stream=1,
+                      stall_s="%.2f" % tm.stall_s(),
+                      peer_ewma_s=("%.3f" % tm.ewma) if tm.ewma is not None else "-",
                       _be=self):
             try:
-                return sub.take(name, dst, timeout_s=self._timeout_s)
+                c = sub.take(name, dst, timeout_s=self._timeout_s)
+                # What the peer's cell took on the wire, first data record to
+                # last byte, on this machine's clock only (no skew), and not
+                # how long this rank waited for the peer to write it.
+                tm.observe(max(0.0, c["t_land"] - (c.get("t_first") or c["t_land"])))
+                return c
             except Exception as e:
                 if hasattr(e, "add_note"):
                     e.add_note("rank %d waiting for %s pushed by rank %d at "
@@ -1344,8 +1390,7 @@ class PsychedelicBackend(_base.FrogNetBackend):
                 if c["direct"]:
                     acc_fn(own, stage[i])
                 else:
-                    acc_fn(own, torch.frombuffer(c["buf"], dtype=own.dtype,
-                                                 count=ln_r))
+                    acc_fn(own, plane_view(c["buf"], own.dtype, ln_r))
                     self._streams[p].release(c)
                 w1[p] = c
         p1_ms = (time.perf_counter() - _t_p1) * 1000.0
@@ -1367,8 +1412,7 @@ class PsychedelicBackend(_base.FrogNetBackend):
                     "rank %d round %d: r%d's reduced slice is %d bytes, expected "
                     "%d" % (r, seq, p, c["n"], ln_p * esz))
             if not c["direct"]:
-                flat[st_p:st_p + ln_p].copy_(torch.frombuffer(
-                    c["buf"], dtype=flat.dtype, count=ln_p))
+                flat[st_p:st_p + ln_p].copy_(plane_view(c["buf"], flat.dtype, ln_p))
                 self._streams[p].release(c)
             w2[p] = c
         p2_ms = (time.perf_counter() - _t_p2) * 1000.0
@@ -2339,13 +2383,17 @@ def _create(store, rank, size, timeout):
 
 
 #: Said once per process, so a run's own log shows which code is running.
-BUILD = ("psychedelic 20261112-september-family-link-r9 (the September tensor path; "
-         "one held read per peer on the family it writes for this rank; the write fires it; every ready cell interleaved on the link; 3 channel sets per link; records sized to 20 ms; short unsent queue; all_reduce returns at once, rounds in flight together "
+BUILD = ("psychedelic 20261112-september-family-link-r10 (the September tensor path; "
+         "one held read per peer on the family it writes for this rank; the write fires it; every ready cell interleaved on the link; 3 channel sets per link; records sized to 20 ms; short unsent queue; per-peer stall timing; LZ4 when it shrinks; native link optional; all_reduce returns at once, rounds in flight together "
          "and the bytes go on one permanent link, without pause; "
          "control cells in the one RAM; PyTorch 2.15 port)")
 
 
 def register(name: str = "psychedelic") -> None:
+    from . import tensor_plane as _tp
+    print("[psychedelic] link: sets=%d native=%s lz4=%s notsent=%d ceil_ms=%.0f rounds_in_flight=%d"
+          % (_tp.STREAM_SETS, "on" if _tp.PLANE_NATIVE else "off", "on" if _tp.STREAM_LZ4 else "off",
+             _tp.STREAM_NOTSENT, _tp.STREAM_CEIL_S * 1000, PsychedelicBackend.ROUNDS_IN_FLIGHT), flush=True)
     print("[psychedelic] %s; family link %s; read-ahead %s" % (
         BUILD, "on" if PsychedelicBackend.STREAM else "OFF",
         "inherent (held read on the family)" if PsychedelicBackend.STREAM else

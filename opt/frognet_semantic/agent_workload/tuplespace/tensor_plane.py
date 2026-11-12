@@ -631,12 +631,112 @@ _TCP_NOTSENT_LOWAT = getattr(socket, "TCP_NOTSENT_LOWAT", 25)
 
 
 def _short_queue(sk) -> str:
-    """Put the unsent-bytes cap on a data socket; return what the kernel took."""
+    """Put the unsent-bytes cap on a data socket; return what the kernel took.
+    FROGNET_STREAM_NOTSENT=0 leaves the socket as the kernel made it."""
+    if STREAM_NOTSENT <= 0:
+        return "off"
     try:
         sk.setsockopt(socket.IPPROTO_TCP, _TCP_NOTSENT_LOWAT, STREAM_NOTSENT)
         return str(sk.getsockopt(socket.IPPROTO_TCP, _TCP_NOTSENT_LOWAT))
     except OSError as e:
         return "refused(%s)" % (e.strerror or e)
+
+
+# [LZ4_WHEN_IT_SHRINKS_V1] core/codec.py's _lz4_smart on the data link: a cell
+# goes compressed only when that is smaller. Each cell family is probed and,
+# if it does not shrink, left alone for LZ4_REPROBE cells before trying again,
+# so incompressible data (dense float32 gradients measure 1.000) costs one
+# compression in LZ4_REPROBE, not one per cell. A compressed cell travels as
+# "<name>#z" with its original size, lands in a buffer, and is expanded into
+# the registered destination on landing.
+STREAM_LZ4 = os.environ.get("FROGNET_STREAM_LZ4", "1") not in ("0", "no")
+LZ4_GAIN = float(os.environ.get("FROGNET_STREAM_LZ4_GAIN", "0.95"))
+LZ4_REPROBE = int(os.environ.get("FROGNET_STREAM_LZ4_REPROBE", "64"))
+_LZ4 = None
+
+
+def _lz4():
+    global _LZ4
+    if _LZ4 is None:
+        try:
+            import lz4.block as _b
+        except ImportError as e:
+            raise RuntimeError(
+                "FROGNET_STREAM_LZ4 is on and this python (%s) has no lz4 module: install "
+                "python3-lz4, or set FROGNET_STREAM_LZ4=0" % sys.executable) from e
+        _LZ4 = _b
+    return _LZ4
+
+
+def _family_key(name: str) -> str:
+    import re as _re
+    return _re.sub(r"\.\d+", "", name)
+
+
+def _head_body(name: str, meta: Dict[str, Any]) -> bytes:
+    """H record body: [name_len:2 BE][name][json]. The name is first so the
+    native landing (frognet_link.cpp) can find the destination without
+    parsing JSON."""
+    nb = name.encode()
+    return struct.pack(">H", len(nb)) + nb + json.dumps(meta).encode()
+
+
+def _head_parse(body: bytes) -> Dict[str, Any]:
+    (nl,) = struct.unpack(">H", body[:2])
+    hdr = json.loads(body[2 + nl:].decode())
+    hdr["name"] = body[2:2 + nl].decode()
+    return hdr
+
+
+def plane_view(buf, dtype, count: int):
+    """A landed buffer as `count` elements of `dtype`, without a copy: a
+    bytearray from the Python link or a uint8 tensor from the native one."""
+    import torch as _t
+    if isinstance(buf, _t.Tensor):
+        return buf.view(dtype)[:count]
+    return _t.frombuffer(buf, dtype=dtype, count=count)
+
+
+def _addr(b) -> int:
+    """Address of a buffer's first byte (bytes, bytearray or memoryview)."""
+    import numpy as _np
+    a = _np.frombuffer(b, dtype=_np.uint8)
+    return int(a.ctypes.data)
+
+
+# [NATIVE_LINK_V1] The byte-moving half of a link in C++ (frognet_link.cpp),
+# built on first use like frognet_work.cpp. FROGNET_PLANE_NATIVE=1 selects it;
+# a build that fails is then an error, not a quiet switch. OFF by default
+# until one segfault seen in 1 of 11 local DDP runs (rank 0, before its first
+# round, not reproduced since under the fault handler) is found: on loopback
+# it measured no faster than the Python link (98-109 vs 96-107 ms/step).
+PLANE_NATIVE = os.environ.get("FROGNET_PLANE_NATIVE", "0") not in ("0", "no")
+_NATIVE_LINK = None
+_NATIVE_LOCK = threading.Lock()
+_NATIVE_KEEP = []          # Senders/Receivers live as long as the process: their threads are detached
+
+
+def native_link():
+    global _NATIVE_LINK
+    with _NATIVE_LOCK:
+        if _NATIVE_LINK is None:
+            t0 = time.time()
+            from torch.utils.cpp_extension import load
+            src = os.path.join(os.path.dirname(os.path.abspath(__file__)), "frognet_link.cpp")
+            try:
+                _NATIVE_LINK = load(name="frognet_link", sources=[src],
+                                    extra_cflags=["-O2", "-std=c++20", "-DC10_NODEPRECATED"],
+                                    build_directory=os.environ.get(
+                                        "FROGNET_LINK_BUILD_DIR", "/tmp/frognet_link_build"),
+                                    verbose=False)
+            except Exception as e:
+                raise RuntimeError(
+                    "frognet_link.cpp did not build on this machine (%s: %s). The native "
+                    "link is the default; FROGNET_PLANE_NATIVE=0 runs the Python link instead."
+                    % (type(e).__name__, str(e)[:400])) from e
+            os.makedirs("/tmp/frognet_link_build", exist_ok=True)
+            _sdiag("NATIVE %s loaded in %.1f s" % (_NATIVE_LINK.BUILD, time.time() - t0))
+        return _NATIVE_LINK
 
 
 class _Subscriber:
@@ -664,8 +764,18 @@ class _Subscriber:
         self.send_s = 0.0
         self.stop = threading.Event()
         self.socks: Dict[int, Any] = {}
+        self._lz4_skip: Dict[str, int] = {}
+        self.lz4_tries = self.lz4_used = self.lz4_saved = 0
         self.rate: Dict[int, float] = {}       # set -> bytes/s, EWMA
         self.set_bytes: Dict[int, int] = {}
+        # [NATIVE_LINK_V1] The writers in C++: Python decides what fired,
+        # frognet_link.cpp puts it on the flows.
+        self._nat = None
+        self._meta: Dict[int, Dict[str, Any]] = {}
+        if PLANE_NATIVE:
+            self._nat = native_link().Sender(self._on_native_done, STREAM_CEIL_S,
+                                             STREAM_SEG_MIN, STREAM_SEG_MAX)
+            _NATIVE_KEEP.append(self._nat)
 
     def wants(self, name: str) -> bool:
         return name in self.wanted or any(rx.fullmatch(name) for rx in self._rx)
@@ -678,12 +788,59 @@ class _Subscriber:
             return self.t_family
         return None
 
+    def _maybe_lz4(self, name, mv):
+        """(compressed bytes, original size) when that is smaller, else None."""
+        if not STREAM_LZ4 or len(mv) < 4096:
+            return None
+        fk = _family_key(name)
+        skip = self._lz4_skip.get(fk, 0)
+        if skip > 0:
+            self._lz4_skip[fk] = skip - 1
+            return None
+        t = time.perf_counter()
+        c = _lz4().compress(mv, store_size=False)
+        dt = time.perf_counter() - t
+        ratio = len(c) / max(1, len(mv))
+        self.lz4_tries += 1
+        if ratio <= LZ4_GAIN:
+            self.lz4_used += 1
+            self.lz4_saved += len(mv) - len(c)
+            return c, len(mv)
+        self._lz4_skip[fk] = LZ4_REPROBE
+        if STREAM_DIAG or self.lz4_tries <= 2:
+            _sdiag("LZ4 %s to=%s ratio=%.3f cost_ms=%.1f -> sending raw; family %s not "
+                   "tried again for %d cells" % (name, self.reader, ratio, dt * 1000.0, fk,
+                                                 LZ4_REPROBE))
+        return None
+
     def push(self, name, gen, inc, blob, keep, t_pub, t_req) -> None:
+        orig = name
         mv = memoryview(blob).cast("B")
+        zn = None
+        z = self._maybe_lz4(name, mv)
+        if z is not None:
+            blob, zn = z
+            keep = None
+            mv = memoryview(blob).cast("B")
+            name = name + "#z"
+        if self._nat is not None:
+            with self._cv:
+                self._id += 1
+                cid = self._id
+                d = {"id": cid, "name": name, "orig": orig, "gen": gen, "n": len(mv),
+                     "t_pub": t_pub, "t_req": t_req, "depth": len(self._meta),
+                     "t_push": time.time(), "zn": zn}
+                self._meta[cid] = d
+            head = _head_body(name, {"gen": gen, "inc": inc, "n": len(mv), "id": cid,
+                                     "t_pub": t_pub, "t_req": t_req, "t_send": d["t_push"],
+                                     "depth": d["depth"], "active": d["depth"], "zn": zn})
+            self._nat.push(cid, head, _addr(mv) if len(mv) else 0, len(mv), (blob, keep))
+            return
         with self._cv:
             self._id += 1
             self._active.append({
-                "id": self._id, "name": name, "gen": gen, "inc": inc, "mv": mv,
+                "id": self._id, "name": name, "orig": orig, "zn": zn, "gen": gen,
+                "inc": inc, "mv": mv,
                 "n": len(mv), "next": 0, "done": 0, "hdr": False, "keep": keep,
                 "t_pub": t_pub, "t_req": t_req, "depth": len(self._active),
                 "t0": None, "seg_max": 0.0, "sets": set(), "recs": 0})
@@ -744,7 +901,7 @@ class _Subscriber:
                       d["depth"], len(self._active), d["recs"], sorted(d["sets"]),
                       {k: round(v / 1e6, 2) for k, v in sorted(self.rate.items())},
                       _ti(conn)))
-        name = d["name"]
+        name = d.get("orig") or d["name"]
         d["mv"] = d["keep"] = None
         self._cv.release()
         try:
@@ -752,22 +909,58 @@ class _Subscriber:
         finally:
             self._cv.acquire()
 
+    def _on_native_done(self, cid, st, err) -> None:
+        """frognet_link.cpp's notifier, with the GIL: a cell is in the kernels,
+        or a flow failed."""
+        if err is not None:
+            _sdiag("LINK DOWN (native sender) to=%s at=%s: %s" % (self.reader, self.who, err))
+            self.stop.set()
+            return
+        with self._cv:
+            d = self._meta.pop(cid, None)
+        if d is None:
+            return
+        n = d["n"]
+        self.sent += 1
+        self.bytes += n
+        ms = (st["t1"] - st["t0"]) * 1000.0
+        self.send_s += ms / 1000.0
+        if STREAM_DIAG or ms >= STREAM_SLOW_MS:
+            sets = [i for i in range(32) if st["sets"] >> i & 1]
+            _sdiag("SENT %s gen=%d to=%s at=%s bytes=%d held_ms=%s ready_ms=%.1f "
+                   "send_ms=%.1f seg_max_ms=%.1f MBps=%.1f depth=%d alongside=%d "
+                   "records=%d sets=%s rates_MBps=%s native=1 %s"
+                   % (d["name"], d["gen"], self.reader, self.who, n,
+                      ("family" if d["t_req"] == self.t_family
+                       else "%.1f" % ((d["t_pub"] - d["t_req"]) * 1000.0)),
+                      (st["t0"] - max(d["t_pub"], d["t_req"])) * 1000.0, ms,
+                      st["seg_max"] * 1000.0, (n / 1e6) / max(ms / 1000.0, 1e-6),
+                      d["depth"], st["alongside"], st["recs"], sets,
+                      {k: round(v / 1e6, 2) for k, v in sorted(self._nat.rates().items())},
+                      _ti(self.socks.get(0)) if self.socks.get(0) else ""))
+        self._sent_cb(d.get("orig") or d["name"])
+
     def run_set(self, si: int, conn) -> None:
         """One flow's writer: takes records and sends them until the link stops."""
         conn.settimeout(None)
         with self._cv:
             self.socks[si] = conn
+        if self._nat is not None:
+            self._nat.add_set(conn.fileno())
+            while not self.stop.wait(1.0):
+                pass
+            return
         while not self.stop.is_set():
             w = self._take(si)
             if w is None:
                 return
             kind, d, off, ln = w
             if kind == "H":
-                hdr = json.dumps({"name": d["name"], "gen": d["gen"], "inc": d["inc"],
-                                  "n": d["n"], "id": d["id"], "t_pub": d["t_pub"],
-                                  "t_req": d["t_req"], "t_send": d["t0"],
-                                  "depth": d["depth"], "active": len(self._active),
-                                  "set": si}).encode()
+                hdr = _head_body(d["name"], {
+                    "gen": d["gen"], "inc": d["inc"], "n": d["n"], "id": d["id"],
+                    "t_pub": d["t_pub"], "t_req": d["t_req"], "t_send": d["t0"],
+                    "depth": d["depth"], "active": len(self._active), "set": si,
+                    "zn": d.get("zn")})
                 _sendmsg_all(conn, [_REC2.pack(b"H", d["id"] & 0xFFFFFFFF, d["n"], 0,
                                                len(hdr)), hdr])
                 if d["n"] == 0:
@@ -813,6 +1006,7 @@ class StreamSubscription:
         self._open: Dict[int, list] = {}
         self.err = None
         self.cells = self.direct = self.buffered = self.bytes = self.requests = 0
+        self.wire_ewma = 0.0
         self.family = list(family)
         token = uuid.uuid4().hex
         self.socks = []
@@ -839,9 +1033,58 @@ class StreamSubscription:
                       self.family if si == 0 else "-",
                       (" route=" + _route(host)) if si == 0 else ""))
         self.sock = self.socks[0]
+        self._nat = None
+        self._keep: Dict[str, Any] = {}
+        if PLANE_NATIVE:
+            # [NATIVE_LINK_V1] Landing in C++: records go straight into the
+            # registered tensor, or into a buffer handed back as a tensor.
+            self._nat = native_link().Receiver(self._on_native_land)
+            _NATIVE_KEEP.append(self._nat)
+            for sk in self.socks:
+                self._nat.add_set(sk.fileno())
+            return
         for si, sk in enumerate(self.socks):
             threading.Thread(target=self._run, args=(si, sk), daemon=True,
                              name="plane-land-%s-s%d" % (label, si)).start()
+
+    def _register(self, name: str, dst) -> None:
+        """Where `name` goes if it has not landed yet. Under _cv."""
+        if name in self._landed:
+            return
+        self._dst[name] = dst
+        if self._nat is not None and dst is not None:
+            self._keep[name] = dst
+            self._nat.expect(name, _addr(dst), len(dst))
+
+    def _on_native_land(self, name, body, st, buf, err) -> None:
+        """frognet_link.cpp's notifier, with the GIL: a cell landed, or a flow
+        failed. The same bookkeeping and the same LANDED line as _land."""
+        if err is not None:
+            with self._cv:
+                first = self.err is None
+                if first:
+                    self.err = "native: %s" % err
+                self._cv.notify_all()
+            if first:
+                if "peer closed" in str(err):
+                    _sdiag("LINK CLOSED %s %s:%d by owner after %d cells; still asked for: %s"
+                           % (self.label, self.host, self.port, self.cells, sorted(self._asked)[:6]))
+                else:
+                    _sdiag("LINK DOWN %s %s:%d after %d cells (native): %s"
+                           % (self.label, self.host, self.port, self.cells, err))
+            return
+        hdr = json.loads(bytes(body).decode())
+        hdr["name"] = name
+        n = int(st["n"])
+        direct = bool(st["direct"])
+        bad = int(st["bad"]) if int(st["bad"]) >= 0 else None
+        with self._cv:
+            self._dst.pop(name, None)
+            self._keep.pop(name, None)
+            e = {"hdr": hdr, "direct": direct, "target": buf, "bad": bad,
+                 "t_first": st["t_first"] or None, "recs": st["recs"],
+                 "sets": {i for i in range(32) if st["sets"] >> i & 1}}
+            self._land(-1, e)
 
     def request(self, items) -> None:
         """Ask for cells by name (one-shot held reads), on set 0. Does not wait."""
@@ -849,8 +1092,8 @@ class StreamSubscription:
         now = time.time()
         with self._cv:
             for name, dst in items:
-                if dst is not None and name not in self._landed:
-                    self._dst[name] = dst
+                if dst is not None:
+                    self._register(name, dst)
                 if name not in self._asked and name not in self._landed:
                     self._asked[name] = now
                     new.append(name)
@@ -867,6 +1110,9 @@ class StreamSubscription:
 
     def release(self, cell) -> None:
         b = cell.get("buf")
+        if b is not None and not isinstance(b, (bytearray, bytes)):
+            cell["buf"] = None       # a native landing's tensor: dropping it frees it
+            return
         if b is not None and not cell.get("direct"):
             with self._cv:
                 lst = self._free.setdefault(len(b), [])
@@ -879,11 +1125,28 @@ class StreamSubscription:
         hdr, direct = e["hdr"], e["direct"]
         name, n = hdr["name"], int(hdr["n"])
         self._open.pop(rid, None)
+        if name.endswith("#z") and hdr.get("zn") is not None:
+            # [LZ4_WHEN_IT_SHRINKS_V1] Expand into the registered destination.
+            base, zn = name[:-2], int(hdr["zn"])
+            raw = _lz4().decompress(bytes(memoryview(e["target"]).cast("B")) if not hasattr(e["target"], "numpy")
+                                    else e["target"].numpy().tobytes(), uncompressed_size=zn)
+            dst = self._dst.pop(base, None)
+            self._keep.pop(base, None)
+            if self._nat is not None:
+                self._nat.forget(base)
+            if dst is not None and len(dst) == zn:
+                memoryview(dst).cast("B")[:] = raw
+                e["direct"], e["target"], e["bad"] = True, None, None
+            else:
+                e["direct"], e["target"] = False, bytearray(raw)
+                e["bad"] = len(dst) if dst is not None else None
+            hdr["name"], hdr["n"], hdr["zbytes"] = base, zn, n
+            name, n, direct = base, zn, e["direct"]
         t_land = time.time()
         t_ask = self._asked.pop(name, None)
         cell = {"name": name, "gen": hdr["gen"], "n": n, "direct": direct,
                 "buf": None if direct else e["target"], "t_land": t_land, "hdr": hdr,
-                "t_ask": t_ask, "bad_dst": e["bad"]}
+                "t_ask": t_ask, "bad_dst": e["bad"], "t_first": e["t_first"]}
         self._landed[name] = cell
         self.cells += 1
         self.bytes += n
@@ -893,7 +1156,10 @@ class StreamSubscription:
             self.buffered += 1
         self._cv.notify_all()
         wire = (t_land - (e["t_first"] or t_land)) * 1000.0
-        if STREAM_DIAG or wire >= STREAM_SLOW_MS:
+        # [PER_PEER_TIMING_V1] Slow for THIS link: several times its own EWMA.
+        slow = wire >= max(500.0, 4.0 * self.wire_ewma) if self.wire_ewma else wire >= STREAM_SLOW_MS
+        self.wire_ewma = wire if not self.wire_ewma else 0.8 * self.wire_ewma + 0.2 * min(wire, 60000.0)
+        if STREAM_DIAG or slow:
             # wire_ms: first data record -> last byte, local clock, shared with
             # open= other cells. sets: which flows its records came on.
             _sdiag("LANDED %s gen=%s from=%s bytes=%d direct=%d wire_ms=%.1f "
@@ -914,7 +1180,7 @@ class StreamSubscription:
             while True:
                 kind, rid, total, off, ln = _REC2.unpack(bytes(_recv_exact(sk, _REC2.size)))
                 if kind == b"H":
-                    hdr = json.loads(bytes(_recv_exact(sk, ln)).decode())
+                    hdr = _head_parse(bytes(_recv_exact(sk, ln)))
                     name, n = hdr["name"], int(hdr["n"])
                     with self._cv:
                         dst = self._dst.pop(name, None)
@@ -983,8 +1249,7 @@ class StreamSubscription:
         """Say where `name` goes before it arrives, so it is received straight
         into `dst`. A cell that already landed is left where it is."""
         with self._cv:
-            if name not in self._landed:
-                self._dst[name] = dst
+            self._register(name, dst)
 
     def take(self, name: str, dst=None, timeout_s: float = 300.0):
         """The cell called `name`, once it has landed. `dst` is a writable
@@ -996,7 +1261,7 @@ class StreamSubscription:
             cell = self._landed.pop(name, None)
             early = cell is not None
             if cell is None and dst is not None:
-                self._dst[name] = dst
+                self._register(name, dst)
             deadline = t0 + timeout_s
             while cell is None:
                 if self.err:
@@ -1007,6 +1272,9 @@ class StreamSubscription:
                 left = deadline - time.time()
                 if left <= 0:
                     self._dst.pop(name, None)
+                    if self._nat is not None:
+                        self._nat.forget(name)
+                        self._keep.pop(name, None)
                     raise TimeoutError(
                         "%s: %s did not arrive from %s:%d in %.0f s "
                         "(landed and unclaimed: %s; cells=%d)"
@@ -1331,6 +1599,8 @@ class TensorServer:
                 self._subs.remove(sub)
             self._links.pop(sub.token, None)
         sub.stop.set()
+        if getattr(sub, "_nat", None) is not None:
+            sub._nat.stop()
         for c in list(sub.socks.values()):
             try:
                 c.shutdown(socket.SHUT_RDWR)
