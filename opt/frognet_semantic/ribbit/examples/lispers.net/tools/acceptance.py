@@ -267,9 +267,21 @@ class Lispers:
         os.makedirs(os.path.join(self.dir, "logs"), exist_ok=True)
         print("    [%s] lispers.net: RUN-LISP %d in %s (python: %s)" % (time.strftime("%H:%M:%S"), self.api_port, self.dir,
               shutil.which("python", path=env.get("PATH")) or "none on PATH"), flush=True)
+        # [LISPERS_SHELL_ON_DEBIAN_V1] lispers.net starts each component with os.system(), so through /bin/sh. It writes
+        # the redirection for /bin/sh by asking distro.linux_distribution() for the system's name: "2>&1 >" when the
+        # name is "Ubuntu", "debian" or "Kali", and the csh/bash form ">&" otherwise. distro 1.x returns the full name
+        # ("Debian GNU/Linux"), so on Debian and Raspberry Pi OS it writes ">&", and dash -- Debian's /bin/sh -- refuses
+        # it ("Syntax error: Bad fd number"): lisp-ms and lisp-mr never start. lispers.net is run unmodified; where
+        # that is the case, it runs in a mount namespace of its own in which /bin/sh is bash, which reads ">&" as
+        # lispers.net means it. Nothing outside that namespace sees the change. (FINDINGS-FOR-DINO.md, F-DEBIAN-SH)
+        cmd = ["tcsh", "-c", "./RUN-LISP %d" % self.api_port]
+        if lispers_needs_bash_sh():
+            cmd = ["unshare", "-m", "--propagation", "private", "sh", "-c",
+                   "mount --bind /bin/bash /bin/sh && exec tcsh -c './RUN-LISP %d'" % self.api_port]
+            print("    [%s] lispers.net: this system's name is %r and /bin/sh is dash, so lispers.net's '>&' would not run: "
+                  "it runs with /bin/sh = bash in its own mount namespace" % (time.strftime("%H:%M:%S"), _distro_name()), flush=True)
         with open(os.path.join(self.dir, "logs", "RUN-LISP.out"), "w") as o:
-            subprocess.run(["tcsh", "-c", "./RUN-LISP %d" % self.api_port], cwd=self.dir, env=env,
-                           stdout=o, stderr=subprocess.STDOUT, timeout=60)
+            subprocess.run(cmd, cwd=self.dir, env=env, stdout=o, stderr=subprocess.STDOUT, timeout=60)
         c = Client(self.local_ip, self.target); t0 = time.time()
         while time.time() - t0 < 60:
             if still_serving(c):
@@ -301,9 +313,13 @@ class Lispers:
         import glob as _g
         out = []
         for f in sorted(_g.glob(os.path.join(self.dir, "logs", "lisp-*.log"))):
-            try: tail = open(f, errors="replace").read().splitlines()[-6:]
+            try: lines = open(f, errors="replace").read().splitlines()
             except OSError: continue
-            if tail: out.append("[%s] %s" % (os.path.basename(f), " / ".join(t.strip() for t in tail)))
+            # the start of each log (what the process did at start: it is where a component fails to launch), with the
+            # packet lines left out, then its last lines
+            head = [t.strip() for t in lines if "Receive" not in t and "Suppress sending IPC" not in t][:25]
+            if head: out.append("[%s, start] %s" % (os.path.basename(f), " / ".join(head)))
+            if lines: out.append("[%s, last] %s" % (os.path.basename(f), " / ".join(t.strip() for t in lines[-6:])))
         try:                                          # [RUN_LISP_SAYS_WHAT_IT_DID_V1]
             ro = open(os.path.join(self.dir, "logs", "RUN-LISP.out"), errors="replace").read().strip().splitlines()[-25:]
             if ro: out.append("[RUN-LISP output] " + " / ".join(t.strip() for t in ro))
@@ -1023,7 +1039,7 @@ def t_l411(c, sysm):
 # harness writes each command as a cell (acceptance_ctl / <agent>|cmd / <run>.<n>); the agent holds a read on that
 # variable, runs the command on its systems exactly as the harness does on one machine, and writes the answer
 # (acceptance_ctl / <agent>|res / the same instance), on which the harness holds a read.
-ACCEPTANCE_VERSION = "v0.68-says-what-it-starts"      # this file's own version: the banner names the file that is running
+ACCEPTANCE_VERSION = "v0.69-lispers-shell-on-debian"      # this file's own version: the banner names the file that is running
 AGENT_CALLS = {"start", "stop", "evidence", "delete_site", "add_site", "restart_keep_state", "lose_ram_host"}
 CTL = "acceptance_ctl"
 
@@ -1039,6 +1055,18 @@ def check_local(ip, who):
     except OSError:
         raise SystemExit("%s: --local-ip %s is not an address of this machine" % (who, ip))
     finally: k.close()
+
+def _distro_name():
+    """What lispers.net's lisp_is_ubuntu()/lisp_is_debian() compare: distro.linux_distribution()[0]."""
+    try:
+        import warnings, distro
+        with warnings.catch_warnings():
+            warnings.simplefilter("ignore"); return distro.linux_distribution()[0]
+    except Exception as x: return "unknown (%s)" % x
+
+def lispers_needs_bash_sh():
+    # [LISPERS_SHELL_ON_DEBIAN_V1] lispers.net writes "2>&1 >" for these names and ">&" for every other
+    return _distro_name() not in ("Ubuntu", "debian", "Kali") and os.path.realpath("/bin/sh").endswith("dash")
 
 LISP_PROCS = ("lisp-core", "lisp-ms", "lisp-mr", "lisp-itr", "lisp-etr", "lisp-rtr", "lisp-ddt")
 def lispers_pids():
