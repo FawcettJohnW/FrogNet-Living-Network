@@ -103,8 +103,8 @@ head ~/agent.log
 ```
 
 The agent checks that `tcsh`, `python3` and lispers.net's modules are present, prints the address it will use,
-and waits for the harness. It starts lispers.net on UDP 4342 (and its own API on 8080; `--lispers-api-port` to
-change) and Ribbit's front on UDP 14342 (`--ribbit-udp` to change); the test machine must be able to reach both
+and waits for the harness. It starts lispers.net on UDP 4342 (and its own REST API on a TCP port the kernel reports free at start, never a fixed one: 8080 is Apache on a
+FrogNet node; `--lispers-api-port` to name one) and Ribbit's front on UDP 14342 (`--ribbit-udp` to change); the test machine must be able to reach both
 UDP ports. Leave it running.
 
 ## 5. The test machine -- the harness

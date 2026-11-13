@@ -60,7 +60,8 @@ On TEST:
     python3 tools/acceptance.py --ram streamingfrog.com:8800 --local-ip <TEST address> --out acceptance-out
 
 `--ram` is the RAM server (Ribbit's memory, and where the two machines meet). The rest defaults: lispers.net's own REST
-API is started on 8080 (`--lispers-api-port`), Ribbit's front listens on UDP 14342 (`--ribbit-udp`).
+API is started on a TCP port the kernel reports free at start (`--lispers-api-port` to name one; never 8080, which is
+Apache on a FrogNet node), Ribbit's front listens on UDP 14342 (`--ribbit-udp`).
 
 TEST must reach SYS on UDP 4342 (lispers.net) and 14342 (Ribbit's front) -- that is the LISP traffic being measured;
 both reach streamingfrog.com:8800 over TCP. The RAM server there must be this package's build (it runs the LISP

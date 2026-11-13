@@ -27,7 +27,7 @@ Run it from the package directory with a RELATIVE path (python3 tools/acceptance
 its STOP-LISP, which kills every process whose command line contains "lisp-" -- this harness's own included if its
 path does. The harness starts lispers.net first and (re)starts Ribbit's front after every lispers.net restart.
 
-usage: python3 tools/acceptance.py --local-ip A.B.C.D --lispers-dir DIR --lispers-api-port 8800
+usage: python3 tools/acceptance.py --local-ip A.B.C.D --lispers-dir DIR
           --ram-server ./ribbit_cpp/lisper-ram --ram-port 8870 --ribbit-udp 14342
           [--lispers-env K=V ...] [--record HOST:PORT --wire LABEL] [--out DIR]
 """
@@ -240,6 +240,10 @@ class Lispers:
     name = "lispers.net"
     def __init__(self, a):
         self.dir, self.api_port, self.env = a.lispers_dir, a.lispers_api_port, dict(e.split("=", 1) for e in a.lispers_env)
+        # [LISPERS_API_PORT_CHOSEN_V1] lispers.net's REST API is local to this machine: unless one is given, the port is
+        # one the kernel says is free right now -- never a fixed number another service on the node may hold
+        if not self.api_port:
+            k = socket.socket(socket.AF_INET, socket.SOCK_STREAM); k.bind(("0.0.0.0", 0)); self.api_port = k.getsockname()[1]; k.close()
         self.target = (a.local_ip, 4342); self.local_ip = a.local_ip
         # a lispers.net release directory has these; say which is missing and where it was looked for
         missing = [f for f in ("RUN-LISP", "STOP-LISP", "lisp-version.txt") if not os.path.exists(os.path.join(self.dir, f))]
@@ -258,11 +262,19 @@ class Lispers:
         left = lispers_pids()
         if left:   # a second lispers.net on top of a first one cannot work: say which processes survived
             raise RuntimeError("STOP-LISP left lispers.net processes running (stop them, as root): " + " | ".join(left))
-        subprocess.run(["tcsh", "-c", "./RUN-LISP %d" % self.api_port], cwd=self.dir, env=env,
-                       stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, timeout=60)
+        # [RUN_LISP_SAYS_WHAT_IT_DID_V1] RUN-LISP's own output is kept (logs/RUN-LISP.out) and is part of the evidence:
+        # a component that dies at start leaves no log of its own, and its error is only there
+        os.makedirs(os.path.join(self.dir, "logs"), exist_ok=True)
+        print("    [%s] lispers.net: RUN-LISP %d in %s (python: %s)" % (time.strftime("%H:%M:%S"), self.api_port, self.dir,
+              shutil.which("python", path=env.get("PATH")) or "none on PATH"), flush=True)
+        with open(os.path.join(self.dir, "logs", "RUN-LISP.out"), "w") as o:
+            subprocess.run(["tcsh", "-c", "./RUN-LISP %d" % self.api_port], cwd=self.dir, env=env,
+                           stdout=o, stderr=subprocess.STDOUT, timeout=60)
         c = Client(self.local_ip, self.target); t0 = time.time()
         while time.time() - t0 < 60:
-            if still_serving(c): return
+            if still_serving(c):
+                print("    [%s] lispers.net: answering Map-Registers on %s:%d after %.0f s" % (time.strftime("%H:%M:%S"), self.target[0], self.target[1], time.time() - t0), flush=True)
+                return
             time.sleep(1)
         # one start, no retries: lispers.net not answering a valid register is the result -- with its own evidence
         raise RuntimeError("lispers.net did not answer a valid Map-Register within 60 s of RUN-LISP; its logs:\n%s"
@@ -292,6 +304,13 @@ class Lispers:
             try: tail = open(f, errors="replace").read().splitlines()[-6:]
             except OSError: continue
             if tail: out.append("[%s] %s" % (os.path.basename(f), " / ".join(t.strip() for t in tail)))
+        try:                                          # [RUN_LISP_SAYS_WHAT_IT_DID_V1]
+            ro = open(os.path.join(self.dir, "logs", "RUN-LISP.out"), errors="replace").read().strip().splitlines()[-25:]
+            if ro: out.append("[RUN-LISP output] " + " / ".join(t.strip() for t in ro))
+        except OSError: pass
+        # each running component holds its AF_UNIX socket in the directory (lisp_is_running): say which are there
+        up = [p for p in LISP_PROCS if os.path.exists(os.path.join(self.dir, p))]
+        out.append("[components] running: %s; not running: %s" % (", ".join(up) or "none", ", ".join(p for p in LISP_PROCS if p not in up)))
         return "\n".join(out)
 
 class Ribbit:
@@ -1004,7 +1023,7 @@ def t_l411(c, sysm):
 # harness writes each command as a cell (acceptance_ctl / <agent>|cmd / <run>.<n>); the agent holds a read on that
 # variable, runs the command on its systems exactly as the harness does on one machine, and writes the answer
 # (acceptance_ctl / <agent>|res / the same instance), on which the harness holds a read.
-ACCEPTANCE_VERSION = "v0.63-bounded"      # this file's own version: the banner names the file that is running
+ACCEPTANCE_VERSION = "v0.68-says-what-it-starts"      # this file's own version: the banner names the file that is running
 AGENT_CALLS = {"start", "stop", "evidence", "delete_site", "add_site", "restart_keep_state", "lose_ram_host"}
 CTL = "acceptance_ctl"
 
@@ -1063,6 +1082,7 @@ def run_agent(a):
     while True:
         for c in sp.wait(cmd, after, 60):
             after = max(after, c["id"]); m = c["bag"]
+            if m is None: continue                   # [GONE_CELLS_SKIPPED_V1] a command whose writer's session ended: gone
             try:
                 if m["call"] == "where":                # the harness asks where the systems are before it picks its address
                     out = {"ok": True, "result": {"host": a.local_ip}}; sp.write(res, c["instance"], out); continue
@@ -1071,6 +1091,7 @@ def run_agent(a):
                     for s in systems.values():
                         try: s.stop()
                         except Exception: pass
+                    print("    [%s] hello from the harness at %s" % (time.strftime("%H:%M:%S"), LOCAL_IP), flush=True)
                     systems["lispers.net"], systems["ribbit"] = Lispers(a), Ribbit(a)
                     out = {"ok": True, "result": {n: {"version": s.version, "host": a.local_ip, "port": s.target[1]} for n, s in systems.items()}}
                 elif m["call"] in AGENT_CALLS:
@@ -1088,7 +1109,11 @@ class RemoteSystem:
     def __init__(self, name, link, info):
         self.name, self.link, self.version, self.target = name, link, info["version"], (info["host"], info["port"])
     def _call(self, call, *args): return self.link.call({"sys": self.name, "call": call, "args": list(args)})
-    def start(self): return self._call("start")
+    def start(self):
+        print("    [%s] starting %s on the agent's machine %s" % (time.strftime("%H:%M:%S"), self.name, self.target[0]), flush=True)
+        r = self._call("start")
+        print("    [%s] %s is up on %s:%d" % (time.strftime("%H:%M:%S"), self.name, self.target[0], self.target[1]), flush=True)
+        return r
     def stop(self): return self._call("stop")
     def evidence(self): return self._call("evidence")
     def delete_site(self, site): return self._call("delete_site", site)
@@ -1516,7 +1541,7 @@ def main():
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     ap.add_argument("--local-ip", help="this machine's address (the harness's, or the agent's own)")
     ap.add_argument("--lispers-dir", help="where lispers.net is installed on this machine")
-    ap.add_argument("--lispers-api-port", type=int, default=8080, help="the port lispers.net's own REST API is started on (RUN-LISP's argument; default 8080)")
+    ap.add_argument("--lispers-api-port", type=int, default=None, help="the TCP port lispers.net's own REST API is started on, on the systems machine (RUN-LISP's argument); default: one the kernel reports free at start")
     ap.add_argument("--lispers-env", action="append", default=[])
     ap.add_argument("--ram-server"); ap.add_argument("--ram-port", type=int)
     ap.add_argument("--ribbit-udp", type=int, default=14342, help="the UDP port Ribbit's map-server front listens on (default 14342)")
@@ -1552,7 +1577,7 @@ def main():
         a.ram_external = a.ram_external or a.ram; a.agent_space = a.agent_space or a.ram
     global LOCAL_IP; LOCAL_IP = a.local_ip
     if a.record and not a.wire: ap.error("--record needs --wire")
-    local_needs = ("local_ip", "lispers_dir", "lispers_api_port", "ribbit_udp") + (() if a.ram_external else ("ram_server", "ram_port"))
+    local_needs = ("local_ip", "lispers_dir", "ribbit_udp") + (() if a.ram_external else ("ram_server", "ram_port"))
     if a.agent:
         missing = [k for k in local_needs if k != "local_ip" and getattr(a, k) is None] + ([] if a.agent_space else ["agent_space"])
         if missing: ap.error("--agent needs " + ", ".join("--" + k.replace("_", "-") for k in missing))
