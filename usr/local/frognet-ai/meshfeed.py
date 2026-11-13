@@ -49,6 +49,18 @@ The same answer: the mean over the W x batch samples equals DDP's mean of W per-
 model, seed, data, learning rate and step count, so the held-out loss is ddpbench's (0.4947 at hidden 1024, W=5); the
 GEMM sums in its own order, so the parameter hash is its own (shmbench's batch arm: 3e-08 from the oracle).
 
+Extended (meshfeed2, John 2026-11-13 "Construct the extended tests"):
+  --k N            the compute set is the N fastest nodes. Every node's minibatches go to one of them (more to the
+                   faster ones, by measured step time); each computes the gradient of its own share in one batch,
+                   and the compute set sums their gradients with an all_reduce (--reduce-backend psychedelic|gloo,
+                   psychedelic = the shard plane) before every node in it applies the same update.
+  --feed-hz F      a producer publishes one minibatch every 1/F s, read from its file at that moment: data that
+                   arrives over time, not a dataset published up front (0 = as fast as the disk reads it).
+  --check          (k=1) after training, the compute node trains the oracle on the same minibatches -- one thread,
+                   each replica's gradient in turn, summed in rank order, as shmbench's oracle -- and reports both
+                   held-out losses at full precision, the largest parameter difference and the oracle's time.
+  The data file is a .npy, memory-mapped: each minibatch is read from disk when it is published.
+
 Lines: [DIAG-MESHFEED] STEP per step (each node's minibatch: waited ms, landed before it was asked, landed straight
 into its slot; compute ms), the plane's own [DIAG-STREAM] LINK/LANDED/SENT lines with TCP_INFO, and the progress lines
 ddpbench prints, so the two compare line for line.
@@ -62,7 +74,7 @@ import socket
 import sys
 import time
 
-BUILD = "20261113-meshfeed1"
+BUILD = "20261113-meshfeed2"
 SERVICE = "meshfeed"
 
 
@@ -87,6 +99,11 @@ def main():
     ap.add_argument("--compute", type=int, default=-1, help="on rank 0: put the compute on this rank (default: fastest)")
     ap.add_argument("--data-dir", default="/var/cache/frognet/meshfeed")
     ap.add_argument("--timeout", type=float, default=1800.0, help="seconds any wait may take before the run fails")
+    ap.add_argument("--k", type=int, default=1, help="compute set: the K fastest nodes")
+    ap.add_argument("--reduce-backend", default="psychedelic", choices=["psychedelic", "gloo"])
+    ap.add_argument("--feed-hz", type=float, default=0.0, help="publish one minibatch every 1/F s (0: as read)")
+    ap.add_argument("--check", action="store_true", help="k=1: train the oracle afterwards and compare")
+    ap.add_argument("--peer-wait", type=float, default=300.0)
     a = ap.parse_args()
     sys.path.insert(0, a.tree)
     import torch
@@ -101,19 +118,24 @@ def main():
 
     # ---------------------------------------------------------------------------------------------- 1. the data
     os.makedirs(a.data_dir, exist_ok=True)
-    path = os.path.join(a.data_dir, "r%d-s%d-b%d-n%d.pt" % (R, a.seed, a.batch, N))
+    import numpy as np
+    path = os.path.join(a.data_dir, "r%d-s%d-b%d-n%d.npy" % (R, a.seed, a.batch, N))
     tgt = torch.randn(16, generator=torch.Generator().manual_seed(7))
     if not os.path.exists(path):
         g = torch.Generator().manual_seed(a.seed * 1000 + R)
         xs = torch.stack([torch.randn(a.batch, 16, generator=g) for _ in range(N)])
         ys = torch.sin(xs @ tgt) + 0.3 * (xs @ tgt)
-        torch.save({"x": xs, "y": ys}, path + ".tmp")
+        with open(path + ".tmp", "wb") as f:
+            np.save(f, torch.cat([xs, ys.unsqueeze(-1)], dim=2).contiguous().numpy())
         os.replace(path + ".tmp", path)
-        note("data: wrote %s (%d minibatches of %d), this node's only" % (path, N, a.batch))
-    d = torch.load(path)
-    cells = torch.cat([d["x"], d["y"].unsqueeze(-1)], dim=2).contiguous()        # [N, batch, 17]: inputs | target
-    cell_b = cells[0].numel() * cells.element_size()
-    note("data: read %s from disk, %d minibatches, %d bytes each" % (path, N, cell_b))
+        note("data: wrote %s (%d minibatches of %d, %.1f MB), this node's only"
+             % (path, N, a.batch, os.path.getsize(path) / 1e6))
+    disk = np.load(path, mmap_mode="r")                     # [N, batch, 17]: inputs | target, read when used
+
+    def cell(t):
+        return torch.from_numpy(np.array(disk[t], dtype=np.float32))
+    cell_b = int(disk[0].size) * 4
+    note("data: %s on disk, %d minibatches, %d bytes each, memory-mapped" % (path, N, cell_b))
 
     # ---------------------------------------------------------------------------------------------- 2. capability
     def build_model():
@@ -164,9 +186,23 @@ def main():
 
     # ---------------------------------------------------------------------------------------------- 4. the plan
     if R == 0:
-        c = a.compute if a.compute >= 0 else min(range(W), key=lambda r: (peers[r]["ms_step"], r))
-        T.put(svc, "plan", "plan", {"compute": c, "why": "forced by --compute" if a.compute >= 0 else
-                                    "fastest measured: %.1f ms per step" % peers[c]["ms_step"]}, own=False)
+        if a.compute >= 0:
+            cset = [a.compute]
+            why = "forced by --compute"
+        else:
+            cset = sorted(sorted(range(W), key=lambda r: (peers[r]["ms_step"], r))[:max(1, min(a.k, W))])
+            why = "the %d fastest measured" % len(cset)
+        # every rank's minibatches go to one compute node: its own to itself, the rest to whichever compute node
+        # would finish its share soonest (measured time per minibatch, ms_step / W)
+        load = {c: 1 for c in cset}
+        assign = {c: c for c in cset}
+        for r in range(W):
+            if r in cset:
+                continue
+            c = min(cset, key=lambda c: ((load[c] + 1) * peers[c]["ms_step"], c))
+            assign[r] = c; load[c] += 1
+        T.put(svc, "plan", "plan", {"compute": cset, "assign": {str(r): assign[r] for r in range(W)},
+                                    "why": why}, own=False)
     plan = None
     while time.time() < deadline and plan is None:
         for row in T.get_all(svc, wait_s=min(30.0, a.timeout), min_rows=W + 1):
@@ -174,20 +210,31 @@ def main():
                 plan = row["value"]
     if plan is None:
         sys.exit("meshfeed: no plan from rank 0 after %.0f s" % a.timeout)
-    C = int(plan["compute"])
-    note("plan: compute on r%d (%s) -- %s; the other %d ranks feed it %d bytes per step each"
-         % (C, peers[C]["node"], plan["why"], W - 1, cell_b))
+    CSET = [int(c) for c in plan["compute"]]
+    ASSIGN = {int(r): int(c) for r, c in plan["assign"].items()}
+    C = CSET[0]                                                    # the compute leader writes the result
+    # rows in meshfeed.<ID> once each stage is written: W rank cells, the plan, a model hash per compute node (k>1),
+    # the result -- each held read waits for its row count, so none of them spins
+    ROWS_SHAS = W + 1 + (len(CSET) if len(CSET) > 1 else 0)
+    ROWS_RESULT = ROWS_SHAS + 1
+    note("plan: compute on %s -- %s; %s"
+         % (", ".join("r%d %s" % (c, peers[c]["node"]) for c in CSET), plan["why"],
+            "; ".join("r%d <- %s" % (c, ",".join("r%d" % r for r in range(W) if ASSIGN[r] == c)) for c in CSET)))
 
     # ---------------------------------------------------------------------------------------------- 5. feed
-    if R != C:
+    if R not in CSET:
         t0 = time.perf_counter()
         for t in range(N):
-            server.publish("mf%d.mb.%d" % (R, t), t + 1, cells[t], incarnation=str(R), readers=1)
-        note("feed: %d minibatches published in %.1f ms (%d bytes); waiting for the result"
-             % (N, (time.perf_counter() - t0) * 1000.0, N * cell_b))
+            if a.feed_hz > 0:
+                due = t0 + t / a.feed_hz
+                if due > time.perf_counter():
+                    time.sleep(due - time.perf_counter())
+            server.publish("mf%d.mb.%d" % (R, t), t + 1, cell(t), incarnation=str(R), readers=1)
+        note("feed: %d minibatches read from disk and published to r%d in %.1f s (%d bytes); waiting for the result"
+             % (N, ASSIGN[R], time.perf_counter() - t0, N * cell_b))
         res = None
         while time.time() < deadline and res is None:
-            for row in T.get_all(svc, wait_s=min(60.0, a.timeout), min_rows=W + 2):
+            for row in T.get_all(svc, wait_s=min(60.0, a.timeout), min_rows=ROWS_RESULT):
                 if row.get("var") == "result" and isinstance(row.get("value"), dict):
                     res = row["value"]
         if res is None:
@@ -197,46 +244,79 @@ def main():
         return 0
 
     # ---------------------------------------------------------------------------------------------- 6. compute
+    mine = [r for r in range(W) if ASSIGN[r] == R]                 # the minibatches this compute node takes
+    J, K = CSET.index(R), len(CSET)
     subs = {}
-    for r in range(W):
-        if r != C:
-            subs[r] = P.StreamSubscription("mf-c%d" % C, peers[r]["host"], int(peers[r]["port"]),
-                                           "meshfeed-r%d-from-r%d" % (C, r), family=[r"mf%d\.mb\.\d+" % r])
+    for r in mine:
+        if r != R:
+            subs[r] = P.StreamSubscription("mf-c%d" % R, peers[r]["host"], int(peers[r]["port"]),
+                                           "meshfeed-r%d-from-r%d" % (R, r), family=[r"mf%d\.mb\.\d+" % r])
+    if K > 1:                                                       # the compute set's own all_reduce
+        os.environ["FROGNET_PSY_HOST"] = a.addr
+        os.environ["FROGNET_PSY_PEER_WAIT_S"] = str(a.peer_wait)
+        os.environ["FROGNET_PSY_REDUCE"] = "shard"
+        for k_, v_ in (("FROGNET_C10D_SERVICE", "c10d"), ("FROGNET_PSY_SERVICE", "psyc10d"),
+                       ("FROGNET_TORCH_SERVICE", "torch")):
+            os.environ[k_] = "mf.%s.%s" % (a.runid, v_)
+        import torch.distributed as dist
+        if a.reduce_backend == "psychedelic":
+            from agent_workload.tuplespace import psychedelic_backend
+            psychedelic_backend.register("psychedelic")
+        from agent_workload.tuplespace import torch_store  # noqa: F401  registers frognet://
+        dist.init_process_group(a.reduce_backend, init_method="frognet://mf%s" % a.runid, rank=J, world_size=K)
+        note("compute set formed: %d nodes, all_reduce on %s" % (K, a.reduce_backend))
     model = build_model()
     ps = list(model.parameters())
     torch.set_num_threads(cores)
-    slots = [torch.empty_like(cells[0]) for _ in range(W)]
+    slots = {r: torch.empty(a.batch, 17) for r in mine}
+    kept = [] if (a.check and K == 1) else None
 
     def step(t):
         tw = time.perf_counter()
         waits = []
-        for r in range(W):
-            if r == C:
-                slots[r].copy_(cells[t]); waits.append("r%d local" % r); continue
+        for r in mine:
+            if r == R:
+                slots[r].copy_(cell(t)); waits.append("r%d local" % r); continue
             name = "mf%d.mb.%d" % (r, t)
-            cell = subs[r].take(name, dst=P.writable_bytes(slots[r]), timeout_s=a.timeout)
-            if cell["n"] != cell_b:
-                raise RuntimeError("r%d's %s is %d bytes, expected %d" % (r, name, cell["n"], cell_b))
-            if not cell.get("direct"):
-                slots[r].reshape(-1).copy_(P.plane_view(cell["buf"], torch.float32, slots[r].numel()))
-                subs[r].release(cell)
-            waits.append("r%d %.1fms%s%s" % (r, cell.get("waited_ms", 0.0), " early" if cell.get("early") else "",
-                                              " direct" if cell.get("direct") else ""))
+            c_ = subs[r].take(name, dst=P.writable_bytes(slots[r]), timeout_s=a.timeout)
+            if c_["n"] != cell_b:
+                raise RuntimeError("r%d's %s is %d bytes, expected %d" % (r, name, c_["n"], cell_b))
+            if not c_.get("direct"):
+                slots[r].reshape(-1).copy_(P.plane_view(c_["buf"], torch.float32, slots[r].numel()))
+                subs[r].release(c_)
+            waits.append("r%d %.1fms%s%s" % (r, c_.get("waited_ms", 0.0), " early" if c_.get("early") else "",
+                                              " direct" if c_.get("direct") else ""))
         data_ms = (time.perf_counter() - tw) * 1000.0
+        if kept is not None:
+            kept.append({r: slots[r].clone() for r in mine})
         tc = time.perf_counter()
-        xy = torch.cat(slots)                                   # rank order: r0's 64, r1's 64, ...
+        xy = torch.cat([slots[r] for r in mine])                     # rank order
         x, y = xy[:, :16], xy[:, 16]
         loss = ((model(x).squeeze() - y) ** 2).mean()
         gs = torch.autograd.grad(loss, ps)
+        comp_ms = (time.perf_counter() - tc) * 1000.0
+        red_ms = 0.0
+        if K > 1:
+            # sum of my replicas' mean gradients = (my batch mean) x len(mine); the set's sum / W = the global mean
+            tr = time.perf_counter()
+            flat = torch.cat([g.reshape(-1) for g in gs]).mul_(len(mine))
+            dist.all_reduce(flat)
+            flat.div_(W)
+            red_ms = (time.perf_counter() - tr) * 1000.0
+            off = 0
+            gs2 = []
+            for p in ps:
+                gs2.append(flat[off:off + p.numel()].view_as(p)); off += p.numel()
+            gs = gs2
         with torch.no_grad():
             for p, g in zip(ps, gs):
                 p.add_(g, alpha=-a.lr)
-        comp_ms = (time.perf_counter() - tc) * 1000.0
-        print("[DIAG-MESHFEED] STEP %d data_ms=%.1f compute_ms=%.1f loss=%.5f  %s"
-              % (t, data_ms, comp_ms, float(loss.detach()), "  ".join(waits)), flush=True)
-        return data_ms, comp_ms
+        print("[DIAG-MESHFEED] STEP %d data_ms=%.1f compute_ms=%.1f reduce_ms=%.1f loss=%.5f  %s"
+              % (t, data_ms, comp_ms, red_ms, float(loss.detach()), "  ".join(waits)), flush=True)
+        return data_ms, comp_ms, red_ms
 
-    note("compute: %d minibatches of %d per step on %d cores" % (W, a.batch, cores))
+    note("compute: %d minibatches of %d per step on %d cores (%s)" % (len(mine), a.batch, cores,
+                                                                       ",".join("r%d" % r for r in mine)))
     t_formed = time.perf_counter()
     for i in range(a.warmup):
         t0 = time.perf_counter()
@@ -244,31 +324,82 @@ def main():
         if i == 0:
             note("first step done in %.1f s" % (time.perf_counter() - t0))
     note("warmup done (%d steps), measuring %d" % (a.warmup, a.steps))
-    samples, dsum, csum = [], 0.0, 0.0
+    samples, dsum, csum, rsum = [], 0.0, 0.0, 0.0
     t_meas = time.perf_counter()
     every = max(1, a.steps // 8)
     for i in range(a.steps):
         t0 = time.perf_counter()
-        dm, cm = step(a.warmup + i)
+        dm, cm, rm = step(a.warmup + i)
         samples.append((time.perf_counter() - t0) * 1000.0)
-        dsum += dm; csum += cm
+        dsum += dm; csum += cm; rsum += rm
         if (i + 1) % every == 0 or i + 1 == a.steps:
             note("step %d/%d   last %.0f ms   best %.0f ms   elapsed %.1f s"
                  % (i + 1, a.steps, samples[-1], min(samples), time.perf_counter() - t_meas))
     measured_s = time.perf_counter() - t_meas
+    formed_s = time.perf_counter() - t_formed
     ge = torch.Generator().manual_seed(4242)
     xv = torch.randn(4096, 16, generator=ge)
     yv = torch.sin(xv @ tgt) + 0.3 * (xv @ tgt)
-    with torch.no_grad():
-        heldout = float(((model(xv).squeeze() - yv) ** 2).mean())
-    flat = torch.cat([p.detach().flatten() for p in ps])
-    s = sorted(samples)
-    res = {"build": BUILD, "compute": C, "compute_node": peers[C]["node"], "world": W, "cores": cores,
-           "ms_step_min": s[0], "ms_step_med": s[len(s) // 2], "ms_step_max": s[-1], "measured_s": measured_s,
-           "formed_to_done_s": time.perf_counter() - t_formed, "data_ms_mean": dsum / a.steps,
-           "compute_ms_mean": csum / a.steps, "heldout": heldout,
-           "param_sha": hashlib.sha256(flat.numpy().tobytes()).hexdigest()[:16],
-           "bytes_per_step_in": (W - 1) * cell_b, "streams": {str(r): subs[r].stats() for r in subs}}
+
+    def held_and_sha(m):
+        with torch.no_grad():
+            h = float(((m(xv).squeeze() - yv) ** 2).mean())
+        fl = torch.cat([p.detach().flatten() for p in m.parameters()])
+        return h, hashlib.sha256(fl.numpy().tobytes()).hexdigest()[:16], fl
+
+    heldout, sha, flat_final = held_and_sha(model)
+    if K > 1:                                                        # every compute node must hold the same model
+        T.put(svc, "sha.c%d" % R, "sha", {"sha": sha, "node": peers[R]["node"]}, own=False)
+    if R != C:
+        res = None
+        while time.time() < deadline and res is None:
+            for row in T.get_all(svc, wait_s=min(60.0, a.timeout), min_rows=ROWS_RESULT):
+                if row.get("var") == "result" and isinstance(row.get("value"), dict):
+                    res = row["value"]
+        if res is None:
+            sys.exit("meshfeed: no result after %.0f s" % a.timeout)
+        print_result(res, a)
+        server.close()
+        return 0
+    agree = None
+    if K > 1:
+        shas = {}
+        while time.time() < deadline and len(shas) < K:
+            for row in T.get_all(svc, wait_s=min(30.0, a.timeout), min_rows=ROWS_SHAS):
+                v = row.get("var", "")
+                if v.startswith("sha.c") and isinstance(row.get("value"), dict):
+                    shas[v[5:]] = row["value"]["sha"]
+        agree = {"compute_shas": shas, "agree": len(set(shas.values())) == 1 and len(shas) == K}
+    check = None
+    if kept is not None:
+        note("check: training the oracle on the same %d steps (one thread, each replica in turn, rank order)" % N)
+        torch.set_num_threads(1)
+        om = build_model()
+        ops = list(om.parameters())
+        tq = time.perf_counter()
+        for st in kept:
+            acc = None
+            for r in range(W):
+                xr, yr = st[r][:, :16], st[r][:, 16]
+                lr_ = ((om(xr).squeeze() - yr) ** 2).mean()
+                gr = torch.autograd.grad(lr_, ops)
+                acc = list(gr) if acc is None else [x_ + y_ for x_, y_ in zip(acc, gr)]
+            with torch.no_grad():
+                for p, g in zip(ops, acc):
+                    p.add_(g / W, alpha=-a.lr)
+        oracle_s = time.perf_counter() - tq
+        oh, osha, oflat = held_and_sha(om)
+        check = {"oracle_heldout": oh, "oracle_sha": osha, "oracle_s": oracle_s,
+                 "max_abs_dp": float((oflat - flat_final).abs().max()),
+                 "heldout_rel": abs(oh - heldout) / abs(oh)}
+    s_ = sorted(samples)
+    res = {"build": BUILD, "compute": CSET, "compute_node": ",".join(peers[c]["node"] for c in CSET), "world": W,
+           "cores": cores, "k": K, "batch": a.batch, "feed_hz": a.feed_hz, "steps": a.steps,
+           "ms_step_min": s_[0], "ms_step_med": s_[len(s_) // 2], "ms_step_max": s_[-1], "measured_s": measured_s,
+           "formed_to_done_s": formed_s, "data_ms_mean": dsum / a.steps, "compute_ms_mean": csum / a.steps,
+           "reduce_ms_mean": rsum / a.steps, "heldout": heldout, "param_sha": sha,
+           "bytes_per_step_in": (len(mine) - 1) * cell_b, "agree": agree, "check": check,
+           "streams": {str(r): subs[r].stats() for r in subs}}
     T.put(svc, "result", "result", res, own=False)
     print_result(res, a)
     server.close()
@@ -276,14 +407,24 @@ def main():
 
 
 def print_result(res, a):
-    note("result: compute on r%d (%s), %d cores" % (res["compute"], res["compute_node"], res["cores"]))
-    note("  %d measured steps in %.1f s (group formed to done %.1f s); per step: min %.1f ms, median %.1f ms, "
-         "max %.1f ms -- of it %.1f ms waiting for minibatches, %.1f ms computing"
-         % (a.steps, res["measured_s"], res["formed_to_done_s"], res["ms_step_min"], res["ms_step_med"],
-            res["ms_step_max"], res["data_ms_mean"], res["compute_ms_mean"]))
-    note("  %d bytes into the compute node per step" % res["bytes_per_step_in"])
-    print("  meshfeed    compute=r%-2d  %8.2f ms/step (min)  %.4f heldout  %s"
-          % (res["compute"], res["ms_step_min"], res["heldout"], res["param_sha"]), flush=True)
+    note("result: compute on %s (k=%d), batch %d per node, feed %s"
+         % (res["compute_node"], res["k"], res["batch"], ("%.1f Hz" % res["feed_hz"]) if res["feed_hz"] else "as read"))
+    note("  %d measured steps in %.2f s (group formed to done %.2f s); per step: min %.1f ms, median %.1f ms, "
+         "max %.1f ms -- of it %.1f ms waiting for minibatches, %.1f ms computing, %.1f ms reducing"
+         % (res["steps"], res["measured_s"], res["formed_to_done_s"], res["ms_step_min"], res["ms_step_med"],
+            res["ms_step_max"], res["data_ms_mean"], res["compute_ms_mean"], res["reduce_ms_mean"]))
+    if res.get("agree"):
+        note("  compute set models: %s -- %s" % (res["agree"]["compute_shas"],
+                                                  "identical" if res["agree"]["agree"] else "DIFFERENT"))
+    c = res.get("check")
+    if c:
+        note("  check: heldout %.9f, oracle %.9f (relative %.2e); largest parameter difference %.3g; "
+             "oracle sha %s; oracle took %.1f s on one thread"
+             % (res["heldout"], c["oracle_heldout"], c["heldout_rel"], c["max_abs_dp"], c["oracle_sha"],
+                c["oracle_s"]))
+    print("  meshfeed    k=%d compute=%-14s  %8.2f ms/step (min)  %8.2f ms/step (median)  %.9f heldout  %s"
+          % (res["k"], ",".join("r%d" % x for x in res["compute"]), res["ms_step_min"], res["ms_step_med"],
+             res["heldout"], res["param_sha"]), flush=True)
 
 
 if __name__ == "__main__":
