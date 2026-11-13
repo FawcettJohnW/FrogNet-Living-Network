@@ -531,6 +531,21 @@ log "Step 12: Configuring transit to skip $ETH0..."
 echo "$ETH0" > /etc/frognet/transit_exclude_interfaces
 
 # ============================================================
+# Step 12b: System tuning (kernel, queueing, MariaDB, Apache, limits)
+# ============================================================
+# [FQ_CODEL_EVERYWHERE_V1] frognet-system-tune.sh sets fq_codel on every interface (and the rest of the node's
+# tuning) before the restarts below pick up what it writes. Under --norestart it is left to the installer, which runs it
+# in phase F7, because resetting an interface's queue here would touch the link the installer's SSH rides.
+TUNE=/usr/local/bin/frognet-system-tune.sh
+if [[ "${NO_RESTART:-0}" -eq 1 ]]; then
+    log "Step 12b: [--norestart] system tuning left to the installer (phase F7)"
+else
+    log "Step 12b: System tuning..."
+    [[ -x "$TUNE" ]] || die "$TUNE not found: it is part of the FrogNet tree; install the tree first"
+    bash "$TUNE" || log "  FAILED: $TUNE (above); the node runs untuned until it is run again"
+fi
+
+# ============================================================
 # Step 13: Restart services
 # ============================================================
 log "Step 13: Restarting services..."
