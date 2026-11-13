@@ -39,6 +39,12 @@ STAMP=$(date +%Y%m%d-%H%M%S)
 OUT="$ROOT/results/$STAMP"; mkdir -p "$OUT"
 export RIBBIT_RAM_HOST=${RIBBIT_RAM_HOST:-127.0.0.1}
 export RIBBIT_RAM_PORT=${RIBBIT_RAM_PORT:-8788}
+# [SECRETS_IN_MEMORY_SEALED_V1] site keys and Map-Register keys are sealed in memory with the region key, which each
+# machine holds locally. A qualification run that names none makes one for itself, in its own results directory.
+if [ -z "${RIBBIT_LISP_REGION_KEY:-}" ]; then
+  export RIBBIT_LISP_REGION_KEY="$OUT/region.key"
+  head -c 32 /dev/urandom | od -An -tx1 | tr -d ' \n' > "$RIBBIT_LISP_REGION_KEY"; chmod 600 "$RIBBIT_LISP_REGION_KEY"
+fi
 RAM_SERVER=${RAM_SERVER:-./ribbit_cpp/lisper-ram}
 STAGES=${STAGES:-"build local fnw1 independent oracle handler client boundary ryw failloud service stress lockfree perf bytes"}
 # (the platform's own stages -- semwire semcodec semtpl fnwp dataplane memory -- are ribbit/cpp/qualify.sh's)
@@ -115,16 +121,16 @@ if has build; then
   run(){ while [ "$(jobs -rp | wc -l)" -ge "$JOBS" ]; do wait -n 2>/dev/null || true; done; build_one "$@" & pids+=($!); }
   run ribbit_cpp/lisper-ram -std=c++20 $NOFP -O2 -pthread -Iribbit_cpp -I"$RIBBIT/include" ribbit_cpp/lisper_ram.cpp "$RIBBIT/src/ram_host.cpp" "$RIBBIT/src/lf_ebr.cpp" $FO -llz4 -lcrypto   # [LF_PRIMITIVES_V1] the host's memory reclaims with lf::ebr
   run ribbit_cpp/ribbit-lisp -std=c++20 $NOFP -O2 -pthread -Iribbit_cpp -I"$RIBBIT/include" ribbit_cpp/ribbit_lisp.cpp $FO -llz4 -lcrypto
-  run tools/lisp-handler-driver -std=c++20 $NOFP -O2 -pthread -Iribbit_cpp -I"$RIBBIT/include" tools/lisp_handler_driver.cpp $FO -lcrypto -llz4
+  run tools/lisp-handler-driver -std=c++20 $NOFP -O2 -pthread -Iribbit_cpp -I"$RIBBIT/include" tools/lisp_handler_driver.cpp $FO -lcrypto -llz4 -rdynamic
   run tools/check-ms-secret -std=c++20 $NOFP -O2 -pthread -Iribbit_cpp -I"$RIBBIT/include" tools/check_ms_secret.cpp $FO -llz4 -lcrypto
   run tools/check-site-secret -std=c++20 $NOFP -O2 -pthread -Iribbit_cpp -I"$RIBBIT/include" tools/check_site_secret.cpp $FO -llz4 -lcrypto
-  run tools/lisp-boundary -std=c++20 $NOFP -O2 -pthread -Iribbit_cpp -I"$RIBBIT/include" tools/lisp_boundary.cpp $FO -lcrypto -llz4
+  run tools/lisp-boundary -std=c++20 $NOFP -O2 -pthread -Iribbit_cpp -I"$RIBBIT/include" tools/lisp_boundary.cpp $FO -lcrypto -llz4 -rdynamic
   run tools/tuple-write -std=c++20 -O2 -pthread $WERR -Iribbit_cpp -I"$RIBBIT/include" "$RIBBIT/tools/tuple_write.cpp" $FO -llz4 -lcrypto
   # [VENDOR_CLIENT_V1] the LISP vendor's client library: lisper::Client, its C interface client/lisper.h
   mkdir -p build
   run build/liblisper.so -std=c++20 $NOFP -O2 -pthread -shared -fPIC $WERR -Iribbit_cpp -I"$RIBBIT/include" -Iclient client/lisper_c.cpp client/lisper_client.cpp "$RIBBIT/src/ram_client.cpp" "$RIBBIT/src/frogram.cpp" -llz4 -lcrypto
   run build/test-lisper-client -std=c++20 $NOFP -O2 -pthread $WERR -Iribbit_cpp -I"$RIBBIT/include" -Iclient client/tests/test_lisper_client.cpp client/lisper_client.cpp "$RIBBIT/src/ram_client.cpp" $FO -llz4 -lcrypto
-  run tools/lisp-service -std=c++20 -O2 -pthread $WERR -Iribbit_cpp -I"$RIBBIT/include" tools/lisp_service.cpp $FO -lcrypto -llz4
+  run tools/lisp-service -std=c++20 -O2 -pthread $WERR -Iribbit_cpp -I"$RIBBIT/include" tools/lisp_service.cpp $FO -lcrypto -llz4 -rdynamic
   bfail=0; for pid in "${pids[@]}"; do wait "$pid" || bfail=1; done
   cat "$BLOG"/*.txt >> "$OUT/build.txt"
   echo "  build took $(( $(date +%s)-t_all ))s"

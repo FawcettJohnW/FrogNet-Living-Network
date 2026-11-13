@@ -45,10 +45,12 @@
 #include <openssl/hmac.h>
 #include <openssl/crypto.h>
 #include <openssl/evp.h>
+#include <openssl/rand.h>
 #include <linux/futex.h>
 #include <sys/syscall.h>
 #include <unistd.h>
 #include <climits>
+#include <cctype>
 #include "frogram.hpp"
 #include "ebr.hpp"
 using frogram::Json;
@@ -213,6 +215,46 @@ static std::string hex(const std::vector<unsigned char>&v){
         s+=d[c&15];
     }
     return s;
+}
+// [SECRETS_IN_MEMORY_SEALED_V1] John 2026-11-13: a site has ONE key for the whole region, so it lives in the RAM with
+// the rest of the site's configuration and every front reads it through its held view when the configuration changes
+// -- not in the one process that happened to run site.add. In memory it is sealed: AES-256-GCM under the region key,
+// which each machine holds locally (auth is set on the machine): RIBBIT_LISP_REGION_KEY names the file, default
+// /etc/lispers.d/region.key, 64 hex characters. The RAM host stores ciphertext it cannot read.
+static const std::string& region_key(){
+    static const std::string k=[]{
+        const char* e=getenv("RIBBIT_LISP_REGION_KEY"); std::string path=e&&*e?e:"/etc/lispers.d/region.key";
+        FILE* f=fopen(path.c_str(),"r"); if(!f)throw std::runtime_error("region key: cannot read "+path+" (64 hex characters; RIBBIT_LISP_REGION_KEY names another file)");
+        char buf[129]={0}; size_t n=fread(buf,1,128,f); fclose(f); std::string h(buf,n);
+        while(!h.empty()&&isspace((unsigned char)h.back()))h.pop_back();
+        if(h.size()!=64)throw std::runtime_error("region key: "+path+" must hold 64 hex characters (32 bytes)");
+        auto b=unhex(h); return std::string(b.begin(),b.end());
+    }();
+    return k;
+}
+static std::string seal_secret(const std::string& plain){
+    unsigned char nonce[12]; if(RAND_bytes(nonce,12)!=1)throw std::runtime_error("seal: no randomness");
+    std::vector<unsigned char> out(nonce,nonce+12); out.resize(12+plain.size()+16); int n=0,m=0;
+    EVP_CIPHER_CTX* c=EVP_CIPHER_CTX_new();
+    bool ok=c&&EVP_EncryptInit_ex(c,EVP_aes_256_gcm(),nullptr,(const unsigned char*)region_key().data(),nonce)==1
+        &&EVP_EncryptUpdate(c,out.data()+12,&n,(const unsigned char*)plain.data(),(int)plain.size())==1
+        &&EVP_EncryptFinal_ex(c,out.data()+12+n,&m)==1
+        &&EVP_CIPHER_CTX_ctrl(c,EVP_CTRL_GCM_GET_TAG,16,out.data()+12+plain.size())==1;
+    if(c)EVP_CIPHER_CTX_free(c);
+    if(!ok)throw std::runtime_error("seal: AES-256-GCM failed");
+    return hex(out);
+}
+static std::string open_secret(const std::string& sealed_hex){
+    auto in=unhex(sealed_hex); if(in.size()<28)throw std::runtime_error("sealed secret too short");
+    size_t len=in.size()-28; std::string out(len,'\0'); int n=0,m=0;
+    EVP_CIPHER_CTX* c=EVP_CIPHER_CTX_new();
+    bool ok=c&&EVP_DecryptInit_ex(c,EVP_aes_256_gcm(),nullptr,(const unsigned char*)region_key().data(),in.data())==1
+        &&EVP_DecryptUpdate(c,(unsigned char*)&out[0],&n,in.data()+12,(int)len)==1
+        &&EVP_CIPHER_CTX_ctrl(c,EVP_CTRL_GCM_SET_TAG,16,in.data()+12+len)==1
+        &&EVP_DecryptFinal_ex(c,(unsigned char*)&out[0]+n,&m)==1;
+    if(c)EVP_CIPHER_CTX_free(c);
+    if(!ok)throw std::runtime_error("sealed secret does not open with this machine's region key");
+    return out;
 }
 static bool verify_register_hmac(const std::vector<unsigned char>&p,const std::string&password){
     if(p.size()<16)return false;
@@ -658,7 +700,8 @@ class Engine{
     // lispers.net's site options, found missing by the acceptance test (L2.15): shutdown, allowed-rloc, force-ttl,
     // proxy-reply-action, echo-nonce-capable, force-proxy-reply, pitr-proxy-reply-drop.
     struct SitePol{ bool first=false,second=false,shutdown=false,echo=false,force_proxy=true,pitr_drop=false;
-                    int force_ttl=-1; std::string pra,policy; std::vector<std::string> allowed_rlocs; };
+                    int force_ttl=-1; std::string pra,policy; std::vector<std::string> allowed_rlocs;
+                    std::map<int,std::string> keys; };   // [SECRETS_IN_MEMORY_SEALED_V1] key-id -> the site's key, opened
     using SiteTable=std::map<std::string,SitePol>;
     using ResolverTable=std::map<std::string,bool>;
     // ETR-owned map-server configuration (control: lisp_map_server_command / class lisp_ms). Public policy
@@ -969,6 +1012,12 @@ class Engine{
         if(bag["proxy_reply_action"].type==Json::Str)sp.pra=bag["proxy_reply_action"].s;
         if(bag["policy_name"].type==Json::Str)sp.policy=bag["policy_name"].s;
         for(auto&r:bag["allowed_rlocs"].a)if(r.type==Json::Str)sp.allowed_rlocs.push_back(r.s);
+        if(bag["key_ct"].type==Json::Str&&!bag["key_ct"].s.empty()){     // [SECRETS_IN_MEMORY_SEALED_V1]
+            int kid=bag["key_id"].type==Json::Num?(int)bag["key_id"].n:0;
+            try{ sp.keys[kid]=open_secret(bag["key_ct"].s); }
+            catch(const std::exception&x){ std::cerr<<"[SITE_KEY] site "<<arg(bag,"prefix")<<" key-id "<<kid<<": "<<x.what()
+                                                     <<" -- its registers fail authentication on this machine\n"<<std::flush; }
+        }
         return sp;
     }
     // [RESIDENT_REGION_V1] The site rows that could cover a prefix, read where they are: for each site length the region
@@ -1352,6 +1401,43 @@ class Engine{
         apply_liveness(v,cells); auto after=v.watermark;
         v.thread=spawn([this,after]{watch_liveness(held_liveness_view.get(),after);}); return v;
     }
+    // [SECRETS_IN_MEMORY_SEALED_V1] the region's Map-Register encryption keys, held: armed once per participant (the
+    // first thread to need it wins the arming; any other sleeps on the state word), then kept by a held read
+    using MsKeyTable=std::map<int,std::string>;
+    std::atomic<const MsKeyTable*> ms_keys_held{nullptr};
+    std::atomic<int> ms_keys_state{0};                  // 0 not armed, 1 arming, 2 ready, -1 its builder failed
+    std::thread ms_keys_thread;
+    void apply_ms_keys(const std::vector<frogram::Cell>&cells){
+        auto g=ebr.guard(); auto old=snap_load(ms_keys_held,g); auto next=new MsKeyTable(old?*old:MsKeyTable{});
+        for(auto&c:cells){ int kid=std::atoi(c.instance.c_str()); auto ct=arg(c.bag,"key_ct");
+            if(c.gone||ct.empty()){ next->erase(kid); continue; }
+            try{ (*next)[kid]=open_secret(ct); }
+            catch(const std::exception&x){ next->erase(kid); std::cerr<<"[MS_KEY] key-id "<<kid<<": "<<x.what()<<"\n"<<std::flush; } }
+        snap_store(ms_keys_held,next);
+    }
+    void watch_ms_keys(uint64_t after){
+        applied("ms-encryption-key-applied","ms-encryption-key",after);
+        while(!stopping)try{ auto cells=held_read("ms-encryption-key",after); if(stopping)break;
+            for(auto&c:cells)if(c.id>after)after=c.id;
+            if(!cells.empty()){ apply_ms_keys(cells); applied("ms-encryption-key-applied","ms-encryption-key",after); } }
+        catch(const frogram::Unreachable&){ if(stopping)break; return; }
+    }
+    std::string held_ms_key(int kid){
+        if(view_owner!=this)return view_owner->held_ms_key(kid);
+        int st=ms_keys_state.load(std::memory_order_acquire);
+        if(st!=2){
+            int z=0;
+            if(st==0&&ms_keys_state.compare_exchange_strong(z,1,std::memory_order_acq_rel)){
+                try{ auto cells=read_ram("ms-encryption-key"); uint64_t after=0; for(auto&c:cells)if(c.id>after)after=c.id;
+                     apply_ms_keys(cells); ms_keys_thread=spawn([this,after]{watch_ms_keys(after);}); }
+                catch(...){ ms_keys_state.store(-1,std::memory_order_release); ms_keys_state.notify_all(); throw; }
+                ms_keys_state.store(2,std::memory_order_release); ms_keys_state.notify_all();
+            } else while((st=ms_keys_state.load(std::memory_order_acquire))==1)ms_keys_state.wait(1,std::memory_order_acquire);
+            if(ms_keys_state.load(std::memory_order_acquire)<0)throw std::runtime_error("held map-register keys: their builder failed");
+        }
+        auto g=ebr.guard(); auto t=snap_load(ms_keys_held,g); if(!t)return std::string();
+        auto it=t->find(kid); return it==t->end()?std::string():it->second;
+    }
     uint64_t liveness_id=0;   // this ETR's own etr-live cell (0: none written)
     std::string liveness_xtr;
     HeldMapResolverView& held_map_resolver_view(){
@@ -1549,6 +1635,15 @@ class Engine{
             }
             return pass;
         }
+        if(ram){                                          // [SECRETS_IN_MEMORY_SEALED_V1] the held site view: no round trip
+            auto&v=held_resolver(iid,group);
+            each_site(v.site_policy,[&](const auto&kv){
+                if(!kv.second.first)return;
+                auto ki=kv.second.keys.find(keyid); if(ki==kv.second.keys.end()||ki->second.empty())return;
+                Prefix x=prefix_parse(kv.first);
+                if(x.family==rp.family&&contains(x,rp)&&x.bits>best){ pass=ki->second; best=x.bits; } });
+            return pass;
+        }
         for(auto&kv:sites){
             auto b1=kv.first.find('|'),b2=kv.first.find('|',b1+1);
             if(kv.first.substr(0,b1)!=iid||kv.first.substr(b2+1)!=group)continue;
@@ -1596,6 +1691,17 @@ class Engine{
             }
             return false;
         }
+        if(ram){                                          // [SECRETS_IN_MEMORY_SEALED_V1] the held site view: no round trip
+            for(auto&r:records){
+                Prefix rp=prefix_parse(r.prefix); bool keyed=false;
+                auto&v=held_resolver(r.iid,r.group.empty()?std::string():site_group_for(r.iid,r.group));
+                each_site(v.site_policy,[&](const auto&kv){
+                    if(keyed||!kv.second.first||kv.second.keys.empty())return;
+                    Prefix sp=prefix_parse(kv.first); if(sp.family==rp.family&&contains(sp,rp))keyed=true; });
+                if(keyed)return true;
+            }
+            return false;
+        }
         for(auto&r:records){
             Prefix rp=prefix_parse(r.prefix);
             for(auto&kv:site_keys){
@@ -1620,6 +1726,7 @@ class Engine{
         if(!((h>>13)&1))return raw;
         int kid=(h>>14)&7; std::string k;
         if(resident){ auto c=ram->read(RESIDENT_SECRETS,"ms-encryption-key",std::to_string(kid)); if(!c.empty())k=arg(c.front().bag,"key"); }
+        else if(ram)k=held_ms_key(kid);                        // [SECRETS_IN_MEMORY_SEALED_V1]
         else { auto it=ms_encryption_keys.find(kid); if(it!=ms_encryption_keys.end())k=it->second; }
         if(k.empty())throw std::runtime_error("encrypted Map-Register with key-id "+std::to_string(kid)+": no such key");
         if(k.size()<32)k=std::string(32-k.size(),'0')+k;
@@ -1661,6 +1768,17 @@ class Engine{
     }
     void publish_known_length(const std::string& kind,const std::string& iid,const std::string& group,int bits){
         if(!ram)return;
+        // [NO_READ_ON_THE_REGISTER_PATH_V1] Whether the region already knows this length is in the held view: a length
+        // is known once the view holds a table for it. It used to be asked of the memory (a read, so a round trip) on
+        // every Map-Register. Two registers of a new length before the view holds it both write the manifest cell:
+        // the same value, applied once.
+        if(!resident){
+            auto&v=held_resolver(iid,group);
+            if(kind=="registration"&&v.registrations[bits].load(std::memory_order_acquire))return;
+            if(kind=="site"&&v.site_policy[bits].load(std::memory_order_acquire))return;
+            ram->write("lisp",kind+"-lengths|"+iid+"|"+group,std::to_string(bits),"{\"bits\":"+std::to_string(bits)+"}");
+            return;
+        }
         std::string variable=kind+"-lengths|"+iid+"|"+group;
         std::string instance=std::to_string(bits);
         if(ram->read("lisp",variable,instance).empty())
@@ -1925,6 +2043,7 @@ class Engine{
     ~Engine(){
         stopping=true; stop_registrar(); if(governor)governor->stop=true; if(session)session->shutdown();
         if(held_liveness_view&&held_liveness_view->thread.joinable())held_liveness_view->thread.join();
+        if(ms_keys_thread.joinable())ms_keys_thread.join();
         if(governor&&governor->thread.joinable())governor->thread.join();
         if(registrar&&registrar->thread.joinable())registrar->thread.join();
         if(registrar&&registrar->receiver.joinable())registrar->receiver.join();
@@ -1948,6 +2067,7 @@ class Engine{
         if(held_map_resolvers)delete held_map_resolvers->active.exchange(nullptr);
         if(held_map_servers)delete held_map_servers->table.exchange(nullptr);
         if(held_liveness_view)delete held_liveness_view->table.exchange(nullptr);
+        delete ms_keys_held.exchange(nullptr);
         delete ms_keys.exchange(nullptr);
         for(auto&x:held_databases)delete x.second->mappings.exchange(nullptr);
         for(auto&x:held_map_caches)for(auto&s:x.second->mappings)delete s.exchange(nullptr);
@@ -1972,6 +2092,21 @@ class Engine{
         frogram::log_writes_to(outer);
         if(outer)outer->insert(outer->end(),mine.begin(),mine.end());
         if(!mine.empty()&&!resident)await_own(mine);   // resident: the write IS the row; there is no view to wait for
+        return r;
+    }
+    // [WRITES_THEN_ONE_WAIT_V1] call() without its wait: the cells this operation wrote are appended to `written`, and
+    // the caller waits for its own views once, for a whole batch (await_own). The Map-Server front runs a sender's
+    // queued Map-Registers this way: each is decided and written in turn, then ONE wait covers them all, then their
+    // Map-Notifies go out -- the writes travel together, and nothing is asked of the memory.
+    std::string call_unawaited(const std::string&op,const Json&a,std::vector<std::pair<std::string,uint64_t>>&written){
+        if(auto*p=failed_.load(std::memory_order_acquire))throw frogram::Unreachable(*p);
+        auto*outer=frogram::current_write_log();
+        std::vector<std::pair<std::string,uint64_t>> mine;
+        frogram::log_writes_to(&mine);
+        std::string r;
+        try{ r=dispatch(op,a); } catch(...){ frogram::log_writes_to(outer); written.insert(written.end(),mine.begin(),mine.end()); throw; }
+        frogram::log_writes_to(outer);
+        written.insert(written.end(),mine.begin(),mine.end());
         return r;
     }
     std::string dispatch(const std::string&op,const Json&a){
@@ -2032,6 +2167,7 @@ class Engine{
             int kid=a["key_id"].type==Json::Num?(int)a["key_id"].n:0; auto k=arg(a,"key");
             if(kid<0||kid>7)throw std::runtime_error("encryption key-id is 0-7");
             if(resident)ram->write(RESIDENT_SECRETS,"ms-encryption-key",std::to_string(kid),"{\"key\":"+q(k)+"}");
+            else if(ram)ram->write("lisp","ms-encryption-key",std::to_string(kid),"{\"key_ct\":"+q(k.empty()?std::string():seal_secret(k))+"}");   // [SECRETS_IN_MEMORY_SEALED_V1]
             else if(k.empty())ms_encryption_keys.erase(kid); else ms_encryption_keys[kid]=k;
             return q("good");
         }
@@ -2427,13 +2563,14 @@ class Engine{
                 if(v!="native-forward"&&v!="drop"&&v!="not-registered-yet")throw std::runtime_error("proxy_reply_action: native-forward, drop or not-registered-yet");
                 opts+=",\"proxy_reply_action\":"+q(v); }
             if(a["allowed_rlocs"].type==Json::Arr){ std::string l; for(auto&r:a["allowed_rlocs"].a)if(r.type==Json::Str)l+=(l.empty()?"":",")+q(r.s); opts+=",\"allowed_rlocs\":["+l+"]"; }
+            if(ram&&!resident&&!pass.empty())opts+=",\"key_ct\":"+q(seal_secret(pass));   // [SECRETS_IN_MEMORY_SEALED_V1]
             if(ram)ram->write("lisp",ram_var_len("site",iid,g,sp.bits),p,"{\"prefix\":"+q(p)+",\"active\":true,\"accept_more_specifics\":"+(ams?"true":"false")+",\"key_id\":"+std::to_string(kid)+opts+"}");
             const bool g_is_prefix=g.find('/')!=std::string::npos; if(g_is_prefix)prefix_parse(g);   // "addr/len" or a name
             if(ram&&g_is_prefix)ram->write("lisp","site-groups|"+iid,g,"{\"group\":"+q(g)+"}");   // [MULTICAST_SG_V1]
             publish_known_length("site",iid,g,sp.bits);
             if(resident){ if(!pass.empty())ram->write(RESIDENT_SECRETS,"site-key",key(iid,p,g)+"|"+std::to_string(kid),
                 "{\"iid\":"+q(iid)+",\"prefix\":"+q(p)+",\"group\":"+q(g)+",\"key_id\":"+std::to_string(kid)+",\"password\":"+q(pass)+"}"); }
-            else { sites[key(iid,p,g)]=ams; if(!pass.empty())site_keys[key(iid,p,g)+"|"+std::to_string(kid)]=pass; }
+            else if(!ram){ sites[key(iid,p,g)]=ams; if(!pass.empty())site_keys[key(iid,p,g)+"|"+std::to_string(kid)]=pass; }
             return q("good");
         }
         if(op=="site.delete"){

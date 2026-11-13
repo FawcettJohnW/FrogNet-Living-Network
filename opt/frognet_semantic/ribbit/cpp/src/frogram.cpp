@@ -1,5 +1,6 @@
 // Copyright (C) 2016-2026 Fawcett Innovations LLC
 // SPDX-License-Identifier: GPL-2.0-only
+#include <execinfo.h>
 #include "frogram.hpp"
 #include "fnwp_engine.hpp"
 #include "rowcodec.hpp"
@@ -779,6 +780,15 @@ static thread_local std::vector<std::pair<std::string, uint64_t>>* tl_wlog = nul
 void log_writes_to(std::vector<std::pair<std::string, uint64_t>>* sink) { tl_wlog = sink; }
 std::vector<std::pair<std::string, uint64_t>>* current_write_log() { return tl_wlog; }
 uint64_t calls_this_thread() { return tl_calls; }
+// [ROUND_TRIPS_PER_PACKET_V1] RIBBIT_TRACE_ASKS=1: a thread that asked for tracing prints where each of its blocking
+// requests came from (the backtrace), so a round trip on a path that should make none can be found
+static thread_local bool tl_trace_asks = false;
+void trace_asks_on_this_thread(bool on) { tl_trace_asks = on && getenv("RIBBIT_TRACE_ASKS"); }
+static void trace_ask(const char* what) {
+    if (!tl_trace_asks) return;
+    void* fr[24]; int n = backtrace(fr, 24);
+    fprintf(stderr, "[TRACE-ASK] %s\n", what); backtrace_symbols_fd(fr, n, 2);
+}
 static thread_local std::string* tl_text_out = nullptr;   // [CALL_TEXT_V1] set by call_text around call()
 std::string Session::call_text(const std::string& method, const std::string& path, const std::string& body, double timeout_s) {
     std::string out; tl_text_out = &out;
@@ -786,7 +796,7 @@ std::string Session::call_text(const std::string& method, const std::string& pat
     tl_text_out = nullptr; return out;
 }
 Json Session::call(const std::string& method, const std::string& path, const std::string& body, double timeout_s) {
-    ++tl_calls;
+    ++tl_calls; trace_ask(path.c_str());
     std::string key; key.reserve(method.size() + path.size() + body.size() + 2);
     key += method; key += '\0'; key += path; key += '\0'; key += body;
     std::shared_ptr<Pending> p; bool joined = false;
@@ -878,6 +888,7 @@ void Session::follow_frame(std::string frame, std::function<void(std::string, st
 // past the same id) do not each send it -- the first sends it, every duplicate blocks on that one request as it is
 // found, and the one answer releases them all as a group.
 std::string Session::call_frame(std::string frame, double timeout_s, std::shared_ptr<const std::vector<RawCell>>* rows_out) {
+    ++tl_calls; trace_ask("binary read");                // [ROUND_TRIPS_V1] a binary read waits for its answer too
     {   const std::string dead = d_->dead_why(); if (!dead.empty()) throw Unreachable(dead); }
     std::string key; key.reserve(frame.size() + 1); key += '\x01'; key += frame;
     std::shared_ptr<Pending> p; bool joined = false;

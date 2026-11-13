@@ -53,8 +53,22 @@ int main(int argc, char** argv) {
     frognet::LispBoundary b(host, port, udp, workers);
 #endif
     std::cerr << "[LISP-BOUNDARY] UDP " << udp << ", RAM " << host << ":" << port << "\n" << std::flush;
-    std::string line;
-    while (std::getline(std::cin, line)) {
+    // [STDIN_WITHOUT_STDIO_V1] The configuration lines are read from fd 0 with read(2), not std::cin: a thread parked in
+    // a stdio read holds stdin's FILE lock, and exit() -- the SIGTERM path above -- flushes every FILE under its lock,
+    // so a front waiting for its next configuration line could not be stopped (the acceptance run's L4.10 restart
+    // hung on it). read(2) holds no lock.
+    std::string line, pending;
+    auto next_line = [&](std::string& out) {
+        for (;;) {
+            auto nl = pending.find('\n');
+            if (nl != std::string::npos) { out = pending.substr(0, nl); pending.erase(0, nl + 1); return true; }
+            char buf[4096]; ssize_t n = ::read(0, buf, sizeof buf);
+            if (n < 0 && errno == EINTR) continue;
+            if (n <= 0) { if (pending.empty()) return false; out.swap(pending); pending.clear(); return true; }
+            pending.append(buf, size_t(n));
+        }
+    };
+    while (next_line(line)) {
         try {
             // {"operation":"...","args":{...}}: the args object as written, handed to call() as text
             Json r = Json::parse(line); auto k = line.find("\"args\""); auto c = line.find(':', k); auto e = line.rfind('}');
@@ -66,5 +80,6 @@ int main(int argc, char** argv) {
         catch (const std::exception& x) { std::cout << "{\"ok\":false,\"error\":" << Json::quote(x.what()) << "}\n" << std::flush; }
     }
     b.stop();
-    std::cerr << "[LISP-BOUNDARY] registers=" << b.registers() << " requests=" << b.requests() << " rejected=" << b.rejected() << " in_flight_peak=" << b.in_flight_peak() << "\n";
+    std::cerr << "[LISP-BOUNDARY] registers=" << b.registers() << " requests=" << b.requests() << " rejected=" << b.rejected() << " writes=" << b.writes() << "\n";
+    std::cerr << "[DIAG-ROUND-TRIPS] " << b.stats_json() << "\n";
 }

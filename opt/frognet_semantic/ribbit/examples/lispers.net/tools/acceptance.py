@@ -333,6 +333,7 @@ class Ribbit:
     name = "ribbit"
     def __init__(self, a):
         self.a = a; self.target = (a.local_ip, a.ribbit_udp); self.srv = self.front = None
+        self.stats_total = {}                    # [ROUND_TRIPS_PER_PACKET_V1] summed over every front this run started
         # the package's version (ribbit_cpp/version.hpp) -- the binaries print the same string
         import re as _re
         self.version = _re.search(r'RIBBIT_LISP_VERSION "([^"]+)"', open(os.path.join(HERE, "..", "ribbit_cpp", "version.hpp")).read()).group(1)
@@ -347,6 +348,15 @@ class Ribbit:
             self.srv = subprocess.Popen([self.a.ram_server, "--listen", "127.0.0.1:%d" % self.a.ram_port], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
             time.sleep(0.5)
         self.errlog = open(os.path.join(self.a.out, "ribbit-front.log"), "a")
+        # [SECRETS_IN_MEMORY_SEALED_V1] the front seals the site keys it writes to memory, and opens the ones it holds,
+        # with the region key this machine holds. A run that names none (RIBBIT_LISP_REGION_KEY) makes one for itself,
+        # kept for the run, so a restarted front opens what the first one sealed.
+        if not os.environ.get("RIBBIT_LISP_REGION_KEY"):
+            kf = os.path.join(os.path.abspath(self.a.out), "region.key")
+            if not os.path.exists(kf):
+                with open(kf, "w") as f: f.write(os.urandom(32).hex())
+                os.chmod(kf, 0o600)
+            os.environ["RIBBIT_LISP_REGION_KEY"] = kf
         rh, rp = self.ram()
         self.front = subprocess.Popen([self.front_bin, "--ram", rh, str(rp), "--udp", str(self.a.ribbit_udp)],
                                       stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=self.errlog, text=True)
@@ -377,6 +387,7 @@ class Ribbit:
         gone = subprocess.run(["ss", "-ltnpH", "sport = :%d" % self.a.ram_port], capture_output=True, text=True).stdout.strip()
         return {"killed": True, "gone": gone}
     def restart_front(self):
+        self._collect_stats()
         if self.front and self.front.poll() is None: self.front.terminate(); self.front.wait()
         rh, rp = self.ram()
         self.front = subprocess.Popen([self.front_bin, "--ram", rh, str(rp), "--udp", str(self.a.ribbit_udp)],
@@ -388,7 +399,22 @@ class Ribbit:
         self.front.stdin.write(json.dumps({"operation": op, "args": args}) + "\n"); self.front.stdin.flush()
         r = json.loads(self.front.stdout.readline())
         if not r.get("ok"): raise RuntimeError("ribbit %s: %s" % (op, r.get("error")))
+        return r.get("result")
+    def _collect_stats(self):
+        # [ROUND_TRIPS_PER_PACKET_V1] a front's counts, added to the run's before it is stopped
+        if not (self.front and self.front.poll() is None): return
+        try: st = self.cfg("front.stats")
+        except Exception: return
+        def add(t, f):
+            for k, v in f.items():
+                if isinstance(v, dict): add(t.setdefault(k, {}), v)
+                else: t[k] = t.get(k, 0) + v
+        add(self.stats_total, st)
+    def front_stats(self):
+        self._collect_stats(); st, self.stats_total = self.stats_total, {}
+        return st
     def stop_procs(self):
+        self._collect_stats()
         for p in (self.front, self.srv):          # SIGTERM first: a coverage build writes its data on it
             if p and p.poll() is None:
                 p.terminate()
@@ -1040,7 +1066,7 @@ def t_l411(c, sysm):
 # variable, runs the command on its systems exactly as the harness does on one machine, and writes the answer
 # (acceptance_ctl / <agent>|res / the same instance), on which the harness holds a read.
 ACCEPTANCE_VERSION = "v0.69-lispers-shell-on-debian"      # this file's own version: the banner names the file that is running
-AGENT_CALLS = {"start", "stop", "evidence", "delete_site", "add_site", "restart_keep_state", "lose_ram_host"}
+AGENT_CALLS = {"start", "stop", "evidence", "delete_site", "add_site", "restart_keep_state", "lose_ram_host", "front_stats"}
 CTL = "acceptance_ctl"
 
 def address_toward(host, port):
@@ -1148,6 +1174,7 @@ class RemoteSystem:
     def add_site(self, site): return self._call("add_site", site)
     def restart_keep_state(self): return self._call("restart_keep_state")     # the agent restarts Ribbit if needed
     def lose_ram_host(self): return self._call("lose_ram_host")
+    def front_stats(self): return self._call("front_stats")
 
 class AgentLink:
     def __init__(self, a):
@@ -1583,6 +1610,8 @@ def main():
     ap.add_argument("--monitor", help="run as this machine's monitor under this name (on the RAM server's machine: --monitor ram)")
     ap.add_argument("--groups", help="with --monitor: the process groups on this machine (default ram-server)")
     ap.add_argument("--skip-perf", action="store_true", help="behaviour only: no performance qualification after it")
+    ap.add_argument("--ribbit-only", action="store_true", help="development: run the tests on Ribbit alone (no lispers.net; "
+                    "every A column says 'not run'), e.g. on a machine that cannot run lispers.net")
     ap.add_argument("--perf-quick", action="store_true", help="a short performance run, to check the three machines report")
     ap.add_argument("--perf-only", action="store_true", help="the performance qualification alone (the behaviour tests are skipped)")
     ap.add_argument("--load-procs", type=int, default=os.cpu_count() or 4,
@@ -1615,7 +1644,13 @@ def main():
     else:
         missing = [k for k in local_needs if getattr(a, k) is None]
         if missing: ap.error("needs " + ", ".join("--" + k.replace("_", "-") for k in missing) + " (or --agent)")
-        A, B = Lispers(a), Ribbit(a)
+        A, B = (None if a.ribbit_only else Lispers(a)), Ribbit(a)
+    if a.ribbit_only:                              # [RIBBIT_ONLY_V1] development runs: B alone, A reported as not run
+        class _NotRun:
+            name, version, target, ribbit_needs_restart = "lispers.net", "not run", ("-", 0), False
+            def start(self): pass
+            def stop(self): pass
+        A = _NotRun()
     A.start(); B.start()                           # lispers.net first: its start kills processes named lisp-*
     rec = Recorder(a.record, a.wire) if a.record else None
     runs = {s.name: (rec.next_run(s.name, s.version) if rec else 0) for s in (A, B)}
@@ -1627,7 +1662,8 @@ def main():
     for tid, title, klass, fn in ([] if a.perf_only else TESTS):
         if a.only and not any(tid.startswith(x) for x in a.only.split(",")): continue
         res = {}
-        for s in (A, B):
+        if a.ribbit_only: res["lispers.net"] = (True, "not run", [])
+        for s in ((B,) if a.ribbit_only else (A, B)):
             print("  .. %s on %s" % (tid, s.name), flush=True)
             c = Client(a.local_ip, s.target)
             try: ok, ev, lat = fn(c, s)
@@ -1651,9 +1687,16 @@ def main():
         print("%-6s %-18s A %s  B %s   %s" % (tid, cls, "PASS" if pa else "FAIL", "PASS" if pb else "FAIL", title), flush=True)
         for n in ("lispers.net", "ribbit"):
             if not res[n][0] or cls in ("OBSERVATION", "KNOWN DIFFERENCE"): print("         %s: %s" % (n, res[n][1][:300]), flush=True)
+    # [ROUND_TRIPS_PER_PACKET_V1] what the front asked of the memory, per kind of packet, over the whole run: a
+    # Map-Register is decided on the front and only written; a Map-Request is answered from held views. A packet that
+    # asked is one that armed a view (its first of an instance-id), once per view, or a fault.
+    try: st = B.front_stats()
+    except Exception as x: st = {"error": repr(x)}
+    print("round trips to the memory, per packet kind: %s" % json.dumps(st), flush=True)
     A.stop(); B.stop()
     with open(os.path.join(a.out, "ACCEPTANCE-REPORT.md"), "w") as f:
         f.write("# Acceptance report\n\nlispers.net %s (A) vs Ribbit-LISP %s (B), wire %s, %s\n\n" % (A.version, B.version, a.wire or (("network: harness %s, systems %s" % (a.local_ip, A.target[0])) if a.agent_space else "loopback"), time.strftime("%Y-%m-%d %H:%M")))
+        f.write("Round trips to the memory, per packet kind (Ribbit's front): `%s`\n\n" % json.dumps(st))
         f.write("| test | classification | A | B | what |\n|---|---|---|---|---|\n")
         for tid, title, res, cls in rows:
             f.write("| %s | %s | %s | %s | %s |\n" % (tid, cls, "PASS" if res["lispers.net"][0] else "FAIL", "PASS" if res["ribbit"][0] else "FAIL", title))
