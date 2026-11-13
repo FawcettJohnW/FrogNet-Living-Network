@@ -54,3 +54,13 @@ Qualification 20261112-155556 ran every stage on x86-64 locally, and all passed:
 - fail-loudly PASS
 - service PASS (15 checks)
 - bytes
+
+## v0.67 (same day): the version check accepts the RAM hosts whose region the front speaks
+
+v0.66 refused any RAM host that was not v0.66, but nothing lisper-ram runs changed in v0.66: the change was all in
+the front, plus one diagnostic line in ram_host.cpp. So it would have forced a pointless reinstall on the droplet.
+v0.67 accepts the versions listed in `RIBBIT_LISP_REGION_COMPAT` (version.hpp): v0.65, v0.66 and v0.67.
+
+Checked against a v0.65 lisper-ram built from b4dfaed:
+- `version` answers client v0.67-region-compat and ram_host v0.65-held-by-the-session, with exit 0;
+- the burst of 300 from one sender is notified in 0.066 s.

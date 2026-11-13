@@ -1856,14 +1856,15 @@ class Engine{
     // [MIXED_BUILDS_REFUSED_V1] The lesson of the PyTorch campaign: one node left on an older build made a group that
     // ran, slowly and wrongly, until a rendezvous check named it. Here the front and the RAM host run the SAME region
     // code on either side of every call (the host runs the operation, the front applies the cells it answers with), so
-    // a front talking to a host of another version is refused at start, saying both versions.
+    // a front talking to a host whose region it does not speak is refused at start, saying both versions. The hosts it
+    // speaks are listed in version.hpp (RIBBIT_LISP_REGION_COMPAT): a release that changes only the front adds to it.
     // RIBBIT_LISP_ALLOW_MIXED=1 lets it through, saying so.
     void require_same_build(const std::string& who){
         if(!session)return;
         const std::string theirs=ram_version();
-        if(theirs==RIBBIT_LISP_VERSION)return;
+        for(const char*v:RIBBIT_LISP_REGION_COMPAT)if(theirs==v)return;
         const std::string msg=who+": this is "+RIBBIT_LISP_VERSION+", the RAM host's LISP region is "+theirs+
-                              " -- install the same package on both (or set RIBBIT_LISP_ALLOW_MIXED=1)";
+                              ", which this front does not speak -- install this package on the RAM host (or set RIBBIT_LISP_ALLOW_MIXED=1)";
         if(const char*a=std::getenv("RIBBIT_LISP_ALLOW_MIXED"); a&&std::string(a)=="1"){ std::cerr<<"[MIXED_BUILDS_REFUSED_V1] allowed: "<<msg<<"\n"; return; }
         throw std::runtime_error(msg);
     }
