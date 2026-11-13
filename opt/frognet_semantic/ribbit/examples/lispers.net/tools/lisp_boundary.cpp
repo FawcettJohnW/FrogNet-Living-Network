@@ -80,6 +80,5 @@ int main(int argc, char** argv) {
         catch (const std::exception& x) { std::cout << "{\"ok\":false,\"error\":" << Json::quote(x.what()) << "}\n" << std::flush; }
     }
     b.stop();
-    std::cerr << "[LISP-BOUNDARY] registers=" << b.registers() << " requests=" << b.requests() << " rejected=" << b.rejected() << " writes=" << b.writes() << "\n";
-    std::cerr << "[DIAG-ROUND-TRIPS] " << b.stats_json() << "\n";
+    std::cerr << "[LISP-BOUNDARY] registers=" << b.registers() << " requests=" << b.requests() << " rejected=" << b.rejected() << " in_flight_peak=" << b.in_flight_peak() << "\n";
 }

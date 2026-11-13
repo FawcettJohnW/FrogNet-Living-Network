@@ -138,7 +138,6 @@ struct RawCell { uint64_t id = 0; std::string instance, bag; double updated = 0;
                  std::string text() const { return arr ? arr->json() : bag; } };
 
 uint64_t calls_this_thread();
-void trace_asks_on_this_thread(bool on);   // [ROUND_TRIPS_PER_PACKET_V1] with RIBBIT_TRACE_ASKS=1
 // [READ_YOUR_OWN_WRITE_V1] While set, every Memory::write on this thread appends (variable, id) here.
 void log_writes_to(std::vector<std::pair<std::string, uint64_t>>* sink);
 std::vector<std::pair<std::string, uint64_t>>* current_write_log();   // [ROUND_TRIPS_V1] blocking Session::call()s made by the calling thread so far

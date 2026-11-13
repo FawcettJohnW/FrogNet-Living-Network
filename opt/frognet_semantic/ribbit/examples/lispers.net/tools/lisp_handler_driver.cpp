@@ -108,7 +108,7 @@ int main(int argc, char** argv) {
                 if (!boundary) throw std::runtime_error("driver: no boundary");
                 out = "{\"registers\":" + std::to_string(boundary->registers()) + ",\"requests\":" + std::to_string(boundary->requests()) +
                       ",\"rejected\":" + std::to_string(boundary->rejected()) +
-                      ",\"writes\":" + std::to_string(boundary->writes()) + "}";
+                      ",\"in_flight_peak\":" + std::to_string(boundary->in_flight_peak()) + "}";
             } else if (op == "boundary.stop") {
                 if (!boundary) throw std::runtime_error("driver: no boundary");
                 boundary->stop(); boundary.reset(); out = "\"good\"";
