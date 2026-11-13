@@ -142,6 +142,7 @@ int main(int argc, char** argv) {
         // The session: this Engine's Session holds the semantic socket and the high-speed data socket open for as
         // long as the service runs.
         Engine e(host, port, api);
+        e.require_same_build("lisp-service");                 // [MIXED_BUILDS_REFUSED_V1]
         std::string udp_text = "null";
         std::unique_ptr<frognet::LispBoundary> front;
         if (ms || mr) {

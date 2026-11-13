@@ -84,6 +84,9 @@ public:
     uint64_t registers() const { return registers_; }
     uint64_t requests() const { return requests_; }
     uint64_t rejected() const { return rejected_; }
+    // [REGISTERS_IN_FLIGHT_V1] registers sent to the region and not yet answered: now, and the most at once
+    uint64_t in_flight() const { return inflight_.load(); }
+    uint64_t in_flight_peak() const { return inflight_peak_.load(); }
 private:
     struct Job { std::vector<unsigned char> pkt; sockaddr_in from; socklen_t fl; std::function<void(Engine&)> cfg; };
     std::string configure(const std::string& op, const std::string& args_json);
@@ -142,6 +145,7 @@ private:
     Strand* strand_for(uint64_t key);
     void run_strand(Strand* s);
     void answer_register(Engine& e, const Job& j);
+    void send_register_async(const Job& j);
     void loop();
     void work(Worker& w);
     void reject(const sockaddr_in& from, ssize_t n, int type, const std::string& why);
@@ -161,6 +165,8 @@ private:
     int fd_ = -1;
     std::atomic<bool> stop_{false};
     std::atomic<uint64_t> registers_{0}, requests_{0}, rejected_{0};
+    std::atomic<uint32_t> inflight_{0};                    // [REGISTERS_IN_FLIGHT_V1] a futex word: stop() waits it out
+    std::atomic<uint64_t> inflight_peak_{0};
     std::thread th_;
 };
 
@@ -320,6 +326,7 @@ inline std::string LispSite::call(const std::string& op, const std::string& args
 
 inline LispBoundary::LispBoundary(const std::string& h, int p, int udp_port, int nworkers, const std::string& api) : req_e_(h, p, api), cfg_e_(h, p, api), reg_e_(h, p, api) {
     if (nworkers < 1) throw std::runtime_error("lisp boundary: register_workers must be >= 1, got " + std::to_string(nworkers));
+    reg_e_.require_same_build("lisp boundary");             // [MIXED_BUILDS_REFUSED_V1]
     // [ONE_SET_OF_VIEWS_PER_PARTICIPANT_V1] the boundary is one participant: every Engine reads the request Engine's views
     cfg_e_.share_views_of(req_e_);
     reg_e_.share_views_of(req_e_);
@@ -431,6 +438,12 @@ inline void LispBoundary::stop() {
     if (th_.joinable()) th_.join();                         // no receive, so no new strand
     for (uint32_t n; (n = strands_running_.load(std::memory_order_seq_cst)) != 0;)
         ::syscall(SYS_futex, reinterpret_cast<uint32_t*>(&strands_running_), FUTEX_WAIT_PRIVATE, n, nullptr, nullptr, 0);
+    // [REGISTERS_IN_FLIGHT_V1] every register sent is answered or failed before the socket goes: bounded, because a
+    // session that ends fails every call it carries
+    for (uint32_t n; (n = inflight_.load(std::memory_order_seq_cst)) != 0;) {
+        timespec ts{0, 200000000};
+        ::syscall(SYS_futex, reinterpret_cast<uint32_t*>(&inflight_), FUTEX_WAIT_PRIVATE, n, &ts, nullptr, 0);
+    }
     for (auto& w : workers_) w->wake();
     for (auto& w : workers_) if (w->th.joinable()) w->th.join();
     if (fd_ >= 0) { ::close(fd_); fd_ = -1; }
@@ -560,7 +573,7 @@ inline LispBoundary::Strand* LispBoundary::strand_for(uint64_t key) {
 inline void LispBoundary::run_strand(Strand* s) {
     for (;;) {
         Job j;
-        while (s->pop(j)) answer_register(reg_e_, j);
+        while (s->pop(j)) send_register_async(j);           // [REGISTERS_IN_FLIGHT_V1] sent in order; not waited for
         s->running.store(false, std::memory_order_seq_cst);
         bool idle = false;                                   // a register pushed while we were stopping is ours to answer
         if (!s->pending() || !s->running.compare_exchange_strong(idle, true, std::memory_order_acq_rel)) break;
@@ -581,6 +594,36 @@ inline void LispBoundary::answer_register(Engine& e, const Job& j) {
                 throw std::runtime_error(std::string("sendto: ") + std::strerror(errno));
         }
     } catch (const std::exception& x) { reject(j.from, (ssize_t)j.pkt.size(), 3, x.what()); }
+}
+// [REGISTERS_IN_FLIGHT_V1] The lesson of the PyTorch all_reduce (revive-september-20261112): a caller that waits a
+// round trip for each item in turn is bounded by the round trip, whatever the network can carry. A sender's strand used
+// to call the region and wait for each Map-Register's answer before sending the next: one ETR refreshing 300 mappings
+// at once took 300 round trips (36.6 registers/s at 24 ms). Now the strand only sends, in the order they came; the
+// session keeps that order and the memory runs them in it, so a sender's registers are still done in order, and the
+// Map-Notify goes back as each answer lands. A single closed-loop sender (one outstanding register) is unchanged:
+// it waits for its own answer, and that is one round trip.
+inline void LispBoundary::send_register_async(const Job& j) {
+    char pa[INET_ADDRSTRLEN]; inet_ntop(AF_INET, &j.from.sin_addr, pa, sizeof pa);
+    const uint64_t now = inflight_.fetch_add(1, std::memory_order_seq_cst) + 1;
+    for (uint64_t peak = inflight_peak_.load(); now > peak && !inflight_peak_.compare_exchange_weak(peak, now);) {}
+    auto jp = std::make_shared<Job>(j);
+    auto finish = [this] {
+        if (inflight_.fetch_sub(1, std::memory_order_seq_cst) == 1)
+            ::syscall(SYS_futex, reinterpret_cast<uint32_t*>(&inflight_), FUTEX_WAKE_PRIVATE, INT32_MAX, nullptr, nullptr, 0);
+    };
+    reg_e_.remote_call_async("wire.register_notify", "{\"hex\":" + Json::quote(hex(j.pkt)) + ",\"source\":" + Json::quote(pa) + "}",
+        [this, jp, finish](std::string result, std::string err) {
+            try {
+                if (!err.empty()) throw std::runtime_error(err);
+                Json r = Json::parse(result);
+                if (!r["notify_hex"].s.empty()) {
+                    auto answer = unhex(r["notify_hex"].s);
+                    if (::sendto(fd_, answer.data(), answer.size(), 0, (sockaddr*)&jp->from, jp->fl) != (ssize_t)answer.size())
+                        throw std::runtime_error(std::string("sendto: ") + std::strerror(errno));
+                }
+            } catch (const std::exception& x) { reject(jp->from, (ssize_t)jp->pkt.size(), 3, x.what()); }
+            finish();
+        });
 }
 inline void LispBoundary::work(Worker& w) {
     for (;;) {

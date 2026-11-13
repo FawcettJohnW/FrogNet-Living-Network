@@ -26,6 +26,7 @@
 #include <unistd.h>
 #include <algorithm>
 #include <cstdint>
+#include <cstdlib>
 #include <iostream>
 #include <map>
 #include <array>
@@ -1852,6 +1853,20 @@ class Engine{
              return r["version"].type==frogram::Json::Str?r["version"].s:std::string("(host answered without a version)"); }
         catch(const std::exception&x){ return std::string("(host older than v0.53: ")+x.what()+")"; }
     }
+    // [MIXED_BUILDS_REFUSED_V1] The lesson of the PyTorch campaign: one node left on an older build made a group that
+    // ran, slowly and wrongly, until a rendezvous check named it. Here the front and the RAM host run the SAME region
+    // code on either side of every call (the host runs the operation, the front applies the cells it answers with), so
+    // a front talking to a host of another version is refused at start, saying both versions.
+    // RIBBIT_LISP_ALLOW_MIXED=1 lets it through, saying so.
+    void require_same_build(const std::string& who){
+        if(!session)return;
+        const std::string theirs=ram_version();
+        if(theirs==RIBBIT_LISP_VERSION)return;
+        const std::string msg=who+": this is "+RIBBIT_LISP_VERSION+", the RAM host's LISP region is "+theirs+
+                              " -- install the same package on both (or set RIBBIT_LISP_ALLOW_MIXED=1)";
+        if(const char*a=std::getenv("RIBBIT_LISP_ALLOW_MIXED"); a&&std::string(a)=="1"){ std::cerr<<"[MIXED_BUILDS_REFUSED_V1] allowed: "<<msg<<"\n"; return; }
+        throw std::runtime_error(msg);
+    }
     std::string remote_call(const std::string& op,const std::string& args_json){
         if(!session)throw std::runtime_error("remote_call: no RAM session");
         if(auto*p=failed_.load(std::memory_order_acquire))throw frogram::Unreachable(*p);
@@ -1865,6 +1880,47 @@ class Engine{
         await_own(written);
         return r["result_json"].s;
     }
+    // [REGISTERS_IN_FLIGHT_V1] remote_call without the wait: the request goes on the session and this returns. done(result,
+    // err) runs when the answer is in and this participant's own consequences are observable -- the cells the answer
+    // carries are applied to the held views first, as remote_call does ([OWN_WRITES_HELD_V1]), so put() is complete by
+    // the same rule. It runs on the session's reader thread, so nothing in it may wait on the session: a write whose
+    // cell the answer did not carry (rare) is waited for on a thread of its own. The session keeps the calls in the
+    // order they were made, and the memory runs them in that order, so a caller that makes its calls in order gets
+    // them done in order without waiting a round trip for each.
+    using RemoteDone=std::function<void(std::string result,std::string err)>;
+    void remote_call_async(const std::string& op,const std::string& args_json,RemoteDone done){
+        if(!session){ done("","remote_call: no RAM session"); return; }
+        if(auto*p=failed_.load(std::memory_order_acquire)){ done("",*p); return; }
+        session->call_async("POST",ram_api+"?op=lisp","{\"operation\":"+frogram::Json::quote(op)+",\"args\":"+args_json+"}",
+            [this,done](int status,std::string body,std::string err){
+                if(!err.empty()){ done("",err); return; }
+                try{
+                    if(status>=400)throw std::runtime_error("RAM host answered "+std::to_string(status)+": "+body.substr(0,200));
+                    frogram::Json r=frogram::Json::parse(body);
+                    if(r["ok"].type!=frogram::Json::Bool||!r["ok"].b)throw std::runtime_error(r["error"].type==frogram::Json::Str?r["error"].s:std::string("lisp op refused"));
+                    std::vector<std::pair<std::string,uint64_t>> written; std::set<std::pair<std::string,uint64_t>> held;
+                    if(r["cells_json"].type==frogram::Json::Str&&!r["cells_json"].s.empty())held=hold_own_cells(frogram::Json::parse(r["cells_json"].s));
+                    for(auto&e:r["written"].a)if(e.type==frogram::Json::Arr&&e.a.size()==2&&!held.count({e.a[0].s,uint64_t(e.a[1].n)}))
+                        written.emplace_back(e.a[0].s,uint64_t(e.a[1].n));
+                    std::string result=r["result_json"].s;
+                    if(written.empty()||own_applied(written)){ done(result,""); return; }
+                    own_waits_.fetch_add(1,std::memory_order_relaxed);
+                    std::thread([this,done,written,result]{
+                        try{ await_own(written); done(result,""); } catch(const std::exception&x){ done("",x.what()); }
+                    }).detach();
+                } catch(const std::exception&x){ done("",x.what()); }
+            });
+    }
+    uint64_t own_waits() const { return own_waits_.load(std::memory_order_relaxed); }
+    private:
+    std::atomic<uint64_t> own_waits_{0};
+    // every write's held view has applied it already (await_own would return at once)
+    bool own_applied(const std::vector<std::pair<std::string,uint64_t>>&written){
+        if(view_owner!=this)return view_owner->own_applied(written);
+        for(auto&w:written){ AppliedMark*m=mark_find(w.first,false); if(m&&m->id.load(std::memory_order_acquire)<w.second)return false; }
+        return true;
+    }
+    public:
     ~Engine(){
         stopping=true; stop_registrar(); if(governor)governor->stop=true; if(session)session->shutdown();
         if(held_liveness_view&&held_liveness_view->thread.joinable())held_liveness_view->thread.join();
