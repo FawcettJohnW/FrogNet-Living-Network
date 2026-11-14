@@ -37,6 +37,8 @@
 
 #include "lisp_engine.hpp"
 #include "unrest_handler.hpp"
+#include "ribbit_space.hpp"
+#include "ribbit_pp.hpp"
 
 #include <algorithm>
 #include <atomic>
@@ -64,18 +66,19 @@ private:
     Engine e_;
 };
 
-// [BOUNDARY_NEVER_WAITS_V1] John 2026-09-26: nothing may stop behind a blocking call. The receive thread never
-// touches the network: a Map-Request is answered on it from held views (no round trip); a Map-Register is handed to a
-// register worker and the receive thread goes straight back to recvfrom. Workers are chosen by the sender's
-// address:port, so one xTR's registers stay in the order it sent them while different senders proceed in parallel.
-// Every thread has its OWN Engine (participants take no locks; they coordinate through memory): the receive thread's
-// answers requests, each worker's registers, and the configuration Engine serves call(). Before this, one thread did
-// recvfrom -> the register's RAM round trips -> sendto, and every datagram from every sender queued behind it.
+// [BOUNDARY_NEVER_WAITS_V1] John 2026-09-26: nothing may stop behind a blocking call. The receive thread answers a
+// Map-Request from held views and goes straight back to recvfrom.
+// [REGISTER_ASKED_V1] John 2026-11-14 ("why is there ANY synchronous call"): a Map-Register is not a call to the region.
+// The receive thread writes it into the front's own ask space (API++ ask/answer, ribbit_pp.hpp) and goes back to
+// recvfrom; that write is the whole of it. The region on the RAM host holds one read on every front's asks, decides each
+// register in the memory, and writes its answer -- where to send it, and the Map-Notify if there is one -- into its own
+// answer space. The front holds one read on the answers written to it and sends each Map-Notify as it lands. The front
+// never waits for the region and the region never waits for the front. This replaced one synchronous call per register
+// (remote_call "wire.register_notify", one strand thread per sender, eight unused worker Engines).
 class LispBoundary {
 public:
-    static const int REGISTER_WORKERS = 8;
-    // Binds UDP udp_port on all addresses and starts the receive thread and the register workers.
-    LispBoundary(const std::string& ram_host, int ram_port, int udp_port, int register_workers = REGISTER_WORKERS,
+    // Binds UDP udp_port on all addresses and starts the receive thread; asks its registers through the memory.
+    LispBoundary(const std::string& ram_host, int ram_port, int udp_port, int unused_workers = 0,
                  const std::string& api = LISPER_API);      // api: the vendor's RAM interface endpoint
     ~LispBoundary();
     // Engine operations for the boundary's own configuration (site.add with the site's password, ...), on the
@@ -86,70 +89,11 @@ public:
     uint64_t registers() const { return registers_; }
     uint64_t requests() const { return requests_; }
     uint64_t rejected() const { return rejected_; }
-    // registers whose call to the region is under way: now, and the most at once
-    uint64_t in_flight() const { return inflight_.load(); }
-    uint64_t in_flight_peak() const { return inflight_peak_.load(); }
+    uint64_t answered() const { return answered_; }   // registers whose answer from the region has landed here
 private:
-    struct Job { std::vector<unsigned char> pkt; sockaddr_in from; socklen_t fl; std::function<void(Engine&)> cfg;
-                 std::chrono::steady_clock::time_point received{}; };   // [DIAG-REGISTER] when the datagram arrived
     std::string configure(const std::string& op, const std::string& args_json);
-    // [BOUNDARY_NO_LOCKS_V1] Participants take no locks. A worker's queue is lock-free: many producers (the receive
-    // thread, the configuration caller) append with one atomic exchange, the worker alone takes (Vyukov's intrusive
-    // MPSC queue); the worker sleeps on a futex word that every append bumps -- a kernel wait queue, not a lock.
-    struct JobNode { Job job; std::atomic<JobNode*> next{nullptr}; };
-    struct Worker {
-        std::unique_ptr<Engine> e; std::thread th;
-        JobNode* head = new JobNode;                     // the consumer's stub
-        std::atomic<JobNode*> tail{head};
-        std::atomic<uint32_t> signal{0};
-        void push(Job j) {
-            JobNode* n = new JobNode; n->job = std::move(j);
-            JobNode* prev = tail.exchange(n, std::memory_order_acq_rel);
-            prev->next.store(n, std::memory_order_release);
-            signal.fetch_add(1, std::memory_order_release);
-            ::syscall(SYS_futex, reinterpret_cast<uint32_t*>(&signal), FUTEX_WAKE_PRIVATE, 1, nullptr, nullptr, 0);
-        }
-        bool pop(Job& out) {                              // the worker only
-            JobNode* nx = head->next.load(std::memory_order_acquire);
-            if (!nx) return false;
-            out = std::move(nx->job); delete head; head = nx; return true;
-        }
-        void sleep_unless_changed(uint32_t seen) {
-            ::syscall(SYS_futex, reinterpret_cast<uint32_t*>(&signal), FUTEX_WAIT_PRIVATE, seen, nullptr, nullptr, 0);
-        }
-        void wake() { signal.fetch_add(1, std::memory_order_release); ::syscall(SYS_futex, reinterpret_cast<uint32_t*>(&signal), FUTEX_WAKE_PRIVATE, 1, nullptr, nullptr, 0); }
-        ~Worker() { Job j; while (pop(j)) {} delete head; }
-    };
-    // [REGISTER_STRANDS_V1] John 2026-09-28 ("nothing may stop behind a blocking call"): a Map-Register's call to the
-    // region blocks for a whole round trip to the RAM server. It used to occupy one of a fixed set of workers, chosen by a
-    // hash of the sender, so senders that hashed alike queued behind each other and throughput was capped at workers
-    // per round trip. Now each sender has its own strand -- its registers stay in the order they came -- and a strand
-    // runs on its own thread only while it has registers to answer: every sender's round trip overlaps every other's.
-    struct Strand {
-        uint64_t key = 0; Strand* next_in_bucket = nullptr;      // set once, before publication
-        JobNode* head = new JobNode;                            // the running thread's stub (Vyukov MPSC, as Worker)
-        std::atomic<JobNode*> tail{head};
-        std::atomic<bool> running{false};
-        void push(Job j) {
-            JobNode* n = new JobNode; n->job = std::move(j);
-            JobNode* prev = tail.exchange(n, std::memory_order_acq_rel);
-            prev->next.store(n, std::memory_order_release);
-        }
-        bool pop(Job& out) {                                    // the running thread only
-            JobNode* nx = head->next.load(std::memory_order_acquire);
-            if (!nx) return false;
-            out = std::move(nx->job); delete head; head = nx; return true;
-        }
-        bool pending() const { return head->next.load(std::memory_order_acquire) != nullptr || tail.load(std::memory_order_acquire) != head; }
-    };
-    static constexpr size_t STRAND_BUCKETS = 4096;
-    std::atomic<Strand*> strands_[STRAND_BUCKETS] = {};
-    std::atomic<uint32_t> strands_running_{0};
-    Strand* strand_for(uint64_t key);
-    void run_strand(Strand* s);
-    void answer_register(Engine& e, const Job& j);
+    void on_answer(const ribbit::SpaceRow& r);
     void loop();
-    void work(Worker& w);
     void reject(const sockaddr_in& from, ssize_t n, int type, const std::string& why);
     static int request_eid_afi(const std::vector<unsigned char>& m);
     // [DDT_REFERRAL_V1] LISP-DDT (RFC 8111) as lispers.net's map-server does it (lisp_ms_send_map_referral): when this
@@ -162,13 +106,14 @@ private:
     std::atomic<const std::vector<std::string>*> ms_peers_{nullptr};         // map-server peers: the referral set
     ribbit::Ebr ebr_;
     Engine req_e_, cfg_e_;
-    std::vector<std::unique_ptr<Worker>> workers_;
-    Engine reg_e_;                                          // [REGISTER_STRANDS_V1] one session carries every strand's call
+    static constexpr uint64_t ASK_RING = 65536;            // [REGISTER_ASKED_V1] a front's ask cells: a ring, slot n mod ring
+    std::unique_ptr<ribbit::Space> space_;                 // the front's one session for its asks and its answers
+    std::unique_ptr<ribbit::pp::Asker> asker_;
+    std::string me_;                                       // this front: its ask topic and the topic of its answers
+    std::atomic<uint64_t> asked_{0};
     int fd_ = -1;
     std::atomic<bool> stop_{false};
-    std::atomic<uint64_t> registers_{0}, requests_{0}, rejected_{0};
-    std::atomic<uint32_t> inflight_{0};                    // [REGISTERS_IN_FLIGHT_V1] a futex word: stop() waits it out
-    std::atomic<uint64_t> inflight_peak_{0};
+    std::atomic<uint64_t> registers_{0}, requests_{0}, rejected_{0}, answered_{0};
     std::thread th_;
 };
 
@@ -326,13 +271,10 @@ inline std::unique_ptr<LispBoundary> LispHandler::open_boundary(const std::strin
 inline LispSite::LispSite(const std::string& h, int p) : e_(h, p) {}
 inline std::string LispSite::call(const std::string& op, const std::string& args) { return e_.call(op, Json::parse(args)); }
 
-inline LispBoundary::LispBoundary(const std::string& h, int p, int udp_port, int nworkers, const std::string& api) : req_e_(h, p, api), cfg_e_(h, p, api), reg_e_(h, p, api) {
-    if (nworkers < 1) throw std::runtime_error("lisp boundary: register_workers must be >= 1, got " + std::to_string(nworkers));
-    reg_e_.require_same_build("lisp boundary");             // [MIXED_BUILDS_REFUSED_V1]
-    // [ONE_SET_OF_VIEWS_PER_PARTICIPANT_V1] the boundary is one participant: every Engine reads the request Engine's views
+inline LispBoundary::LispBoundary(const std::string& h, int p, int udp_port, int, const std::string& api) : req_e_(h, p, api), cfg_e_(h, p, api) {
+    req_e_.require_same_build("lisp boundary");             // [MIXED_BUILDS_REFUSED_V1]
+    // [ONE_SET_OF_VIEWS_PER_PARTICIPANT_V1] the boundary is one participant: the configuration Engine reads the request Engine's views
     cfg_e_.share_views_of(req_e_);
-    reg_e_.share_views_of(req_e_);
-    for (int i = 0; i < nworkers; ++i) { workers_.emplace_back(new Worker); workers_.back()->e.reset(new Engine(h, p, api)); workers_.back()->e->share_views_of(req_e_); }
     fd_ = ::socket(AF_INET, SOCK_DGRAM, 0);
     if (fd_ < 0) throw std::runtime_error(std::string("lisp boundary: socket: ") + std::strerror(errno));
     sockaddr_in a{}; a.sin_family = AF_INET; a.sin_port = htons((uint16_t)udp_port); a.sin_addr.s_addr = htonl(INADDR_ANY);
@@ -345,14 +287,18 @@ inline LispBoundary::LispBoundary(const std::string& h, int p, int udp_port, int
         int e = errno; ::close(fd_); fd_ = -1;
         throw std::runtime_error(std::string("lisp boundary: SO_RCVTIMEO: ") + std::strerror(e));
     }
-    for (auto& w : workers_) { Worker* wp = w.get(); w->th = std::thread([this, wp] { work(*wp); }); }
+    // [REGISTER_ASKED_V1] this front's name: its machine, its process and its port -- the topic of its asks and answers
+    char hn[256] = {}; ::gethostname(hn, sizeof hn - 1);
+    me_ = std::string("front.") + hn + "." + std::to_string(::getpid()) + "." + std::to_string(udp_port);
+    std::string vendor = api; if (vendor.rfind('/', 0) == 0) vendor.erase(0, 1);
+    if (vendor.size() > 4 && vendor.compare(vendor.size() - 4, 4, "-api") == 0) vendor.resize(vendor.size() - 4);
+    space_.reset(new ribbit::Space(h + ":" + std::to_string(p), vendor));
+    asker_.reset(new ribbit::pp::Asker(*space_, "lisp.register", me_, [this](const ribbit::SpaceRow& r) { on_answer(r); },
+        [this](const std::string& why) {
+            std::cerr << ("[REGISTER_ASKED_V1] the read held on this front's answers ended: " + why + "\n") << std::flush; }));
     th_ = std::thread([this] { loop(); });
 }
-inline LispBoundary::~LispBoundary() {
-    stop();
-    for (auto& b : strands_)                                   // strands are never unlinked while running: freed here
-        for (Strand* s = b.load(std::memory_order_acquire); s;) { Strand* n = s->next_in_bucket; Job j; while (s->pop(j)) {} delete s->head; delete s; s = n; }
-}
+inline LispBoundary::~LispBoundary() { stop(); }
 inline std::string LispBoundary::call(const std::string& op, const std::string& args) { return configure(op, args); }
 inline std::vector<unsigned char> LispBoundary::map_referral(const std::vector<unsigned char>& request, const std::vector<unsigned char>& reply) {
     // As lispers.net 0.643's map-server answers, observed on the running control as a map-server-only DDT authority
@@ -437,18 +383,8 @@ inline std::string LispBoundary::configure(const std::string& op, const std::str
 }
 inline void LispBoundary::stop() {
     stop_ = true;
-    if (th_.joinable()) th_.join();                         // no receive, so no new strand
-    for (uint32_t n; (n = strands_running_.load(std::memory_order_seq_cst)) != 0;)
-        ::syscall(SYS_futex, reinterpret_cast<uint32_t*>(&strands_running_), FUTEX_WAIT_PRIVATE, n, nullptr, nullptr, 0);
-    // [REGISTERS_IN_FLIGHT_V1] every register sent is answered or failed before the socket goes: bounded, because a
-    // session that ends fails every call it carries
-    for (uint32_t n; (n = inflight_.load(std::memory_order_seq_cst)) != 0;) {
-        timespec ts{0, 200000000};
-        ::syscall(SYS_futex, reinterpret_cast<uint32_t*>(&inflight_), FUTEX_WAIT_PRIVATE, n, &ts, nullptr, 0);
-    }
-    for (auto& w : workers_) w->wake();
-    for (auto& w : workers_) if (w->th.joinable()) w->th.join();
-    if (fd_ >= 0) { ::close(fd_); fd_ = -1; }
+    if (th_.joinable()) th_.join();                         // no receive, so no new ask
+    space_->flush(5.0);                                     // what was asked has left this process
 }
 inline void LispBoundary::loop() {
     std::vector<unsigned char> buf(65535);
@@ -471,14 +407,12 @@ inline void LispBoundary::loop() {
             // it, and never leaves this machine
             try { Engine::sanitize_register(pkt); }
             catch (const std::exception& x) { reject(from, n, type, x.what()); continue; }
-            // [REGISTER_STRANDS_V1] the sender's own strand; started if it is not running
-            Strand* s = strand_for((uint64_t(from.sin_addr.s_addr) << 16) | from.sin_port);
-            s->push(Job{pkt, from, fl, {}, std::chrono::steady_clock::now()});
-            bool idle = false;
-            if (s->running.compare_exchange_strong(idle, true, std::memory_order_acq_rel)) {
-                strands_running_.fetch_add(1, std::memory_order_seq_cst);
-                std::thread([this, s] { run_strand(s); }).detach();
-            }
+            // [REGISTER_ASKED_V1] written into this front's own ask space: the whole of it
+            const uint64_t k = ++asked_;
+            const double t = std::chrono::duration<double>(std::chrono::system_clock::now().time_since_epoch()).count();
+            asker_->ask(ribbit::Space::slot("r", k, ASK_RING),
+                        "{\"hex\":" + Json::quote(hex(pkt)) + ",\"source\":" + Json::quote(pa) + ",\"port\":" +
+                        std::to_string(ntohs(from.sin_port)) + ",\"t\":" + std::to_string(t) + "}");
             continue;
         }
         try {
@@ -567,70 +501,26 @@ inline void LispBoundary::reject(const sockaddr_in& from, ssize_t n, int type, c
                             << " err=" << why << "\n";
     std::cerr << o.str() << std::flush;                    // one write, as [DIAG-REGISTER]
 }
-inline LispBoundary::Strand* LispBoundary::strand_for(uint64_t key) {
-    auto& b = strands_[(key * 0x9e3779b97f4a7c15ull >> 32) % STRAND_BUCKETS];
-    for (;;) {
-        Strand* head = b.load(std::memory_order_acquire);
-        for (Strand* s = head; s; s = s->next_in_bucket) if (s->key == key) return s;
-        Strand* fresh = new Strand; fresh->key = key; fresh->next_in_bucket = head;
-        if (b.compare_exchange_strong(head, fresh, std::memory_order_acq_rel)) return fresh;
-        delete fresh->head; delete fresh;                    // another receive made it first: look again
+// [REGISTER_ASKED_V1] the region's answer to one of this front's registers: the Map-Notify, sent to whoever sent the
+// register; or why the region refused it, said as a rejection. Runs on the read held on this front's answers.
+inline void LispBoundary::on_answer(const ribbit::SpaceRow& r) {
+    if (r.gone || stop_) return;
+    Json a; try { a = Json::parse(r.text()); } catch (const std::exception&) { return; }
+    ++answered_;
+    sockaddr_in to{}; to.sin_family = AF_INET; to.sin_port = htons((uint16_t)a["port"].n);
+    if (inet_pton(AF_INET, a["to"].s.c_str(), &to.sin_addr) != 1) return;
+    // [DIAG-REGISTER] a register answered 500 ms or more after it arrived says so, with how long
+    const double now = std::chrono::duration<double>(std::chrono::system_clock::now().time_since_epoch()).count();
+    const double ms = (now - a["t"].n) * 1e3;
+    if (ms >= 500.0) {
+        std::ostringstream o; o << "[DIAG-REGISTER] peer=" << a["to"].s << ":" << (long)a["port"].n << " answered_after_ms=" << (long)ms << "\n";
+        std::cerr << o.str() << std::flush;
     }
-}
-inline void LispBoundary::run_strand(Strand* s) {
-    for (;;) {
-        Job j;
-        // [REGISTER_STRANDS_V1] each register is one synchronous call to the region's operation, run completely;
-        // every sender's strand makes its calls at the same time over the one session (fan-out/fan-in on the wire)
-        while (s->pop(j)) answer_register(reg_e_, j);
-        s->running.store(false, std::memory_order_seq_cst);
-        bool idle = false;                                   // a register pushed while we were stopping is ours to answer
-        if (!s->pending() || !s->running.compare_exchange_strong(idle, true, std::memory_order_acq_rel)) break;
-    }
-    if (strands_running_.fetch_sub(1, std::memory_order_seq_cst) == 1)
-        ::syscall(SYS_futex, reinterpret_cast<uint32_t*>(&strands_running_), FUTEX_WAKE_PRIVATE, INT32_MAX, nullptr, nullptr, 0);
-}
-inline void LispBoundary::answer_register(Engine& e, const Job& j) {
-    // [VENDOR_API_V1] the whole Map-Register -- authentication, site policy, the registration, its governance, the
-    // Map-Notify -- is ONE call to the LISP region's API; the RAM server does it in the memory itself
-    char pa[INET_ADDRSTRLEN]; inet_ntop(AF_INET, &j.from.sin_addr, pa, sizeof pa);
-    const uint64_t now = inflight_.fetch_add(1, std::memory_order_seq_cst) + 1;     // calls to the region at once
-    for (uint64_t peak = inflight_peak_.load(); now > peak && !inflight_peak_.compare_exchange_weak(peak, now);) {}
-    struct Done { std::atomic<uint32_t>& f; ~Done() { if (f.fetch_sub(1, std::memory_order_seq_cst) == 1)
-        ::syscall(SYS_futex, reinterpret_cast<uint32_t*>(&f), FUTEX_WAKE_PRIVATE, INT32_MAX, nullptr, nullptr, 0); } } done{inflight_};
-    // [DIAG-REGISTER] a register that takes long says where the time went: waiting on its sender's strand for the
-    // registers before it, or in its own call to the region; and how many calls to the region were under way
-    const auto t_call = std::chrono::steady_clock::now();
-    struct Timed { const Job& j; const char* pa; std::chrono::steady_clock::time_point t_call; uint64_t inflight;
-        ~Timed() { using ms = std::chrono::duration<double, std::milli>; auto t_end = std::chrono::steady_clock::now();
-            double q = ms(t_call - j.received).count(), c = ms(t_end - t_call).count();
-            if (q + c < 500.0) return;
-            std::ostringstream o; o << "[DIAG-REGISTER] peer=" << pa << ":" << ntohs(j.from.sin_port) << " size=" << j.pkt.size()
-                << " waited_on_strand_ms=" << (long)q << " call_ms=" << (long)c << " calls_in_flight=" << inflight << "\n";
-            std::cerr << o.str() << std::flush; } }        // one write: other threads' lines do not land inside it
-        timed{j, pa, t_call, now};
-    try {
-        Json r = Json::parse(e.remote_call("wire.register_notify", "{\"hex\":" + Json::quote(hex(j.pkt)) +
-                                                                  ",\"source\":" + Json::quote(pa) + "}"));
-        if (!r["notify_hex"].s.empty()) {
-            auto answer = unhex(r["notify_hex"].s);
-            if (::sendto(fd_, answer.data(), answer.size(), 0, (sockaddr*)&j.from, j.fl) != (ssize_t)answer.size())
-                throw std::runtime_error(std::string("sendto: ") + std::strerror(errno));
-        }
-    } catch (const std::exception& x) { reject(j.from, (ssize_t)j.pkt.size(), 3, x.what()); }
-}
-inline void LispBoundary::work(Worker& w) {
-    for (;;) {
-        Job j;
-        for (;;) {
-            const uint32_t seen = w.signal.load(std::memory_order_acquire);
-            if (w.pop(j)) break;
-            if (stop_) return;                              // stopping, nothing left
-            w.sleep_unless_changed(seen);                  // returns at once if anything was appended since `seen`
-        }
-        if (j.cfg) { j.cfg(*w.e); continue; }
-        answer_register(*w.e, j);
-    }
+    if (a["error"].type == Json::Str) { reject(to, -1, 3, a["error"].s); return; }
+    if (a["notify_hex"].s.empty()) return;                 // M clear: no Map-Notify
+    auto answer = unhex(a["notify_hex"].s);
+    if (::sendto(fd_, answer.data(), answer.size(), 0, (sockaddr*)&to, sizeof to) != (ssize_t)answer.size())
+        reject(to, -1, 3, std::string("sendto: ") + std::strerror(errno));
 }
 
 }  // namespace frognet

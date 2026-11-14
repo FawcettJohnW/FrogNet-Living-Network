@@ -22,8 +22,8 @@
 #include <csignal>
 // lisp_boundary.cpp -- the Ribbit Map-Server's UDP front: LispBoundary as a program.
 //   lisp-boundary --ram HOST PORT --udp PORT [--workers N]
-// Map-Requests are answered from held views on the receive thread; Map-Registers go to N register workers
-// ([BOUNDARY_NEVER_WAITS_V1]). Configuration (site.add with the site's key, ...) arrives as JSON lines on stdin, the
+// Map-Requests are answered from held views on the receive thread; Map-Registers are written into the front's ask
+// space and answered by the region through the memory ([REGISTER_ASKED_V1]). Configuration (site.add with the site's key, ...) arrives as JSON lines on stdin, the
 // same {"operation","args"} ribbit-lisp takes, and is answered on stdout. EOF on stdin stops the boundary and prints
 // its counters.
 #include "lisp_handler.hpp"
@@ -80,5 +80,5 @@ int main(int argc, char** argv) {
         catch (const std::exception& x) { std::cout << "{\"ok\":false,\"error\":" << Json::quote(x.what()) << "}\n" << std::flush; }
     }
     b.stop();
-    std::cerr << "[LISP-BOUNDARY] registers=" << b.registers() << " requests=" << b.requests() << " rejected=" << b.rejected() << " in_flight_peak=" << b.in_flight_peak() << "\n";
+    std::cerr << "[LISP-BOUNDARY] registers=" << b.registers() << " requests=" << b.requests() << " rejected=" << b.rejected() << " answered=" << b.answered() << "\n";
 }

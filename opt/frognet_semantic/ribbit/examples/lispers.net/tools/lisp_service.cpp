@@ -148,7 +148,7 @@ int main(int argc, char** argv) {
         if (ms || mr) {
             const Json& udp = need(cfg, "udp", "a map-server / map-resolver");
             udp_text = Json::quote(need(udp, "address", "udp").s + ":" + std::to_string(int(need(udp, "port", "udp").n)));
-            front.reset(new frognet::LispBoundary(host, port, int(udp["port"].n), frognet::LispBoundary::REGISTER_WORKERS, api));
+            front.reset(new frognet::LispBoundary(host, port, int(udp["port"].n), 0, api));
             say("LISP control-plane front on UDP " + std::to_string(int(udp["port"].n)));
         }
 
