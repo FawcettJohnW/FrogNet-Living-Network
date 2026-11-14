@@ -40,6 +40,8 @@
 
 #include <algorithm>
 #include <atomic>
+#include <sstream>
+#include <chrono>
 #include <linux/futex.h>
 #include <sys/syscall.h>
 #include <unistd.h>
@@ -88,7 +90,8 @@ public:
     uint64_t in_flight() const { return inflight_.load(); }
     uint64_t in_flight_peak() const { return inflight_peak_.load(); }
 private:
-    struct Job { std::vector<unsigned char> pkt; sockaddr_in from; socklen_t fl; std::function<void(Engine&)> cfg; };
+    struct Job { std::vector<unsigned char> pkt; sockaddr_in from; socklen_t fl; std::function<void(Engine&)> cfg;
+                 std::chrono::steady_clock::time_point received{}; };   // [DIAG-REGISTER] when the datagram arrived
     std::string configure(const std::string& op, const std::string& args_json);
     // [BOUNDARY_NO_LOCKS_V1] Participants take no locks. A worker's queue is lock-free: many producers (the receive
     // thread, the configuration caller) append with one atomic exchange, the worker alone takes (Vyukov's intrusive
@@ -470,7 +473,7 @@ inline void LispBoundary::loop() {
             catch (const std::exception& x) { reject(from, n, type, x.what()); continue; }
             // [REGISTER_STRANDS_V1] the sender's own strand; started if it is not running
             Strand* s = strand_for((uint64_t(from.sin_addr.s_addr) << 16) | from.sin_port);
-            s->push(Job{pkt, from, fl, {}});
+            s->push(Job{pkt, from, fl, {}, std::chrono::steady_clock::now()});
             bool idle = false;
             if (s->running.compare_exchange_strong(idle, true, std::memory_order_acq_rel)) {
                 strands_running_.fetch_add(1, std::memory_order_seq_cst);
@@ -560,8 +563,9 @@ inline int LispBoundary::request_eid_afi(const std::vector<unsigned char>& m) {
 inline void LispBoundary::reject(const sockaddr_in& from, ssize_t n, int type, const std::string& why) {
     ++rejected_;
     char pa[INET_ADDRSTRLEN]; inet_ntop(AF_INET, &from.sin_addr, pa, sizeof pa);
-    std::cerr << "[LISP-BOUNDARY] REJECTED peer=" << pa << ":" << ntohs(from.sin_port) << " size=" << n << " type=" << type
-              << " err=" << why << "\n" << std::flush;
+    std::ostringstream o; o << "[LISP-BOUNDARY] REJECTED peer=" << pa << ":" << ntohs(from.sin_port) << " size=" << n << " type=" << type
+                            << " err=" << why << "\n";
+    std::cerr << o.str() << std::flush;                    // one write, as [DIAG-REGISTER]
 }
 inline LispBoundary::Strand* LispBoundary::strand_for(uint64_t key) {
     auto& b = strands_[(key * 0x9e3779b97f4a7c15ull >> 32) % STRAND_BUCKETS];
@@ -594,6 +598,17 @@ inline void LispBoundary::answer_register(Engine& e, const Job& j) {
     for (uint64_t peak = inflight_peak_.load(); now > peak && !inflight_peak_.compare_exchange_weak(peak, now);) {}
     struct Done { std::atomic<uint32_t>& f; ~Done() { if (f.fetch_sub(1, std::memory_order_seq_cst) == 1)
         ::syscall(SYS_futex, reinterpret_cast<uint32_t*>(&f), FUTEX_WAKE_PRIVATE, INT32_MAX, nullptr, nullptr, 0); } } done{inflight_};
+    // [DIAG-REGISTER] a register that takes long says where the time went: waiting on its sender's strand for the
+    // registers before it, or in its own call to the region; and how many calls to the region were under way
+    const auto t_call = std::chrono::steady_clock::now();
+    struct Timed { const Job& j; const char* pa; std::chrono::steady_clock::time_point t_call; uint64_t inflight;
+        ~Timed() { using ms = std::chrono::duration<double, std::milli>; auto t_end = std::chrono::steady_clock::now();
+            double q = ms(t_call - j.received).count(), c = ms(t_end - t_call).count();
+            if (q + c < 500.0) return;
+            std::ostringstream o; o << "[DIAG-REGISTER] peer=" << pa << ":" << ntohs(j.from.sin_port) << " size=" << j.pkt.size()
+                << " waited_on_strand_ms=" << (long)q << " call_ms=" << (long)c << " calls_in_flight=" << inflight << "\n";
+            std::cerr << o.str() << std::flush; } }        // one write: other threads' lines do not land inside it
+        timed{j, pa, t_call, now};
     try {
         Json r = Json::parse(e.remote_call("wire.register_notify", "{\"hex\":" + Json::quote(hex(j.pkt)) +
                                                                   ",\"source\":" + Json::quote(pa) + "}"));
