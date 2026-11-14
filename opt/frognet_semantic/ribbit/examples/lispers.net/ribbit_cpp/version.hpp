@@ -19,7 +19,7 @@
 // host answers it (op=version); tools/qualify.sh reads it from here and prints it in a banner at the top of every run,
 // with the version of the RAM host it is talking to.
 #pragma once
-#define RIBBIT_LISP_VERSION "v0.71-config-in-memory"
+#define RIBBIT_LISP_VERSION "v0.72-one-read-feeds-the-views"
 // [MIXED_BUILDS_REFUSED_V1] The RAM host versions whose LISP region this front speaks: the region's code and its
 // answers are the same in each. Add a version here when a release leaves lisper-ram's region untouched; start the list
 // over when one changes it. v0.66 and v0.67 changed only the front (registers in flight, this check) and a diagnostic

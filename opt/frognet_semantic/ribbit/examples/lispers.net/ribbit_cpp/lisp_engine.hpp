@@ -720,6 +720,17 @@ class Engine{
         });
     }
     Engine*view_owner=this;
+    // [ONE_READ_FEEDS_THE_VIEWS_V1] John 2026-11-14 ("you do not need a separate watch for every fucking thing that
+    // changes"): a fed Engine arms no view itself -- no read when a view is first used, no thread per prefix length per
+    // kind. ONE read held on the whole "lisp" space (the front's Space follow) hands every row, in write order, to
+    // feed(), which applies it to the view it belongs to. A request is answered from what the views hold: it reads
+    // nothing from the memory. fed_watermark is the id of the newest row applied.
+    public:
+    bool fed=false;
+    std::atomic<uint64_t> fed_watermark{0};
+    using SmallTable=std::map<std::string,std::map<std::string,frogram::Cell>>;   // variable -> instance -> row
+    std::atomic<const SmallTable*> fed_small{nullptr};                             // ms-policy, ms-named, site-groups|<iid>
+    private:
     struct HeldMapCacheView {
         std::array<std::atomic<const MappingTable*>,129> mappings{};
         std::array<bool,129> started{};
@@ -1348,6 +1359,7 @@ class Engine{
     HeldLivenessView& held_liveness(){
         if(held_liveness_view)return *held_liveness_view;
         held_liveness_view=std::make_unique<HeldLivenessView>(); auto&v=*held_liveness_view;
+        if(fed)return v;                                // [ONE_READ_FEEDS_THE_VIEWS_V1]
         auto cells=read_ram("etr-live"); for(auto&c:cells)if(c.id>v.watermark)v.watermark=c.id;
         apply_liveness(v,cells); auto after=v.watermark;
         v.thread=spawn([this,after]{watch_liveness(held_liveness_view.get(),after);}); return v;
@@ -1407,6 +1419,52 @@ class Engine{
             for(auto&c:cells){if(c.id>after)after=c.id;materialize_ddt_length(*vp,iid,group,checked_bits(c));}}
         catch(const frogram::Unreachable&){if(stopping)break;return;}
     }
+    public:
+    // [ONE_READ_FEEDS_THE_VIEWS_V1] rows of the "lisp" space, in write order, from the one held read: each applied to
+    // the view it belongs to. Called on the read's own thread only.
+    void feed(std::vector<frogram::Cell>&cells){
+        std::map<std::string,std::vector<frogram::Cell>> by; uint64_t top=0;
+        for(auto&c:cells){ if(c.id>top)top=c.id; by[c.variable].push_back(std::move(c)); }
+        SmallTable*small=nullptr;
+        for(auto&kv:by){
+            const std::string&var=kv.first; auto&cs=kv.second;
+            if(var=="etr-live"){ apply_liveness(held_liveness(),cs); continue; }
+            if(var=="ms-policy"||var=="ms-named"||var.rfind("site-groups|",0)==0){
+                if(!small){ auto g=ebr.guard(); auto*old=snap_load(fed_small,g); small=new SmallTable(old?*old:SmallTable{}); }
+                for(auto&c:cs){ if(c.gone)(*small)[var].erase(c.instance); else (*small)[var][c.instance]=c; }
+                continue;
+            }
+            const auto p1=var.find('|'), pl=var.rfind("|/");
+            if(p1==std::string::npos||pl==std::string::npos||pl<=p1)continue;
+            const std::string kind=var.substr(0,p1);
+            if(kind!="registration"&&kind!="registration-governance"&&kind!="site"&&kind!="ddt-delegation")continue;
+            const int bits=std::atoi(var.c_str()+pl+2); if(bits<0||bits>128)continue;
+            const std::string rest=var.substr(p1+1,pl-p1-1); const auto p2=rest.find('|'); if(p2==std::string::npos)continue;
+            auto&v=held_resolver(rest.substr(0,p2),rest.substr(p2+1));
+            if(kind=="registration"){
+                auto*rs=v.registrations[bits].load(std::memory_order_acquire);
+                if(!rs){ rs=new HeldSlot<Mapping>; v.registrations[bits].store(rs,std::memory_order_release); }
+                hold_registrations(*rs,cs);
+            } else if(kind=="registration-governance"){
+                auto*gs=v.governance[bits].load(std::memory_order_acquire);
+                if(!gs){ gs=new HeldSlot<GovPair>; v.governance[bits].store(gs,std::memory_order_release); }
+                hold_governance(*gs,cs);
+            } else if(kind=="site") apply_site_slot(v.site_policy[bits],cs);
+            else apply_mapping_slot(v.ddt_delegations[bits],cs);
+        }
+        if(small)snap_store(fed_small,small);
+        if(top>fed_watermark.load(std::memory_order_relaxed))fed_watermark.store(top,std::memory_order_release);
+    }
+    // The rows of a small variable (an instance, or "" for all of them): from the fed views, else read from the memory.
+    std::vector<frogram::Cell> small_rows(const std::string&var,const std::string&inst){
+        if(!fed)return inst.empty()?ram->read("lisp",var):ram->read("lisp",var,inst);
+        std::vector<frogram::Cell> out; auto g=ebr.guard(); auto*t=snap_load(fed_small,g); if(!t)return out;
+        auto it=t->find(var); if(it==t->end())return out;
+        if(inst.empty()){ for(auto&kv:it->second)out.push_back(kv.second); return out; }
+        auto jt=it->second.find(inst); if(jt!=it->second.end())out.push_back(jt->second);
+        return out;
+    }
+    private:
     HeldResolverView& held_resolver(const std::string&iid,const std::string&group){
         if(view_owner!=this)return view_owner->held_resolver(iid,group);
         auto vk=view_key(iid,group);
@@ -1423,6 +1481,7 @@ class Engine{
             auto*fresh=new ResolverRegistry::Node; fresh->key=vk; fresh->view=std::make_unique<HeldResolverView>(); fresh->next=head;
             if(!slot.compare_exchange_strong(head,fresh,std::memory_order_acq_rel)){ delete fresh; continue; }
             HeldResolverView&v=*fresh->view;          // this thread won the insert: it arms the view
+            if(fed){ fresh->ready.store(1,std::memory_order_release); fresh->ready.notify_all(); return v; }   // [ONE_READ_FEEDS_THE_VIEWS_V1]
             try{
             auto manifest=read_ram("registration-lengths|"+iid+"|"+group),site_manifest=read_ram("site-lengths|"+iid+"|"+group),ddt_manifest=read_ram("ddt-delegation-lengths|"+iid+"|"+group);
             for(auto&c:manifest)if(c.id>v.manifest_watermark)v.manifest_watermark=c.id;
@@ -1734,7 +1793,7 @@ class Engine{
         m.ttl=1440;
         int action=0;
         if(have&&pol.force_proxy&&!pol.policy.empty()){                   // [MS_POLICY_V1]
-            auto pc=ram->read("lisp","ms-policy",pol.policy);
+            auto pc=small_rows("ms-policy",pol.policy);
             if(!pc.empty()){
                 const Json&P=pc.front().bag; bool match=false;
                 std::string srloc=request_itr_rloc(plain);
@@ -1756,7 +1815,7 @@ class Engine{
                         Rloc x; x.address=P["set_rloc_address"].s; x.priority=255; x.weight=0;
                         std::vector<unsigned char> inner;
                         for(auto kn:{std::make_pair("geo","set_geo_name"),std::make_pair("elp","set_elp_name"),std::make_pair("rle","set_rle_name"),std::make_pair("json","set_json_name")})
-                            if(P[kn.second].type==Json::Str){ auto oc=ram->read("lisp","ms-named",std::string(kn.first)+"|"+P[kn.second].s);
+                            if(P[kn.second].type==Json::Str){ auto oc=small_rows("ms-named",std::string(kn.first)+"|"+P[kn.second].s);
                                 if(!oc.empty()){ auto ob=unhex(oc.front().bag["lcaf"].s); inner.insert(inner.end(),ob.begin(),ob.end()); } }
                         unsigned char ad[4]; bool v4=inet_pton(AF_INET,x.address.c_str(),ad)==1;
                         std::vector<unsigned char> rec={0xff,0,0xff,0,0,1};
@@ -1794,7 +1853,7 @@ class Engine{
         if(group.find('/')==std::string::npos)return group;          // a name: its sites are its own (exact)
         Prefix gp=prefix_parse(group);                                   // "addr/len": must be a valid prefix
         std::string best; int bits=-1;
-        for(auto&c:ram->read("lisp","site-groups|"+iid)){
+        for(auto&c:small_rows("site-groups|"+iid,"")){
             Prefix sp=prefix_parse(c.instance);
             if(sp.family==gp.family&&contains(sp,gp)&&sp.bits>bits){best=c.instance;bits=sp.bits;}
         }

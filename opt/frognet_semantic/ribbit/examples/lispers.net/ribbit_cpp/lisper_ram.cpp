@@ -93,7 +93,11 @@ private:
             Json body = Json::parse(rep.body);
             if (body["ok"].type == Json::Bool && body["ok"].b) {
                 Json res = Json::parse(body["result_json"].s);
-                bag = head + ",\"notify_hex\":" + Json::quote(res["notify_hex"].s) + "}";
+                // [NOTIFY_AFTER_ITS_ROWS_V1] the newest row the register wrote: a front sends the Map-Notify once its own
+                // views hold that row, so "notified" still means "resolves" (as lispers.net)
+                uint64_t after = 0;
+                for (auto& w : body["written"].a) if (w.type == Json::Arr && w.a.size() == 2 && uint64_t(w.a[1].n) > after) after = uint64_t(w.a[1].n);
+                bag = head + ",\"after\":" + std::to_string(after) + ",\"notify_hex\":" + Json::quote(res["notify_hex"].s) + "}";
             } else bag = head + ",\"error\":" + Json::quote(body["error"].type == Json::Str ? body["error"].s : rep.body) + "}";
         } catch (const std::exception& x) { bag = head + ",\"error\":" + Json::quote(x.what()) + "}"; }
         registers_->answer(front, r.instance, bag);

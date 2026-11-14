@@ -93,6 +93,17 @@ public:
 private:
     std::string configure(const std::string& op, const std::string& args_json);
     void on_answer(const ribbit::SpaceRow& r);
+    void on_rows(std::vector<ribbit::SpaceRow>& rows);
+    // [NOTIFY_AFTER_ITS_ROWS_V1] a Map-Notify waits, as data, until the front's views hold the rows its register wrote:
+    // pushed on a lock-free list by the answer's read; sent by whichever thread drains the list (one at a time, the
+    // holder looking again if anything moved while it held it). No thread waits for anything.
+    struct PendingNotify { std::vector<unsigned char> pkt; sockaddr_in to; uint64_t after; PendingNotify* next = nullptr; };
+    std::atomic<PendingNotify*> pending_{nullptr};
+    std::atomic<bool> draining_{false};
+    std::atomic<uint64_t> moved_{0};
+    std::atomic<bool> announced_{false};
+    int udp_port_ = 0;
+    void send_ready();
     void loop();
     void reject(const sockaddr_in& from, ssize_t n, int type, const std::string& why);
     static int request_eid_afi(const std::vector<unsigned char>& m);
@@ -274,6 +285,7 @@ inline std::string LispSite::call(const std::string& op, const std::string& args
 
 inline LispBoundary::LispBoundary(const std::string& h, int p, int udp_port, int, const std::string& api) : req_e_(h, p, api), cfg_e_(h, p, api) {
     req_e_.require_same_build("lisp boundary");             // [MIXED_BUILDS_REFUSED_V1]
+    req_e_.fed = true; udp_port_ = udp_port;               // [ONE_READ_FEEDS_THE_VIEWS_V1] the views are fed by one read (below)
     // [ONE_SET_OF_VIEWS_PER_PARTICIPANT_V1] the boundary is one participant: the configuration Engine reads the request Engine's views
     cfg_e_.share_views_of(req_e_);
     fd_ = ::socket(AF_INET, SOCK_DGRAM, 0);
@@ -303,9 +315,10 @@ inline LispBoundary::LispBoundary(const std::string& h, int p, int udp_port, int
         if (!(a["ok"].type == Json::Bool && a["ok"].b))
             std::cerr << ("[CONFIG_WRITTEN_ONCE_V1] the region refused " + a["operation"].s + ": " + a["error"].s + "\n") << std::flush; }));
     th_ = std::thread([this] { loop(); });
-    // [FRONT_ANNOUNCES_ITSELF_V1] the front is serving: its own row in lisp.fronts (gone with its session). Whoever
-    // starts a front holds a read on lisp.fronts for it; nobody asks the front whether it is up.
-    space_->write("lisp.fronts", "all", me_, "{\"udp\":" + std::to_string(udp_port) + ",\"pid\":" + std::to_string(::getpid()) + "}");
+    // [ONE_READ_FEEDS_THE_VIEWS_V1] one read held on the whole "lisp" space, from its first row: every view this front
+    // answers from is fed from it, in write order
+    space_->follow("lisp", "", 0, [this](std::vector<ribbit::SpaceRow>& rows) { on_rows(rows); },
+        [](const std::string& why) { std::cerr << ("[ONE_READ_FEEDS_THE_VIEWS_V1] the read held on the lisp space ended: " + why + "\n") << std::flush; });
 }
 inline LispBoundary::~LispBoundary() { stop(); }
 inline std::string LispBoundary::call(const std::string& op, const std::string& args) { return configure(op, args); }
@@ -514,6 +527,46 @@ inline void LispBoundary::reject(const sockaddr_in& from, ssize_t n, int type, c
                             << " err=" << why << "\n";
     std::cerr << o.str() << std::flush;                    // one write, as [DIAG-REGISTER]
 }
+inline void LispBoundary::on_rows(std::vector<ribbit::SpaceRow>& rows) {
+    std::vector<frogram::Cell> cells; cells.reserve(rows.size());
+    for (auto& r : rows) {
+        frogram::Cell c; c.id = r.id; c.service = "lisp"; c.variable = r.topic; c.instance = r.instance; c.gone = r.gone;
+        if (!r.gone) { try { c.bag = Json::parse(r.text()); } catch (const std::exception&) { continue; } }
+        cells.push_back(std::move(c));
+    }
+    req_e_.feed(cells);
+    // [FRONT_ANNOUNCES_ITSELF_V1] serving once its views hold the memory: its own row in lisp.fronts (gone with its
+    // session). Whoever starts a front holds a read on lisp.fronts for it; nobody asks the front whether it is up.
+    bool no = false;
+    if (announced_.compare_exchange_strong(no, true))
+        space_->write("lisp.fronts", "all", me_, "{\"udp\":" + std::to_string(udp_port_) + ",\"pid\":" + std::to_string(::getpid()) + "}");
+    moved_.fetch_add(1, std::memory_order_seq_cst); send_ready();
+}
+inline void LispBoundary::send_ready() {
+    for (;;) {
+        const uint64_t seen = moved_.load(std::memory_order_seq_cst);
+        bool no = false;
+        if (!draining_.compare_exchange_strong(no, true, std::memory_order_acq_rel)) return;   // the holder looks again
+        const uint64_t w = req_e_.fed_watermark.load(std::memory_order_acquire);
+        PendingNotify* keep = nullptr;
+        for (PendingNotify* p = pending_.exchange(nullptr, std::memory_order_acq_rel); p;) {
+            PendingNotify* n = p->next;
+            if (p->after <= w) {
+                if (::sendto(fd_, p->pkt.data(), p->pkt.size(), 0, (sockaddr*)&p->to, sizeof p->to) != (ssize_t)p->pkt.size())
+                    reject(p->to, -1, 3, std::string("sendto: ") + std::strerror(errno));
+                delete p;
+            } else { p->next = keep; keep = p; }
+            p = n;
+        }
+        while (keep) {                                       // not yet: back on the list
+            PendingNotify* n = keep->next; PendingNotify* h = pending_.load(std::memory_order_relaxed);
+            do { keep->next = h; } while (!pending_.compare_exchange_weak(h, keep, std::memory_order_release, std::memory_order_relaxed));
+            keep = n;
+        }
+        draining_.store(false, std::memory_order_release);
+        if (moved_.load(std::memory_order_seq_cst) == seen) return;
+    }
+}
 // [REGISTER_ASKED_V1] the region's answer to one of this front's registers: the Map-Notify, sent to whoever sent the
 // register; or why the region refused it, said as a rejection. Runs on the read held on this front's answers.
 inline void LispBoundary::on_answer(const ribbit::SpaceRow& r) {
@@ -531,9 +584,10 @@ inline void LispBoundary::on_answer(const ribbit::SpaceRow& r) {
     }
     if (a["error"].type == Json::Str) { reject(to, -1, 3, a["error"].s); return; }
     if (a["notify_hex"].s.empty()) return;                 // M clear: no Map-Notify
-    auto answer = unhex(a["notify_hex"].s);
-    if (::sendto(fd_, answer.data(), answer.size(), 0, (sockaddr*)&to, sizeof to) != (ssize_t)answer.size())
-        reject(to, -1, 3, std::string("sendto: ") + std::strerror(errno));
+    auto* p = new PendingNotify{unhex(a["notify_hex"].s), to, a["after"].type == Json::Num ? uint64_t(a["after"].n) : 0, nullptr};
+    PendingNotify* h = pending_.load(std::memory_order_relaxed);
+    do { p->next = h; } while (!pending_.compare_exchange_weak(h, p, std::memory_order_release, std::memory_order_relaxed));
+    moved_.fetch_add(1, std::memory_order_seq_cst); send_ready();
 }
 
 }  // namespace frognet
