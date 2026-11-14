@@ -1115,8 +1115,8 @@ class Space:
 # ------------------------------------------------------------------------------------------------ the wire (both machines)
 # [WIRE_WATCH_V1] Every packet of the run is recorded on both ends, and every wait that ended without its answer is
 # traced through those records. The harness's machine and the agent's machine each run, for the whole run:
-#   - tcpdump on the LISP ports (UDP 4342, 14342), every interface, a ring of 16 x 64 MB, nanosecond timestamps;
-#   - tcpdump on the RAM host's port (TCP), headers only, a ring of 8 x 64 MB: session gaps, retransmits, resets;
+#   - tcpdump on the LISP ports (UDP 4342, 14342), every interface, a ring of 16 x 32 MB, nanosecond timestamps;
+#   - tcpdump on the RAM host's port (TCP), headers only, a ring of 8 x 32 MB: session gaps, retransmits, resets;
 #   - the whole journal (every unit, not one), as it is written;
 #   - once a second: the kernel's IP/UDP/TCP counters (drops, buffer errors, retransmits, timeouts, resets), every
 #     interface's counters and state, every WireGuard peer's handshake and transfer, every UDP socket with drops or a
@@ -1128,7 +1128,7 @@ class Space:
 # capture that lost packets says so.
 WIRE_LOG = []                 # harness: every wait that ended without its answer
 CURRENT_TEST = ["start"]      # harness: what was running when a wait ended
-WIRE_KEEP = 3                 # capture directories kept per machine (the newest)
+WIRE_KEEP = 2                 # capture directories kept per machine (the newest): at most 2 x 768 MB
 
 def lisp_nonce(p):
     """(nonce hex, LISP type) of a LISP control message; an ECM gives its inner message's, type 0x80 | inner type."""
@@ -1189,13 +1189,17 @@ class WireWatch:
     def start(self):
         if os.geteuid() != 0: raise SystemExit("[WIRE_WATCH_V1] the run records the wire with tcpdump: run it as root")
         _need_tool("tcpdump", "tcpdump"); _need_tool("ss", "iproute2")
+        free = shutil.disk_usage(self.dir).free
+        if free < 1 << 30:   # the two rings take up to 768 MB
+            raise SystemExit("[WIRE_WATCH_V1] %.2f GB free where the captures go (%s); they need up to 0.75 GB: free some space"
+                             % (free / 1e9, os.path.abspath(self.dir)))
         td = shutil.which("tcpdump")
         caps = {"lisp": ["-s", "160", "-W", "16", "udp port 4342 or udp port 14342"],
                 "ram": ["-s", "128", "-W", "8", "tcp port %d" % self.ram_port]}
         for name, (_, snap, _, ring, flt) in caps.items():
             err = open(os.path.join(self.dir, "tcpdump-%s.err" % name), "w")
             self.procs[name] = (subprocess.Popen([td, "-i", "any", "-n", "-U", "-Z", "root", "--time-stamp-precision=nano", "-s", snap,
-                                                  "-C", "64", "-W", ring, "-w", os.path.join(self.dir, name + ".pcap"), flt],
+                                                  "-C", "32", "-W", ring, "-w", os.path.join(self.dir, name + ".pcap"), flt],
                                                  stdout=subprocess.DEVNULL, stderr=err), err)
         t0 = time.time()
         for name, (p, err) in self.procs.items():
@@ -1210,8 +1214,8 @@ class WireWatch:
             self.procs["journal"] = (subprocess.Popen(["journalctl", "-f", "-n", "0", "-o", "short-iso-precise", "--no-pager"],
                                                       stdout=jo, stderr=subprocess.STDOUT), jo)
         threading.Thread(target=self._sample, name="wire-sampler", daemon=True).start()
-        print("    [%s] [WIRE_WATCH_V1] %s: recording the LISP ports, the RAM port %d, the journal and the kernel's counters in %s"
-              % (time.strftime("%H:%M:%S"), socket.gethostname(), self.ram_port, os.path.abspath(self.dir)), flush=True)
+        print("    [%s] [WIRE_WATCH_V1] %s: recording the LISP ports, the RAM port %d, the journal and the kernel's counters in %s (%.1f GB free there)"
+              % (time.strftime("%H:%M:%S"), socket.gethostname(), self.ram_port, os.path.abspath(self.dir), free / 1e9), flush=True)
         return self.dir
     def stop(self):
         self.stop_ev.set()

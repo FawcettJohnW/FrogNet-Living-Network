@@ -148,7 +148,7 @@ Useful options:
 - `wire/harness-<date>/` here and `acceptance-out/wire/agent-<date>/` on the systems machine -- the captures behind
   it: `lisp.pcap*` (UDP 4342 and 14342), `ram.pcap*` (the RAM port, headers), `host.jsonl` (the kernel's counters,
   interfaces, WireGuard peers, sockets, firewall drop counts and routes, once a second) and `journal.log` (the whole
-  journal, every unit). The newest three runs are kept on each machine.
+  journal, every unit). The newest two runs are kept on each machine (each at most 0.75 GB).
 
 Start the three roles in this order: RAM host (and monitor), agent, harness.
 
