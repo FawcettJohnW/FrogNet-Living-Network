@@ -354,37 +354,70 @@ class Ribbit:
         """The RAM host the front uses: the neutral one given with --ram-external, else one started here."""
         if self.a.ram_external: h, _, p = self.a.ram_external.rpartition(":"); return h, int(p)
         return "127.0.0.1", self.a.ram_port
-    def start(self):
-        say("ribbit: stopping the front, starting it against the RAM host %s:%d" % self.ram())
-        self.stop_procs()
-        if not self.a.ram_external:
-            self.srv = subprocess.Popen([self.a.ram_server, "--listen", "127.0.0.1:%d" % self.a.ram_port], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
-            time.sleep(0.5)
-        self.errlog = open(os.path.join(self.a.out, "ribbit-front.log"), "a")
-        rh, rp = self.ram()
-        self.front = subprocess.Popen([self.front_bin, "--ram", rh, str(rp), "--udp", str(self.a.ribbit_udp)],
-                                      stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=self.errlog, text=True)
+    # [CONFIG_WRITTEN_ONCE_V1] The region's configuration is written into the memory once: each operation a row in
+    # this agent's own config ask space (lisp.config.ask / <agent> / <key>), applied by the region on the RAM host, which
+    # writes what came of it into lisp.config.answer / <agent> / <key>. The agent reads those answers (a held read) to
+    # know the configuration is in place. Nothing is sent to a front; a front that restarts needs nothing sent again.
+    def _space(self):
+        if getattr(self, "sp", None) is None:
+            rh, rp = self.ram(); self.sp = Space("%s:%d" % (rh, rp))
+            self.me = "agent.%s.%d" % (socket.gethostname(), os.getpid()); self.k = 0
+        return self.sp
+    def config(self, ops):
+        sp = self._space()
+        after = max([0] + [c["id"] for c in sp.wait(self.me, 0, 0, service="lisp.config.answer")])
+        pending = {}
+        for op, args in ops:
+            self.k += 1; key = "c.%d" % self.k; pending[key] = op
+            sp.write(self.me, key, {"operation": op, "args": args}, service="lisp.config.ask")
+        refused = []; t0 = time.time()
+        while pending and time.time() - t0 < 120:
+            for c in sp.wait(self.me, after, 30, service="lisp.config.answer"):
+                after = max(after, c["id"]); b = c.get("bag") or {}
+                if c["instance"] in pending:
+                    op = pending.pop(c["instance"])
+                    if not b.get("ok"): refused.append("%s: %s" % (op, b.get("error")))
+        if refused: raise RuntimeError("the region refused: " + "; ".join(refused))
+        if pending: raise RuntimeError("the region applied nothing for %d configuration operation(s) in 120 s: %s" % (len(pending), sorted(set(pending.values()))))
+    def configure(self):
+        ops = []
         for kind, o in NAMED.items():
             a = {"kind": kind, "name": o["name"]}
             if kind == "geo": a["geo_tag"] = o["geo_tag"]
             elif kind == "json": a["json_string"] = o["json_string"]
             else: a["nodes"] = o["nodes"]
-            self.cfg("ms.named_locator", **a)
-        for p in POLICIES: self.cfg("ms.policy", **policy_args(p))
-        for s in SITES:
-            self.cfg("site.add", **ribbit_site_args(s))
-            self.cfg("resolver.wait_site", iid=s["iid"], prefix=s["prefix"], group=s.get("group", ""), active=True)
-        self.cfg("ms.encryption_key", key_id=ENC_KEY_ID, key=ENC_KEY)
-        say("ribbit: configured (%d sites, %d policies); waiting for it to answer a register" % (len(SITES), len(POLICIES)))
-        c = Client(self.a.local_ip, self.target); t0 = time.time()
+            ops.append(("ms.named_locator", a))
+        ops += [("ms.policy", policy_args(p)) for p in POLICIES]
+        ops += [("site.add", ribbit_site_args(s)) for s in SITES]
+        ops.append(("ms.encryption_key", {"key_id": ENC_KEY_ID, "key": ENC_KEY}))
+        self.config(ops); self.configured = True
+        say("ribbit: the region's configuration is in the memory (%d sites, %d policies, %d named locators)" % (len(SITES), len(POLICIES), len(NAMED)))
+    # [FRONT_ANNOUNCES_ITSELF_V1] a front that is serving writes its own row in lisp.fronts; the agent holds a read on it
+    def _run_front(self):
+        sp = self._space()
+        after = max([0] + [c["id"] for c in sp.wait("all", 0, 0, service="lisp.fronts")])
+        rh, rp = self.ram()
+        self.errlog = getattr(self, "errlog", None) or open(os.path.join(self.a.out, "ribbit-front.log"), "a")
+        self.front = subprocess.Popen([self.front_bin, "--ram", rh, str(rp), "--udp", str(self.a.ribbit_udp)],
+                                      stdin=subprocess.DEVNULL, stdout=self.errlog, stderr=self.errlog)
+        t0 = time.time()
         while time.time() - t0 < 30:
-            if still_serving(c): say("ribbit: answering Map-Registers on %s:%d after %.0f s" % (self.target[0], self.target[1], time.time() - t0)); return
-            time.sleep(0.5)
-        say("ribbit: NOT answering a valid Map-Register 30 s after its start")
-    def delete_site(self, site): self.cfg("site.delete", iid=site["iid"], prefix=site["prefix"], group=""); return "good"
-    def add_site(self, site):
-        self.cfg("site.add", **ribbit_site_args(site))
-        return "good"
+            if self.front.poll() is not None: say("ribbit: the front ended at its start (exit %s): see ribbit-front.log" % self.front.returncode); return
+            for c in sp.wait("all", after, 5, service="lisp.fronts"):
+                after = max(after, c["id"])
+                if (c.get("bag") or {}).get("pid") == self.front.pid:
+                    say("ribbit: the front is serving on %s:%d after %.1f s" % (self.target[0], self.target[1], time.time() - t0)); return
+        say("ribbit: the front did NOT say it is serving 30 s after its start")
+    def start(self):
+        say("ribbit: stopping the front, starting it against the RAM host %s:%d" % self.ram())
+        self.stop_procs()
+        if not self.a.ram_external:
+            self.srv = subprocess.Popen([self.a.ram_server, "--listen", "127.0.0.1:%d" % self.a.ram_port], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+            time.sleep(0.5); self.sp = None; self.configured = False
+        if not getattr(self, "configured", False): self.configure()
+        self._run_front()
+    def delete_site(self, site): self.config([("site.delete", {"iid": site["iid"], "prefix": site["prefix"], "group": ""})]); return "good"
+    def add_site(self, site): self.config([("site.add", ribbit_site_args(site))]); return "good"
     def restart_keep_state(self): self.restart_front(); return {}
     def lose_ram_host(self):
         if self.a.ram_external: return None       # the neutral RAM host is not this run's to kill (L4.11 n/a)
@@ -396,17 +429,7 @@ class Ribbit:
         return {"killed": True, "gone": gone}
     def restart_front(self):
         if self.front and self.front.poll() is None: self.front.terminate(); self.front.wait()
-        rh, rp = self.ram()
-        self.front = subprocess.Popen([self.front_bin, "--ram", rh, str(rp), "--udp", str(self.a.ribbit_udp)],
-                                      stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=self.errlog, text=True)
-        for s in SITES: self.cfg("site.add", **ribbit_site_args(s))
-        self.cfg("ms.encryption_key", key_id=ENC_KEY_ID, key=ENC_KEY)
-        time.sleep(0.5)
-    def cfg(self, op, **args):
-        self.front.stdin.write(json.dumps({"operation": op, "args": args}) + "\n"); self.front.stdin.flush()
-        r = json.loads(self.front.stdout.readline())
-        if not r.get("ok"): raise RuntimeError("ribbit %s: %s" % (op, r.get("error")))
-        return r.get("result")
+        self._run_front()
     def stop_procs(self):
         for p in (self.front, self.srv):          # SIGTERM first: a coverage build writes its data on it
             if p and p.poll() is None:
@@ -1107,10 +1130,10 @@ class Space:
         r = json.loads(line)
         if not r.get("ok"): raise RuntimeError("tuple space: %s" % r.get("error"))
         return r
-    def write(self, variable, instance, bag):             # "bag" last: tuple-write passes it through as written
-        return self._line({"service": CTL, "variable": variable, "instance": instance, "bag": bag})["id"]
-    def wait(self, variable, after, timeout_s):
-        return self._line({"wait": {"service": CTL, "variable": variable, "after": after, "timeout_s": timeout_s}})["cells"]
+    def write(self, variable, instance, bag, service=CTL):  # "bag" last: tuple-write passes it through as written
+        return self._line({"service": service, "variable": variable, "instance": instance, "bag": bag})["id"]
+    def wait(self, variable, after, timeout_s, service=CTL):
+        return self._line({"wait": {"service": service, "variable": variable, "after": after, "timeout_s": timeout_s}})["cells"]
 
 # ------------------------------------------------------------------------------------------------ the wire (both machines)
 # [WIRE_WATCH_V1] Every packet of the run is recorded on both ends, and every wait that ended without its answer is

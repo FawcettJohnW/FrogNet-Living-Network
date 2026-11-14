@@ -47,11 +47,38 @@ public:
         space_.reset(new ribbit::Space("here", "lisper"));
         registers_.reset(new ribbit::pp::Answerer(*space_, "lisp.register",
             [this](const std::string& front, const ribbit::SpaceRow& r) { answer_register(front, r); }));
-        std::fprintf(stderr, "[REGISTER_ASKED_V1] the region answers the Map-Registers its fronts write in lisp.register.ask\n");
+        // [CONFIG_WRITTEN_ONCE_V1] configuration is written into the memory once, by whoever administers the region:
+        // each operation (site.add with the site's key, site.delete, ms.policy, ms.named_locator, ms.encryption_key)
+        // is a row in the administrator's own ask space, lisp.config.ask / <administrator> / <key>; the region applies
+        // it in the memory and writes what came of it into lisp.config.answer. A front reads the configuration where it
+        // is: nothing is sent to a front, and a front that restarts needs nothing sent again.
+        config_.reset(new ribbit::pp::Answerer(*space_, "lisp.config",
+            [this](const std::string& admin, const ribbit::SpaceRow& r) { apply_config(admin, r); }));
+        std::fprintf(stderr, "[REGISTER_ASKED_V1] the region answers the Map-Registers its fronts write in lisp.register.ask\n"
+                             "[CONFIG_WRITTEN_ONCE_V1] the region applies the configuration written in lisp.config.ask\n");
     }
 private:
     std::unique_ptr<ribbit::Space> space_;
-    std::unique_ptr<ribbit::pp::Answerer> registers_;
+    std::unique_ptr<ribbit::pp::Answerer> registers_, config_;
+    void apply_config(const std::string& admin, const ribbit::SpaceRow& r) {
+        if (r.gone) return;                                 // the administrator's session ended; what it configured stays
+        Json q; try { q = Json::parse(r.text()); } catch (const std::exception&) { return; }
+        const std::string op = q["operation"].type == Json::Str ? q["operation"].s : "";
+        std::string bag;
+        if (op.empty()) bag = "{\"ok\":false,\"error\":\"no operation\"}";
+        else {
+            ribbit::Reply rep = resident_operation("lisp " + op, [&](std::unique_ptr<frogram::MemoryApi> memory) {
+                ::Engine e(std::move(memory));
+                return e.call(op, q["args"]);
+            });
+            try {
+                Json body = Json::parse(rep.body);
+                if (body["ok"].type == Json::Bool && body["ok"].b) bag = "{\"ok\":true,\"operation\":" + Json::quote(op) + ",\"result\":" + body["result_json"].s + "}";
+                else bag = "{\"ok\":false,\"operation\":" + Json::quote(op) + ",\"error\":" + Json::quote(body["error"].type == Json::Str ? body["error"].s : rep.body) + "}";
+            } catch (const std::exception& x) { bag = "{\"ok\":false,\"operation\":" + Json::quote(op) + ",\"error\":" + Json::quote(x.what()) + "}"; }
+        }
+        config_->answer(admin, r.instance, bag);
+    }
     void answer_register(const std::string& front, const ribbit::SpaceRow& r) {
         if (r.gone) return;                                 // the front has gone, and its registers with it
         Json q; try { q = Json::parse(r.text()); } catch (const std::exception&) { return; }

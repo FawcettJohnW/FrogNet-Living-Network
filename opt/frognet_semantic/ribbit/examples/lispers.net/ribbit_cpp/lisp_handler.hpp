@@ -108,7 +108,8 @@ private:
     Engine req_e_, cfg_e_;
     static constexpr uint64_t ASK_RING = 65536;            // [REGISTER_ASKED_V1] a front's ask cells: a ring, slot n mod ring
     std::unique_ptr<ribbit::Space> space_;                 // the front's one session for its asks and its answers
-    std::unique_ptr<ribbit::pp::Asker> asker_;
+    std::unique_ptr<ribbit::pp::Asker> asker_, config_;    // [CONFIG_WRITTEN_ONCE_V1] this front's own configuration asks
+    std::atomic<uint64_t> configured_{0};
     std::string me_;                                       // this front: its ask topic and the topic of its answers
     std::atomic<uint64_t> asked_{0};
     int fd_ = -1;
@@ -296,7 +297,15 @@ inline LispBoundary::LispBoundary(const std::string& h, int p, int udp_port, int
     asker_.reset(new ribbit::pp::Asker(*space_, "lisp.register", me_, [this](const ribbit::SpaceRow& r) { on_answer(r); },
         [this](const std::string& why) {
             std::cerr << ("[REGISTER_ASKED_V1] the read held on this front's answers ended: " + why + "\n") << std::flush; }));
+    config_.reset(new ribbit::pp::Asker(*space_, "lisp.config", me_, [](const ribbit::SpaceRow& r) {
+        if (r.gone) return;
+        Json a; try { a = Json::parse(r.text()); } catch (const std::exception&) { return; }
+        if (!(a["ok"].type == Json::Bool && a["ok"].b))
+            std::cerr << ("[CONFIG_WRITTEN_ONCE_V1] the region refused " + a["operation"].s + ": " + a["error"].s + "\n") << std::flush; }));
     th_ = std::thread([this] { loop(); });
+    // [FRONT_ANNOUNCES_ITSELF_V1] the front is serving: its own row in lisp.fronts (gone with its session). Whoever
+    // starts a front holds a read on lisp.fronts for it; nobody asks the front whether it is up.
+    space_->write("lisp.fronts", "all", me_, "{\"udp\":" + std::to_string(udp_port) + ",\"pid\":" + std::to_string(::getpid()) + "}");
 }
 inline LispBoundary::~LispBoundary() { stop(); }
 inline std::string LispBoundary::call(const std::string& op, const std::string& args) { return configure(op, args); }
@@ -358,11 +367,15 @@ inline std::vector<unsigned char> LispBoundary::map_referral(const std::vector<u
     for (auto& ad : set) { r.push_back(0); r.push_back(0); r.push_back(255); r.push_back(0); p16(1); p16(1); r.insert(r.end(), ad.begin(), ad.end()); }
     return r;
 }
-// [VENDOR_API_V1] Configuration that the Map-Server's decisions depend on -- the sites and their keys -- goes to the
-// LISP region's own API, so the RAM host's Engines, which now decide every Map-Register, hold it. Anything else is the
-// configuration Engine's own. One configuration caller at a time, by contract.
+// [CONFIG_WRITTEN_ONCE_V1] The region's configuration (sites and their keys, policies, named locators, the encryption
+// keys) is written into the memory: an operation is a row in this front's own config ask space, applied by the region;
+// the write is the whole of it, and what came of it lands on the front's read of its answers (a refusal is said). Only
+// the DDT referral settings below are this front's own, from its own configuration file.
 inline std::string LispBoundary::configure(const std::string& op, const std::string& args_json) {
-    if (op == "site.add" || op == "site.delete" || op == "ms.encryption_key") return cfg_e_.remote_call(op, args_json);
+    if (op == "site.add" || op == "site.delete" || op == "ms.encryption_key" || op == "ms.policy" || op == "ms.named_locator") {
+        config_->ask(ribbit::Space::slot("c", ++configured_, ASK_RING), "{\"operation\":" + Json::quote(op) + ",\"args\":" + args_json + "}");
+        return "\"asked\"";
+    }
     if (op == "ms.peer") {                                 // [DDT_REFERRAL_V1] a map-server peer (lisp map-server-peer)
         Json a = Json::parse(args_json); std::string ad = a["address"].s; unsigned char z[4];
         if (inet_pton(AF_INET, ad.c_str(), z) != 1) throw std::runtime_error("ms.peer: an IPv4 address");
