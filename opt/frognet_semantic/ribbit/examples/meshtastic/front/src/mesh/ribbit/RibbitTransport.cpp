@@ -1,5 +1,5 @@
 // Copyright (C) 2016-2026 Fawcett Innovations LLC
-// SPDX-License-Identifier: GPL-2.0-only
+// SPDX-License-Identifier: GPL-3.0-only
 //
 // RibbitTransport.cpp -- [MT_REPLIES_FROM_CELLS_V1] a request for another node's fact is a read of that node's cell.
 //

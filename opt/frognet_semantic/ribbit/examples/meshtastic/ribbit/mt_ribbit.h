@@ -1,8 +1,14 @@
 // Copyright (C) 2016-2026 Fawcett Innovations LLC
-// SPDX-License-Identifier: GPL-2.0-only
+// SPDX-License-Identifier: GPL-2.0-only OR GPL-3.0-only
 //
 // mt_ribbit.h -- the firmware's one view of the memory [MT_PACKETS_ON_THE_RAM_V1]. Plain functions so the firmware
 // (C++17, Arduino/Portduino headers) never includes the platform (C++20). The platform side is mt_ribbit.cpp.
+//
+// [FROGTASTIC_SHM_TRANSPORT_V1] Two programs include this header: the firmware (GPL-3.0, with Meshtastic's code),
+// which implements these functions in front/src/mesh/ribbit/frogtastic_shim.cpp by writing each call to FrogTastic-RAM,
+// and FrogTastic-RAM (GPL-2.0-only), which makes the calls into mt_ribbit.cpp. So this header, which only declares
+// them, is licensed to both. mt_ribbit.cpp and the platform under it stay GPL-2.0-only and are linked only into
+// FrogTastic-RAM.
 //
 // A node sends a MeshPacket by writing it into its own cells; it receives by a held read on the family. Nothing is
 // asked of another node and nothing is acknowledged.

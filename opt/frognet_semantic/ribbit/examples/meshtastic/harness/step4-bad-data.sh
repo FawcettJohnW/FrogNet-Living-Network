@@ -7,6 +7,7 @@
 set -u
 BIN=${1:?usage: step4-bad-data.sh /path/to/meshtasticd [count]}; N=${2:-4}
 EX=$(cd "$(dirname "$0")/.." && pwd)
+export FROGTASTIC_RAM_BIN=$EX/bin/frogtastic-ram # each node's firmware starts its own [FROGTASTIC_SHM_TRANSPORT_V1]
 MCP=${MCP:-/home/claude/mesh/mcp}
 OUT=$EX/results/step4-$(date +%Y%m%d-%H%M%S); mkdir -p "$OUT"
 PORT=${RAM_PORT:-18830}

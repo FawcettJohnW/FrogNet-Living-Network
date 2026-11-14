@@ -1,5 +1,5 @@
 // Copyright (C) 2016-2026 Fawcett Innovations LLC
-// SPDX-License-Identifier: GPL-2.0-only
+// SPDX-License-Identifier: GPL-3.0-only
 //
 // RibbitFacts.h -- one held read on the fact space (mtf, *): every owner's user, position, telemetry and status cells.
 //

@@ -1,5 +1,5 @@
 // Copyright (C) 2016-2026 Fawcett Innovations LLC
-// SPDX-License-Identifier: GPL-2.0-only
+// SPDX-License-Identifier: GPL-3.0-only
 //
 // RibbitTransport.h -- [MT_PACKETS_ON_THE_RAM_V1] Phase 1, mechanical step 1: the node's packets on the shared RAM.
 //

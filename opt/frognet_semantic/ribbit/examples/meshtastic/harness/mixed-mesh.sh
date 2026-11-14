@@ -11,6 +11,7 @@
 set -u
 STOCK=${1:?stock meshtasticd}; FRONT=${2:?front meshtasticd}
 EX=$(cd "$(dirname "$0")/.." && pwd); PY=/home/claude/mesh/venv-mpy/bin/python
+export FROGTASTIC_RAM_BIN=$EX/bin/frogtastic-ram # each node's firmware starts its own [FROGTASTIC_SHM_TRANSPORT_V1]
 OUT=$EX/results/mixed-$(date +%Y%m%d-%H%M%S); mkdir -p $OUT/{s,f,g}/vfs
 echo "== $(cat $EX/VERSION)"; echo "== stock $STOCK"; echo "== front $FRONT"; echo "== results $OUT"
 for n in s f g; do
