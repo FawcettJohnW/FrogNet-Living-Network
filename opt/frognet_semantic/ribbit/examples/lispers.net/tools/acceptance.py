@@ -35,6 +35,7 @@ import threading, random
 import argparse
 import array
 import multiprocessing, hashlib, hmac, json, os, shutil, signal, socket, struct, subprocess, sys, time
+import glob
 HERE = os.path.dirname(os.path.abspath(__file__)); sys.path.insert(0, HERE)
 from compare_lispers import ecm, map_request, ip4, Recorder
 
@@ -214,17 +215,28 @@ class Client:
     def __init__(self, local_ip, target):
         self.s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM); self.s.bind((local_ip, 0))
         self.local_ip, self.target, self.nonce = local_ip, target, 0x0acc000000000000 + (os.getpid() << 20)
-    def next(self): self.nonce += 1; return self.nonce
-    def send(self, msg): self.s.sendto(msg, self.target)
+        self.sent = {}
+    _last = [0]                                # [WIRE_WATCH_V1] one nonce sequence for the whole run, not one per client:
+    def next(self):                            # every request of the run is told apart by its nonce on both machines' captures
+        Client._last[0] = max(Client._last[0] + 1, self.nonce + 1); self.nonce = Client._last[0]; return self.nonce
+    def send(self, msg):
+        nh, typ = lisp_nonce(msg)
+        if nh: self.sent[nh] = (time.time(), typ)          # [WIRE_WATCH_V1] what was sent, when
+        self.s.sendto(msg, self.target)
     def wait_for(self, nonce, timeout):
         t0 = time.perf_counter(); want = struct.pack("!Q", nonce)
         while True:
             left = timeout - (time.perf_counter() - t0)
-            if left <= 0: return None, None
+            if left <= 0: return self._unanswered(want, timeout)
             self.s.settimeout(left)
             try: d, _ = self.s.recvfrom(65535)
-            except socket.timeout: return None, None
+            except socket.timeout: return self._unanswered(want, timeout)
             if len(d) >= 12 and d[4:12] == want: return d, time.perf_counter() - t0
+    def _unanswered(self, want, timeout):
+        # [WIRE_WATCH_V1] every wait that ends without its answer is traced through both machines' captures at the end
+        t, typ = self.sent.get(want.hex(), (time.time(), None))
+        WIRE_LOG.append({"t": t, "test": CURRENT_TEST[0], "nonce": want.hex(), "target": "%s:%d" % self.target, "type": typ, "timeout": timeout})
+        return None, None
     def reg(self, records, timeout=2.0, **kw):
         n = self.next(); self.send(register(records, n, **kw)); return self.wait_for(n, timeout)
     def ask(self, eid, timeout=2.0, iid=0):
@@ -258,6 +270,7 @@ class Lispers:
         # the fixture is the configuration: lispers.net rewrites lisp.config itself when its API changes a site
         # (L2.13), so every start writes it from the fixture again
         open(os.path.join(self.dir, "lisp.config"), "w").write(lispers_config(SITES))
+        say("lispers.net: STOP-LISP")
         subprocess.run(["tcsh", "-c", "./STOP-LISP"], cwd=self.dir, env=env, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, timeout=60)
         left = lispers_pids()
         if left:   # a second lispers.net on top of a first one cannot work: say which processes survived
@@ -265,8 +278,7 @@ class Lispers:
         # [RUN_LISP_SAYS_WHAT_IT_DID_V1] RUN-LISP's own output is kept (logs/RUN-LISP.out) and is part of the evidence:
         # a component that dies at start leaves no log of its own, and its error is only there
         os.makedirs(os.path.join(self.dir, "logs"), exist_ok=True)
-        print("    [%s] lispers.net: RUN-LISP %d in %s (python: %s)" % (time.strftime("%H:%M:%S"), self.api_port, self.dir,
-              shutil.which("python", path=env.get("PATH")) or "none on PATH"), flush=True)
+        say("lispers.net: RUN-LISP %d in %s (python: %s)" % (self.api_port, self.dir, shutil.which("python", path=env.get("PATH")) or "none on PATH"))
         # [LISPERS_SHELL_ON_DEBIAN_V1] lispers.net starts each component with os.system(), so through /bin/sh. It writes
         # the redirection for /bin/sh by asking distro.linux_distribution() for the system's name: "2>&1 >" when the
         # name is "Ubuntu", "debian" or "Kali", and the csh/bash form ">&" otherwise. distro 1.x returns the full name
@@ -278,14 +290,15 @@ class Lispers:
         if lispers_needs_bash_sh():
             cmd = ["unshare", "-m", "--propagation", "private", "sh", "-c",
                    "mount --bind /bin/bash /bin/sh && exec tcsh -c './RUN-LISP %d'" % self.api_port]
-            print("    [%s] lispers.net: this system's name is %r and /bin/sh is dash, so lispers.net's '>&' would not run: "
-                  "it runs with /bin/sh = bash in its own mount namespace" % (time.strftime("%H:%M:%S"), _distro_name()), flush=True)
+            say("lispers.net: this system's name is %r and /bin/sh is dash, so lispers.net's '>&' would not run: "
+                "it runs with /bin/sh = bash in its own mount namespace" % _distro_name())
         with open(os.path.join(self.dir, "logs", "RUN-LISP.out"), "w") as o:
             subprocess.run(cmd, cwd=self.dir, env=env, stdout=o, stderr=subprocess.STDOUT, timeout=60)
+        say("lispers.net: RUN-LISP returned; waiting for its Map-Server to answer a register")
         c = Client(self.local_ip, self.target); t0 = time.time()
         while time.time() - t0 < 60:
             if still_serving(c):
-                print("    [%s] lispers.net: answering Map-Registers on %s:%d after %.0f s" % (time.strftime("%H:%M:%S"), self.target[0], self.target[1], time.time() - t0), flush=True)
+                say("lispers.net: answering Map-Registers on %s:%d after %.0f s" % (self.target[0], self.target[1], time.time() - t0))
                 return
             time.sleep(1)
         # one start, no retries: lispers.net not answering a valid register is the result -- with its own evidence
@@ -342,6 +355,7 @@ class Ribbit:
         if self.a.ram_external: h, _, p = self.a.ram_external.rpartition(":"); return h, int(p)
         return "127.0.0.1", self.a.ram_port
     def start(self):
+        say("ribbit: stopping the front, starting it against the RAM host %s:%d" % self.ram())
         self.stop_procs()
         if not self.a.ram_external:
             self.srv = subprocess.Popen([self.a.ram_server, "--listen", "127.0.0.1:%d" % self.a.ram_port], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
@@ -361,8 +375,12 @@ class Ribbit:
             self.cfg("site.add", **ribbit_site_args(s))
             self.cfg("resolver.wait_site", iid=s["iid"], prefix=s["prefix"], group=s.get("group", ""), active=True)
         self.cfg("ms.encryption_key", key_id=ENC_KEY_ID, key=ENC_KEY)
+        say("ribbit: configured (%d sites, %d policies); waiting for it to answer a register" % (len(SITES), len(POLICIES)))
         c = Client(self.a.local_ip, self.target); t0 = time.time()
-        while time.time() - t0 < 30 and not still_serving(c): time.sleep(0.5)
+        while time.time() - t0 < 30:
+            if still_serving(c): say("ribbit: answering Map-Registers on %s:%d after %.0f s" % (self.target[0], self.target[1], time.time() - t0)); return
+            time.sleep(0.5)
+        say("ribbit: NOT answering a valid Map-Register 30 s after its start")
     def delete_site(self, site): self.cfg("site.delete", iid=site["iid"], prefix=site["prefix"], group=""); return "good"
     def add_site(self, site):
         self.cfg("site.add", **ribbit_site_args(site))
@@ -1040,7 +1058,7 @@ def t_l411(c, sysm):
 # harness writes each command as a cell (acceptance_ctl / <agent>|cmd / <run>.<n>); the agent holds a read on that
 # variable, runs the command on its systems exactly as the harness does on one machine, and writes the answer
 # (acceptance_ctl / <agent>|res / the same instance), on which the harness holds a read.
-ACCEPTANCE_VERSION = "v0.69-lispers-shell-on-debian"      # this file's own version: the banner names the file that is running
+ACCEPTANCE_VERSION = "v0.70-wire-watch"      # this file's own version: the banner names the file that is running
 AGENT_CALLS = {"start", "stop", "evidence", "delete_site", "add_site", "restart_keep_state", "lose_ram_host"}
 CTL = "acceptance_ctl"
 
@@ -1081,14 +1099,387 @@ class Space:
         self.p = subprocess.Popen([os.path.join(HERE, "tuple-write"), "--ram", h, p] + ["--api", api],
                                   stdin=subprocess.PIPE, stdout=subprocess.PIPE, text=True)
     def _line(self, o):
-        self.p.stdin.write(json.dumps(o) + "\n"); self.p.stdin.flush()
-        r = json.loads(self.p.stdout.readline())
+        try:
+            self.p.stdin.write(json.dumps(o) + "\n"); self.p.stdin.flush()
+            line = self.p.stdout.readline()
+        except (OSError, ValueError) as x: raise RuntimeError("tuple space: tuple-write is gone (%r)" % x)
+        if not line: raise RuntimeError("tuple space: tuple-write ended (exit %s)" % self.p.poll())
+        r = json.loads(line)
         if not r.get("ok"): raise RuntimeError("tuple space: %s" % r.get("error"))
         return r
     def write(self, variable, instance, bag):             # "bag" last: tuple-write passes it through as written
         return self._line({"service": CTL, "variable": variable, "instance": instance, "bag": bag})["id"]
     def wait(self, variable, after, timeout_s):
         return self._line({"wait": {"service": CTL, "variable": variable, "after": after, "timeout_s": timeout_s}})["cells"]
+
+# ------------------------------------------------------------------------------------------------ the wire (both machines)
+# [WIRE_WATCH_V1] Every packet of the run is recorded on both ends, and every wait that ended without its answer is
+# traced through those records. The harness's machine and the agent's machine each run, for the whole run:
+#   - tcpdump on the LISP ports (UDP 4342, 14342), every interface, a ring of 16 x 64 MB, nanosecond timestamps;
+#   - tcpdump on the RAM host's port (TCP), headers only, a ring of 8 x 64 MB: session gaps, retransmits, resets;
+#   - the whole journal (every unit, not one), as it is written;
+#   - once a second: the kernel's IP/UDP/TCP counters (drops, buffer errors, retransmits, timeouts, resets), every
+#     interface's counters and state, every WireGuard peer's handshake and transfer, every UDP socket with drops or a
+#     queue, every TCP socket on the RAM port (ss -ti), and the routes and addresses whenever they change.
+# At the end (and when the run stops early, for whatever reason) each unanswered nonce is looked up in both
+# machines' captures, and the report says where it was last seen: never left the harness's machine; left it and never
+# reached the systems' machine; reached it and no answer left; the answer left and never came back; or the answer
+# came back after the harness stopped waiting. tcpdump's own "dropped by kernel" count is part of the report: a
+# capture that lost packets says so.
+WIRE_LOG = []                 # harness: every wait that ended without its answer
+CURRENT_TEST = ["start"]      # harness: what was running when a wait ended
+WIRE_KEEP = 3                 # capture directories kept per machine (the newest)
+
+def lisp_nonce(p):
+    """(nonce hex, LISP type) of a LISP control message; an ECM gives its inner message's, type 0x80 | inner type."""
+    if len(p) < 12: return None, None
+    t = p[0] >> 4
+    if t == 8:
+        v = p[4] >> 4
+        off = 4 + ((p[4] & 15) * 4 if v == 4 else 40) + 8
+        if len(p) < off + 12: return None, 8
+        return p[off + 4:off + 12].hex(), 0x80 | (p[off] >> 4)
+    return p[4:12].hex(), t
+
+def read_pcap(path):
+    """Every IPv4 UDP/TCP packet of one pcap file: (t, proto, src, sport, dst, dport, udp payload, tcp flags)."""
+    with open(path, "rb") as f: data = f.read()
+    if len(data) < 24: return
+    magic = data[:4]
+    if magic in (b"\xd4\xc3\xb2\xa1", b"\x4d\x3c\xb2\xa1"): e = "<"
+    elif magic in (b"\xa1\xb2\xc3\xd4", b"\xa1\xb2\x3c\x4d"): e = ">"
+    else: raise ValueError("%s is not a pcap file (magic %s)" % (path, magic.hex()))
+    div = 1e9 if magic in (b"\x4d\x3c\xb2\xa1", b"\xa1\xb2\x3c\x4d") else 1e6
+    link = struct.unpack(e + "I", data[20:24])[0]
+    hdr = {113: 16, 276: 20, 1: 14, 101: 0, 12: 0, 0: 4}.get(link)
+    if hdr is None: raise ValueError("%s: link type %d is not one this reader knows" % (path, link))
+    i = 24
+    while i + 16 <= len(data):
+        s, frac, incl, _ = struct.unpack(e + "IIII", data[i:i + 16]); i += 16
+        pkt = data[i:i + incl]; i += incl
+        ip = pkt[18:] if link == 1 and pkt[12:14] == b"\x81\x00" else pkt[hdr:]
+        if len(ip) < 20 or ip[0] >> 4 != 4: continue
+        ihl = (ip[0] & 15) * 4; l4 = ip[ihl:]
+        src, dst = socket.inet_ntoa(ip[12:16]), socket.inet_ntoa(ip[16:20])
+        if ip[9] == 17 and len(l4) >= 8:
+            sp, dp = struct.unpack("!HH", l4[:4]); yield s + frac / div, "udp", src, sp, dst, dp, l4[8:], None
+        elif ip[9] == 6 and len(l4) >= 14:
+            sp, dp, seq = struct.unpack("!HHI", l4[:8]); paylen = struct.unpack("!H", ip[2:4])[0] - ihl - (l4[12] >> 4) * 4
+            yield s + frac / div, "tcp", src, sp, dst, dp, (seq, paylen), l4[13]
+
+def _need_tool(name, pkg):
+    """[WIRE_WATCH_V1] a tool the run cannot record without: asks, then installs it (apt), or stops and says why."""
+    if shutil.which(name): return
+    if not sys.stdin.isatty():
+        raise SystemExit("[WIRE_WATCH_V1] %s is not installed on %s, and the run records the wire with it: apt-get install %s" % (name, socket.gethostname(), pkg))
+    ans = input("[WIRE_WATCH_V1] %s is not installed on this machine; the run records the wire with it. Install %s now (apt-get)? [y/N] " % (name, pkg))
+    if ans.strip().lower() not in ("y", "yes"): raise SystemExit("%s is needed: not installed" % name)
+    subprocess.run(["apt-get", "install", "-y", pkg], check=True)
+    if not shutil.which(name): raise SystemExit("apt-get installed %s but %s is still not on PATH" % (pkg, name))
+
+class WireWatch:
+    def __init__(self, out, tag, ram_port):
+        self.tag, self.ram_port = tag, int(ram_port); self.procs = {}; self.stop_ev = threading.Event()
+        base = os.path.join(out, "wire")
+        os.makedirs(base, exist_ok=True)
+        old = sorted(d for d in os.listdir(base) if d.startswith(tag + "-"))
+        for d in old[:max(0, len(old) - (WIRE_KEEP - 1))]: shutil.rmtree(os.path.join(base, d), ignore_errors=True)
+        self.dir = os.path.join(base, "%s-%s" % (tag, time.strftime("%Y%m%d-%H%M%S")))
+        os.makedirs(self.dir)
+    def start(self):
+        if os.geteuid() != 0: raise SystemExit("[WIRE_WATCH_V1] the run records the wire with tcpdump: run it as root")
+        _need_tool("tcpdump", "tcpdump"); _need_tool("ss", "iproute2")
+        td = shutil.which("tcpdump")
+        caps = {"lisp": ["-s", "160", "-W", "16", "udp port 4342 or udp port 14342"],
+                "ram": ["-s", "128", "-W", "8", "tcp port %d" % self.ram_port]}
+        for name, (_, snap, _, ring, flt) in caps.items():
+            err = open(os.path.join(self.dir, "tcpdump-%s.err" % name), "w")
+            self.procs[name] = (subprocess.Popen([td, "-i", "any", "-n", "-U", "-Z", "root", "--time-stamp-precision=nano", "-s", snap,
+                                                  "-C", "64", "-W", ring, "-w", os.path.join(self.dir, name + ".pcap"), flt],
+                                                 stdout=subprocess.DEVNULL, stderr=err), err)
+        t0 = time.time()
+        for name, (p, err) in self.procs.items():
+            while time.time() - t0 < 10:
+                txt = open(err.name).read()
+                if "listening on" in txt: break
+                if p.poll() is not None: raise SystemExit("[WIRE_WATCH_V1] tcpdump (%s) stopped at start: %s" % (name, txt.strip()))
+                time.sleep(0.1)
+            else: raise SystemExit("[WIRE_WATCH_V1] tcpdump (%s) did not start listening within 10 s: %s" % (name, open(err.name).read().strip()))
+        if shutil.which("journalctl"):
+            jo = open(os.path.join(self.dir, "journal.log"), "w")
+            self.procs["journal"] = (subprocess.Popen(["journalctl", "-f", "-n", "0", "-o", "short-iso-precise", "--no-pager"],
+                                                      stdout=jo, stderr=subprocess.STDOUT), jo)
+        threading.Thread(target=self._sample, name="wire-sampler", daemon=True).start()
+        print("    [%s] [WIRE_WATCH_V1] %s: recording the LISP ports, the RAM port %d, the journal and the kernel's counters in %s"
+              % (time.strftime("%H:%M:%S"), socket.gethostname(), self.ram_port, os.path.abspath(self.dir)), flush=True)
+        return self.dir
+    def stop(self):
+        self.stop_ev.set()
+        for name, (p, f) in self.procs.items():
+            if p.poll() is None:
+                p.send_signal(signal.SIGINT)
+                try: p.wait(timeout=10)
+                except subprocess.TimeoutExpired: p.kill(); p.wait()
+            f.close()
+        self.procs = {}
+    def tcpdump_stats(self):
+        out = {}
+        for name in ("lisp", "ram"):
+            try: out[name] = " / ".join(l.strip() for l in open(os.path.join(self.dir, "tcpdump-%s.err" % name)) if "packets" in l)
+            except OSError as x: out[name] = repr(x)
+        return out
+    # -------------------------------------------------------------------- once a second
+    SNMP = {"Ip": ("InDiscards", "OutDiscards", "OutNoRoutes", "InAddrErrors", "InHdrErrors"),
+            "Udp": ("InDatagrams", "NoPorts", "InErrors", "OutDatagrams", "RcvbufErrors", "SndbufErrors", "InCsumErrors"),
+            "Tcp": ("ActiveOpens", "AttemptFails", "EstabResets", "InErrs", "OutRsts", "RetransSegs"),
+            "TcpExt": ("TCPTimeouts", "TCPLostRetransmit", "TCPAbortOnTimeout", "TCPAbortOnData", "TCPAbortOnClose",
+                       "TCPAbortOnMemory", "TCPSynRetrans", "TCPRetransFail", "TCPLossProbes", "TCPBacklogDrop", "ListenDrops")}
+    def _counters(self):
+        o = {}
+        for fn in ("/proc/net/snmp", "/proc/net/netstat"):
+            try: lines = open(fn).read().splitlines()
+            except OSError: continue
+            for k, v in zip(lines[0::2], lines[1::2]):
+                k, v = k.split(), v.split(); sec = k[0].rstrip(":")
+                if sec in self.SNMP: o[sec] = {a: int(b) for a, b in zip(k[1:], v[1:]) if a in self.SNMP[sec]}
+        return o
+    def _sample(self):
+        f = open(os.path.join(self.dir, "host.jsonl"), "a"); last_routes = last_addrs = None
+        while not self.stop_ev.is_set():
+            o = {"t": time.time(), "kernel": self._counters(), "ifaces": {}}
+            for n in sorted(os.listdir("/sys/class/net")):
+                d = "/sys/class/net/%s/" % n
+                try:
+                    st = {k: int(open(d + "statistics/" + k).read()) for k in ("rx_packets", "tx_packets", "rx_dropped", "tx_dropped", "rx_errors", "tx_errors")}
+                    st["state"] = open(d + "operstate").read().strip()
+                    o["ifaces"][n] = st
+                except OSError: pass
+            if shutil.which("wg"):
+                peers = []
+                for l in subprocess.run(["wg", "show", "all", "dump"], capture_output=True, text=True).stdout.splitlines():
+                    x = l.split("\t")
+                    if len(x) == 9: peers.append({"if": x[0], "peer": x[1][:8], "endpoint": x[3], "allowed": x[4], "handshake": int(x[5]), "rx": int(x[6]), "tx": int(x[7])})
+                o["wg"] = peers
+            udp = []
+            for fn in ("/proc/net/udp",):
+                for l in open(fn).read().splitlines()[1:]:
+                    x = l.split()
+                    rxq = int(x[4].split(":")[1], 16); drops = int(x[-1])
+                    lport = int(x[1].split(":")[1], 16)
+                    if drops or rxq or lport in (4342, 14342): udp.append({"port": lport, "rx_queue": rxq, "drops": drops})
+            o["udp_sockets"] = udp
+            o["ram_tcp"] = subprocess.run(["ss", "-tinH", "state", "all", "( sport = :%d or dport = :%d )" % (self.ram_port, self.ram_port)],
+                                          capture_output=True, text=True).stdout.strip()
+            if shutil.which("iptables-save"):
+                # the firewall's dropping rules and dropping chain policies, with their packet counts
+                fw = {}
+                for l in subprocess.run(["iptables-save", "-c"], capture_output=True, text=True).stdout.splitlines():
+                    if l.startswith("*"): table = l[1:]
+                    elif l.startswith(":") and " DROP " in l + " ":
+                        x = l.split(); fw["%s %s policy DROP" % (table, x[0][1:])] = int(x[2].strip("[]").split(":")[0])
+                    elif l.startswith("[") and (" -j DROP" in l or " -j REJECT" in l):
+                        c, rule = l.split(" ", 1); fw["%s %s" % (table, rule)] = int(c.strip("[]").split(":")[0])
+                o["firewall_drops"] = fw
+            routes = subprocess.run(["ip", "-o", "route", "show", "table", "all"], capture_output=True, text=True).stdout
+            addrs = subprocess.run(["ip", "-o", "addr", "show"], capture_output=True, text=True).stdout
+            if routes != last_routes: o["routes"] = routes; last_routes = routes
+            if addrs != last_addrs: o["addrs"] = addrs; last_addrs = addrs
+            f.write(json.dumps(o) + "\n"); f.flush()
+            self.stop_ev.wait(max(0.05, 1.0 - (time.time() - o["t"])))     # one sample a second, however long a sample takes
+        f.close()
+    # -------------------------------------------------------------------- what the captures saw
+    def seen(self, nonces, final=True):
+        """Every packet of the LISP capture carrying one of these nonces (as sent, or byte-swapped). final: the run is
+        over -- the captures stop first, so tcpdump's counts (packets it dropped itself) are in the answer."""
+        if final: self.stop()
+        want = {}
+        for n in nonces:
+            want[n] = n; want[bytes.fromhex(n)[::-1].hex()] = n
+        got = {n: [] for n in nonces}; errors = []; oldest = None
+        for fn in sorted(glob.glob(os.path.join(self.dir, "lisp.pcap*"))):
+            try:
+                for t, proto, src, sp, dst, dp, pay, _ in read_pcap(fn):
+                    if oldest is None or t < oldest: oldest = t
+                    nh, typ = lisp_nonce(pay)
+                    if nh in want: got[want[nh]].append((t, src, sp, dst, dp, typ))
+            except Exception as x: errors.append("%s: %r" % (fn, x))
+        return {"host": socket.gethostname(), "now": time.time(), "dir": os.path.abspath(self.dir), "seen": got, "oldest": oldest,
+                "ram": self.ram_sessions(), "tcpdump": self.tcpdump_stats(), "errors": errors, "counters": self.counter_changes()}
+    BAD = (("Udp", "InErrors"), ("Udp", "RcvbufErrors"), ("Udp", "SndbufErrors"), ("Udp", "NoPorts"), ("Udp", "InCsumErrors"),
+           ("Ip", "InDiscards"), ("Ip", "OutDiscards"), ("Ip", "OutNoRoutes"), ("Ip", "InHdrErrors"), ("Tcp", "RetransSegs"), ("Tcp", "EstabResets"),
+           ("Tcp", "OutRsts"), ("TcpExt", "TCPTimeouts"), ("TcpExt", "TCPAbortOnTimeout"), ("TcpExt", "TCPLostRetransmit"), ("TcpExt", "TCPBacklogDrop"))
+    def counter_changes(self):
+        """From host.jsonl: every second in which a counter of something going wrong moved -- the kernel's drops, buffer
+        and checksum errors, no-route and no-port counts, TCP retransmits, timeouts and resets; an interface's drops or
+        errors or state; a UDP socket's drops on the LISP ports; a WireGuard peer's new handshake or endpoint; the routes."""
+        out = []; prev = None
+        try: f = open(os.path.join(self.dir, "host.jsonl"))
+        except OSError: return out
+        for line in f:
+            try: o = json.loads(line)
+            except ValueError: continue
+            if prev is not None:
+                ch = {}
+                for sec, k in self.BAD:
+                    d = o["kernel"].get(sec, {}).get(k, 0) - prev["kernel"].get(sec, {}).get(k, 0)
+                    if d: ch["%s.%s" % (sec, k)] = d
+                for n, st in o["ifaces"].items():
+                    p0 = prev["ifaces"].get(n)
+                    if not p0: ch["iface %s" % n] = "appeared (%s)" % st["state"]; continue
+                    for k in ("rx_dropped", "tx_dropped", "rx_errors", "tx_errors"):
+                        if st[k] != p0[k]: ch["%s %s" % (n, k)] = st[k] - p0[k]
+                    if st["state"] != p0["state"]: ch["%s state" % n] = "%s -> %s" % (p0["state"], st["state"])
+                for n in prev["ifaces"]:
+                    if n not in o["ifaces"]: ch["iface %s" % n] = "GONE"
+                pd = {(u["port"]): u["drops"] for u in prev.get("udp_sockets", []) if u["port"] in (4342, 14342)}
+                for u in o.get("udp_sockets", []):
+                    if u["port"] in pd and u["drops"] != pd[u["port"]]: ch["udp :%d socket drops" % u["port"]] = u["drops"] - pd[u["port"]]
+                pw = {(x["if"], x["peer"]): x for x in prev.get("wg", [])}
+                for x in o.get("wg", []):
+                    q = pw.get((x["if"], x["peer"]))
+                    if not q: ch["wg %s peer %s" % (x["if"], x["peer"])] = "appeared"
+                    else:
+                        if x["handshake"] != q["handshake"]: ch["wg %s peer %s handshake" % (x["if"], x["peer"])] = "new"
+                        if x["endpoint"] != q["endpoint"]: ch["wg %s peer %s endpoint" % (x["if"], x["peer"])] = "%s -> %s" % (q["endpoint"], x["endpoint"])
+                for x in prev.get("wg", []):
+                    if (x["if"], x["peer"]) not in {(y["if"], y["peer"]) for y in o.get("wg", [])}: ch["wg %s peer %s" % (x["if"], x["peer"])] = "GONE"
+                pf = prev.get("firewall_drops", {})
+                for k, v in o.get("firewall_drops", {}).items():
+                    if k in pf and v != pf[k]: ch["firewall: " + k] = v - pf[k]
+                if "routes" in o: ch["routes"] = "changed"
+                if "addrs" in o: ch["addresses"] = "changed"
+                if ch: out.append({"t": o["t"], "changes": ch})
+            prev = o
+        return out
+    def ram_sessions(self):
+        """Each TCP connection on the RAM port: first and last packet, the longest silence, resets and FINs (with who sent them)."""
+        conns = {}
+        for fn in sorted(glob.glob(os.path.join(self.dir, "ram.pcap*"))):
+            try:
+                for t, proto, src, sp, dst, dp, sq, flags in read_pcap(fn):
+                    key = tuple(sorted([(src, sp), (dst, dp)]))
+                    c = conns.setdefault(key, {"conn": "%s:%d <-> %s:%d" % (key[0] + key[1]), "first": t, "last": t, "packets": 0, "gap_s": 0.0, "gap_at": None,
+                                               "rst": [], "fin": [], "retrans": 0, "retrans_at": [], "_seen": set()})
+                    if t - c["last"] > c["gap_s"]: c["gap_s"], c["gap_at"] = t - c["last"], c["last"]
+                    c["last"] = t; c["packets"] += 1
+                    if sq and sq[1] > 0:                  # a data segment sent before (same direction, same sequence number): a retransmission
+                        k = (src, sp, sq[0])
+                        if k in c["_seen"]:
+                            c["retrans"] += 1
+                            if len(c["retrans_at"]) < 20: c["retrans_at"].append(t)
+                        else: c["_seen"].add(k)
+                    if flags & 4: c["rst"].append((t, "%s:%d" % (src, sp)))
+                    if flags & 1: c["fin"].append((t, "%s:%d" % (src, sp)))
+            except Exception as x: conns[("error", fn)] = {"conn": fn, "error": repr(x)}
+        for c in conns.values(): c.pop("_seen", None)
+        return sorted(conns.values(), key=lambda c: c.get("first", 0))
+
+def _ts(t):
+    return time.strftime("%H:%M:%S", time.localtime(t)) + (".%03d" % int((t % 1) * 1000)) if t else "-"
+
+def wire_verdict(w, here, there, offset, here_oldest=None, there_oldest=None):
+    """Where one unanswered wait's request and answer were last seen. here/there: the harness's / the agent's events
+    for its nonce; the agent's times are put on the harness's clock with the measured offset."""
+    if w["type"] is None: return "not traceable: its nonce is not on the wire in the clear (an encrypted Map-Register)"
+    th, tp = w["target"].rsplit(":", 1); tp = int(tp); win = w["timeout"] + (10 if offset is not None else 60)
+    here = [e for e in here if abs(e[0] - w["t"]) <= win]
+    # the request goes to the system's address and port; its answer comes from the system's address back to the
+    # address and port the request came from (lispers.net may answer from another port of its own)
+    q_out = [e for e in here if (e[3], e[4]) == (th, tp)]
+    back = {(e[1], e[2]) for e in q_out}
+    a_in = [e for e in here if e[1] == th and (e[3], e[4]) in back and (e[3], e[4]) != (th, tp)]
+    if there is None: return "the agent's capture was not available: the request %s the harness's machine; the answer %s" % (
+        "left" if q_out else "NEVER LEFT", ("came back at %s" % _ts(a_in[0][0])) if a_in else "never came back")
+    off = offset or 0.0
+    there = [(e[0] - off,) + tuple(e[1:]) for e in there if abs(e[0] - off - w["t"]) <= win]
+    q_in = [e for e in there if (e[3], e[4]) == (th, tp)]
+    back = {(e[1], e[2]) for e in q_in}
+    a_out = [e for e in there if e[1] == th and (e[3], e[4]) in back and (e[3], e[4]) != (th, tp)]
+    if here_oldest and w["t"] < here_oldest: return "not traceable: the harness's capture ring had already wrapped past it"
+    if not q_out: return "NEVER LEFT the harness's machine (not in its capture)"
+    if there_oldest and w["t"] < there_oldest - off: return "left the harness's machine; not traceable further: the agent's capture ring had already wrapped past it"
+    if not q_in: return "left the harness's machine at %s, NEVER REACHED the systems' machine" % _ts(q_out[0][0])
+    one_way = (q_in[0][0] - q_out[0][0]) * 1e3
+    if not a_out: return "reached the systems' machine %.1f ms after it left; NO ANSWER LEFT the systems' machine" % one_way
+    took = (a_out[0][0] - q_in[0][0]) * 1e3
+    if not a_in: return "reached the systems' machine %.1f ms after it left; the answer left %.1f ms later and NEVER CAME BACK" % (one_way, took)
+    rt = (a_in[0][0] - q_out[0][0]) * 1e3
+    return "answered, LATE: there %.1f ms, the system took %.1f ms, the answer came back %.1f ms after the request left; the harness waited %.1f s" % (one_way, took, rt, w["timeout"])
+
+def wire_report(a, here_watch, link, why):
+    """[WIRE_WATCH_V1] Trace every unanswered wait through both machines' captures; write WIRE-REPORT.md."""
+    nonces = sorted({w["nonce"] for w in WIRE_LOG})
+    print("    [%s] [WIRE_WATCH_V1] tracing %d unanswered wait(s) through both machines' captures (%s)" % (time.strftime("%H:%M:%S"), len(WIRE_LOG), why), flush=True)
+    here = here_watch.seen(nonces) if here_watch else None
+    there, there_err = None, None
+    if link:
+        try: there = link.call({"call": "wire_seen", "args": [nonces]}, timeout_s=300)
+        except Exception as x: there_err = repr(x)
+    offset = getattr(link, "clock_offset", None)
+    lines = ["# Wire report", "", "Run stopped or ended: %s. Harness %s, captures in `%s`; agent %s, captures in `%s`." % (
+                 why, here["host"] if here else "-", here["dir"] if here else "-", there["host"] if there else "-", there["dir"] if there else ("not available: %s" % there_err)),
+             "", "Clock: the agent's clock minus the harness's, measured through the RAM host at hello: %s." % (("%+.1f ms" % (offset * 1e3)) if offset is not None else "not measured"),
+             "", "tcpdump on the harness's machine: %s" % (here["tcpdump"] if here else "-"),
+             "", "tcpdump on the agent's machine: %s" % (there["tcpdump"] if there else "-"), "",
+             "## Every wait that ended without its answer (%d)" % len(WIRE_LOG), "",
+             "Some tests expect no answer (a rejected register); their lines say so with NO ANSWER LEFT. A packet in a machine's capture "
+             "got as far as that machine's interface; a firewall or a full socket buffer past it shows in that machine's kernel counters, "
+             "given on the line when one moved then and listed second by second below.", "",
+             "| when (harness) | test | sent to | type | waited | where it was last seen |", "|---|---|---|---|---|---|"]
+    counts = {}
+    for w in WIRE_LOG:
+        h = here["seen"].get(w["nonce"], []) if here else []
+        t = there["seen"].get(w["nonce"], []) if there else None
+        v = wire_verdict(w, h, t, offset, here and here.get("oldest"), there and there.get("oldest"))
+        for label, side, off in (("harness", here, 0.0), ("agent", there, offset or 0.0)):
+            near = [c for c in (side or {}).get("counters", []) if -2.0 <= c["t"] - off - w["t"] <= w["timeout"] + 2.0]
+            if near: v += "; %s's kernel then: %s" % (label, "; ".join("%s %s" % (_ts(c["t"] - off), ", ".join("%s %s" % kv for kv in c["changes"].items())) for c in near[:4]))
+        for word in ("not traceable", "NEVER LEFT", "NEVER REACHED", "NO ANSWER LEFT", "NEVER CAME BACK", "LATE", "not available"):
+            if word in v: counts[word] = counts.get(word, 0) + 1; break
+        lines.append("| %s | %s | %s | %s | %.1f s | %s |" % (_ts(w["t"]), w["test"], w["target"], w["type"], w["timeout"], v))
+    lines += ["", "Summary: " + (", ".join("%s %d" % kv for kv in sorted(counts.items())) or "nothing unanswered"), ""]
+    for label, side in (("harness's", here), ("agent's", there)):
+        if not side: continue
+        rows = [c for c in side["ram"] if "error" in c or c["retrans"] or c["rst"]]
+        quiet = [c for c in side["ram"] if "error" not in c and not c["retrans"] and not c["rst"]]
+        lines += ["## TCP on the RAM port, the %s machine" % label, "",
+                  "%d connection(s) on the RAM port; %d had no retransmission and no reset (%d of those ended with a FIN). The others:" % (len(side["ram"]), len(quiet), sum(1 for c in quiet if c["fin"])), "",
+                  "| connection | first | last | packets | retransmitted | first retransmissions | longest silence (at) | resets | FINs |", "|---|---|---|---|---|---|---|---|---|"]
+        for c in rows:
+            if "error" in c: lines.append("| %s | error %s ||||||||" % (c["conn"], c["error"])); continue
+            lines.append("| %s | %s | %s | %d | %d | %s | %.2f s (%s) | %s | %s |" % (c["conn"], _ts(c["first"]), _ts(c["last"]), c["packets"], c["retrans"],
+                         ", ".join(_ts(t) for t in c["retrans_at"][:5]) or "-", c["gap_s"], _ts(c["gap_at"]),
+                         ", ".join("%s from %s" % (_ts(t), s) for t, s in c["rst"]) or "-", ", ".join("%s from %s" % (_ts(t), s) for t, s in c["fin"]) or "-"))
+        if side["errors"]: lines += ["", "capture read errors: " + "; ".join(side["errors"])]
+        lines.append("")
+    for label, side, off in (("harness's", here, 0.0), ("agent's", there, offset or 0.0)):
+        if not side: continue
+        ch = side.get("counters", [])
+        lines += ["## What the %s kernel counted going wrong, second by second (%d seconds with a change%s)" % (label, len(ch), "; the first 300" if len(ch) > 300 else ""), "",
+                  "Times on the harness's clock.", "", "| when | what moved |", "|---|---|"]
+        lines += ["| %s | %s |" % (_ts(c["t"] - off), ", ".join("%s %s" % kv for kv in c["changes"].items())) for c in ch[:300]]
+        lines.append("")
+    lines += ["The once-a-second kernel, interface, WireGuard, socket and route record is `host.jsonl` in each capture directory; the whole journal is `journal.log` beside it.", ""]
+    path = os.path.join(a.out, "WIRE-REPORT.md")
+    open(path, "w").write("\n".join(lines))
+    print("    [WIRE_WATCH_V1] unanswered: %s   (report: %s)" % (", ".join("%s %d" % kv for kv in sorted(counts.items())) or "none", path), flush=True)
+
+def say(msg):
+    """[AGENT_SAYS_WHAT_IT_DOES_V1] a line for this terminal and, on the agent, for the harness's terminal as well."""
+    print("    [%s] %s" % (time.strftime("%H:%M:%S"), msg), flush=True)
+    st = AGENT_STAGE[0]
+    if st:
+        sp, res, inst = st
+        try: sp.write(res, inst + "#stage", {"stage": msg, "t": time.time(), "host": socket.gethostname()})
+        except Exception as x: print("    [AGENT_SAYS_WHAT_IT_DOES_V1] could not tell the harness: %r" % x, flush=True)
+AGENT_STAGE = [None]
+
+def session_lost(sp, x):
+    """A tuple-space error that means the session to the RAM host is gone (tuple-write ended, or says the connection
+    ended), as against the RAM host answering one request with an error on a session that is fine."""
+    t = str(x).lower()
+    return sp.p.poll() is not None or any(w in t for w in ("closed the connection", "timed out", "unreachable", "connect failed",
+                                                            "connection reset", "broken pipe", "tuple-write is gone", "tuple-write ended"))
 
 def run_agent(a):
     if os.geteuid() != 0:
@@ -1108,21 +1499,51 @@ def run_agent(a):
     after = max([0] + [c["id"] for c in sp.wait(cmd, 0, 0)])          # commands already there are not ours
     print("acceptance agent '%s' on the RAM host %s (lispers.net in %s; Ribbit UDP %d)" % (a.agent_name, a.agent_space, a.lispers_dir, a.ribbit_udp), flush=True)
     global LOCAL_IP
+    watch = [None]; pending = None
+    import atexit
+    atexit.register(lambda: watch[0] and watch[0].stop())             # tcpdump writes its counts as it stops
     while True:
-        for c in sp.wait(cmd, after, 60):
+        try:
+            if pending: p_, pending = pending, None; sp.write(res, p_[0], p_[1])
+            cells = sp.wait(cmd, after, 60)
+        except RuntimeError as x:
+            # [AGENT_SESSION_RETRIED_V1] The agent's session to the RAM host ended. That is a result of the run (the
+            # harness's report has it), not the end of the agent: it opens a new session -- the same one mechanism,
+            # again -- and writes again the answer the old session could not deliver. The captures keep recording.
+            t_lost = time.time()
+            print("    [%s] [AGENT_SESSION_RETRIED_V1] the session to the RAM host %s ended: %s; opening a new one%s"
+                  % (time.strftime("%H:%M:%S"), a.agent_space, x, (" (the answer to %s is written again on it)" % pending[0]) if pending else ""), flush=True)
+            try: sp.p.kill()
+            except Exception: pass
+            while True:
+                time.sleep(2)
+                try: sp = Space(a.agent_space); sp.wait(cmd, after, 0); break
+                except Exception as y: print("    [%s] [AGENT_SESSION_RETRIED_V1] no session yet: %s" % (time.strftime("%H:%M:%S"), y), flush=True)
+            print("    [%s] [AGENT_SESSION_RETRIED_V1] new session to %s, %.1f s after the old one ended" % (time.strftime("%H:%M:%S"), a.agent_space, time.time() - t_lost), flush=True)
+            continue
+        for c in cells:
             after = max(after, c["id"]); m = c["bag"]
             if m is None: continue                   # [GONE_CELLS_SKIPPED_V1] a command whose writer's session ended: gone
+            AGENT_STAGE[0] = (sp, res, c["instance"])
             try:
                 if m["call"] == "where":                # the harness asks where the systems are before it picks its address
-                    out = {"ok": True, "result": {"host": a.local_ip}}; sp.write(res, c["instance"], out); continue
-                if m["call"] == "hello":                # the harness's address: the fixture's RLOC and policy source
+                    out = {"ok": True, "result": {"host": a.local_ip}}
+                elif m["call"] == "hello":              # the harness's address: the fixture's RLOC and policy source
                     LOCAL_IP = m["local_ip"]
                     for s in systems.values():
                         try: s.stop()
                         except Exception: pass
                     print("    [%s] hello from the harness at %s" % (time.strftime("%H:%M:%S"), LOCAL_IP), flush=True)
+                    if watch[0]: watch[0].stop()
+                    watch[0] = WireWatch(a.out, "agent", a.agent_space.rpartition(":")[2]); watch[0].start()
                     systems["lispers.net"], systems["ribbit"] = Lispers(a), Ribbit(a)
                     out = {"ok": True, "result": {n: {"version": s.version, "host": a.local_ip, "port": s.target[1]} for n, s in systems.items()}}
+                    out["result"]["clock"] = time.time()
+                elif m["call"] == "clock":
+                    out = {"ok": True, "result": time.time()}
+                elif m["call"] == "wire_seen":          # [WIRE_WATCH_V1] what this machine's captures saw of these nonces
+                    if not watch[0]: raise RuntimeError("no capture is running on this machine (no hello yet)")
+                    out = {"ok": True, "result": watch[0].seen(*m.get("args", []))}
                 elif m["call"] in AGENT_CALLS:
                     r = getattr(systems[m["sys"]], m["call"])(*m.get("args", []))
                     if m["call"] == "restart_keep_state" and m["sys"] == "lispers.net": systems["ribbit"].start()
@@ -1131,7 +1552,14 @@ def run_agent(a):
             except Exception as x:
                 import traceback; tb = traceback.format_exc(); print(tb, flush=True)   # the agent's terminal, and ...
                 out = {"ok": False, "error": "%r on %s:\n%s" % (x, a.local_ip, tb)}         # ... the harness's, in full
-            sp.write(res, c["instance"], out)
+            AGENT_STAGE[0] = None
+            try: sp.write(res, c["instance"], out)
+            except RuntimeError as x:
+                if session_lost(sp, x): pending = (c["instance"], out); break      # the session ended: written again on the next one
+                # the RAM host answered the write with an error: the session is fine; the harness is told why it gets no answer
+                print("    [%s] the RAM host refused the answer to %s (%d bytes): %s" % (time.strftime("%H:%M:%S"), c["instance"], len(json.dumps(out)), x), flush=True)
+                try: sp.write(res, c["instance"], {"ok": False, "error": "the agent's answer (%d bytes) was refused by the RAM host: %s" % (len(json.dumps(out)), x)})
+                except RuntimeError as y: print("    [%s] ... and so was the note saying so: %s" % (time.strftime("%H:%M:%S"), y), flush=True)
 
 class RemoteSystem:
     """A system on the agent's machine: the same methods as Lispers / Ribbit, run there through the tuple space."""
@@ -1154,18 +1582,23 @@ class AgentLink:
     def __init__(self, a):
         self.sp = Space(a.agent_space); self.cmd, self.res = a.agent_name + "|cmd", a.agent_name + "|res"
         self.run = "%s.%d" % (socket.gethostname(), os.getpid()); self.n = 0
-        self.after = max([0] + [c["id"] for c in self.sp.wait(self.res, 0, 0)])
+        self.after = max([0] + [c["id"] for c in self.sp.wait(self.res, 0, 0)]); self.clock_offset = None
     def call(self, m, timeout_s=600):
         self.n += 1; inst = "%s.%d" % (self.run, self.n); self.sp.write(self.cmd, inst, m)
-        t0 = time.time()
+        t0 = time.time(); last = None
         while time.time() - t0 < timeout_s:
             for c in self.sp.wait(self.res, self.after, 30):
                 self.after = max(self.after, c["id"])
-                if c["instance"] == inst:
+                if c["instance"] == inst + "#stage" and c["bag"]:
+                    # [AGENT_SAYS_WHAT_IT_DOES_V1] what the agent is doing for this call, as it does it
+                    last = c["bag"]; print("      agent: %s" % last["stage"], flush=True)
+                elif c["instance"] == inst:
                     r = c["bag"]
+                    if r is None: continue                 # the agent's old session's answer: gone; its new session writes it again
                     if not r.get("ok"): raise RuntimeError("agent: %s" % r.get("error"))
                     return r["result"]
-        raise RuntimeError("agent '%s' did not answer %s within %d s" % (self.cmd.split("|")[0], m.get("call"), timeout_s))
+        raise RuntimeError("agent '%s' did not answer %s within %d s; the last thing it said it was doing: %s" % (
+            self.cmd.split("|")[0], m.get("call"), timeout_s, ("%s (%s, %.0f s before the wait ended)" % (last["stage"], last["host"], time.time() - last["t"])) if last else "nothing"))
 
 def remote_systems(a):
     link = AgentLink(a)
@@ -1174,7 +1607,15 @@ def remote_systems(a):
         a.local_ip = address_toward(sys_host, 4342)
         print("harness address: %s (toward the systems at %s; give --local-ip if another is right)" % (a.local_ip, sys_host), flush=True)
     else: check_local(a.local_ip, "harness")
-    info = link.call({"call": "hello", "local_ip": a.local_ip})
+    info = link.call({"call": "hello", "local_ip": a.local_ip}); info.pop("clock", None)
+    # [WIRE_WATCH_V1] the agent's clock against this one: its reading against the middle of the shortest of five
+    # round trips through the RAM host -- the two machines' captures are compared on one time line with it
+    best = None
+    for _ in range(5):
+        t0 = time.time(); ct = link.call({"call": "clock"}); t1 = time.time()
+        if best is None or t1 - t0 < best[0]: best = (t1 - t0, ct - (t0 + t1) / 2)
+    link.clock_offset = best[1]
+    print("    [%s] the agent's clock is %+.1f ms from this one (round trip %.1f ms through the RAM host)" % (time.strftime("%H:%M:%S"), best[1] * 1e3, best[0] * 1e3), flush=True)
     return RemoteSystem("lispers.net", link, info["lispers.net"]), RemoteSystem("ribbit", link, info["ribbit"])
 
 # ================================================================================================ performance
@@ -1240,8 +1681,24 @@ class Monitor(threading.Thread):
     running does not grow the RAM server (it used to add a new row every second). Whoever wants the history (the
     harness) holds a read on these rows and keeps what it sees."""
     def __init__(self, ram, name, groups, extra=None):
-        super().__init__(daemon=True); self.sp = Space(ram); self.name, self.groups, self.extra = name, groups, extra
+        super().__init__(daemon=True); self.ram = ram; self.sp = Space(ram); self.name, self.groups, self.extra = name, groups, extra
     def run(self):
+        # [AGENT_SESSION_RETRIED_V1] the monitor's session ending is said and a new one opened; its rows (owned by the
+        # old session) are written again by the new one
+        while True:
+            try: self._run()
+            except RuntimeError as x:
+                t_lost = time.time()
+                print("    [%s] [AGENT_SESSION_RETRIED_V1] perf monitor '%s': the session to the RAM host %s ended: %s; opening a new one"
+                      % (time.strftime("%H:%M:%S"), self.name, self.ram, x), flush=True)
+                try: self.sp.p.kill()
+                except Exception: pass
+                while True:
+                    time.sleep(2)
+                    try: self.sp = Space(self.ram); self.sp.wait("perf|phase", 0, 0); break
+                    except Exception as y: print("    [%s] [AGENT_SESSION_RETRIED_V1] perf monitor '%s': no session yet: %s" % (time.strftime("%H:%M:%S"), self.name, y), flush=True)
+                print("    [%s] [AGENT_SESSION_RETRIED_V1] perf monitor '%s': new session, %.1f s after the old one ended" % (time.strftime("%H:%M:%S"), self.name, time.time() - t_lost), flush=True)
+    def _run(self):
         sp = self.sp; after = max([0] + [c["id"] for c in sp.wait("perf|phase", 0, 0)]); seq = 0
         sp.write("perf|monitors", self.name, {"groups": self.groups, "host": socket.gethostname(), "t": time.time()})
         print("perf monitor '%s' (%s) publishing through the RAM server" % (self.name, ", ".join(self.groups) or "machine only"), flush=True)
@@ -1274,13 +1731,13 @@ def many_records_packet(recs, nonce):
 
 class Worker(threading.Thread):
     """One closed-loop client: its own socket, one outstanding request, latency per answered operation."""
-    def __init__(self, idx, local_ip, target, kind, pick, stop_at, measure_from, mix_req=0.8):
+    def __init__(self, idx, local_ip, target, kind, pick, stop_at, measure_from, mix_req=0.8, base=0):
         super().__init__(daemon=True)
         self.idx, self.target, self.kind, self.pick = idx, target, kind, pick
         self.stop_at, self.measure_from, self.mix_req = stop_at, measure_from, mix_req
         self.s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM); self.s.bind((local_ip, 0)); self.s.settimeout(1.0)
         self.local_ip = local_ip; self.lat = []; self.errors = self.unanswered = 0; self.flip = False
-        self.nonce = (idx + 1) << 40
+        self.nonce = base | ((idx + 1) << 40); self.missed = []      # [WIRE_WATCH_V1] base: this run's own nonces
     def one(self):
         self.nonce += 1; n = self.nonce
         kind = self.kind if self.kind != "mixed" else ("req" if random.random() < self.mix_req else "reg")
@@ -1303,24 +1760,26 @@ class Worker(threading.Thread):
         while time.time() < self.stop_at:
             r, kind = self.one()
             if time.time() < self.measure_from: continue
-            if r is None: self.unanswered += 1
+            if r is None:
+                self.unanswered += 1
+                if len(self.missed) < 300: self.missed.append((time.time(), struct.pack("!Q", self.nonce).hex(), kind))
             elif r is False: self.errors += 1
             else: self.lat.append(r)
 
-def _load_child(conn, idxs, local_ip, target, kind, pick, stop_at, measure_from):
+def _load_child(conn, idxs, local_ip, target, kind, pick, stop_at, measure_from, base=0):
     """[LOAD_PROCESSES_V1] One load-generator process: its share of the clients, as threads. Returns what it measured
     and the CPU it spent inside the measured window."""
     try:
         random.seed(os.getpid() ^ int(time.time() * 1e6))                    # forked: every child its own sequence
-        ws = [Worker(i, local_ip, target, kind, pick, stop_at, measure_from) for i in idxs]
+        ws = [Worker(i, local_ip, target, kind, pick, stop_at, measure_from, base=base) for i in idxs]
         for w in ws: w.start()
         time.sleep(max(0.0, measure_from - time.time())); c0 = time.process_time()
         for w in ws: w.join()
         c1 = time.process_time()
         lat = array.array("d", [x for w in ws for x in w.lat])
-        conn.send((lat.tobytes(), sum(w.errors for w in ws), sum(w.unanswered for w in ws), c1 - c0, None))
+        conn.send((lat.tobytes(), sum(w.errors for w in ws), sum(w.unanswered for w in ws), c1 - c0, None, [m for w in ws for m in w.missed]))
     except Exception as x:
-        conn.send((b"", 0, 0, 0.0, "%s: %s" % (type(x).__name__, x)))
+        conn.send((b"", 0, 0, 0.0, "%s: %s" % (type(x).__name__, x), []))
     finally:
         conn.close()
 
@@ -1374,13 +1833,13 @@ class PerfHarness:
         return got
     def preload(self, s, eids):
         """Register the given (eid, mask) set, 40 records per Map-Register, and wait for every Map-Notify."""
-        c = Client(self.local_ip, s.target)
+        c = Client(self.local_ip, s.target); CURRENT_TEST[0] = "perf preload %s (%d registrations)" % (s.name, len(eids))
         for i in range(0, len(eids), 40):
             recs = [(e, m, 1440, [self.local_ip]) for e, m in eids[i:i + 40]]
             n = c.next(); c.send(many_records_packet(recs, n)); d, _ = c.wait_for(n, 3.0)
             if d is None: raise RuntimeError("%s: preload Map-Register %d (of %d) not acknowledged" % (s.name, i // 40 + 1, (len(eids) + 39) // 40))
     def withdraw(self, s, eids):
-        c = Client(self.local_ip, s.target)
+        c = Client(self.local_ip, s.target); CURRENT_TEST[0] = "perf withdraw %s (%d registrations)" % (s.name, len(eids))
         for i in range(0, len(eids), 40):
             n = c.next(); c.send(many_records_packet([(e, m, 0, []) for e, m in eids[i:i + 40]], n)); c.wait_for(n, 2.0)
     def run(self, s, kind, clients, pick, warm, dur, state):
@@ -1395,14 +1854,18 @@ class PerfHarness:
         for k in range(nproc):
             rd, wr = ctx.Pipe(duplex=False)
             pr = ctx.Process(target=_load_child, args=(wr, list(range(k, clients, nproc)), self.local_ip, s.target, kind, pick,
-                                                       t0 + warm + dur, t0 + warm), daemon=True)
+                                                       t0 + warm + dur, t0 + warm, (self.run_n & 0xffff) << 48), daemon=True)
             pr.start(); wr.close(); kids.append((pr, rd))
         time.sleep(max(0, t0 + warm - time.time())); self.phase(run, "start"); self.edge(run, "start")
         lat = array.array("d"); errors = unanswered = 0; child_cpu = 0.0; failed = []
         for pr, rd in kids:
-            try: b, e, u, c, err = rd.recv()
-            except EOFError: b, e, u, c, err = b"", 0, 0, 0.0, "load process %d ended without reporting" % pr.pid
+            try: b, e, u, c, err, missed = rd.recv()
+            except EOFError: b, e, u, c, err, missed = b"", 0, 0, 0.0, "load process %d ended without reporting" % pr.pid, []
             pr.join(); lat.frombytes(b); errors += e; unanswered += u; child_cpu += c
+            for t, nh, k2 in missed[:max(0, 200 - sum(1 for w in WIRE_LOG if w.get("run") == run))]:
+                # [WIRE_WATCH_V1] the load's unanswered operations: the first 200 of each measured run are traced
+                WIRE_LOG.append({"run": run, **{"t": t, "test": "perf %s %s %d clients (%s)" % (s.name, kind, clients, k2), "nonce": nh,
+                                 "target": "%s:%d" % s.target, "type": 3 if k2 == "reg" else 0x81, "timeout": 1.0}})
             if err: failed.append(err)
         if failed: raise RuntimeError("load generator: " + "; ".join(failed))
         self.phase(run, "end"); self.edge(run, "end")
@@ -1613,7 +2076,10 @@ def main():
         missing = [k for k in local_needs if k != "local_ip" and getattr(a, k) is None] + ([] if a.agent_space else ["agent_space"])
         if missing: ap.error("--agent needs " + ", ".join("--" + k.replace("_", "-") for k in missing))
         run_agent_with_monitor(a); return 0          # the agent, with this machine's "control" monitor beside it
+    watch = None
     if a.agent_space:
+        # [WIRE_WATCH_V1] this machine's side of the wire is recorded from before the first packet of the run
+        watch = WireWatch(a.out, "harness", a.agent_space.rpartition(":")[2]); watch.start()
         A, B = remote_systems(a)
     else:
         missing = [k for k in local_needs if getattr(a, k) is None]
@@ -1625,6 +2091,16 @@ def main():
             def start(self): pass
             def stop(self): pass
         A = _NotRun()
+    why = "the run ended"
+    try: return _run(a, A, B)
+    except BaseException as x: why = "the run stopped early: %r" % x; raise
+    finally:
+        if watch:                                  # [WIRE_WATCH_V1] the wire report is written however the run ends
+            try: wire_report(a, watch, getattr(A, "link", None) or getattr(B, "link", None), why)
+            except Exception as x: print("    [WIRE_WATCH_V1] the wire report could not be written: %r" % x, flush=True)
+            finally: watch.stop()
+
+def _run(a, A, B):
     A.start(); B.start()                           # lispers.net first: its start kills processes named lisp-*
     rec = Recorder(a.record, a.wire) if a.record else None
     runs = {s.name: (rec.next_run(s.name, s.version) if rec else 0) for s in (A, B)}
@@ -1639,10 +2115,12 @@ def main():
         if a.ribbit_only: res["lispers.net"] = (True, "not run", [])
         for s in ((B,) if a.ribbit_only else (A, B)):
             print("  .. %s on %s" % (tid, s.name), flush=True)
+            CURRENT_TEST[0] = "%s on %s" % (tid, s.name)
             c = Client(a.local_ip, s.target)
             try: ok, ev, lat = fn(c, s)
             except Exception as x: ok, ev, lat = False, "harness: %r" % x, []
             if getattr(A, "ribbit_needs_restart", False): A.ribbit_needs_restart = False; B.start()
+            CURRENT_TEST[0] = "%s on %s: still serving?" % (tid, s.name)
             if not still_serving(c):                # a system that stopped serving is a result; restart it
                 ev += " -- STOPPED SERVING after this test; evidence: " + (s.evidence().strip().replace("\n", " | ")[-400:] or "(none)")
                 ok = False

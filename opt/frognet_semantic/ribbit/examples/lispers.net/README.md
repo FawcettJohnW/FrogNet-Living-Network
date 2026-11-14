@@ -18,6 +18,9 @@ other two.
 
 **Every machine** (Ubuntu package names): `g++` (11 or later), `liblz4-dev`, `libssl-dev`, `python3`.
 
+**The systems machine and the test machine**, in addition: `tcpdump` and `iproute2` (`ss`, `ip`), and root. Both
+record the run's wire (see "Results" in section 5); a machine without `tcpdump` asks to install it at the start.
+
 **The systems machine**, in addition:
 
 - **Python 3.12.** The lispers.net 0.643 release is compiled bytecode only, built for Python 3.12; no other version
@@ -135,6 +138,17 @@ Useful options:
 
 - `ACCEPTANCE-REPORT.md` -- every test, both systems' answers, the classification, the evidence
 - `PERF-REPORT.md`, `perf.json`, `PERF-TIMELINE.html` -- throughput, latency, and every machine's counters
+- `WIRE-REPORT.md` -- every wait that ended without its answer, traced through both machines' captures: where the
+  request and its answer were last seen (never left the test machine; left it and never reached the systems
+  machine; reached it and no answer left; the answer left and never came back; came back after the harness stopped
+  waiting), with what each machine's kernel counted going wrong in those seconds (drops, buffer errors, no-route,
+  firewall drops by rule, TCP retransmits and resets, WireGuard handshakes, interface and route changes); the TCP
+  connections on the RAM port that retransmitted or were reset; and tcpdump's own count of packets it dropped.
+  Written however the run ends, early or not. `[WIRE_WATCH_V1]`
+- `wire/harness-<date>/` here and `acceptance-out/wire/agent-<date>/` on the systems machine -- the captures behind
+  it: `lisp.pcap*` (UDP 4342 and 14342), `ram.pcap*` (the RAM port, headers), `host.jsonl` (the kernel's counters,
+  interfaces, WireGuard peers, sockets, firewall drop counts and routes, once a second) and `journal.log` (the whole
+  journal, every unit). The newest three runs are kept on each machine.
 
 Start the three roles in this order: RAM host (and monitor), agent, harness.
 
@@ -209,3 +223,10 @@ failure on a clean machine is a fix to this package, and a finding in its own ri
   lispers.net 0.643, and the harness records that as evidence and restarts it.
 - **A run that stops when an SSH session drops**: start every role with `setsid nohup` as shown.
 - **The harness picks the wrong address** on a machine with several: `--local-ip`.
+- **A test fails because a packet got no answer**: `WIRE-REPORT.md` says, for that packet, which machine last saw
+  it and what each kernel counted then. Nothing needs to be run by hand.
+- **The agent's session to the RAM host ends** (a tunnel rebuilt, a link down): the agent says so, opens a new
+  session, writes again the answer the old one could not deliver, and the run goes on; the captures keep
+  recording, and the gap is in `WIRE-REPORT.md` under the RAM port's connections. `[AGENT_SESSION_RETRIED_V1]`
+- **The harness's terminal shows `agent: ...` lines**: that is the agent saying what it is doing for the call in
+  progress (STOP-LISP, RUN-LISP, waiting for a register). A call that runs out of time names the last of them.
