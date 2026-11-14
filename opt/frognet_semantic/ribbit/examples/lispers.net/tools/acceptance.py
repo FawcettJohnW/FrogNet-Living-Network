@@ -1081,7 +1081,7 @@ def t_l411(c, sysm):
 # harness writes each command as a cell (acceptance_ctl / <agent>|cmd / <run>.<n>); the agent holds a read on that
 # variable, runs the command on its systems exactly as the harness does on one machine, and writes the answer
 # (acceptance_ctl / <agent>|res / the same instance), on which the harness holds a read.
-ACCEPTANCE_VERSION = "v0.70-wire-watch"      # this file's own version: the banner names the file that is running
+ACCEPTANCE_VERSION = "v0.71-monitor-skips-gone"      # this file's own version: the banner names the file that is running
 AGENT_CALLS = {"start", "stop", "evidence", "delete_site", "add_site", "restart_keep_state", "lose_ram_host"}
 CTL = "acceptance_ctl"
 
@@ -1732,6 +1732,7 @@ class Monitor(threading.Thread):
         while True:
             for c in sp.wait("perf|phase", after, 1.0):
                 after = max(after, c["id"])
+                if c.get("bag") is None: continue     # [GONE_CELLS_SKIPPED_V1] a phase whose writer's session ended
                 snap = snapshot(self.groups, self.extra); snap["boundary"] = c["bag"].get("boundary", c["instance"])
                 sp.write("perf|snap", self.name, snap)
             seq += 1
@@ -1849,6 +1850,7 @@ class PerfHarness:
         while want - {m for (m, p) in got if p == ph} and time.time() - t0 < 30:
             for c in self.sp.wait("perf|snap", self.snap_after, 5):
                 self.snap_after = max(self.snap_after, c["id"])
+                if c.get("bag") is None: continue    # [GONE_CELLS_SKIPPED_V1] a monitor whose session ended
                 m = c["instance"]; r, p = c["bag"].get("boundary", "|").split("|")
                 self.snap_t[(r, p, m)] = c["bag"].get("t")
                 if r == run: got[(m, p)] = c["bag"]
