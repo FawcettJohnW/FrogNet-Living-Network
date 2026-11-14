@@ -116,7 +116,7 @@ private:
     std::atomic<const std::vector<std::string>*> auth_prefixes_{nullptr};    // IPv4 prefixes, instance 0
     std::atomic<const std::vector<std::string>*> ms_peers_{nullptr};         // map-server peers: the referral set
     ribbit::Ebr ebr_;
-    Engine req_e_, cfg_e_;
+    Engine req_e_;                                         // the views a Map-Request is answered from (fed)
     static constexpr uint64_t ASK_RING = 65536;            // [REGISTER_ASKED_V1] a front's ask cells: a ring, slot n mod ring
     std::unique_ptr<ribbit::Space> space_;                 // the front's one session for its asks and its answers
     std::unique_ptr<ribbit::pp::Asker> asker_, config_;    // [CONFIG_WRITTEN_ONCE_V1] this front's own configuration asks
@@ -283,11 +283,9 @@ inline std::unique_ptr<LispBoundary> LispHandler::open_boundary(const std::strin
 inline LispSite::LispSite(const std::string& h, int p) : e_(h, p) {}
 inline std::string LispSite::call(const std::string& op, const std::string& args) { return e_.call(op, Json::parse(args)); }
 
-inline LispBoundary::LispBoundary(const std::string& h, int p, int udp_port, int, const std::string& api) : req_e_(h, p, api), cfg_e_(h, p, api) {
+inline LispBoundary::LispBoundary(const std::string& h, int p, int udp_port, int, const std::string& api) : req_e_(h, p, api) {
     req_e_.require_same_build("lisp boundary");             // [MIXED_BUILDS_REFUSED_V1]
     req_e_.fed = true; udp_port_ = udp_port;               // [ONE_READ_FEEDS_THE_VIEWS_V1] the views are fed by one read (below)
-    // [ONE_SET_OF_VIEWS_PER_PARTICIPANT_V1] the boundary is one participant: the configuration Engine reads the request Engine's views
-    cfg_e_.share_views_of(req_e_);
     fd_ = ::socket(AF_INET, SOCK_DGRAM, 0);
     if (fd_ < 0) throw std::runtime_error(std::string("lisp boundary: socket: ") + std::strerror(errno));
     sockaddr_in a{}; a.sin_family = AF_INET; a.sin_port = htons((uint16_t)udp_port); a.sin_addr.s_addr = htonl(INADDR_ANY);
@@ -295,11 +293,8 @@ inline LispBoundary::LispBoundary(const std::string& h, int p, int udp_port, int
         int e = errno; ::close(fd_); fd_ = -1;
         throw std::runtime_error("lisp boundary: bind UDP " + std::to_string(udp_port) + ": " + std::strerror(e));
     }
-    timeval tv{0, 200000};                                                 // the stop flag is honoured within 200 ms
-    if (::setsockopt(fd_, SOL_SOCKET, SO_RCVTIMEO, &tv, sizeof tv) != 0) {
-        int e = errno; ::close(fd_); fd_ = -1;
-        throw std::runtime_error(std::string("lisp boundary: SO_RCVTIMEO: ") + std::strerror(e));
-    }
+    // [STOP_WAKES_THE_RECEIVE_V1] recvfrom blocks with no timeout; stop() shuts the socket down, which wakes it. (It
+    // used to wake every 200 ms to look at the stop flag.)
     // [REGISTER_ASKED_V1] this front's name: its machine, its process and its port -- the topic of its asks and answers
     char hn[256] = {}; ::gethostname(hn, sizeof hn - 1);
     me_ = std::string("front.") + hn + "." + std::to_string(::getpid()) + "." + std::to_string(udp_port);
@@ -320,7 +315,7 @@ inline LispBoundary::LispBoundary(const std::string& h, int p, int udp_port, int
     space_->follow("lisp", "", 0, [this](std::vector<ribbit::SpaceRow>& rows) { on_rows(rows); },
         [](const std::string& why) { std::cerr << ("[ONE_READ_FEEDS_THE_VIEWS_V1] the read held on the lisp space ended: " + why + "\n") << std::flush; });
 }
-inline LispBoundary::~LispBoundary() { stop(); }
+inline LispBoundary::~LispBoundary() { stop(); if (fd_ >= 0) { ::close(fd_); fd_ = -1; } }
 inline std::string LispBoundary::call(const std::string& op, const std::string& args) { return configure(op, args); }
 inline std::vector<unsigned char> LispBoundary::map_referral(const std::vector<unsigned char>& request, const std::vector<unsigned char>& reply) {
     // As lispers.net 0.643's map-server answers, observed on the running control as a map-server-only DDT authority
@@ -405,10 +400,11 @@ inline std::string LispBoundary::configure(const std::string& op, const std::str
         auth_prefixes_.store(next, std::memory_order_release); ebr_.retire(old);
         return "\"good\"";
     }
-    return cfg_e_.call(op, Json::parse(args_json));
+    return req_e_.call(op, Json::parse(args_json));          // an observation (stats, a view's contents)
 }
 inline void LispBoundary::stop() {
     stop_ = true;
+    if (fd_ >= 0) ::shutdown(fd_, SHUT_RDWR);              // [STOP_WAKES_THE_RECEIVE_V1] recvfrom returns
     if (th_.joinable()) th_.join();                         // no receive, so no new ask
     space_->flush(5.0);                                     // what was asked has left this process
 }
@@ -417,8 +413,9 @@ inline void LispBoundary::loop() {
     while (!stop_) {
         sockaddr_in from{}; socklen_t fl = sizeof from;
         ssize_t n = ::recvfrom(fd_, buf.data(), buf.size(), 0, (sockaddr*)&from, &fl);
+        if (stop_) break;                                   // [STOP_WAKES_THE_RECEIVE_V1] stop() shut the socket down
         if (n < 0) {
-            if (errno == EAGAIN || errno == EWOULDBLOCK || errno == EINTR) continue;   // the 200 ms stop-flag tick
+            if (errno == EINTR) continue;
             throw std::runtime_error(std::string("lisp boundary: recvfrom: ") + std::strerror(errno));   // the socket itself failed: stop
         }
         char pa[INET_ADDRSTRLEN]; inet_ntop(AF_INET, &from.sin_addr, pa, sizeof pa);

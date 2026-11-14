@@ -91,7 +91,7 @@ measured here are a fraction of the whole.
 |---|---|---|
 | `ribbit_cpp/lisp_engine.hpp` | the Engine: LISP state as cells, every map-server operation, the wire codecs | `lisp.py` codecs and processing; `lisp-ms.py` site state and timers; `lispconfig.py` |
 | `ribbit_cpp/lisp_handler.hpp` | the front: UDP control port, Map-Requests answered in place, Map-Registers sent to the memory | `lisp-core.py` dispatch; `lisp-ms.py` / `lisp-mr.py` main loops |
-| `tools/lisp_boundary.cpp` | the front as a program (configuration as JSON lines on stdin); used by the tests | `RUN-LISP` + `lisp.config` |
+| `tools/lisp_boundary.cpp` | the front as a program (it takes no configuration: the region's configuration is in the memory); used by the tests | `RUN-LISP` + `lisp.config` |
 | `tools/lisp_service.cpp` | the deployable service: one program, configured by a file, roles registered as capabilities | `RUN-LISP`, `lisp enable`, `lisp.config` peer lists |
 | `tools/ramsrv/ram_server.cpp` | the RAM host: FNW1 sessions, the memory, and the LISP operations run inside it | none (lispers.net's state is in its processes) |
 | `ribbit_cpp/ram_memory.hpp` | the memory: rows, per-row locks, waits, the write window | `lisp_cache`, the process heap |
@@ -167,19 +167,24 @@ over local IPC; that process decodes it, consults its own state and answers.
 
 **What changed.** The front is one process that owns the control port and holds no state of its own:
 
-- **Map-Requests are answered in place.** The front holds, for each instance and group, the registrations it has
-  read, as tuples: each one held once behind its own atomic pointer, replaced in place when the cell changes
-  (`[HELD_TUPLES_V1]`, `[ONE_SET_OF_VIEWS_PER_PARTICIPANT_V1]`). A lookup reads them lock-free and never goes to
-  the RAM host. The front learns of changes by holding a read on the memory, which returns when something is
-  written.
-- **Map-Registers go to the memory.** Each is one call to the RAM host. Each sender gets its own strand, so one
-  sender's registers stay in order while every sender's round trip overlaps every other's (`[REGISTER_STRANDS_V1]`);
-  a Map-Request never waits behind a Map-Register (`[BOUNDARY_NEVER_WAITS_V1]`).
-- **Read-your-own-write.** When the call returns, the cells it wrote come back with the reply and the front holds
-  them at once (`[OWN_WRITES_HELD_V1]`), so a register followed immediately by a lookup through the same front
-  sees the registration (L2C.1).
-- **No locks (`[BOUNDARY_NO_LOCKS_V1]`).** Queues are lock-free; waiting is on futex words; held tuples are
-  reclaimed by EBR.
+- **Map-Requests are answered in place.** The front holds, for each instance and group, the registrations, their
+  governance, the sites, DDT delegations, ETR liveness, policies, named locators and site groups, as tuples behind
+  atomic pointers (`[HELD_TUPLES_V1]`). All of them are fed by ONE read held on the whole `lisp` space, in write
+  order (`[ONE_READ_FEEDS_THE_VIEWS_V1]`): no thread per view, no read when a view is first used. A lookup reads
+  them lock-free and never goes to the RAM host.
+- **Map-Registers are written, not called** (`[REGISTER_ASKED_V1]`, API++ ask/answer, as MQTT and Redis use it). The
+  receive thread writes each register into the front's own ask space and goes back to `recvfrom`. The region on the
+  RAM host holds one read on every front's asks, decides each register in the memory, and writes its answer into its
+  own answer space; the front holds one read on its answers. Nobody waits on anybody.
+- **Notified means resolves** (`[NOTIFY_AFTER_ITS_ROWS_V1]`). The region's answer names the newest row its register
+  wrote; the Map-Notify is held as data until the front's views hold that row, then sent, so a register followed
+  immediately by a lookup through the same front sees the registration (L2C.1). No thread waits for it.
+- **Configuration is in the memory** (`[CONFIG_WRITTEN_ONCE_V1]`). Sites and their keys, policies, named locators and
+  encryption keys are rows an administrator writes once into its own config ask space; the region applies them. A
+  front takes no configuration, and one that restarts needs nothing sent again. A serving front writes its own row
+  in `lisp.fronts` (`[FRONT_ANNOUNCES_ITSELF_V1]`).
+- **No locks, no polling (`[BOUNDARY_NO_LOCKS_V1]`, `[STOP_WAKES_THE_RECEIVE_V1]`).** Lists are lock-free; held
+  tuples are reclaimed by EBR; the receive blocks with no timeout and `stop()` wakes it by shutting the socket.
 - **The rest of the control plane.** ECM-encapsulated Map-Requests (`[ECM_MAP_REQUEST_V1]`); Info-Request ->
   Info-Reply (`[INFO_REQUEST_V1]`); Map-Notify-Ack consumed; Map-Referrals when configured as a DDT authority
   (`[DDT_REFERRAL_V1]`); Map-Notify sent to every registered xTR of a merged prefix (L2.9b).
@@ -193,8 +198,8 @@ for 64.
 **What lispers.net does.** `RUN-LISP` starts lisp-core, which starts the role processes; peers (map-servers,
 map-resolvers) are written by hand in `lisp.config`; an ETR re-sends its whole Map-Register every 60 seconds.
 
-**What changed.** `lisp-boundary` is the front as a program: `--ram HOST PORT --udp PORT`, configuration as JSON
-operations on stdin; the acceptance and performance tests drive it. `lisp-service` is the deployable form: one
+**What changed.** `lisp-boundary` is the front as a program: `--ram HOST PORT --udp PORT`, and nothing else (its
+configuration is the region's, in the memory); the acceptance and performance tests drive it. `lisp-service` is the deployable form: one
 program, one JSON configuration (`/etc/lispers.d/lisp-service.config`), every role it plays registered in the
 memory as a capability tuple (`[CAPABILITY_REGISTRATION_V1]`), so machines find each other by reading the memory
 instead of a hand-written peer list. `tools/make_hw_configs.py` writes matching configurations for lispers.net and

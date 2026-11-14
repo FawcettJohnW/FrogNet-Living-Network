@@ -418,7 +418,7 @@ class Ribbit:
         self._run_front()
     def delete_site(self, site): self.config([("site.delete", {"iid": site["iid"], "prefix": site["prefix"], "group": ""})]); return "good"
     def add_site(self, site): self.config([("site.add", ribbit_site_args(site))]); return "good"
-    def restart_keep_state(self): self.restart_front(); return {}
+    def restart_keep_state(self): self.restart_front(); return "good"
     def lose_ram_host(self):
         if self.a.ram_external: return None       # the neutral RAM host is not this run's to kill (L4.11 n/a)
         listeners = subprocess.run(["ss", "-ltnpH", "sport = :%d" % self.a.ram_port], capture_output=True, text=True).stdout.strip()
@@ -1623,7 +1623,7 @@ class AgentLink:
                     r = c["bag"]
                     if r is None: continue                 # the agent's old session's answer: gone; its new session writes it again
                     if not r.get("ok"): raise RuntimeError("agent: %s" % r.get("error"))
-                    return r["result"]
+                    return r.get("result")                # (a bag keeps no empty object: an empty result is absent)
         raise RuntimeError("agent '%s' did not answer %s within %d s; the last thing it said it was doing: %s" % (
             self.cmd.split("|")[0], m.get("call"), timeout_s, ("%s (%s, %.0f s before the wait ended)" % (last["stage"], last["host"], time.time() - last["t"])) if last else "nothing"))
 
@@ -2145,7 +2145,9 @@ def _run(a, A, B):
             CURRENT_TEST[0] = "%s on %s" % (tid, s.name)
             c = Client(a.local_ip, s.target)
             try: ok, ev, lat = fn(c, s)
-            except Exception as x: ok, ev, lat = False, "harness: %r" % x, []
+            except Exception as x:
+                import traceback as _tb   # the harness's own failure says where it happened
+                ok, ev, lat = False, "harness: %r at %s" % (x, " < ".join("%s:%d %s" % (f.filename.rsplit("/", 1)[-1], f.lineno, f.name) for f in reversed(_tb.extract_tb(x.__traceback__)[-3:]))), []
             if getattr(A, "ribbit_needs_restart", False): A.ribbit_needs_restart = False; B.start()
             CURRENT_TEST[0] = "%s on %s: still serving?" % (tid, s.name)
             if not still_serving(c):                # a system that stopped serving is a result; restart it
