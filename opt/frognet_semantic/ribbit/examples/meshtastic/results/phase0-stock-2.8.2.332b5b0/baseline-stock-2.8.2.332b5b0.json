@@ -1,0 +1,210 @@
+{
+ "ota_exchanges_rt_capture": {
+  "text_broadcast": {
+   "transmissions": 2,
+   "datagram_bytes": 134,
+   "lora_bytes": 106,
+   "longfast_airtime_ms": 1282.0,
+   "per_tx": [
+    {
+     "vector": "text_broadcast",
+     "datagram_bytes": 66,
+     "lora_bytes": 53,
+     "longfast_airtime_ms": 641.0,
+     "t": 1793368575.2707348
+    },
+    {
+     "vector": "text_broadcast_relayed",
+     "datagram_bytes": 68,
+     "lora_bytes": 53,
+     "longfast_airtime_ms": 641.0,
+     "t": 1793368575.2713404
+    }
+   ]
+  },
+  "dm_want_ack (PKI)": {
+   "transmissions": 3,
+   "datagram_bytes": 175,
+   "lora_bytes": 136,
+   "longfast_airtime_ms": 1800.2,
+   "per_tx": [
+    {
+     "vector": "dm_text",
+     "datagram_bytes": 74,
+     "lora_bytes": 58,
+     "longfast_airtime_ms": 682.0,
+     "t": 1793368587.2825508
+    },
+    {
+     "vector": "routing_ack",
+     "datagram_bytes": 53,
+     "lora_bytes": 39,
+     "longfast_airtime_ms": 559.1,
+     "t": 1793368587.2828362
+    },
+    {
+     "vector": "routing_ack_zero_hop",
+     "datagram_bytes": 48,
+     "lora_bytes": 39,
+     "longfast_airtime_ms": 559.1,
+     "t": 1793368587.2833385
+    }
+   ]
+  },
+  "position_request -> NAK": {
+   "transmissions": 2,
+   "datagram_bytes": 86,
+   "lora_bytes": 61,
+   "longfast_airtime_ms": 954.4,
+   "per_tx": [
+    {
+     "vector": "position_request",
+     "datagram_bytes": 35,
+     "lora_bytes": 22,
+     "longfast_airtime_ms": 395.3,
+     "t": 1793368593.3487701
+    },
+    {
+     "vector": "routing_nak",
+     "datagram_bytes": 51,
+     "lora_bytes": 39,
+     "longfast_airtime_ms": 559.1,
+     "t": 1793368593.3491876
+    }
+   ]
+  },
+  "telemetry request -> reply (PKI)": {
+   "transmissions": 2,
+   "datagram_bytes": 125,
+   "lora_bytes": 98,
+   "longfast_airtime_ms": 1200.1,
+   "per_tx": [
+    {
+     "vector": "telemetry_request",
+     "datagram_bytes": 52,
+     "lora_bytes": 38,
+     "longfast_airtime_ms": 518.1,
+     "t": 1793368605.3572123
+    },
+    {
+     "vector": "telemetry_reply",
+     "datagram_bytes": 73,
+     "lora_bytes": 60,
+     "longfast_airtime_ms": 682.0,
+     "t": 1793368605.3575838
+    }
+   ]
+  },
+  "traceroute request -> reply": {
+   "transmissions": 2,
+   "datagram_bytes": 81,
+   "lora_bytes": 52,
+   "longfast_airtime_ms": 872.5,
+   "per_tx": [
+    {
+     "vector": "traceroute_request",
+     "datagram_bytes": 37,
+     "lora_bytes": 22,
+     "longfast_airtime_ms": 395.3,
+     "t": 1793368617.3743682
+    },
+    {
+     "vector": "traceroute_reply",
+     "datagram_bytes": 44,
+     "lora_bytes": 30,
+     "longfast_airtime_ms": 477.2,
+     "t": 1793368617.374381
+    }
+   ]
+  },
+  "nodeinfo_broadcast": {
+   "transmissions": 1,
+   "datagram_bytes": 117,
+   "lora_bytes": 105,
+   "longfast_airtime_ms": 1050.6,
+   "per_tx": [
+    {
+     "vector": "nodeinfo_broadcast",
+     "datagram_bytes": 117,
+     "lora_bytes": 105,
+     "longfast_airtime_ms": 1050.6,
+     "t": 1793368560.1123767
+    }
+   ]
+  }
+ },
+ "client_api_config_dump": {
+  "mcp-ci-device-mesh-e2e": {
+   "frames": {
+    "min": 46,
+    "median": 48,
+    "max": 48
+   },
+   "bytes": {
+    "min": 1135,
+    "median": 1277,
+    "max": 1277
+   },
+   "ms": {
+    "min": 2.4,
+    "median": 4.9,
+    "max": 5.7
+   },
+   "dumps": 7
+  },
+  "py-smokemesh": {
+   "frames": {
+    "min": 46,
+    "median": 49.0,
+    "max": 49
+   },
+   "bytes": {
+    "min": 1126,
+    "median": 1330.0,
+    "max": 1378
+   },
+   "ms": {
+    "min": 2.8,
+    "median": 46.05,
+    "max": 201.8
+   },
+   "dumps": 84
+  },
+  "py-smokevirt": {
+   "frames": {
+    "min": 46,
+    "median": 46.0,
+    "max": 47
+   },
+   "bytes": {
+    "min": 1126,
+    "median": 1137.0,
+    "max": 1221
+   },
+   "ms": {
+    "min": 2.0,
+    "median": 67.44999999999999,
+    "max": 234.0
+   },
+   "dumps": 236
+  },
+  "rt-vectors": {
+   "frames": {
+    "min": 46,
+    "median": 48.0,
+    "max": 48
+   },
+   "bytes": {
+    "min": 1136,
+    "median": 1299.0,
+    "max": 1299
+   },
+   "ms": {
+    "min": 4.3,
+    "median": 5.15,
+    "max": 6.8
+   },
+   "dumps": 6
+  }
+ }
+}

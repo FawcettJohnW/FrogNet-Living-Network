@@ -13,7 +13,7 @@ informed as that world changes.
 | Fabric | The Linux nodes, their tunnels and their plans. It does all routing and re-forms as connectivity changes. | Anything a server does. Every server is blind to it. |
 | Member | A Linux machine with a bare-bones install. It is a full network member and can read the tuples. | A Windows or Android machine. |
 | Device | A Windows or Android machine. It attaches through the fabric and uses apps. | A member. It never serves the general AppRam; a Team's AppRam may be on its lead's device (`[GROUP_PLACE_V1]`). |
-| databasehost (the SystemRam) | The existing, deterministic selection that locates the current **network** RAM, the RAM host where members read and write. Capability and configuration tuples are in databasehost-control (the highest .1). | The app's RAM server. That is a separate selection. |
+| databasehost (the SystemRam) | The existing, deterministic selection of one host; the SystemRam is that host's `api.php` on port 80 (`[ROLES_ON_API_V1]`). Capability tuples and each machine's answers are there; configuration tuples are in databasehost-control (the highest .1, its own `api.php`). | The app's RAM server. That is a separate selection. A RAM port: roles have none. |
 | Droplet | An app's RAM server code, installable on any Linux member. | A DigitalOcean machine, or anything on the internet. |
 | Primary | The droplet install the admin designated. Its placement defines the app's scope. | Something the server knows. The server does not know it is primary and knows nothing about network state. |
 | App RAM server selection | The app's own deterministic criteria and algorithm, run over the capability tuples, that pick which droplet serves the app. | databasehost. |
@@ -156,7 +156,7 @@ built on the same platform with the OpenEOC app.
 The device remains a device; it never becomes a Linux fabric member. Its app participation follows the same
 write-first, read-second rule.
 
-**An app is a base and its layers** ([RT_LAYERS_V1], built, rt-app r29; John 2026-11-04: "a top level presentation and
+**An app is a base and its layers** ([RT_LAYERS_V1], built, openeoc-app r29; John 2026-11-04: "a top level presentation and
 a low level base layer, and each role adds a ui to the base user and admin apps"). OpenEOC's base (page `ui/base.js`,
 core `AppCore`) is what every app has; each layer (`ui/layers/<name>.js` and `layer/<Name>Layer.java`: help, field, eoc,
 team, medical, units, public) adds its views, screens, map kinds and ops through one interface (`RT` on the page, `Layer`
@@ -414,7 +414,7 @@ sections 5, 7 and 9): the Admin's one configuration tuple in databasehost-contro
 `fdf-app can` (held by its session) and `fdf-app applied` in the SystemRam; app data in the AppRams; the AppHosts in
 `/etc/hosts`, written by the election. On a split each side's election names its own AppHosts from the capability
 tuples on that side, and the merge writes the configuration tuples into that side's databasehost-control. Gates:
-`rinab/tools/test_fdf_app.py` 1-13, `fdf/www/rt/test_rt_pages.py`, `rinab/tools/netns-enroll-test.sh`,
+`rinab/tools/test_fdf_app.py` 1-13, `fdf/www/openeoc/test_openeoc_pages.py`, `rinab/tools/netns-enroll-test.sh`,
 `rinab/tools/netns-system-space-test.sh` (the real tunnel daemon's election writes `openeocHost.frognet` on both
 nodes, through both hub failovers; nothing of the app on the conduit).
 
@@ -477,7 +477,7 @@ is as many RAMs as it needs, but absolutely more than 2." "Getting GPS locations
 - **Messages are not a role.** General messages live in the general RAM: announcements to everyone, and direct
   messages between people in different teams. Team messages live in the team's RAM. A direct message in the general
   RAM is read only by its sender and addressee, and nothing checks that: it is written into the addressee's own
-  variable (OpenEOC: `(rt-dm, <mission>.<to station>, <dev>.<ms>)`), which is what the addressee reads; the sender
+  variable (OpenEOC: `(openeoc-dm, <mission>.<to station>, <dev>.<ms>)`), which is what the addressee reads; the sender
   keeps its copy as its own truth. **John, 2026-11-01:** "There's no check to be made."
 
 The application joins the general RAM and the RAMs authorized for its user's teams; devices run applications, they do not join RAMs. The access by team in the app configuration tuples grants each one.
@@ -508,8 +508,10 @@ was said on the radio, and stays in the log.
   - it holds a read on the configuration tuples in databasehost-control and adopts a newer seq whose mac is the admin
     key's, answering in the SystemRam, `(fdf-app, applied, <app>.<guid>)`; a Team's own tuple,
     `(fdf-app, config, <app>.<team>)`, written by its lead through the door, is adopted when it is that Team's lead's;
-  - it holds its capability for every AppRam it offers in the SystemRam, `(fdf-app, can, <app>.<ram>.<guid>)`,
-    written own:true by `ram hold` on its own session (`[CAPABILITY_HELD_BY_ITS_SESSION_V1]`): gone with the service;
+  - it announces its capability for every AppRam it offers in the SystemRam, `(fdf-app, can, <app>.<ram>.<guid>)`
+    (`[CAPABILITY_ANNOUNCED_V1]`): a plain write, a held read on the `can` family that writes them again if they go,
+    and a withdrawal at stop. A machine that leaves without stopping is removed with its writer: its permanent socket
+    to the role host closing removes what it wrote (`[WRITER_GONE_V1]`);
   - it serves each AppRam whose AppHost `/etc/hosts` names this machine, on that AppRam's port, and stops the others;
     a new port in the configuration restarts it there. It holds each AppRam's listening socket and hands it to
     `fdf-ram` (`RIBBIT_LISTEN_FD`), so one that exits is started again on the same socket
@@ -518,7 +520,9 @@ was said on the radio, and stays in the log.
   node's election (`discovery/elect.py`, `discovery/live.py`) writes `<app>Host.frognet` for each app's general AppRam and
   `<team>Host.<app>` for each Team's, one handler per service: a Team its lead placed "here" on a node, that node; else
   the app's selection over the live capability tuples. The tunnel daemon holds a read on the `fdf-app` family in
-  databasehost-control and in the SystemRam, so a capability or configuration written or gone is an event. When
+  databasehost-control and in the SystemRam (a held read in each role's `api.php`, fired through this node's port 80,
+  `[HELD_READ_IN_API_V1]`), so a capability or configuration written or gone is an event; `/etc/hosts` rewritten ends
+  the holds, and they are held again at the hosts it names. When
   databasehost-control moves, the merge writes the configuration tuples into it again, as signed, from the installed
   machines' copies (`[CONFIG_WRITTEN_AGAIN_BY_THE_MERGE_V1]`).
 - **The door on a node, `ram.php`** (door r13), maps each service to its app and RAM (`apps.json`: `"app"`, `"rams"`).

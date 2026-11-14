@@ -1,0 +1,121 @@
+{
+ "S1_views": {
+  "pass": true,
+  "seconds": 0.47,
+  "views": {
+   "!e174b023": [
+    "!5bf33c3c",
+    "!a467302f",
+    "!ed641d75"
+   ],
+   "!a467302f": [
+    "!5bf33c3c",
+    "!e174b023",
+    "!ed641d75"
+   ],
+   "!ed641d75": [
+    "!5bf33c3c",
+    "!a467302f",
+    "!e174b023"
+   ],
+   "!5bf33c3c": [
+    "!a467302f",
+    "!e174b023",
+    "!ed641d75"
+   ]
+  }
+ },
+ "S2_broadcast": {
+  "pass": true,
+  "received": {
+   "!e174b023": [
+    "BD-5bf33c3c",
+    "BD-a467302f",
+    "BD-ed641d75"
+   ],
+   "!a467302f": [
+    "BD-5bf33c3c",
+    "BD-e174b023",
+    "BD-ed641d75"
+   ],
+   "!ed641d75": [
+    "BD-5bf33c3c",
+    "BD-a467302f",
+    "BD-e174b023"
+   ],
+   "!5bf33c3c": [
+    "BD-a467302f",
+    "BD-e174b023",
+    "BD-ed641d75"
+   ]
+  }
+ },
+ "S3_dm_ack": {
+  "pass": true,
+  "error": "NONE",
+  "seconds": 0.01,
+  "from": "!a467302f"
+ },
+ "S8_position": {
+  "pass": true,
+  "live_client_seconds": 0.01,
+  "live_ok": true,
+  "fresh_client_seconds": 1.62,
+  "position": {
+   "latitude": 47.4677248,
+   "longitude": -122.3360512,
+   "altitude": 120,
+   "precisionBits": 15
+  },
+  "fresh_client_20s_later": {
+   "latitude": 47.4677248,
+   "longitude": -122.3360512,
+   "altitude": 120,
+   "precisionBits": 15
+  }
+ },
+ "S9_requests": {
+  "nodeinfo": {
+   "answer": "NODEINFO_APP",
+   "error": null,
+   "seconds": 0.05,
+   "from": "!e174b023"
+  },
+  "position": {
+   "answer": "POSITION_APP",
+   "error": null,
+   "seconds": 0.01,
+   "from": "!e174b023"
+  },
+  "telemetry": {
+   "answer": "TELEMETRY_APP",
+   "error": null,
+   "seconds": 0.0,
+   "from": "!e174b023"
+  },
+  "pass": true
+ },
+ "S4_kill": {
+  "pass": true,
+  "seconds": 0.34
+ },
+ "S5_dm_dead": {
+  "observed": "PKI_SEND_FAIL_PUBLIC_KEY",
+  "seconds": 0.0,
+  "from": "!e174b023",
+  "pass": true
+ },
+ "S6_restart": {
+  "pass": true,
+  "seconds": 0.96
+ },
+ "S7_malformed": {
+  "pass": true,
+  "answering": {
+   "!e174b023": true,
+   "!a467302f": true,
+   "!ed641d75": true,
+   "!5bf33c3c": true
+  }
+ }
+}

@@ -14,13 +14,14 @@ names another databasehost-control, the merge's write of the configuration tuple
       BLOCK   the converged block without the app lines (the FrogNetHost lines, databasehost_control.frognet,
               databasehost.frognet), as the test has the view; written by the test, read again when it changes
       APPS_DIR  the node's FDF_APPS (its copies of the configuration tuples)
-Environment: FDF_LAN_RAM_PORT, FDF_PY.
+Environment: FDF_PY, FROGNET_CORE (frognet_held), FDF_HOSTS.
 """
 import os, sys, threading, time
 
 H = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 sys.path.insert(0, os.environ.get("FDF_PY") or os.path.join(H, "..", "fdf", "lib", "python"))
 sys.path.insert(0, os.path.join(H, "..", "..", "..", "..", "frognet_semantic"))
+os.environ.setdefault("FROGNET_CORE", os.path.join(H, "..", "..", "..", "..", "frognet_semantic", "core"))
 import fdfram, fdf_watch  # noqa: E402
 from core import app_hosts  # noqa: E402
 
@@ -57,23 +58,28 @@ def elect(why):
 
 
 def watch(name):
-    last, at = -1, None
+    # [ROLES_ON_API_V1] the role is its host's api.php on port 80: a held read on the fdf-app family there, as the
+    # daemon holds it; the block naming another host for the role (or a read that fails) is read again on the block's
+    # next change -- no polling
+    rm, first, had = None, True, None
     while True:
         ip = app_hosts.ip_of(block(), name)
         if not ip:
-            time.sleep(0.2); continue
-        hp = "%s:%d" % (ip, app_hosts.PORT)
-        if hp != at:
-            last, at = -1, hp
-        t = time.time()
+            fdf_watch.Inotify(os.path.dirname(BLOCK) or ".").read(); continue
+        if rm is None or rm.host != ip:
+            rm, first = fdfram.RoleRam(ip), True
         try:
-            cs = fdfram.Ram(hp).read("fdf-app", "", "", after=last, wait_s=25)
-            if cs:
-                last = max(int(c["id"]) for c in cs)
+            cs = rm.read("fdf-app", "", "", after=0 if not first else -1, wait_s=fdfram.HOLD_S if not first else 0)
+            now = sorted((c["id"], c["writer"], str(c["bag"])) for c in cs)
+            if first or now != had:
                 elect("app tuples (%s)" % name)
-        except fdfram.RamError:
-            fdf_watch.up_or_moved(hp, t, lambda: "%s:%d" % (app_hosts.ip_of(block(), name), app_hosts.PORT), dirs=[os.path.dirname(BLOCK) or "."])
-            last = -1
+            first, had = False, now
+        except fdfram.RamError as e:
+            log("the read on %s (%s) ended: %s; read again when the block changes" % (name, ip, e))
+            w, was = fdf_watch.Inotify(os.path.dirname(BLOCK) or "."), block()
+            while block() == was:
+                w.read()
+            w.close(); rm = None
 
 
 elect("start")

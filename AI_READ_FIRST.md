@@ -358,6 +358,19 @@ answer exists; nothing is ever re-asked").
 
 ---
 
+# FD&F IS THE ARCHITECTURE. CROAKOS IS THE IMPLEMENTATION.
+
+**FD&F** (Farinacci, Day & Fawcett) names the architecture: RINA names, LISP locates,
+Ribbit holds the state, and every member reaches the others only through the shared
+RAM. **CroakOS** is the distributed operating system that implements it: an
+Internet-crossing operating system that offers memory and scheduling (held reads)
+instead of messaging between computers. Say "FD&F" for the design and "CroakOS"
+for the software that runs: its binaries, installers, commands, regions and roles
+(John, 2026-11-10). The code keeps the `fdf` name in its paths and commands
+(`opt/fdf`, `fdf-app`, `fdf-region-join`, `fdf_version.hpp`); do not rename them.
+
+---
+
 # A HELD READ IS A READ, NOT A NOTIFICATION SERVICE
 
 FrogNet Memory exposes state, and a read can wait for it: **a held read**. It is
@@ -384,7 +397,7 @@ semantics. Topology is the fabric's business, so the fabric reports it. What a
 value means, and when a change to it matters, is the application's business, so
 the fabric does not interpret it.
 
-**How the FD&F code keeps this** (`[EVENTS_NOT_TIMERS_V1]`, `[MEMBER_IS_A_TUPLE_V1]`, 2026-11-03; details in
+**How the CroakOS code keeps this** (`[EVENTS_NOT_TIMERS_V1]`, `[MEMBER_IS_A_TUPLE_V1]`, 2026-11-03; details in
 `opt/fdf/docs/FDF-TECHNICAL-DESIGN.md` §G.5a). Each member writes its own truth, `(pond, member, <ns>)`, and every
 program that needs the members holds a read on that family: no relay turns the region's notices into lines (that was
 `fdf-events`), no service copies one writer's cells into another's (that was the chat service), no id is claimed from a
@@ -566,13 +579,14 @@ members' apps hold a read on the group's capability tuple, select its host, and 
 Where things live (the doc "FrogNet SystemRam, FrogNetHost Admin and App Services — Design", 2026-11-04, sections 5, 7
 and 9): **databasehost-control** (`databasehost_control.frognet`, the highest .1) holds configuration tuples only --
 one per service, owned by the Admin for its scope, read by every installed machine, never copied by them; when it
-moves, **the merge** writes them into the new one. **The SystemRam** (`databasehost.frognet`'s RAM host, parked held
-reads) holds the capability tuples, each held by its service's session (a dead service is not a candidate), and each
-machine's answers (`fdf-app applied`, `frognethost state`); every election reads capability there. App data is in the
+moves, **the merge** writes them into the new one. **The SystemRam** (`databasehost.frognet`: that host's api.php on
+port 80, see "Roles are hosts on api.php" below) holds the capability tuples, each written by its service and removed
+with its writer (a dead machine is not a candidate), and each machine's answers (`fdf-app applied`, `frognethost state`); every election reads capability there. App data is in the
 AppRams. Every app carries its own PHP door alongside `api.php`. Every instance holds a read on its capability family:
 an install, a capability change or a configuration change is an event, and the selection runs again.
-Built (r47: fdf-app r13, door r13, `core/app_hosts.py`, `ram hold`): the first install writes the one signed tuple;
-`fdf-app serve` adopts it, holds its capability in the SystemRam and serves what `/etc/hosts` names it for; every
+Built (r47: fdf-app r13, door r13, `core/app_hosts.py`; roles on api.php 2026-11-07): the first install writes the one
+signed tuple; `fdf-app serve` adopts it, announces its capability in the SystemRam and serves what `/etc/hosts` names
+it for; every
 node's election (`discovery/elect.py`, `discovery/live.py`, the daemon's held reads on the `fdf-app` families) writes
 `<app>Host.frognet` and `<team>Host.<app>`; the merge writes the configuration tuples into a new databasehost-control. Not built: a
 Team on a phone (its members' apps selecting it from its capability tuple), the parent's children registry, and the
@@ -584,6 +598,78 @@ AppRam is relocatable to the greater or lesser network (John, 2026-11-04): after
 installed AppHost on that side (the code still offers a "fail" setting, which the design drops).
 At a merge the same selection, run over the merged tuples, gives one answer. Owners reassert; nothing is moved or
 reconciled. The procedure is in `opt/fdf/docs/APP-SETUP-AND-OPERATION.md`.
+
+## 10a. Roles are hosts on api.php (`[ROLES_ON_API_V1]`, John 2026-11-07)
+
+1. **A role is exactly one host.** `databasehost.frognet` (the SystemRam) and `databasehost_control.frognet` (the
+   ControlRam) are IP addresses the merge's elections write in `/etc/hosts`; the role is that host's default
+   `api.php`. There is no separate RAM manager for them, no RAM port (`ram_port`, 8841, `--ram-port`,
+   `FDF_LAN_RAM_PORT`, `ensure_lan_ram`, `lan-rams.json` are gone) and no LAN fallback list.
+   Two kinds (John, 2026-11-10): **independent**, where every node holds its own and nothing is selected (the
+   FrogNetHost role, installed by `setup_lillypad` and kept by `frognet-host serve`), and **floating**, where one host
+   among the machines that can see each other holds it and selection moves it on a split or merge (the SystemRam,
+   the ControlRam, and the app roles `<app>Host.frognet` / `<team>Host.<app>`). Magnum Croakus §17a.
+2. **Port 80 only**, except services (an AppRam, the region's RAM manager on 8840: each keeps its own port). A role
+   may add an optional `<Role>_api.php` beside `api.php`.
+3. **Tuples on api.php:** SensorType = service, SensorName = `<variable>.<instance>`, SensorAddress = the writer (the
+   node's own .1, `frognet_tuples.my_ip()`), jsonData = the bag. Python reaches it through `fdfram.RoleRam`
+   (`role_ram`, `system_ram`, `control_ram`); the door through `role_*` in `dc/ram.php`.
+4. **Held reads are in api.php** (`[HELD_READ_IN_API_V1]`). A held read is a request to the role's IP:80
+   (`entity=held&action=hold`, which answers with the current rows). The host completes each write first (the writer
+   has its reply), then runs down the holds that match and fires each through the holder's own port 80
+   (`held_fire.php` -> the holder's datagram socket in `/run/frognet/held`). Holds are one-shot: the holder reads and
+   holds again. A fire carries key, version and value. No polling anywhere: the 50 ms wait loop and `wait_s` in
+   api.php are gone. One thread per process waits on every fire and on `/etc/hosts` (`core/frognet_held.py`).
+5. **Holds end on a split or a merge.** The merge rewriting `/etc/hosts` is the event: every wait returns to its
+   caller, which reads the role at the address now named and holds again. No fallback, nothing chased.
+6. **The FrogNetHost holds one read**: its own "new thing here" tuple, `(frognethost, config, <guid>)`, at the
+   ControlRam. It writes its state and answers plainly.
+7. **Removal is the permanent socket closing** (`[WRITER_GONE_V1]`). On the LAN, the proxy/daemon's last session to
+   a peer ending is that machine gone: the daemon tells its local api.php `remove_writer {subnet: the peer's /24}`,
+   which deletes what that writer wrote (and its holds) and fires the holds on them. You remove what you know belonged
+   to it. On the WAN the WAN role (fdf-hub) closes the member's WireGuard tunnel when its session goes
+   (`[HUB_HAS_NO_MEMORY_V1]`), so an island drops out the same way.
+8. **Capability is announced** (`[CAPABILITY_ANNOUNCED_V1]`): `fdf-app` writes its `can` tuples plainly, holds a read
+   on the `can` family to write them again if they go, and withdraws them at stop. `ram hold` is removed.
+9. **A split is LAN-only** (`[SPLIT_IS_LAN_ONLY_V1]`): when nothing on the system space's list answers, the daemon
+   withdraws the region's routes, names and tunnels and runs `runMerge`; the LAN's own elections and roles take over.
+   Standing sessions to every list entry keep running; one answering is the event that rejoins the region.
+
+Passwords are never stored or logged, only their verifiers. A machine with no FrogNet 10/8 address cannot hold (it
+has nowhere to be fired at); it says so.
+
+## 10b. FrogTorch: one RAM for references, the bits stay in each rank's memory
+
+FrogTorch (PyTorch distributed on FrogNet, `agent_workload/tuplespace`):
+
+- **One RAM for all PyTorch work** (`[ONE_RAM_V1]`): the `frogtorch-ram` region on the machine `databasehost.frognet`
+  resolves to (`control()`). It holds membership, the rendezvous store, the gate, the hook bags -- and each rank's
+  REFERENCE: where that rank's memory is, written once at join (`Placement`, member cell `{ip, port}`). No rank uses
+  any other machine's frogtorch-ram.
+- **The bits stay where they are** (`[THE_BITS_STAY_WHERE_THEY_ARE_V1]`, John 2026-11-12: "You do not copy bits from
+  one machine to another. You leave them where they were and use references."): a rank's tensors stay in its own
+  process, in its `MemoryPlane` (`memory_plane.py`). A reader holds a read directly on the owner's memory for
+  (name, generation), held until the owner stores it; the bytes then go once, owner's memory -> link -> the
+  reader's tensor (`TensorClient.read_into`, payload received straight into the destination). Nothing is staged in
+  any host. The shard all-reduce's phase-1 slices are the bucket itself (`copy=False`); a store that must outlive
+  the caller's tensor is one copy. The digest is off unless `FROGNET_PSY_VERIFY=1`.
+- **A rank stays until its peers are done** (`linger`): its done cell beside its member cell, one held read until
+  every rank is done or gone.
+- **No acks, no retries, no caps** (`[A_WRITE_IS_NOT_A_CONVERSATION_V1]`, `[HELD_FOR_THE_CALLERS_DEADLINE_V1]`).
+- **Nothing waits in the caller** (`[THE_CALLER_DOES_NOT_WAIT_FOR_THE_MEMORY_V1]`): all_reduce returns its Work at
+  once and runs on the backend's collective thread in call order; the DDP hooks hold every peer's read at once
+  (`[EVERY_PEER_AT_ONCE_V1]`); their bags arrive on one held read (`[THE_BAGS_ARE_READ_BY_A_HELD_READ_V1]`).
+- **Slot-named cells** where hot (shard `ars.<k>`/`arr`, hook buckets by step parity, faithful read by identity:
+  `[A_STEP_IS_READ_AS_THAT_STEP_V1]`); the algorithm's own dependency makes overwriting safe.
+
+Do not reintroduce: a RAM host per machine holding tensors (2026-11-11/12: every byte staged in a host process --
+"pretty much the same as doing straight messaging all around the network"), writes into another rank's memory,
+acks, a placement fallback, or a re-asking loop.
+
+AIConnect (`agent_workload/aiconnect`) still uses a frogtorch-ram region on each RECEIVER machine: a receiver is a
+session-held cell `(AIConnect, receiver, <machine>)` there, a producer writes each object into it unanswered, and
+what landed is counted by the region (`stats.by_acct`) at the rung edges. That direction is a cross-space write;
+whether to change it is John's call.
 
 ---
 
@@ -671,6 +757,18 @@ where a description slides back into the conventional model.
   write-then-read-back, sessions. All compile; each gives back the property the
   model removes. The test: does the pattern require another program to exist,
   respond, or agree? (spec 10.3b)
+- **Authorization is by role, on the machine. Reach is a separate question.** Do
+  not describe "write your own truth" as an unenforced convention, and do not treat
+  "anything that reaches the RAM port" as a statement about authorization. Every
+  service is a role, held by one machine at a time. A role comes up when its lead
+  logs into the app's admin app on the same network as the parent role, which can be
+  across the Internet when the device already has a tunnel. The role is authenticated
+  by network membership, plus a challenge when it connects to the machine holding the
+  role, and authorization is set on that machine (accounts, file ownership,
+  firewall). A child can take on its parent's authorization transparently, but is not
+  required to. What a device can reach at all is set by its admission level and the
+  hub. (`opt/fdf/docs/FDF-TECHNICAL-DESIGN.md` §9.1, `ORGANIZATIONS.md` §9.3,
+  `ribbit/RIBBIT.md`)
 
 ---
 
@@ -748,6 +846,10 @@ pages while quoting an index months out of date.
 | A plain-English explanation | `index.html`, then `how-it-works.html` |
 | Evidence | `simulator.html`, `demonstrations.html` |
 | This material at length | `llms.txt` |
+| The Ribbit conversions in this tree (MQTT, lispers.net/Ribbit-LISP, Meshtastic, Redis, OpenEOC, the chat and Communicator examples) | each example's own `README.md` under `opt/frognet_semantic/ribbit/examples/<name>/` (the index, `ribbit/examples/README.md`, does not yet list mqtt or openeoc) |
+| FrogTorch / Psychedelic (PyTorch distributed on FrogNet) | §10b above, then `opt/frognet_semantic/agent_workload` (its tests: `agent_workload/tests`) |
+| Running the simulator gate | the commands in the root `README.md`. `run_all.py` needs `FROGNET_PROXY_ROOT`/`FROGNET_BIN_ROOT`, and TIER 3 needs `fdf-ram`, `fdf-client`, `fdf-events` built (`opt/fdf/src/fdf-source/rinab/tools/build.sh`, `build_static_host.sh`, `build_static_clients.sh`); without them those tiers fail, not skip |
+| Vendored upstream code | `FROGNET_THIRD_PARTY` in `usr/local/lib/frognet_world_manifest.sh`. A vendored tree is named there in the same commit that adds it, or the licence oracle in the discovery gate fails; our own files carry the GPL-2.0-only notice (`usr/local/bin/frognet_apply_license.py`) |
 
 ---
 

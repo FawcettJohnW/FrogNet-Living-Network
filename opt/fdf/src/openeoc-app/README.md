@@ -1,4 +1,4 @@
-# OpenEOC app (desktop and phone) -- openeoc-app-2026-11-08-r55
+# OpenEOC app (desktop and phone) -- openeoc-app-2026-11-09-r59 / openeoc-admin-2026-11-09-r17
 
 The demo John set on 2026-11-01 (`opt/frognet_semantic/ribbit/examples/openeoc/PLAN.md`, its first decision): the EOC
 on a Windows app, a first responder on a phone, presence with GPS, chat, a pre-populated moving world, in an app and not
@@ -33,7 +33,7 @@ manifest's `LAYERS`; Windows: `--layers=` on the launcher, the zip carries those
 | app | layers |
 | --- | --- |
 | OpenEOC (every view; Windows client, Android `app`) | help, field, eoc, team, medical, units, public |
-| OpenEOC EOC (`eoc`, `OpenEOC-EOC.cmd`) | help, field, eoc, medical |
+| OpenEOC Command Center (`eoc`, `OpenEOC-CommandCenter.cmd`) | help, field, eoc, medical, ics, fema |
 | OpenEOC Team (`team`) | help, field, team |
 | OpenEOC Public (`public`) | help, public |
 | OpenEOC Hospital (`hospital`) | help, medical |
@@ -46,6 +46,395 @@ role's `act`/`req`, or `RT.button`). **A new view**: `RT.role(...)` in a layer's
 `--lock=` and `--layers=`. **The admin app**: a layer's own panel is `ui-admin/layers/<name>.js` calling
 `RTA.panel(title, fn)` (none yet). Gates: `test/test_app.py` (32 checks; the Team and Public apps run with their own
 layers only), `test/test_team_host.py`, `android/typecheck.sh`.
+
+## r81: the lead's choices in plain words ([LEAD_HOST_CHOICES_V1])
+
+John 2026-11-10: the r74 wording was "pure gibberish" to a normal person, and not what he asked for. The lead's three
+choices, as he gave them:
+- **Host the hotspot and the role on this phone.** WARNING: Eats battery life
+- **Host the Hotspot on this phone, but use the network for the role.**
+- **Host the network and the role on another device** (Not Implemented)
+
+The r74 fourth choice (no host) is gone; Close leaves without choosing. The role Admins' RAM host uses the same words.
+Tests: `test_enroll_page` 3b, `test_leads` 17c.
+
+## r80: the OpenEOC Android app has its layers again ([LAYERS_LINE_READ_V1])
+
+r78 put a comment at the end of the app module's `val rtLayers = listOf(...)` line. `studio_project.sh` reads that line
+only when it ends at `)`, so the r78 and r79 Studio exports gave the OpenEOC app (the `app` module) no layers, and their
+update zips listed its eleven layer files in REMOVED.txt: on the phone it opened on a bare "OpenEOC" connect screen, and
+"Other app" showed an empty "Which app?". The comment is above the line now; the export stops, saying which module, when a
+module names rtLayers in a line it cannot read; the r80 update zip carries all eleven of the app's layers.
+
+## r79: the list of apps scrolls ([PICKER_SCROLLS_V1])
+
+With the seven role Admins, "Which app?" lists 17 apps, taller than a window or a phone. The list's card is at most the
+window's height and scrolls (checked in Chromium at 600 px: 17 apps, the last reached by scrolling).
+
+## r78: each role's Admin; instances hold a read on it ([ROLE_ADMIN_V1]); a held read ends with the rows now ([HOLD_ENDS_WITH_NOW_V1]); door dc-door-2026-11-10-roleadmin1
+
+John 2026-11-10: "Create -Admin roles for everything that has a non-admin version. For now, it's just the RAM host, but
+add 'Reserved for future customization' below that"; "the Roles are installed and become services across the network
+... they have a held read on the configuration tuples of the current <App>Admin ... When that happens, they need to update
+their own tuples to match. There may be many instances of a role on the network. One Admin configures them all."
+
+- **The Admins:** OpenEOC -- TeamAdmin, -- HospitalAdmin, -- AmbulanceAdmin, -- ShelterAdmin, -- PowerAdmin,
+  -- WaterAdmin, -- TelecomAdmin (page `ui/layers/roleadmin.js`, core `RoleAdminLayer`; Windows `OpenEOC-<Role>Admin.cmd`;
+  on Android in the OpenEOC app's first screen). A Command Center user logs in. Its one screen: **RAM host** (each
+  instance on its own device / the SystemRam / another machine (Not Implemented) / no host or RAM), Save; below it
+  **Reserved for future customization**. (The Command Center's Admin is OpenEOC -- CommandCenterAdmin, the admin tool.)
+- **The role's one configuration:** `(fdf-app, roleconf, openeoc.<role>) {role, ramhost, by, seq, at}` in
+  databasehost-control, through the door's new `op=roleconf` (GET; GET held with after/wait; POST by a Command Center user).
+- **Every instance holds a read on it:** a Team or unit app's core holds `op=roleconf` from its connect (ev roleConf on
+  every change). A Team's lead brings its own tuples to match: the SystemRam is a place it writes itself; its own device
+  needs its hotspot, which is never started unasked ([NOTHING_UNTIL_ASKED_V1]), so that is said. A unit's instance is told
+  and says so; moving a unit's RAM is not built.
+- **[HOLD_ENDS_WITH_NOW_V1]:** the door's held read, at the end of its wait, handed back the rows it had when it began, so
+  a write in between whose fire did not arrive waited one more hold. It now reads again at the end. (Found by 17c: in the
+  test's stand-in node the fires to the door did not arrive; the instance was told at the end of the wait, 17 s.)
+- **Tests:** `test_leads` 17c (TeamAdmin's screen, Save, the door, Dave's instance told), 17d (a team's user cannot set
+  it); `test_app`, `test_fema`, `test_no_mission`, the page tests, the Android type-check.
+
+## r77: names follow the convention ([NAMES_ARE_THE_CONVENTION_V1])
+
+John 2026-11-10: "There is a convention: OpenEOC -- EOCAdmin, OpenEOC -- CommandCenterAdmin, OpenEOC -- TeamAdmin,
+OpenEOC -- HospitalAdmin"; the roles' instances across the network are configured by their one Admin. The windows and
+the Windows launchers now say:
+- `OpenEOC -- CommandCenterAdmin` (`OpenEOC-CommandCenterAdmin.cmd`): the admin tool (Teams, Command Center users,
+  Members; was "OpenEOC Admin (EOCCommandAdmin)", `OpenEOC-Admin.cmd`);
+- `OpenEOC -- EOCAdmin` (`OpenEOC-EOCAdmin.cmd`): the forms, IAP, after-action report;
+- `OpenEOC -- CommandCenter` (`OpenEOC-CommandCenter.cmd`); `OpenEOC -- Team`, `OpenEOC -- Hospital`, ... and
+  `OpenEOC -- Public` for the role views; `OpenEOC` (`OpenEOC.cmd`) asks which.
+TeamAdmin and HospitalAdmin are not apps yet: a team's or a hospital's configuration is its lead's (op=place).
+
+## r76: the Communicator this computer has is used ([ONE_COMMUNICATOR_V1])
+
+r73 to r75 had the Windows apps use only the bundle's `comms\comms-app.exe` and dropped the path each app had been
+given, so a computer whose Communicator was elsewhere lost its calls (John: "It has been working"). Now one Communicator
+per computer, for every OpenEOC app on it: the bundle's `comms\` when it carries one; else the one this computer was told,
+kept in `%USERPROFILE%\.openeoc\communicator.json` (one file for every app; an app's saved `commsApp` is taken into
+it); else asked once and kept there.
+
+## r75: the Node field is not a home router ([NODE_IS_THE_ASKED_GATEWAY_V1])
+
+r72 to r74 put any 10.x Wi-Fi gateway that is its network's .1 in the Node field at start (r72 stopped asking the
+gateway at start): a home router's 10.101.113.1 became the Node, and a phone off the node's network connected there.
+Now the Node field is the node used last (or the joined one), as before r72; at the connect the gateway is asked, and on
+a node's LAN a connect that names no node goes to that node. Android type-check passes; not run on a phone here.
+
+## r74: the lead's host choices; teams on the SystemRam in Diagnostics; the door asked again when a lead's cell changes; no Sensors in EOCAdmin
+
+- **The lead's choices** ([LEAD_HOST_CHOICES_V1], John 2026-11-10), a second after the lead connects, nothing done
+  before the answer:
+  - **Host the hotspot and RAM on this phone** (Host team: the hotspot turned on if it is off, the team's RAM here);
+  - **Host the hotspot on this phone and System RAM** (the hotspot, and Use SystemRam);
+  - **Host the role on another machine** (Not Implemented: shown, disabled);
+  - **Do not provide a host or RAM for this instance** (nothing is started).
+- **Team chat in John's demo** (Flying Monkeys on the SystemRam: its messages reached Dave and the phone, not the
+  Command Center). Not reproduced here: `test_leads` 17b (the lead's app stopped, a member connecting afterwards; the
+  Command Center connected before the team existed) passes with and without the change below, so the cause is not
+  established. Two changes:
+  - [TEAMS_FROM_THE_DOOR_V1] a lead's host cell coming or going makes the core ask the door again what it serves (the
+    Command Center's served list was the one from its connect, before the team existed);
+  - [SYSTEMRAM_TEAMS_IN_DIAG_V1] Diagnostics lists every team the device follows and how: on its RAM, or on the
+    SystemRam with its tuples, reads and FAILING reason. A team on the SystemRam has no follower, so Diagnostics had
+    nothing on it. The Command Center's Diag says whether it follows a team and what its reads say.
+- **EOCAdmin has no Sensors** ([EOCADMIN_NO_SENSORS_V1], John: "get rid of the Sensor menu item").
+- Tests: `test_enroll_page` 3b (the four choices, the third disabled, each one's effect), `test_connect_page` 3,
+  `test_leads` 17b (new), `test_app`, `test_fema`, the page tests.
+
+## r73: one Windows bundle, one Communicator; Call in the chat ([ONE_BUNDLE_V1], [ONE_COMMUNICATOR_V1], [CHAT_CALL_TAB_V1])
+
+John 2026-11-10: "the comms-app is part of the bundle thrown down, but also such that there is only one on the device"
+(he chose one bundle for every app); "make Call available under the Chat menu as well. For now, just a single person".
+
+- **One bundle.** `desktop/package_windows.sh OUTDIR [COMMS_DIST]` makes `OpenEOC-windows-x64-<build>.zip`: one runtime,
+  one lib, `ui`, `ui-admin`, `comms\` and a launcher per app (`OpenEOC-CommandCenter.cmd`, `OpenEOC-EOCAdmin.cmd`,
+  `OpenEOC.cmd`, `OpenEOC-Admin.cmd`). It replaces the four zips (`admin`, `eoc`, `eocadmin` and the client). Each app
+  keeps its own settings and loads its own layers (`--layers`), as before.
+- **One Communicator.** `COMMS_DIST` is the Communicator's Windows `dist\` (`build-windows.ps1`: `comms-app.exe`, its DLLs
+  and Qt plugins), copied whole into `comms\`; without it nothing is made. Every app calls with that one
+  (`comms\comms-app.exe`, beside the `ui` folder): no file dialog, and the path r71 and before saved (`commsApp`) is
+  no longer read or kept. A bundle without it says so at Call.
+- **Call in the chat.** The chat has a **Call** tab: every person present now, each with **Call**, one person a call
+  (the To list's Call beside Send stays).
+- Tests: `test_connect_page` 7 (the Call tab: its people, Call sends the call for that one, Everyone gives the message
+  box back); the bundle built with a stand-in `comms-app.exe` and its layout checked.
+
+## r72: the phone does nothing until told ([NOTHING_UNTIL_ASKED_V1])
+
+John 2026-11-10: "on the phone, what I want is for it NOT to ... start the hotspot or do any connections or login or
+anything like that until I tell it to ... When the phone comes up, I should have the option to start as a team,
+ambulance, etc. before anything else. If I start as a team, it should ask me if I want to connect as the existing team
+or start a new one."
+
+- **The first screen is which app** (OpenEOC: Team, Hospital, Ambulance, …; an app built for one view goes on to that
+  view). Nothing is sent before it: no connect, no roles asked of the node, and the phone no longer asks its gateway
+  at start (`[GATEWAY_IS_A_NODE_V1]` asks it at the connect the user makes). The Node field takes a gateway shaped as a
+  node's (10.x, its .1) without asking it.
+- **A team or a unit (Hospital, Ambulance, …) then asks:**
+  - **Connect as the existing team**: the one this phone joined as, named with its user (and "its lead"), connects
+    when pressed; a phone that has joined none is shown the scan for the team's QR.
+  - **Start a new team**: the scan is offered even on a phone that has joined, for the lead QR the Command Center
+    shows; then the team's name and the password, Create the Team.
+  - **Other app** goes back to the first screen.
+- **Replaced:** `[JOINED_IS_DONE_V1]` (a joined phone connected by itself 1.8 s after start).
+- **Unchanged:** the Command Center, EOCAdmin and Public views go to their connect screen; a computer asks the node for
+  the admin's teams at start, as before; after a lead connects, its phone still asks (host / Use SystemRam / hotspot /
+  Not now) and does nothing before the answer.
+- **Tests:** `test_connect_page` 1 (nothing sent at start or after the pick; the question; the existing team connects;
+  not joined: the scan; a new one: the scan), `test_enroll_page`, `test_header_page`, `test_kinds_page`,
+  `test_nogps_page`, `test_admin_page`, `test_app` (36), `test_no_mission`, the Android type-check.
+
+## r72: a user who is not a Command Center user is told the admin tool's fix ([EOC_USER_SAYS_THE_FIX_V1])
+
+Found 2026-11-10: "connect: user EOCLead has role 'eochq' (category 1794191697412), not the EOCAdmin's: in the admin
+app, put eochq in the EOC category". The admin tool has had no categories since admin r16 (Teams and Command Center
+users only), so the message named a fix nobody could make. Now, for the Command Center and EOCAdmin: remove the user
+from its role (its ✕ under Teams), Apply, add it under Command Center users with its password, Apply. Test:
+`test_no_mission.py` step 5.
+
+## r71: the update applier is in settings.gradle.kts ([UPDATE_IN_SETTINGS_V1])
+
+Found 2026-11-10: the full project opened in Android Studio stopped at "Could not read script ...\OpenEOC-Android-Studio\rt-update.settings.gradle.kts as it does not exist". The file was in the zip, but not in the folder Android Studio opened, so the build depended on a second file arriving.
+
+`settings.gradle.kts` now carries the update applier itself, and `rt-update.settings.gradle.kts` is gone. An r71 update zip applied to an older project removes it through REMOVED.txt, after that old file has applied the update.
+
+Checked with Gradle 8.9 on the exported project:
+- the r71 settings say "OpenEOC: building openeoc-app-2026-11-10-r71";
+- an r70 project with the r71 update zip beside it applies the update (73 files) and then builds from the new settings.
+
+## r70: a deleted team is refused; a lead removed takes its team
+
+John 2026-11-09: "I already deleted the leads. I need to remove it so that I get an error on the phone when it tries to use it ... say that we are deleting the current lead for a role." This is part of [TEAM_DELETE_V1], with door dc-door-2026-11-09-teamdel2.
+
+**A lead removed takes its team.** Removing a lead (Leads › Remove) marks every team it created removed, with that team's place.
+
+**A deleted team is refused.** A device connecting as a team (a lead or a member) asks the door for its roles. A team the door does not name is refused, and the device says: "team X is not on this network: the Command Center deleted it, or it was never created".
+
+**A team whose lead was removed earlier.** Leads removed with an older door left their teams on the network. Those teams are listed under "Teams created on the network", where Delete removes them.
+
+**Tests.**
+- `test_leads.py` step 20.
+- `test_team_host.py`'s door stand-in now answers `op=roles`, as the real door does.
+
+## r69: delete a team ([TEAM_DELETE_V1], door dc-door-2026-11-09-teamdel2)
+
+John 2026-11-09: "I need a way to delete a team."
+
+**Where.** The Command Center's Leads screen lists the teams created on the network: each one's kind, its lead, and where it lives. **Delete**, then **Delete X: sure?**, deletes one.
+
+**What the door does** (`op=teamdel`, for a Command Center user only):
+- marks the team's record (`fdf-app child`) removed;
+- marks its place (Use SystemRam) removed;
+- leaves the lead's login, so the lead can create a team again.
+
+**What it refuses.** A Team the admin configured is the admin tool's to remove (its ✕, then Apply), and the door says so.
+
+**Not deleted.** Tuples the team wrote to the SystemRam stay until their writer is gone.
+
+**Tests.** `test_leads.py` steps 18 and 19.
+
+## r68: the Leads screen says its answer ([LEAD_SAYS_ITS_ANSWER_V1])
+
+Found by John on 2026-11-09: "I hit Create The Lead in the Command Center tool and nothing happened."
+
+Two places could say nothing:
+- **The form's own `required` fields.** A desktop web view blocks the submit without a word. They are gone; the page checks the name, the password (4 characters or more) and the roles itself.
+- **The core's answer.** It reached only the status line.
+
+Now every answer is said under the button on the Leads screen: "creating lead X…", then "lead X created", or why not. A door without Leads answers "op is read, write, …"; the screen says so, and that dc-door-2026-11-09-cc1 goes on the node.
+
+`test_leads.py` steps 2b and 3b check it.
+
+## r67 / admin r20: the EOC is the Command Center ([COMMAND_CENTER_V1], door dc-door-2026-11-09-cc1)
+
+John 2026-11-09: "the thing we are calling the EOC is really the Command Center. Rename it across the board so it shows up correctly."
+
+Renamed, everywhere the view shows (the logged-in `eoc` view):
+- its name, title and window title: OpenEOC Command Center;
+- its map kind, its people in the To list, and its header button (**Command**, the FEMA function's screen);
+- the boards' and the lifelines' wording, and the public's "Report to the Command Center";
+- the admin tool's "Command Center users", and the EOC category as it is shown;
+- the core's, the phone's and the door's messages;
+- the Android EOC app's label: OpenEOC Command Center;
+- the Windows zip and launcher: `OpenEOC-CommandCenter-windows-x64-<build>.zip`, `OpenEOC-CommandCenter.cmd`.
+
+Not renamed:
+- the view's id `eoc`, the Android module `eoc` and its application id, so the installed app updates in place;
+- the admin's category value `EOC`, which the configuration on the nodes holds;
+- the code's names (`EOC_*` tags);
+- EOCAdmin;
+- FEMA/NIMS terms: EOC Director, EOC Management, EOC structure, EOC activation level, EOC position.
+
+## r66: the lead is asked at start; the hotspot is seen ([LEAD_STARTS_ASKED_V1], [HOTSPOT_SEEN_V1])
+
+**The lead is asked at start.** John 2026-11-09: "On the phone, when it starts, it needs to wait a second to see if I want to start the hotspot and if I want to host the system RAM."
+
+A second after the lead's phone connects, it asks; nothing is done before the answer. The choices:
+- **Host the team on this phone** and **Use SystemRam**, only when its team is served nowhere;
+- **Turn on the hotspot**;
+- **Not now**.
+
+This replaces r64's hosting at once and the hotspot asked of Android on every connect.
+
+**The hotspot is seen.** Found in John's Logcat the same day: the hotspot was on (swlan0 10.143.246.81), but Host team said "turn it on". His Samsung lists its own hotspot interface among Android's networks, and hotspotAddr skipped every listed interface. Now swlan, ap and softap interfaces count as the hotspot even when listed.
+
+**Checked and left alone.** The same Logcat's "roles: cannot reach the node at 10.170.170.1" came before "FrogNet tunnel up" (the roles call at start, made before the tunnel was up). The connect that followed reached the door, and that address is Seattle7's own. Nothing changed for it.
+
+**Tests:** `test_enroll_page` step 3b and `test_connect_page` step 3.
+
+## r65 / admin r19: Use SystemRam; the window says its view ([TEAM_ON_SYSTEMRAM_V1], [WINDOW_SAYS_ITS_VIEW_V1], door dc-door-2026-11-09-sysram1)
+
+**Use SystemRam.** John 2026-11-09: "Add an option to the Team config that says Use SystemRam. If that is set, the role does not have its own RAM and runs everything through databasehost.frognet, using the default api.php." The option is on the lead's Team screen, in place of the former "Team on the SystemRam".
+
+1. **The lead sets it.** The button (`teamPlace` at `systemram`) records the team's place, `(fdf-app, config, openeoc.<team>) {at: systemram}`, at the door's `op=place`. A team a lead created may do this too. It also writes the lead's host cell with ram `systemram`, so every device follows the change at once.
+2. **The door names it.** Its `op=rams` names the team `systemram`.
+3. **Every device follows it there.** In place of a Follower on a team RAM, the core uses `TeamStore.OnSystemRam`. That reads and writes the team's service at databasehost.frognet's api.php, as `openeoc-team@<team>`, through the door's two new ops:
+   - `op=team`: a held read; the door holds at api.php with `role_hold_wait`, as its admin read does;
+   - `op=teamwrite`.
+4. **What the lead stops doing:** it stops hosting.
+5. **What changes in the core:** team names from the door are lower case, as the lead cells say them, so one team is one store.
+
+**The window says its view.** John: "The Windows tools need to say what UI is running in the title bar."
+- The desktop window's title is the page's. That is the view the app opens as (OpenEOC EOC, OpenEOC EOCAdmin) or connected as, with its team or unit: OpenEOC Team · Lee Rescue.
+- The admin tool's window title is "OpenEOC Admin (EOCCommandAdmin)".
+
+**Not yet:** the node's own `/openeoc/` pages (the radio log) read team families through `op=read` and `op=watch`, which go to a team RAM. A team on the SystemRam is not on those pages yet.
+
+**Tests.** `test_leads.py` steps 15 to 17:
+15. Use SystemRam, as the door says it, and the window title.
+16. A team message reaches the EOC through api.php.
+17. The EOC's reply reaches the team.
+
+## r64: the lead's phone hosts its team ([LEAD_HOSTS_ITS_TEAM_V1])
+
+Found on John's phone on 2026-11-09: team messages said "say: team Bigdogs's RAM is not served on this network". The team BigDogs was created by its lead, but nothing served its RAM until someone pressed Host team.
+
+The rule (John): "If the team is not currently active on the network, a device joining and starting the team will be the host."
+
+Now, when the lead connects and the door's RAMs do not name its team, the lead's phone hosts it at once, as Host team does. It turns the hotspot on through Android if it is off, and hosts when it is on.
+
+A team that is served already is not replaced. `test_enroll_page.py` step 3b checks both cases.
+
+## r63: a claim made off the node's Wi-Fi says so ([CLAIM_ON_THE_NODES_WIFI_V1])
+
+Found on John's phone on 2026-11-09: it scanned the lead QR for JohnPhone, and Create the Team (BigDogs) timed out twice ("failed to connect to /10.170.170.1 (port 80) from /10.101.113.61 ... after 8000ms").
+
+The phone was on the home router's Wi-Fi, 10.101.113.x. Its gateway, 10.101.113.1, is not a FrogNet node, and the phone has not joined FrogNet yet. The EOC's door, 10.170.170.1, is reached only from a node's Wi-Fi until the phone has its invitation, and the claim is how it gets that invitation.
+
+Now a claim that cannot reach the door says all of that: where the phone is, that its gateway is not a node, and that it has not joined FrogNet. It says to join the EOC node's Wi-Fi and scan again.
+
+## r62 / admin r18: the EOC app logs in from an EOC user's QR ([EOC_USER_QR_V1])
+
+The admin tool's EOC users each have a QR, as its Teams do. The QR is the door and the user, never the password (John 2026-11-09: "the Admin tool has to project the QR code for the EOC app").
+
+An app that opens as a logged-in view, the EOC or EOCAdmin, scans it and shows the user filled in and its password, with **Log in**. There is no team's name. It enrolls as that user (`op=enroll`, a configuration user) and connects as the EOC.
+
+Every other app reads the same kind of QR as a lead's: the user filled in, the team's name blank, Create the Team.
+
+`test_enroll_page.py` step 8 and `test_admin_page.py` step 5b check it.
+
+## r61: the EOC's Leads ([EOC_LEADS_V1], door dc-door-2026-11-09-leads1)
+
+John's words (2026-11-09):
+- "The EOC should just have a way for me to add users. When I scan the QR code it should take me to a filled in screen with my username filled in, but the team name blank. I fill in the team name, add my password, and hit the button to create the Team."
+- "The EOC needs to have a menu named Leads ... the name, password, and list of Roles the name can handle. The list of roles may be * for all roles, or a hand-entered list."
+
+How it works:
+
+1. **The EOC creates the lead.** **Leads** in the EOC app: the lead's name, a password, and its roles. The roles are `*`, or a list from team, hospital, ambulance, shelter, power, water and phone.
+   - The core sends the door only the password's verifier (`Enroll.verifier`).
+   - The door's `op=lead` checks the EOC user's own password, kept in the core's memory for that session only. It writes `(fdf-app, lead, openeoc.<name>) {name, verifier, roles, by, at}` in databasehost-control.
+2. **The EOC shows the lead's QR:** `fdfenroll1 http://<node>/dc/ram.php openeoc <name>`, with no password in it.
+3. **The lead scans it.** The connect screen shows the user filled in, the team's name blank and the password. **Create the Team** sends `op=enroll` with `{user, password, team, kind}`; `kind` is the view the app runs as.
+4. **The door creates the team**, a child `{name, kind, lead}`, and asks the region for its identity.
+   - A kind outside the lead's roles is refused.
+   - A team another lead created is refused: there is no replacement.
+   - The same lead again is the same team.
+5. **Afterwards:**
+   - The lead's login is its team's role (`op=login`).
+   - The lead's members are invited on the lead's own user and password (`op=identity`).
+   - Leads lists each lead with its roles and the team it created; Remove takes a lead away.
+6. **With no QR at hand:** **Create a team without the EOC's QR code**, under Manual login, asks for the same three things, with the user typed in.
+
+**Node update:** only `opt/fdf/www/dc/ram.php` changed (`dc-door-2026-11-09-leads1`).
+
+**Tests:**
+- `test/test_leads.py NODE_ROOT` runs the real EOC core and page and the Team page, against a node package's api.php and `fdf-app`, with this door, as root with MariaDB. It has 14 checks.
+- `test_enroll_page.py` steps 1, 2, 3 and 7 now check this flow. They replace the "Start a team" join-password flow.
+
+## r60: the FEMA EOC function and EOCAdmin ([FEMA_EOC_V1])
+
+The EOC function as FEMA and NIMS describe it, and EOCAdmin, are built into the apps on the RAM (John 2026-11-09: "It needs to be an app, like it would in the real world"). They are not a separate preview: the r60 commit removed the browser-only `ui-preview/`.
+
+**`ui/layers/fema.js`** (the EOC app, the Team app and every unit app) adds the EOC function on the boards engine (`ics.js`):
+- **Community lifelines.** Each of the eight shows the EOC's call (the `lifelines` board) beside what the network reports into it:
+  - hospital desks: diversion, power, oxygen, staffing;
+  - the Shelters board;
+  - the Road closures board;
+  - each unit's presence status.
+- **Organizations.** Everyone on the network, grouped by the app they joined with: Teams, Hospitals, Ambulances, Shelters, Power, Water, Communications. The categories come from the apps; the EOC allocates none.
+- **Staffing.** The positions of the incident's NIMS structure: ICS-like, Incident Support Model, Departmental or ESF. The Incident board now records the structure, the operational period number and the incident type.
+- **Objectives (ICS-202).**
+- **Assignments (ICS-204).** The EOC assigns an organization from Organizations. That Team or unit gets a notice and sees the assignment under **Assignments**, where it acknowledges it and reports progress.
+
+The EOC's header button **EOC** opens all of this on one screen.
+
+**EOCAdmin** (`ui/layers/paper.js`, core `PaperLayer`, view `eocadmin`) is the EOC's paperwork. It runs as its own app: the Android module `eocadmin` and `OpenEOC-EOCAdmin-windows-x64-<build>.zip`.
+- **Who can open it.** An EOC user logs in: role `eoc`, or any role the admin put in the EOC category.
+- **The forms.** ICS 201, 202, 203, 204, 205, 206, 207, 208, 209, 211, 213, 213RR, 214, 215 and 221, and the Situation Report. Each one is filled in from the boards and the organizations on the network.
+- **Where forms are kept.** As a draft or made final (read only) on the `forms` board, so every EOCAdmin and the EOC see them.
+- **The Incident Action Plan** for the period: ICS 202, 203, 204, 205, 206 and 208, each the final kept, else the newest draft, else filled from the records.
+- **The after-action report and improvement plan** (HSEEP).
+- **Printing.** The native print: Android's print service, or the desktop's printer dialog (`rtNative.print`). The page's print rules show only the sheet.
+
+**Two field names fixed** (found by `test_fema.py`). The core puts the filer's name in `name` and their role in `position`, so a board field of either name was overwritten:
+- the Incident board's name is now `incName`;
+- the Sign in / out board's position is now `post`.
+
+**Tests.** `test/test_fema.py FDF_RAM [SHOTS]` runs the real core and page through DevHost with each app's own layers: the EOC, Team Alpha, a hospital, an ambulance and three EOCAdmins. Its 14 checks:
+1. organizations by app;
+2. the hospital's diversion turning Health and Medical to Stabilizing;
+3. the EOC's call on Energy, seen on Alpha's app;
+4. the incident, staffing and an objective;
+5. an assignment to Alpha, acknowledged;
+6. the 209 filled from all of it, kept final, and read only on another EOCAdmin;
+7. the 204 and the IAP;
+8. Print;
+9. a team's login refused by EOCAdmin;
+10. no page errors.
+
+`test_app.py` (36 checks), the page tests, `test_no_mission`, `test_team_host` and the Android type-check pass.
+
+## r59: one team password by default, a member's own password if the lead says so ([MEMBER_PASSWORDS_OPTIONAL_V1])
+
+John, 2026-11-09: members should "default to one password for the team, with the option of individual passwords if
+the lead says so". The lead's Team members screen: the team's password and the team's QR first (every member scans it
+and gives a call sign and that password); under it, closed, **Individual passwords**: a call sign and a password the
+lead gives one member, and that member's own QR (`fdfenroll1 URL APP <call sign> <key>`). The lead's sponsor already
+took both (`Enroll.Sponsor`: a member's own verifier, else the team's for a call sign that has none); r55 to r58
+showed only the team's. The phone tells the page which members have their own password (`own`). A member scanning
+their own QR sees "Join as <call sign>" and is asked for that password only. Test: `test_enroll_page.py` 4b, 4c.
+
+## r58 / admin r17: the app's tuples are the nodes' (`openeoc-*`), and the two renames are one tree
+
+Two threads renamed RangerTrak to OpenEOC on 2026-11-08, each on its own branch: this tree (r55, then r56 and r57)
+and the node side's (`openeoc-rename-20261108`, the r52 node package). r55 to r57 kept the tuple families `rt-*`
+(`rt-who`, `rt-pos`, `rt-msg`, `rt-team`, `rt-team-host`, `rt-dm`, `rt-mission`, `rt-call`, `rt-log`, `rt-field`,
+`rt-report`, `rt-ics`, `rt-facility`, `rt-transport`); the nodes on r52 write and read `openeoc-*` (`openeoc-sim`,
+`openeoc-post309`, the pages at `/openeoc/`, `openeoc.js`). So an r55 to r57 app and an r52 node did not see each
+other's tuples: the node's pages, its radio log and `openeoc-sim` on one side, the apps on the other (the apps saw
+each other). r58 uses the nodes' names, everywhere the app reads or writes; the merge (`merge-20261109`) takes the
+node side (`fdf-source`, the docs, `opt/frognet_semantic`) from `openeoc-rename-20261108` as it is, and this tree's
+app with these names.
+
+- The phone's own preferences are `openeoc-enroll` (were `rt-enroll`): a phone that joined on r55 to r57 joins again
+  once after r58.
+- Kept (until r71, which folded it into settings.gradle.kts): `android/rt-update.settings.gradle.kts` kept its name (the other branch named it `openeoc-update...`). It is the
+  script an open Android Studio project runs first to apply an update; renaming it from inside an update is a change
+  that has not been tried.
+- History keeps its names: builds made as `rt-app-...` and `rt-admin-...` are named so where the record says them.
 
 ## r57 / admin r16: the admin authorizes Teams and EOC users ([TEAMS_AUTHORIZED_V1])
 
@@ -118,14 +507,17 @@ John, 2026-11-08: "Rebrand the entire RangerTrak product to OpenEOC", internals 
 - **Internals:** this directory is `opt/fdf/src/openeoc-app`; the Java packages are `net.frognet.openeoc.*`; the Android
   applicationIds are `net.frognet.openeoc.<app>`; the app id is `openeoc` (`fdf-app install openeoc`, `app=openeoc` at the
   door, `(fdf-app, config, openeoc)`, `openeocHost.frognet`, `<team>Host.openeoc`); builds are `openeoc-app-...` and
-  `openeoc-admin-...`. The `rt` abbreviations stay: the `RT_*` markers, the radio log's families (`rt-log`, `rt-roster`,
-  ...), the page's `RT` object and `RtTheme`.
+  `openeoc-admin-...`. The tuple families are `openeoc-*` since r58 (r55 to r57 kept `rt-*`; see r58). The `RT_*`
+  markers, the page's `RT` object and `RtTheme` stay.
 - **The logo:** on both splash screens (as given, on its white), as each page's icon, as every Android app's launcher icon
   (`android/shared/src/main/res/drawable/ic_openeoc.xml`, drawn from the mark), as the Windows and Linux window and tray
   icon (`ui/openeoc-mark-256.png`), and as `openeoc.ico` in each Windows zip, for a shortcut.
 - **What it costs on machines already running RangerTrak:** a new applicationId is a new app, so phones install the
   OpenEOC apps and remove the RangerTrak ones; nodes install the app again under its new id
-  (`fdf-app config openeoc ...` then `fdf-app install openeoc`), since nothing reads the `rangertrak` tuples any more;
+  (`fdf-app config openeoc ...` then `fdf-app install openeoc`, or, from each machine's own copy,
+  `fdf-app rename rangertrak openeoc --admin USER:PASSWORD` [APP_RENAMED_V1], the admin's machine first: the RAMs and
+  ports, roles, users and the teams-join verifier carried over, the admin key derived again for openeoc), since nothing
+  reads the `rangertrak` tuples any more;
   Android Studio opens the new `OpenEOC-Android-Studio` project once. Builds through r54 were delivered under the
   RangerTrak names (`RangerTrak-*.zip`, `RangerTrak-Android-Studio-*.zip`); the sections below keep their history but
   say OpenEOC.
@@ -143,7 +535,7 @@ sponsor key, HKDF-SHA256 (salt SHA-256(epk || key), info `fdfenroll1 seal <app>`
   is the QR's, and seals to it. (The key itself in the QR, 44 characters compressed or 122 as X.509, made the code QR
   version 9 or 10, where the frog missed turned, tilted, small or blurred codes a plain code of the same line read; at
   version 8, which the fingerprint keeps even at a 15-character address, it misses none.)
-- The lead's key is made the first time it sponsors and kept (`rt-enroll`: `sponsorPub`, `sponsorPriv` as PKCS8): a QR
+- The lead's key is made the first time it sponsors and kept (`openeoc-enroll`: `sponsorPub`, `sponsorPriv` as PKCS8): a QR
   already shown stays good. The Sponsor takes sealed requests only (an unsealed one: 400, said), seals every answer after
   opening one, refusals too, and refuses a request more than 300 s off its clock or whose epk it saw in the last 10 min.
 - Door lines (four parts: the EOC's own LAN, the lead's Join EOC) are as they were. fdf-member-kt refuses a team lead's
@@ -244,7 +636,7 @@ that have a fix. Node update: /opt/fdf/www/dc/ram.php (with fdf-app r16). Gate: 
   and no address is at its node -- the GPS fix of the node its door is ("src":"node") -- and is asked Where are you?
   (an address, or "latitude, longitude"; saved, `rtNative.saveAddress`). Diag's "Where am I?" asks again. Gate:
   `test/test_nogps_page.py` (3).
-- [ADMIN_ON_NOW_V1] the admin follows the general RAM as the apps do (the newest mission, its rt-who) and Groups now
+- [ADMIN_ON_NOW_V1] the admin follows the general RAM as the apps do (the newest mission, its openeoc-who) and Groups now
   has On now per group (a device's team or unit), with the devices in no group (and the group they say) under it.
   Gates: test_no_mission.py 6 (the admin core sees Pat and Lee, team Alpha, in the mission now: `test/AdminOnNow.java`);
   test_admin_page.py 6.
@@ -287,11 +679,11 @@ medic1 in Ambulance is told to put it in the EOC category).
 ## r37: a network with no mission still works ([RT_STANDING_MISSION_V1])
 
 Everything a device follows -- presence, positions, messages, direct messages, calls, the radio log, the layers' families
--- is in the mission, and the core started none of it until a mission tuple `(rt-mission, settings, <id>)` was in the
-general RAM. Only rt-sim (the tests) and an EOC's Mission > Start wrote one; on John's network (2026-11-05, Diag:
+-- is in the mission, and the core started none of it until a mission tuple `(openeoc-mission, settings, <id>)` was in the
+general RAM. Only openeoc-sim (the tests) and an EOC's Mission > Start wrote one; on John's network (2026-11-05, Diag:
 "mission none", only the mission, team-hosts and team followers) nobody had, so no device wrote or read a position or
 a message: no markers, chat going nowhere. Now a core whose mission follower is up and holds no mission writes the
-standing mission, `(rt-mission, settings, standing)` {name "Standing operations", at -1}, the same tuple from every
+standing mission, `(openeoc-mission, settings, standing)` {name "Standing operations", at -1}, the same tuple from every
 device, and says so; any mission an EOC starts is newer and every device moves to it. Gate: `test/test_no_mission.py
 FDF_RAM` (4: no mission, the standing one followed by two cores; each sees the other's position and presence; a team
 message arrives; a mission started afterwards is the mission on both). test_app 36/36.
@@ -383,22 +775,22 @@ goes. The unit field's names and hint are each view's own (a Phone crew is no lo
 | the page | `ui/` (`base.js`, the base; `layers/*.js`) | the screens (Leaflet 1.9.4 from npm, beside them). Talks to the core only by JSON lines: `rtNative.send(line)` out, `rtDeliver(line)` in |
 | desktop | `desktop/` | a JavaFX window around the page; `package_windows.sh` makes `OpenEOC-windows-x64-<build>.zip` (its own Java runtime and JavaFX; unzip and run `OpenEOC.cmd`) |
 | phone | `android/` | a WebView around the same page, the phone's GPS (every fix is the device's own position). Android Studio, or `./gradlew :app:assembleDebug` |
-| the world | `../fdf-source/fdf/bin/rt-sim` | 80 simulated instances (teams, ambulances, boats, victims, hospitals, fires, outages, hosts) in the Seattle metro area and Vashon, each on its own session |
+| the world | `../fdf-source/fdf/bin/openeoc-sim` | 80 simulated instances (teams, ambulances, boats, victims, hospitals, fires, outages, hosts) in the Seattle metro area and Vashon, each on its own session |
 
 The cells (all in OpenEOC's AppRams, at their AppHosts in `/etc/hosts` and their ports in the configuration tuple):
 
 | cell | written by | kind |
 | --- | --- | --- |
-| `(rt-who, <mission>, <dev>)` | each device, each simulated instance | latest, own: present while its writer's session is |
-| `(rt-pos, <mission>, <dev>)` | the same, on every fix | latest, own; `via` = the node it came in through |
-| `(rt-msg, <mission>, <dev>.<ms>)` | anyone, to everyone | distinct |
-| `(rt-team, <mission>, <dev>.<ms>)` | anyone, to a team | distinct, in the team's own RAM (`openeoc.<team>`) |
-| `(rt-dm, <mission>.<to>, <from>.<ms>)` | anyone, to one device | distinct, in the addressee's own variable: only the addressee reads it |
-| `(rt-mission, settings, <mission>)` | whoever started the exercise (rt-sim) | latest |
-| `(rt-facility, <mission>, <facility>)` | the hospital's desk (a Hospital client; rt-sim for the rest) | latest, not own: it stays |
-| `(rt-transport, <mission>, <dev>.<ms>)` | an ambulance: a patient on the way to a hospital | distinct |
-| `(rt-transport, <mission>.act, <id>~<dev>)` | the hospital's desk: acknowledged, arrived | latest |
-| `(rt-call, <mission>.<to>, <from>.<ms>)` | a caller, in the callee's own variable: a ring (with the caller's node) | distinct |
+| `(openeoc-who, <mission>, <dev>)` | each device, each simulated instance | latest, own: present while its writer's session is |
+| `(openeoc-pos, <mission>, <dev>)` | the same, on every fix | latest, own; `via` = the node it came in through |
+| `(openeoc-msg, <mission>, <dev>.<ms>)` | anyone, to everyone | distinct |
+| `(openeoc-team, <mission>, <dev>.<ms>)` | anyone, to a team | distinct, in the team's own RAM (`openeoc.<team>`) |
+| `(openeoc-dm, <mission>.<to>, <from>.<ms>)` | anyone, to one device | distinct, in the addressee's own variable: only the addressee reads it |
+| `(openeoc-mission, settings, <mission>)` | whoever started the exercise (openeoc-sim) | latest |
+| `(openeoc-facility, <mission>, <facility>)` | the hospital's desk (a Hospital client; openeoc-sim for the rest) | latest, not own: it stays |
+| `(openeoc-transport, <mission>, <dev>.<ms>)` | an ambulance: a patient on the way to a hospital | distinct |
+| `(openeoc-transport, <mission>.act, <id>~<dev>)` | the hospital's desk: acknowledged, arrived | latest |
+| `(openeoc-call, <mission>.<to>, <from>.<ms>)` | a caller, in the callee's own variable: a ring (with the caller's node) | distinct |
 
 Gone is gone: a device or instance whose session ended has no cells. What the app draws for it after that, a last known
 position (a translucent, dashed avatar, 10 minutes), is the app's own choice and is written nowhere.
@@ -406,14 +798,14 @@ position (a translucent, dashed avatar, 10 minutes), is the app's own choice and
 Hosts (the nodes things connect through): a node with a GPS records it with the established sensor pattern
 (`gpsd_reporter.bash` -> `metric_upsert.sh GPS Position`, gpsd's TPV, in `sensor_data`). The app reads those rows
 (`SensorType=GPS`) from `databasehost.frognet` through the node when the Hosts layer is turned on; a row with no fix
-is not drawn. Each device's `via` matches a host's `SensorAddress`. rt-sim's simulated hosts are `rt-pos` cells of kind
+is not drawn. Each device's `via` matches a host's `SensorAddress`. openeoc-sim's simulated hosts are `openeoc-pos` cells of kind
 `host`.
 
 ## The screens (r4)
 
 - **Public** opens on a home, not the map: I need help, I'm safe, Find someone, Report to the EOC, Hospitals &
   services, Map. Help and safe are DisasterComm's help records, `(help, request, <rid>)` in the general RAM (not own: a
-  request stays when the phone is gone); Find someone searches them by name. A report is `(rt-report, <mission>,
+  request stays when the phone is gone); Find someone searches them by name. A report is `(openeoc-report, <mission>,
   <dev>.<ms>)`. The public's own location fills its forms; it is not published.
 - **EOC and Team**: Requests (open requests, On the way / Resolved as `(help, action, <rid>~<dev>)`, and for the EOC the
   reports) and Sensors (every node that files its System sensor; a node's sensors; a reading, a GPS reading's position
@@ -430,7 +822,7 @@ is not drawn. Each device's `via` matches a host's `SensorAddress`. rt-sim's sim
 - **Team**: starts with only its own team on the map; Layers (in front of the chat) adds other teams and resources.
   Actions: my status (Available, En route, On scene, Need assistance, Out of service: part of my presence), deploy a
   sensor platform, request services (to the EOC, with priority), mark a hazard, mark an area searched -- each
-  `(rt-field, <mission>, <dev>.<ms>)`, the EOC's response `(rt-field, <mission>.act, <item>~<dev>)` ([RT_FIELD_V1]).
+  `(openeoc-field, <mission>, <dev>.<ms>)`, the EOC's response `(openeoc-field, <mission>.act, <item>~<dev>)` ([RT_FIELD_V1]).
 - **EOC**: starts on the map with teams, resources and hosts; chat is a button away. Requests has the teams' service
   requests (Acknowledge, Dispatched, Done) with the public's requests and reports.
 - **Compliance** ([RT_COMPLIANCE_V1]): every node is asked once at the EOC's connect; a node with a working
@@ -442,7 +834,7 @@ is not drawn. Each device's `via` matches a host's `SensorAddress`. rt-sim's sim
 
 - **Hospital** (connect as Hospital, pick the facility): Status, the desk -- beds available by type (emergency, ICU,
   med/surg, pediatric, burn, operating rooms), ambulance traffic (open, ED diversion, trauma diversion, closed), power,
-  water, oxygen, staffing, needs -- published as `rt-facility` ([RT_FACILITY_V1]); Inbound, the patients on the way
+  water, oxygen, staffing, needs -- published as `openeoc-facility` ([RT_FACILITY_V1]); Inbound, the patients on the way
   there with ETA and triage, Acknowledge and Arrived, and a notice for each new one. The map: hospitals, ambulances,
   hazards. A hospital's popup on any map shows its beds and diversion.
 - **Ambulance** (connect as Ambulance, the unit): Unit -- status (Available ... Out of service), Transport a patient
@@ -455,7 +847,7 @@ is not drawn. Each device's `via` matches a host's `SensorAddress`. rt-sim's sim
   caller's node's Communicator servers (`<node>:8800`, `<node>:8994`). Desktop: comms-app beside OpenEOC, or chosen
   once (kept in settings.json). Phone: FrogNet Member's Communicator (`net.frognet.communicator.CALL`; that app must be
   the build with [COMMS_OPENED_FOR_A_CALL_V1]).
-- rt-sim r8: every hospital's desk (three under strain), and each ambulance transport and its arrival.
+- openeoc-sim r8: every hospital's desk (three under strain), and each ambulance transport and its arrival.
 
 ## r7: the admin app, standalone ([ADMIN_APP_V1])
 
@@ -493,7 +885,7 @@ the same shell, core and page; its manifest's `net.frognet.openeoc.ROLE = team` 
 - [RT_CALL_V1] the chat's Call beside Send when the To is a person: anyone calls anyone.
 - [RT_MISSION_V1] Mission: the mission's settings (name, event, operational period, start, end, commander,
   objectives, area, notes), Update (the whole settings written again), Start a new mission (a new id; "at" = now: the
-  mission now is the one started last, on every device). `(rt-mission, settings, <mission>)`.
+  mission now is the one started last, on every device). `(openeoc-mission, settings, <mission>)`.
 - [DOOR_SAYS_ITS_BUILD_V1] the door says its build (`X-FDF-Door`, and `door` in its admin and roles answers); the admin
   app says which door answered.
 
@@ -501,7 +893,7 @@ the same shell, core and page; its manifest's `net.frognet.openeoc.ROLE = team` 
 
 The radio log app (`fdf-source/fdf/www/rt`, RangerTrak's own screens converted to the RAM) and these apps are on the
 same general RAM, mission, presence and positions. Radio log (EOC, Team) shows its entries,
-`(rt-log, <mission>.<opPeriod>, <dev>.<seq>)`, newest first, as the scribes type them; read only (the ICS-309 message
+`(openeoc-log, <mission>.<opPeriod>, <dev>.<seq>)`, newest first, as the scribes type them; read only (the ICS-309 message
 numbers are the posts').
 
 ## r10: the Public app, and the phone ([RT_PUBLIC_APP_V1])
@@ -572,7 +964,7 @@ John 2026-11-02. A team is one more piece of the network that splits and re-form
 - **Host team** ([TEAM_HOST_V1]). On a connected Team phone. Android lets no app turn the hotspot on, so Host team opens
   the settings it is in and continues when the user comes back with it on. The team's RAM starts on the phone; the core
   writes the lead's card into it (team, the node, the EOC's join line, how the lead reaches the node) and the lead's cell
-  `(rt-team-host, host, <team>)` into the general RAM (own: gone with the lead's session). The EOC follows those cells:
+  `(openeoc-team-host, host, <team>)` into the general RAM (own: gone with the lead's session). The EOC follows those cells:
   a hosted team's RAM is the lead's phone.
 - **Scan team** (connect screen), replaced in r18 by Scan to join: a member already on the lead's hotspot still reads
   the lead's card at the Wi-Fi's gateway; the hotspot's own Wi-Fi QR path is gone.
@@ -624,11 +1016,11 @@ joining, the lead's sponsor enrolling a member who joins with her own key), `tes
     python3 test/test_admin.py                   # the admin app: leads, the QR, save and restore
     python3 test/test_frogqr.py                  # the frog QR reads (zxing core 3.4.1)
     python3 test/test_enroll_page.py             # the phone's enrollment page
-    ./desktop/package_windows.sh OUTDIR          # the Windows zip
+    ./desktop/package_windows.sh OUTDIR COMMS_DIST   # the Windows bundle (COMMS_DIST: the Communicator's Windows dist\)
 
-`test/test_app.py` drives the real core and page (through `test/DevHost.java`) against real fdf-ram RAMs and rt-sim:
+`test/test_app.py` drives the real core and page (through `test/DevHost.java`) against real fdf-ram RAMs and openeoc-sim:
 23 checks (the EOC's world moving, announcements, team and direct messages, a GPS fix on the EOC's map, the public view,
-everything gone when rt-sim stops and drawn as last known positions, a wrong password refused). `test/world.py` starts
+everything gone when openeoc-sim stops and drawn as last known positions, a wrong password refused). `test/world.py` starts
 the same world alone, to run a desktop app against.
 
 ## Not in this build

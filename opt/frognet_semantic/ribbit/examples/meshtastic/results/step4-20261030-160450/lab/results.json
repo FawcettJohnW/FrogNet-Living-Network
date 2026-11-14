@@ -1,0 +1,121 @@
+{
+ "S1_views": {
+  "pass": true,
+  "seconds": 0.44,
+  "views": {
+   "!23a6d4ed": [
+    "!2f406fd4",
+    "!8c21f77b",
+    "!93a3b2e2"
+   ],
+   "!2f406fd4": [
+    "!23a6d4ed",
+    "!8c21f77b",
+    "!93a3b2e2"
+   ],
+   "!93a3b2e2": [
+    "!23a6d4ed",
+    "!2f406fd4",
+    "!8c21f77b"
+   ],
+   "!8c21f77b": [
+    "!23a6d4ed",
+    "!2f406fd4",
+    "!93a3b2e2"
+   ]
+  }
+ },
+ "S2_broadcast": {
+  "pass": true,
+  "received": {
+   "!23a6d4ed": [
+    "BD-2f406fd4",
+    "BD-8c21f77b",
+    "BD-93a3b2e2"
+   ],
+   "!2f406fd4": [
+    "BD-23a6d4ed",
+    "BD-8c21f77b",
+    "BD-93a3b2e2"
+   ],
+   "!93a3b2e2": [
+    "BD-23a6d4ed",
+    "BD-2f406fd4",
+    "BD-8c21f77b"
+   ],
+   "!8c21f77b": [
+    "BD-23a6d4ed",
+    "BD-2f406fd4",
+    "BD-93a3b2e2"
+   ]
+  }
+ },
+ "S3_dm_ack": {
+  "pass": true,
+  "error": "NONE",
+  "seconds": 0.0,
+  "from": "!2f406fd4"
+ },
+ "S8_position": {
+  "pass": true,
+  "live_client_seconds": 0.01,
+  "live_ok": true,
+  "fresh_client_seconds": 1.62,
+  "position": {
+   "latitude": 47.4677248,
+   "longitude": -122.3360512,
+   "altitude": 120,
+   "precisionBits": 15
+  },
+  "fresh_client_20s_later": {
+   "latitude": 47.4677248,
+   "longitude": -122.3360512,
+   "altitude": 120,
+   "precisionBits": 15
+  }
+ },
+ "S9_requests": {
+  "nodeinfo": {
+   "answer": "NODEINFO_APP",
+   "error": null,
+   "seconds": 0.01,
+   "from": "!23a6d4ed"
+  },
+  "position": {
+   "answer": "POSITION_APP",
+   "error": null,
+   "seconds": 0.0,
+   "from": "!23a6d4ed"
+  },
+  "telemetry": {
+   "answer": "TELEMETRY_APP",
+   "error": null,
+   "seconds": 0.05,
+   "from": "!23a6d4ed"
+  },
+  "pass": true
+ },
+ "S4_kill": {
+  "pass": true,
+  "seconds": 0.33
+ },
+ "S5_dm_dead": {
+  "observed": "PKI_SEND_FAIL_PUBLIC_KEY",
+  "seconds": 0.0,
+  "from": "!23a6d4ed",
+  "pass": true
+ },
+ "S6_restart": {
+  "pass": true,
+  "seconds": 0.33
+ },
+ "S7_malformed": {
+  "pass": true,
+  "answering": {
+   "!23a6d4ed": true,
+   "!2f406fd4": true,
+   "!93a3b2e2": true,
+   "!8c21f77b": true
+  }
+ }
+}

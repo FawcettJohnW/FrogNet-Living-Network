@@ -4,7 +4,7 @@
 #  SPDX-License-Identifier: GPL-2.0-only                       #
 ################################################################
 # world.py FDF_RAM OUTFILE -- [RT_APP_TEST_V1] the test world on its own, for driving an app by hand or from a shell:
-# the general RAM and one per team (fdf-ram), the door stand-in (op=rams, op=login), rt-sim. Writes the door's
+# the general RAM and one per team (fdf-ram), the door stand-in (op=rams, op=login), openeoc-sim. Writes the door's
 # host:port to OUTFILE, then runs until killed.
 import json, os, socket, subprocess, sys, tempfile, threading, time
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
@@ -14,7 +14,7 @@ HERE = os.path.dirname(os.path.abspath(__file__)); APP = os.path.dirname(HERE)
 SRC = os.path.dirname(APP); FDF = os.path.join(SRC, "fdf-source", "fdf")
 def free():
     s = socket.socket(); s.bind(("127.0.0.1", 0)); p = s.getsockname()[1]; s.close(); return p
-T = tempfile.mkdtemp(prefix="rt-app-"); os.makedirs(T + "/var")
+T = tempfile.mkdtemp(prefix="openeoc-app-"); os.makedirs(T + "/var")
 procs = []
 where = {}
 for r in ("general", "alpha", "bravo", "charlie", "delta"):
@@ -44,12 +44,12 @@ class Door(BaseHTTPRequestHandler):      # ram.php's op=rams and op=login, as th
 dp = free(); door = ThreadingHTTPServer(("127.0.0.1", dp), Door); threading.Thread(target=door.serve_forever, daemon=True).start()
 DOOR = "127.0.0.1:%d" % dp
 
-# [APP_SERVICES_V1] rt-sim finds the general AppRam as a node does: its AppHost in /etc/hosts (FDF_HOSTS) and its port
+# [APP_SERVICES_V1] openeoc-sim finds the general AppRam as a node does: its AppHost in /etc/hosts (FDF_HOSTS) and its port
 # in the app's configuration (FDF_APPS/openeoc.json)
 os.makedirs(T + "/apps", exist_ok=True)
 open(T + "/hosts", "w").write("127.0.0.1 openeocHost.frognet\n")
 json.dump({"rams": ["general"], "ports": {"general": int(where["openeoc.general"].split(":")[1])}}, open(T + "/apps/openeoc.json", "w"))
-sim = subprocess.Popen([os.path.join(FDF, "bin", "rt-sim"), "--tick", "1"], env=dict(os.environ, FDF_VAR=T + "/var", FDF_HOSTS=T + "/hosts", FDF_APPS=T + "/apps", FDF_PY=os.path.join(FDF, "lib", "python")),
+sim = subprocess.Popen([os.path.join(FDF, "bin", "openeoc-sim"), "--tick", "1"], env=dict(os.environ, FDF_VAR=T + "/var", FDF_HOSTS=T + "/hosts", FDF_APPS=T + "/apps", FDF_PY=os.path.join(FDF, "lib", "python")),
                        stdout=open(T + "/sim.log", "w"), stderr=subprocess.STDOUT)
 open(OUT, "w").write(DOOR)
 print("door", DOOR, "world", T, flush=True)

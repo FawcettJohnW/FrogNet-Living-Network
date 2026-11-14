@@ -1,0 +1,437 @@
+#!/usr/bin/env python3
+################################################################
+#  Copyright (C) 2016-2026 Fawcett Innovations LLC             #
+#  SPDX-License-Identifier: GPL-2.0-only                       #
+################################################################
+"""openeoc-sim -- [RT_SIM_V1] the demo's simulated world: Teams, Hospitals, Ambulances, Fire, Power, Victims and Boats in the
+Seattle metro area, Vashon included (John, 2026-11-01: "Pre-populate the RAM with some instances ... using simulated GPS
+data"; "The ambulances, teams, and victims move around the map in real time"; "Don't exclude water. Boats may be first
+responder transports").
+
+Each simulated instance is its own writer of its own truth, as a real device is (PLAN.md, the 2026-11-01 decision),
+on a session of its own (fnw1), with own=True, so its cells go with it ([OWNED_CELL_GOES_WITH_THE_SESSION_V1]):
+  (openeoc-who, <mission>, <id>)   latest  {name, kind, team, color, host:"", station:""}   presence
+  (openeoc-pos, <mission>, <id>)   latest  {name, kind, team, color, lat, lng, at, status, ...}   where it is now
+in OpenEOC's general RAM, wherever its AppHost is now (/etc/hosts, and its port: fdf_appram, [APP_SERVICES_V1]). Moving instances write their
+position every TICK seconds; when the RAM is another one (relocated), every instance opens its session there and
+writes its truth again, at once. A victim delivered to a hospital leaves: its session ends and it is gone from every
+map. openeoc-sim stopped: every instance is gone. Ambulances say what they do to everyone, (openeoc-msg, <mission>, <id>.<ms>);
+team members now and then say something to their team, (openeoc-team, <mission>, <id>.<ms>) in the team's own RAM when it
+is served (openeoc.<team>). (openeoc-mission, settings, <mission>) is written by this program too: the exercise is its own.
+
+Kinds and what moves:
+  team       members of four colour-coded teams, walking between nearby places of their zone
+  ambulance  dispatched to a victim who needs transport, to the scene, then to the nearest hospital of its zone
+  boat       fireboats and marine units on the Sound and the lakes, between water points
+  victim     walking slowly; status: needs transport -> transported (and a new one appears elsewhere)
+  hospital   fixed; beds available changes as ambulances arrive
+  fire       fixed incidents; severity
+  power      fixed outages; customers out
+  host       the nodes things connect through (simulated ones, "Sim-..."); every other instance's cells say which, "via"
+             (a real node's position is its own GPS sensor, metric_upsert GPS Position, read by the app)
+Positions are approximate (hand-placed); this is a demo world, not a map service.
+
+  openeoc-sim [--mission ID] [--tick S] [--seed N]
+Environment: FDF_VAR (/opt/fdf/var), FDF_PY (the fnw1 module's directory).
+"""
+import argparse, re, json, math, os, random, sys, time
+
+BUILD_TAG = "openeoc-sim-2026-11-08-r10"
+LIB = os.environ.get("FDF_PY") or os.path.join(os.environ.get("FDF_HOME", "/opt/fdf"), "lib", "python")   # (it ships in the add-in)
+sys.path.insert(0, LIB)
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))   # the add-in ships fnw1.py beside this program
+import fnw1  # noqa: E402
+
+VAR = os.environ.get("FDF_VAR", "/opt/fdf/var")
+import fdf_appram  # noqa: E402  [APP_SERVICES_V1]
+WHERE = fdf_appram.HOSTS
+KEY = "openeoc.general"
+BOX = (47.30, 47.80, -122.55, -122.05)          # lat min/max, lng min/max: Seattle metro and Vashon
+
+# places on land, by zone (approximate centres of neighbourhoods); a unit stays in its zone
+ZONES = {
+    "seattle": {"Downtown": (47.6062, -122.3321), "Capitol Hill": (47.6253, -122.3222), "First Hill": (47.6090, -122.3240),
+                "Central District": (47.6080, -122.3010), "Ballard": (47.6687, -122.3847), "Fremont": (47.6510, -122.3500),
+                "Wallingford": (47.6615, -122.3346), "U District": (47.6614, -122.3130), "Ravenna": (47.6750, -122.3010),
+                "Northgate": (47.7060, -122.3270), "Greenwood": (47.6900, -122.3550), "Lake City": (47.7190, -122.2950),
+                "Queen Anne": (47.6370, -122.3570), "Magnolia": (47.6500, -122.4000), "SoDo": (47.5800, -122.3350),
+                "Beacon Hill": (47.5680, -122.3080), "Columbia City": (47.5590, -122.2860),
+                "Rainier Beach": (47.5150, -122.2650), "Georgetown": (47.5470, -122.3200)},
+    "west": {"Alki": (47.5760, -122.4050), "Admiral": (47.5810, -122.3870), "Junction": (47.5610, -122.3870),
+             "Delridge": (47.5450, -122.3620), "Fauntleroy": (47.5230, -122.3880), "White Center": (47.5170, -122.3550)},
+    "south": {"Burien": (47.4700, -122.3470), "SeaTac": (47.4440, -122.2970), "Tukwila": (47.4740, -122.2600),
+              "Renton": (47.4800, -122.2170), "Kent": (47.3810, -122.2350), "Des Moines": (47.4010, -122.3240)},
+    "east": {"Bellevue": (47.6101, -122.2015), "Kirkland": (47.6769, -122.2060), "Redmond": (47.6740, -122.1215),
+             "Mercer Island": (47.5707, -122.2221), "Bothell": (47.7601, -122.2054), "Factoria": (47.5770, -122.1700)},
+    "vashon": {"Vashon": (47.4473, -122.4598), "Dockton": (47.3760, -122.4570), "Burton": (47.3920, -122.4630),
+               "Cove": (47.4220, -122.4950), "North End": (47.5050, -122.4630), "Maury Island": (47.3700, -122.4300),
+               "Paradise Valley": (47.4300, -122.4800)},
+}
+WATER = {"Elliott Bay": (47.6000, -122.3600), "Shilshole": (47.6800, -122.4200), "West Point": (47.6620, -122.4450),
+         "Colvos Passage": (47.4300, -122.5250), "East Passage": (47.4300, -122.3900), "Quartermaster Harbor": (47.3900, -122.4500),
+         "Fauntleroy Cove": (47.5230, -122.4050), "Lake Union": (47.6380, -122.3350), "Lake Washington N": (47.6900, -122.2600),
+         "Lake Washington Mid": (47.6100, -122.2550), "Lake Washington S": (47.5300, -122.2450)}
+WATER_LINKS = [("Elliott Bay", "Shilshole"), ("Shilshole", "West Point"), ("Elliott Bay", "Fauntleroy Cove"),
+               ("Fauntleroy Cove", "East Passage"), ("Fauntleroy Cove", "Colvos Passage"), ("East Passage", "Quartermaster Harbor"),
+               ("Lake Washington N", "Lake Washington Mid"), ("Lake Washington Mid", "Lake Washington S")]
+HOSPITALS = {"Harborview": ("seattle", 47.6040, -122.3238), "Swedish First Hill": ("seattle", 47.6089, -122.3215),
+             "Virginia Mason": ("seattle", 47.6102, -122.3271), "UW Medical Center": ("seattle", 47.6497, -122.3071),
+             "UW Northwest": ("seattle", 47.7189, -122.3343), "Swedish Ballard": ("seattle", 47.6676, -122.3794),
+             "Seattle Children's": ("seattle", 47.6624, -122.2817), "Highline (Burien)": ("south", 47.4708, -122.3394),
+             "Valley Medical (Renton)": ("south", 47.4440, -122.2140), "Overlake (Bellevue)": ("east", 47.6203, -122.1880),
+             "EvergreenHealth (Kirkland)": ("east", 47.7157, -122.1800),
+             "Vashon Health Center": ("vashon", 47.4470, -122.4600)}
+TEAMS = [("Alpha", "#d62728", "seattle"), ("Bravo", "#1f77b4", "west"), ("Charlie", "#2ca02c", "south"),
+         ("Delta", "#ff7f0e", "vashon")]
+SIM_HOSTS = {"Sim-Downtown": (47.6050, -122.3300), "Sim-Ballard": (47.6680, -122.3850), "Sim-Northgate": (47.7060, -122.3260),
+             "Sim-WestSeattle": (47.5620, -122.3860), "Sim-Rainier": (47.5400, -122.2800), "Sim-Burien": (47.4700, -122.3470),
+             "Sim-Renton": (47.4800, -122.2170), "Sim-Bellevue": (47.6100, -122.2000), "Sim-Kirkland": (47.6770, -122.2060),
+             "Sim-Vashon": (47.4470, -122.4600), "Sim-Maury": (47.3700, -122.4300), "Sim-Harbor": (47.6000, -122.3550)}
+PEOPLE = ["Maria Lopez", "James Chen", "Aisha Patel", "Tom Nguyen",            # team members, by name, as people are
+          "Grace Kim", "Luis Ortega", "Hannah Berg", "Sam Okafor",
+          "Priya Raman", "Ben Carter", "Elena Petrova", "Marcus Hill",
+          "Ruth Anderson", "Kenji Sato", "Fatima Hassan", "Dave Wilson"]
+TEAM_TALK = ["On scene, assessing", "Need more water at this location", "Clear here, moving to next block",
+             "Road blocked, rerouting", "Two people need help getting to the shelter", "All accounted for here",
+             "Checking in, all OK", "Gas smell reported, keeping clear"]
+WALK, DRIVE, BOAT, SHUFFLE = 1.4, 14.0, 9.0, 0.4      # m/s; the clock runs at real time
+
+
+def log(m):
+    print("[openeoc-sim] " + m, flush=True)
+
+
+def metres(a, b):
+    dy = (b[0] - a[0]) * 111320.0
+    dx = (b[1] - a[1]) * 111320.0 * math.cos(math.radians((a[0] + b[0]) / 2))
+    return math.hypot(dx, dy)
+
+
+def step_toward(p, goal, m):
+    d = metres(p, goal)
+    if d <= m or d == 0:
+        return goal, True
+    f = m / d
+    return (p[0] + (goal[0] - p[0]) * f, p[1] + (goal[1] - p[1]) * f), False
+
+
+def jitter(p, rng, r=300.0):
+    a, d = rng.uniform(0, 2 * math.pi), rng.uniform(0, r)
+    return (p[0] + d * math.cos(a) / 111320.0, p[1] + d * math.sin(a) / (111320.0 * math.cos(math.radians(p[0]))))
+
+
+class World:
+    def __init__(self, rng):
+        self.rng, self.u, self.n = rng, {}, 0
+        self.say, self.removed, self.chatter = [], set(), []       # what instances said; who left; team talk
+        self.gone = {}                                             # a delivered victim, until its request is resolved
+        self.fac, self.trs, self.arrived = set(), [], []           # [RT_FACILITY_V1] desks to publish; [RT_TRANSPORT_V1] new, arrived
+        for name, (lat, lng) in SIM_HOSTS.items():               # the nodes things connect through (simulated)
+            self.add("host", name, (lat, lng), zone="")
+        for name, (zone, lat, lng) in HOSPITALS.items():
+            self.add("hospital", name, (lat, lng), zone=zone, beds=rng.randint(4, 30))
+        for k, v in self.u.items():                                # a few hospitals under strain, as in a real event
+            if v["name"] == "Vashon Health Center": v.update(power="Generator — fuel low", needs="diesel for the generator; O2 cylinders")
+            if v["name"] == "Highline (Burien)": v.update(water="Boil notice", staff="Short")
+            if v["name"] == "Harborview": v.update(diversion="Trauma diversion", needs="blood products, O-neg")
+        for team, color, zone in TEAMS:
+            for i in range(1, 5):
+                self.add("team", PEOPLE[(TEAMS.index((team, color, zone)) * 4 + i - 1) % len(PEOPLE)], jitter(self.place(zone), rng), zone=zone, team=team, color=color,
+                         goal=None)
+        for i, zone in enumerate(["seattle", "seattle", "seattle", "west", "south", "south", "east", "vashon"], 1):
+            self.add("ambulance", "Medic %d" % i, jitter(self.place(zone), rng), zone=zone, status="available",
+                     goal=None, victim=None)
+        for i, w in enumerate(["Elliott Bay", "Colvos Passage", "Lake Washington Mid"], 1):
+            self.add("boat", ("Fireboat %d" if i < 3 else "Marine %d") % i, WATER[w], zone="water", status="patrol",
+                     at_point=w, goal=None)
+        for i in range(18):
+            self.new_victim()
+        for i, zone in enumerate(["seattle", "south", "east", "vashon", "west"], 1):
+            self.add("fire", "Fire %d" % i, jitter(self.place(zone), rng, 600), zone=zone, severity=rng.choice(["1-alarm", "2-alarm", "3-alarm"]))
+        for i, zone in enumerate(["seattle", "seattle", "west", "south", "east", "vashon"], 1):
+            self.add("power", "Outage %d" % i, jitter(self.place(zone), rng, 800), zone=zone, customers_out=rng.randint(200, 9000))
+
+    def place(self, zone):
+        return self.rng.choice(list(ZONES[zone].values()))
+
+    def add(self, kind, name, p, **kv):
+        self.n += 1
+        uid = "sim-%s-%d" % (kind, self.n)
+        self.u[uid] = dict(kind=kind, name=name, p=p, **kv)
+        return uid
+
+    def new_victim(self):
+        zone = self.rng.choice(["seattle", "seattle", "west", "south", "east", "vashon"])
+        self.add("victim", "Victim %d" % (self.n + 1), jitter(self.place(zone), self.rng, 900), zone=zone,
+                 status=self.rng.choice(["needs transport", "needs transport", "sheltering", "minor injuries"]))
+
+    def nearest(self, kind, p, zone, pred=lambda v: True):
+        c = [(metres(p, v["p"]), k) for k, v in self.u.items() if v["kind"] == kind and (zone is None or v["zone"] == zone) and pred(v)]
+        return min(c)[1] if c else None
+
+    def tick(self, dt):
+        """advance everyone dt seconds; returns the ids whose truth changed"""
+        rng, moved = self.rng, set()
+        for k, v in list(self.u.items()):
+            kind = v["kind"]
+            if kind == "team" or kind == "victim":
+                if kind == "victim" and v["status"] in ("in ambulance",):
+                    continue
+                if not v.get("goal") or v["p"] == v["goal"]:
+                    v["goal"] = jitter(self.place(v["zone"]), rng, 400) if kind == "team" else jitter(v["p"], rng, 150)
+                v["p"], _ = step_toward(v["p"], v["goal"], (WALK if kind == "team" else SHUFFLE) * dt)
+                moved.add(k)
+                if kind == "team" and rng.random() < dt / 240.0:          # about every 4 minutes per member
+                    self.chatter.append((k, v["team"], rng.choice(TEAM_TALK)))
+            elif kind == "ambulance":
+                self.drive(k, v, dt, moved)
+            elif kind == "boat":
+                if not v.get("goal"):
+                    nxt = [b if a == v["at_point"] else a for a, b in WATER_LINKS if v["at_point"] in (a, b)]
+                    v["next_point"] = rng.choice(nxt)
+                    v["goal"] = WATER[v["next_point"]]
+                v["p"], there = step_toward(v["p"], v["goal"], BOAT * dt)
+                if there:
+                    v["at_point"], v["goal"] = v["next_point"], None
+                moved.add(k)
+        return moved
+
+    def drive(self, k, v, dt, moved):
+        if v["status"] == "available":
+            vic = self.nearest("victim", v["p"], v["zone"], lambda x: x["status"] == "needs transport" and not x.get("taken"))
+            if not vic:
+                return
+            self.u[vic]["taken"] = k
+            v.update(status="responding", victim=vic, goal=self.u[vic]["p"])
+            self.say.append((k, "%s responding to %s" % (v["name"], self.u[vic]["name"])))
+        if v["status"] == "responding":
+            vic = self.u.get(v["victim"])
+            if not vic:
+                v.update(status="available", victim=None, goal=None); moved.add(k); return
+            v["goal"] = vic["p"]
+            v["p"], there = step_toward(v["p"], v["goal"], DRIVE * dt)
+            if there:
+                vic["status"] = "in ambulance"; moved.add(v["victim"])
+                h = self.nearest("hospital", v["p"], None)     # the nearest hospital anywhere (West Seattle has none)
+                v.update(status="transporting", hospital=h, goal=self.u[h]["p"])
+                eta = max(2, int(metres(v["p"], self.u[h]["p"]) / DRIVE / 60 + 0.5))
+                v["tr"] = "%s.%d" % (k, int(time.time() * 1000))
+                self.trs.append((k, v["tr"], {"to": self.u[h]["name"], "unit": v["name"], "patients": 1,
+                                              "triage": self.rng.choice(["Red", "Yellow", "Yellow", "Green"]),
+                                              "complaint": self.rng.choice(COMPLAINTS), "age": self.rng.choice(AGES), "eta": eta}))
+                self.say.append((k, "%s transporting %s to %s" % (v["name"], vic["name"], self.u[h]["name"])))
+            moved.add(k)
+        elif v["status"] == "transporting":
+            vic = self.u.get(v["victim"])
+            v["p"], there = step_toward(v["p"], v["goal"], DRIVE * dt)
+            if vic:
+                vic["p"] = v["p"]; moved.add(v["victim"])
+            if there:
+                hosp = self.u[v["hospital"]]
+                hosp["beds"] = max(0, hosp["beds"] - 1); moved.add(v["hospital"])
+                self.fac.add(v["hospital"])
+                if v.get("tr"):
+                    self.arrived.append((v["hospital"], v.pop("tr")))
+                if vic:
+                    self.say.append((k, "%s delivered %s to %s" % (v["name"], vic["name"], hosp["name"])))
+                    self.gone[v["victim"]] = self.u.pop(v["victim"]); self.removed.add(v["victim"])
+                v.update(status="available", victim=None, goal=None)
+                self.new_victim()
+                moved.add(sorted(self.u, key=lambda x: int(x.rsplit("-", 1)[1]))[-1])
+            moved.add(k)
+
+    def bags(self, k):
+        v = self.u[k]
+        team = v.get("team", "")
+        who = {"name": v["name"], "kind": v["kind"], "team": team, "color": v.get("color", ""), "host": "", "station": "", "sim": True}
+        pos = {"name": v["name"], "kind": v["kind"], "team": team, "color": v.get("color", ""),
+               "lat": round(v["p"][0], 6), "lng": round(v["p"][1], 6), "at": int(time.time()), "sim": True}
+        if v["kind"] != "host":                                    # which node it is connected through: the nearest
+            hs = [(metres(v["p"], h["p"]), hk) for hk, h in self.u.items() if h["kind"] == "host"]
+            if hs:
+                pos["via"] = min(hs)[1]; who["via"] = pos["via"]
+        for f in ("status", "beds", "severity", "customers_out"):
+            if f in v:
+                pos[f] = v[f]
+        if v.get("hospital"):
+            pos["to"] = self.u[v["hospital"]]["name"]
+        return who, pos
+
+
+COMPLAINTS = ["crush injury, left leg", "head laceration, alert", "smoke inhalation", "possible hip fracture", "chest pain",
+              "hypothermia, pulled from the water", "burns to both arms", "difficulty breathing", "abdominal pain after a fall"]
+AGES = ["20s F", "30s M", "40s F", "50s M", "60s F", "70s M", "80s F", "child, 8", "teen M"]
+BED_SPLIT = [("ed", .35), ("icu", .10), ("medsurg", .35), ("peds", .08), ("burn", .04), ("or", .08)]
+
+
+def facility_bag(v, rng):
+    """(openeoc-facility, <mission>, <facility>): a simulated hospital's desk, what a charge nurse would publish"""
+    n = v["beds"]
+    beds = {k: int(round(n * f)) for k, f in BED_SPLIT}
+    div = "ED diversion" if beds["ed"] == 0 else "Open"
+    return {"name": v["name"], "beds": beds, "diversion": v.get("diversion", div), "power": v.get("power", "Grid"),
+            "water": v.get("water", "Normal"), "oxygen": "Normal" if n > 3 else "Limited", "staff": v.get("staff", "Normal"),
+            "needs": v.get("needs", ""), "by": "openeoc-sim", "at": int(time.time()), "sim": True}
+
+
+def facility_id(name):
+    return re.sub(r"[^a-z0-9]+", "-", name.lower()).strip("-")
+
+
+NEED_OF = {"needs transport": ["medical", "evacuation"], "minor injuries": ["medical"], "sheltering": ["shelter", "water"]}
+SAFE_PEOPLE = [("Carol Jensen", 47.6230, -122.3120), ("Dan Whitaker", 47.5600, -122.3870), ("Nora Ibrahim", 47.4480, -122.4580),
+               ("Peter Novak", 47.6770, -122.3850), ("Lily Tran", 47.6110, -122.2010), ("Omar Haddad", 47.4800, -122.2170),
+               ("Sofia Reyes", 47.5450, -122.3200), ("George Adams", 47.7060, -122.3270)]
+
+
+FIELD = [("platform", "Air quality (PM2.5 / gas)", "Alpha", 47.6080, -122.3380, {"status": "deployed", "note": "on the light pole, 1st and Pike"}),
+         ("platform", "Water level / flood gauge", "Bravo", 47.5700, -122.4100, {"status": "deployed", "note": "Alki seawall"}),
+         ("platform", "Mesh relay node", "Delta", 47.4300, -122.4700, {"status": "deployed"}),
+         ("service", "Water / food resupply", "Charlie", 47.4790, -122.2600, {"priority": "Priority", "note": "40 people at the Tukwila community center"}),
+         ("service", "Generator / power", "Delta", 47.4470, -122.4590, {"priority": "Urgent", "note": "Vashon clinic on battery"}),
+         ("service", "Heavy equipment", "Bravo", 47.5450, -122.3620, {"priority": "Routine", "note": "debris on Delridge Way"}),
+         ("hazard", "Gas leak", "Alpha", 47.6150, -122.3200, {"note": "smell of gas, block evacuated"}),
+         ("hazard", "Downed power line", "Charlie", 47.4600, -122.2400, {"note": "across S 180th St"}),
+         ("hazard", "Flooding", "Bravo", 47.5250, -122.3900, {"note": "Fauntleroy ferry approach"}),
+         ("search", "Searched, no one found", "Alpha", 47.6250, -122.3220, {"radius": 150}),
+         ("search", "Searched, people found", "Charlie", 47.4810, -122.2180, {"radius": 120, "note": "3 people, walked out"})]
+
+
+def help_bag(v, status):
+    """(help, request, sim-<id>): the shape DisasterComm's help page writes, for a simulated person"""
+    return {"name": v["name"], "people": 1, "needs": NEED_OF.get(v.get("status"), ["other"]) if status == "open" else [],
+            "status": status, "location": {"text": "", "lat": round(v["p"][0], 6), "lon": round(v["p"][1], 6)},
+            "contact": "", "note": v.get("status", "") if status == "open" else "", "by": "openeoc-sim", "at": int(time.time()), "sim": True}
+
+
+def where():
+    """{"openeoc.<ram>": host:port} for the AppRams that have an AppHost now"""
+    out = {}
+    for r in fdf_appram.rams_of("openeoc"):
+        w = fdf_appram.where("openeoc", r)
+        if w:
+            out["openeoc." + r] = w
+    return out
+
+
+class Writers:
+    """one session per instance, on the general RAM where it is served now"""
+    def __init__(self, mission):
+        self.mission, self.s, self.at = mission, {}, ""
+
+    def open(self, hp, w):
+        self.close_all()
+        h, p = hp.rsplit(":", 1)
+        for k in w.u:
+            self.add(h, p, w, k)
+        self.at = hp
+
+    def add(self, h, p, w, k):
+        s = fnw1.Session(h, p); self.s[k] = s
+        who, pos = w.bags(k)
+        s.write("openeoc-who", self.mission, k, who, own=True); s.write("openeoc-pos", self.mission, k, pos, own=True)
+        v = w.u[k]
+        if v["kind"] == "victim" and v["status"] != "in ambulance":   # [RT_HELP_V1] a victim asks for help, as a person would
+            s.write("help", "request", "sim-" + k, help_bag(v, "open" if v["status"] != "sheltering" else "safe"))
+
+    def pos(self, w, k):
+        if k not in self.s:
+            h, p = self.at.rsplit(":", 1); self.add(h, p, w, k); return
+        self.s[k].write("openeoc-pos", self.mission, k, w.bags(k)[1], own=True)
+
+    def resolved(self, w, k, v):
+        """a delivered victim's request is resolved (its own record, written once more), then it leaves"""
+        s = self.s.get(k)
+        if s:
+            s.write("help", "request", "sim-" + k, help_bag(v, "resolved"))
+
+    def leave(self, k):
+        s = self.s.pop(k, None)
+        if s:
+            s.close()
+
+    def close_all(self):
+        for k in list(self.s):
+            self.leave(k)
+        self.at = ""
+
+
+def main():
+    ap = argparse.ArgumentParser()
+    ap.add_argument("--mission", default="seattle-metro")
+    ap.add_argument("--tick", type=float, default=2.0)
+    ap.add_argument("--seed", type=int, default=20261101)
+    a = ap.parse_args()
+    w = World(random.Random(a.seed))
+    kinds = {}
+    for v in w.u.values():
+        kinds[v["kind"]] = kinds.get(v["kind"], 0) + 1
+    log("build %s; mission %s; %d instances (%s); tick %.1f s; each on its own session" % (BUILD_TAG, a.mission, len(w.u),
+        ", ".join("%d %s" % (n, k) for k, n in sorted(kinds.items())), a.tick))
+    wr = Writers(a.mission)
+    last = time.monotonic()
+    while True:
+        m = where(); now = m.get(KEY, "")
+        if not now:
+            log("the app's general RAM is not served yet (%s); again in 1 s" % WHERE)
+            time.sleep(1); continue
+        try:
+            if now != wr.at:                    # another RAM: every instance's own truth again, there
+                wr.open(now, w)
+                h, p = now.rsplit(":", 1); ms = fnw1.Session(h, p)
+                ms.write("openeoc-mission", "settings", a.mission, {"name": "Seattle metro exercise", "event": "Seattle metro exercise",
+                                                               "opPeriod": 1, "by": "openeoc-sim", "sim": True}, wait=True)
+                for name, lat, lng in SAFE_PEOPLE:                  # people who said they are safe (Find someone)
+                    ms.write("help", "request", "sim-safe-" + name.replace(" ", "-").lower(),
+                             help_bag({"name": name, "p": (lat, lng)}, "safe"), wait=True)
+                for i, (what, typ, team, lat, lng, extra) in enumerate(FIELD):   # [RT_FIELD_V1] what the teams have done so far
+                    bag = {"what": what, "type": typ, "team": team, "name": "Team " + team, "by": "openeoc-sim", "lat": lat, "lng": lng,
+                           "note": "", "at": int(time.time()), "sim": True}
+                    bag.update(extra)
+                    ms.write("openeoc-field", a.mission, "sim-field-%d" % i, bag, wait=True)
+                for k, v in w.u.items():                              # [RT_FACILITY_V1] every hospital's desk
+                    if v["kind"] == "hospital":
+                        ms.write("openeoc-facility", a.mission, facility_id(v["name"]), facility_bag(v, w.rng), wait=True)
+                log("on %s: %d instances, each on its own session; %d safe check-ins; %d field items; %d hospital statuses" % (
+                    now, len(w.u), len(SAFE_PEOPLE), len(FIELD), sum(1 for v in w.u.values() if v["kind"] == "hospital")))
+                ms.close()
+            time.sleep(max(0.0, a.tick - (time.monotonic() - last)))
+            dt = time.monotonic() - last; last = time.monotonic()
+            changed = w.tick(dt)
+            for k in w.removed:
+                if k in w.gone:
+                    wr.resolved(w, k, w.gone.pop(k))
+                wr.leave(k)
+            for k in changed:
+                if k in w.u:
+                    wr.pos(w, k)
+            stamp = int(time.time() * 1000)
+            for k, text in w.say:
+                if k in wr.s:
+                    wr.s[k].write("openeoc-msg", a.mission, "%s.%d" % (k, stamp), {"from": k, "name": w.u[k]["name"], "text": text, "at": stamp // 1000})
+            for k, team, text in w.chatter:
+                tr = m.get("openeoc." + team.lower(), "")
+                if tr and k in w.u:
+                    h, p = tr.rsplit(":", 1); ts = fnw1.Session(h, p)
+                    ts.write("openeoc-team", a.mission, "%s.%d" % (k, stamp), {"from": k, "name": w.u[k]["name"], "team": team, "text": text, "at": stamp // 1000}, wait=True)
+                    ts.close()
+            for k, tid, bag in w.trs:                                 # [RT_TRANSPORT_V1] the unit's record, on its own session
+                if k in wr.s:
+                    bag.update(by=k, name=w.u[k]["name"], at=stamp // 1000, sim=True)
+                    wr.s[k].write("openeoc-transport", a.mission, tid, bag)
+            for hk, tid in w.arrived:                                 # the hospital's desk: arrived
+                if hk in wr.s:
+                    wr.s[hk].write("openeoc-transport", a.mission + ".act", "%s~%s" % (tid, hk),
+                                   {"action": "arrived", "unit": w.u[hk]["name"], "note": "", "at": stamp // 1000, "sim": True})
+            for hk in w.fac:
+                if hk in wr.s:
+                    wr.s[hk].write("openeoc-facility", a.mission, facility_id(w.u[hk]["name"]), facility_bag(w.u[hk], w.rng))
+            w.say, w.removed, w.chatter, w.trs, w.arrived, w.fac = [], set(), [], [], [], set()
+        except (fnw1.Gone, fnw1.Refused, OSError) as e:
+            log("writing on %s failed (%s); where it is now is read again in 1 s" % (wr.at or now, e))
+            wr.close_all()
+            time.sleep(1)
+
+
+if __name__ == "__main__":
+    sys.exit(main())

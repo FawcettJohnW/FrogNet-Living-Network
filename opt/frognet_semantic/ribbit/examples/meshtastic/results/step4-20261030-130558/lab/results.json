@@ -1,0 +1,98 @@
+{
+ "S1_views": {
+  "pass": true,
+  "seconds": 0.45,
+  "views": {
+   "!f3f6ad68": [
+    "!5a09363d",
+    "!c12c8cb8",
+    "!d863f06b"
+   ],
+   "!d863f06b": [
+    "!5a09363d",
+    "!c12c8cb8",
+    "!f3f6ad68"
+   ],
+   "!5a09363d": [
+    "!c12c8cb8",
+    "!d863f06b",
+    "!f3f6ad68"
+   ],
+   "!c12c8cb8": [
+    "!5a09363d",
+    "!d863f06b",
+    "!f3f6ad68"
+   ]
+  }
+ },
+ "S2_broadcast": {
+  "pass": true,
+  "received": {
+   "!f3f6ad68": [
+    "BD-5a09363d",
+    "BD-c12c8cb8",
+    "BD-d863f06b"
+   ],
+   "!d863f06b": [
+    "BD-5a09363d",
+    "BD-c12c8cb8",
+    "BD-f3f6ad68"
+   ],
+   "!5a09363d": [
+    "BD-c12c8cb8",
+    "BD-d863f06b",
+    "BD-f3f6ad68"
+   ],
+   "!c12c8cb8": [
+    "BD-5a09363d",
+    "BD-d863f06b",
+    "BD-f3f6ad68"
+   ]
+  }
+ },
+ "S3_dm_ack": {
+  "pass": true,
+  "error": "NONE",
+  "seconds": 0.0,
+  "from": "!d863f06b"
+ },
+ "S8_position": {
+  "pass": true,
+  "seconds": 1.61,
+  "position": {
+   "latitude": 47.4677248,
+   "longitude": -122.3360512,
+   "altitude": 120,
+   "precisionBits": 15
+  },
+  "fresh_client_20s_later": {
+   "latitude": 47.4677248,
+   "longitude": -122.3360512,
+   "altitude": 120,
+   "precisionBits": 15
+  }
+ },
+ "S4_kill": {
+  "pass": true,
+  "seconds": 0.33
+ },
+ "S5_dm_dead": {
+  "observed": "PKI_SEND_FAIL_PUBLIC_KEY",
+  "seconds": 0.0,
+  "from": "!f3f6ad68",
+  "pass": true
+ },
+ "S6_restart": {
+  "pass": true,
+  "seconds": 0.33
+ },
+ "S7_malformed": {
+  "pass": true,
+  "answering": {
+   "!f3f6ad68": true,
+   "!d863f06b": true,
+   "!5a09363d": true,
+   "!c12c8cb8": true
+  }
+ }
+}

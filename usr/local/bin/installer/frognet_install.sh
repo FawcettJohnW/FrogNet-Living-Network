@@ -45,9 +45,6 @@
 # Args (all optional; missing values fall through to interactive prompt):
 #   --name <NODE>            Node name. Letters, numbers, _, -.
 #   --ip   <10.X.Y.1>        Gateway IP. Must end in .1.
-#   --ram-port <PORT>        [RAM_PORT_CONFIGURABLE_V1] the port this node's RAM host (the SystemRam, when elected)
-#                            listens on, 1024..65535; the same on every FrogNetHost of a network. Asked when not given;
-#                            the answer kept in /etc/frognet/ram_port (default 8841, or what that file says already).
 #   --lan-iface <IFACE>      The wired interface this node SERVES (its 10.X.Y.1/24,
 #                            dnsmasq, DHCP). Omitted -> the first wired interface
 #                            that is not the uplink. The uplink (the interface the
@@ -158,7 +155,6 @@ WORLD_TGZ="${SCRIPT_DIR}/frognet_world.tgz"
 ###############################################################################
 ARG_NAME=""
 ARG_IP=""
-ARG_RAM_PORT=""
 ARG_DB_PASS=""
 ARG_DB_PASS_SET=0
 SSID_PROJECTION=1
@@ -190,8 +186,6 @@ while [[ $# -gt 0 ]]; do
         --name=*)            ARG_NAME="${1#*=}";   shift   ;;
         --ip)                ARG_IP="$2";          shift 2 ;;
         --ip=*)              ARG_IP="${1#*=}";     shift   ;;
-        --ram-port)          ARG_RAM_PORT="$2";    shift 2 ;;
-        --ram-port=*)        ARG_RAM_PORT="${1#*=}"; shift ;;
         --db-pass)           ARG_DB_PASS="$2"; ARG_DB_PASS_SET=1; shift 2 ;;
         --db-pass=*)         ARG_DB_PASS="${1#*=}"; ARG_DB_PASS_SET=1; shift ;;
         --preserve)          PRESERVE=1; shift ;;
@@ -1615,14 +1609,9 @@ else
     done
 fi
 
-# [RAM_PORT_CONFIGURABLE_V1] (John 2026-11-04) the RAM host port, given or asked; kept for every service that uses it
-HAVE_PORT=$(cat /etc/frognet/ram_port 2>/dev/null); HAVE_PORT=${HAVE_PORT:-8841}
-if [[ -n "$ARG_RAM_PORT" ]]; then RAM_PORT="$ARG_RAM_PORT"
-elif [[ -t 0 ]]; then read -rp "  RAM host port (the same on every FrogNetHost) [$HAVE_PORT]: " RAM_PORT; RAM_PORT="$(echo "${RAM_PORT:-$HAVE_PORT}" | xargs)"
-else RAM_PORT="$HAVE_PORT"; fi
-[[ "$RAM_PORT" =~ ^[0-9]+$ ]] && (( RAM_PORT >= 1024 && RAM_PORT <= 65535 )) || die "E1: the RAM host port must be 1024..65535 (got $RAM_PORT)"
-mkdir -p /etc/frognet && printf '%s\n' "$RAM_PORT" > /etc/frognet/ram_port
-log "RAM host port: $RAM_PORT (/etc/frognet/ram_port)"
+# [ROLES_ON_API_V1 - John 2026-11-07] no RAM host port: the roles (the SystemRam, the ControlRam) are their hosts'
+# api.php on port 80. A RAM port left by an earlier install is removed, so nothing reads it.
+if [[ -f /etc/frognet/ram_port ]]; then rm -f /etc/frognet/ram_port; log "removed /etc/frognet/ram_port (no RAM host port any more)"; fi
 
 # Conflict check only meaningful when we have a default route - i.e. when
 # something else might already be answering on this IP.

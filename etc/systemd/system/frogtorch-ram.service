@@ -1,0 +1,36 @@
+################################################################
+#  Copyright (C) 2016-2026 Fawcett Innovations LLC             #
+#                                                              #
+#  SPDX-License-Identifier: GPL-2.0-only                       #
+#                                                              #
+#  This program is free software; you can redistribute it      #
+#  and/or modify it under the terms of the GNU General Public  #
+#  License as published by the Free Software Foundation;       #
+#  version 2 of the License, and no other version.             #
+#                                                              #
+#  This program is distributed in the hope that it will be     #
+#  useful, but WITHOUT ANY WARRANTY; without even the implied  #
+#  warranty of MERCHANTABILITY or FITNESS FOR A PARTICULAR     #
+#  PURPOSE.  See the GNU General Public License for details.   #
+#                                                              #
+#  See COPYRIGHT and LICENSE at the root of this tree.         #
+################################################################
+# frogtorch-ram -- FrogTorch's RAM on this machine ([ALL_IN_THE_REGION_V1], 2026-11-11).
+# Every rank on this machine writes its tensors and control cells here, and every other rank reads them here. It
+# writes its capability tuple (frogtorch / can / <ip>:<port>) in the SystemRam, so ranks find it with no
+# configuration. The port is this machine's, picked at random once by frognet-ai's install.sh and kept in the env
+# file, so it is the same every time the service starts.
+[Unit]
+Description=FrogTorch RAM host
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+EnvironmentFile=/etc/frognet/frogtorch-ram.env
+Environment=PYTHONPATH=/opt/frognet_semantic
+ExecStart=/usr/bin/python3 -m agent_workload.tuplespace.frogtorch_ram --port ${FROGTORCH_RAM_PORT}
+Restart=on-failure
+RestartSec=2
+
+[Install]
+WantedBy=multi-user.target

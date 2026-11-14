@@ -22,7 +22,7 @@ def check(ok, what):
 def free():
     s = socket.socket(); s.bind(("127.0.0.1", 0)); p = s.getsockname()[1]; s.close(); return p
 
-T = tempfile.mkdtemp(prefix="rt-teamhost-"); procs = []
+T = tempfile.mkdtemp(prefix="openeoc-teamhost-"); procs = []
 def ram(binary, r):
     p = free(); procs.append(subprocess.Popen([binary, "--listen", "127.0.0.1:%d" % p, "--api", API],
         env=dict(os.environ, RINA_REGION_FILE=T + "/%s.perm" % r, RINA_NET_CONFIG=T + "/none"), stdout=subprocess.DEVNULL, stderr=open(T + "/%s.log" % r, "w")))
@@ -32,7 +32,7 @@ LEADPORT = free(); procs.append(subprocess.Popen([TEAMRAM, "--listen", "127.0.0.
 time.sleep(1)
 def post(hp, body): return json.load(urllib.request.urlopen(urllib.request.Request("http://%s%s?op=write" % (hp, API), json.dumps(body).encode(), {"Content-Type": "application/json"}), timeout=5))
 def get(hp, q): return json.load(urllib.request.urlopen("http://%s%s?%s" % (hp, API, q), timeout=5))
-post(GEN, {"service": "rt-mission", "variable": "settings", "instance": "m1", "bag": {"name": "Exercise", "at": 1}})
+post(GEN, {"service": "openeoc-mission", "variable": "settings", "instance": "m1", "bag": {"name": "Exercise", "at": 1}})
 
 class Door(BaseHTTPRequestHandler):
     def log_message(self, *a): pass
@@ -41,6 +41,8 @@ class Door(BaseHTTPRequestHandler):
     def do_GET(self):
         q = parse_qs(urlparse(self.path).query)
         if q.get("op") == ["rams"]: self.answer({"ok": True, "rams": {"general": GEN, "alpha": ALPHA}})
+        # the door's roles, as the real door answers them ([TEAM_DELETE_V1]: a team connects only when the door names it)
+        elif q.get("op") == ["roles"]: self.answer({"ok": True, "roles": {"eoc": {"category": "EOC"}, "alpha": {"category": "Teams", "ram": True}}})
         else: self.answer({"ok": False, "error": "op"})
     def do_POST(self):
         b = json.loads(self.rfile.read(int(self.headers["Content-Length"])))
@@ -83,7 +85,7 @@ c1 = lead.wait(lambda o: o.get("ev") == "connected" and (o.get("rams") or {}).ge
 check(c1 is not None, "1 the lead's own Alpha RAM is its phone's: %s" % ((c1 or {}).get("rams")))
 hc = None
 for i in range(40):
-    hc = [c for c in get(GEN, "op=read&service=rt-team-host").get("cells", []) if c["instance"] == "alpha"]
+    hc = [c for c in get(GEN, "op=read&service=openeoc-team-host").get("cells", []) if c["instance"] == "alpha"]
     if hc: break
     time.sleep(0.25)
 check(bool(hc) and hc[0]["bag"].get("ram") == LEADADDR, "1 the lead's cell on the general RAM says where: %s" % (hc[0]["bag"] if hc else "none"))
@@ -93,7 +95,7 @@ check(c2 is not None, "2 the EOC's Alpha RAM is the lead's phone now: %s" % ((c2
 # 3 a member on the hotspot reads the lead's card at its gateway, then connects with the team RAM there
 card = None
 for i in range(40):
-    cs = [c for c in get(LEADADDR, "op=read&service=rt-team&variable=card").get("cells", []) if c["instance"] == "alpha"]
+    cs = [c for c in get(LEADADDR, "op=read&service=openeoc-team&variable=card").get("cells", []) if c["instance"] == "alpha"]
     if cs: card = cs[0]["bag"]; break
     time.sleep(0.25)
 check(card is not None and card.get("team") == "Alpha" and card.get("door") == DOOR and card.get("join") == "fdfjoin1.test-line", "3 the lead's card in its RAM: %s" % card)
@@ -111,18 +113,19 @@ time.sleep(1.5)
 mem.send(op="say", to="team:Alpha", text="on scene at the ferry dock")
 got_lead = lead.wait(lambda o: o.get("ev") == "msg" and o.get("text") == "on scene at the ferry dock")
 got_eoc = eoc.wait(lambda o: o.get("ev") == "msg" and o.get("text") == "on scene at the ferry dock")
-inram = any(c["bag"].get("text") == "on scene at the ferry dock" for c in get(LEADADDR, "op=read&service=rt-team").get("cells", []))
+inram = any(c["bag"].get("text") == "on scene at the ferry dock" for c in get(LEADADDR, "op=read&service=openeoc-team").get("cells", []))
 check(got_lead is not None and got_eoc is not None and inram, "4 a member's team message is in the lead's RAM and reaches the lead (%s) and the EOC (%s)" % (got_lead is not None, got_eoc is not None))
-noalpha = not any(c["bag"].get("text") == "on scene at the ferry dock" for c in get(ALPHA, "op=read&service=rt-team").get("cells", []))
+noalpha = not any(c["bag"].get("text") == "on scene at the ferry dock" for c in get(ALPHA, "op=read&service=openeoc-team").get("cells", []))
 check(noalpha, "4 nothing went to fdf-app's Alpha RAM")
 # 6 [TEAM_SPLIT_V1] the lead's phone joins another FrogNet (its own general RAM, its own node): the lead asks that node,
 # its card says so, and its member follows it; the team's RAM stays on the lead's phone
 GEN2 = ram(HOST, "general2"); time.sleep(0.5)
-post(GEN2, {"service": "rt-mission", "variable": "settings", "instance": "m2", "bag": {"name": "Other site", "at": 2}})
+post(GEN2, {"service": "openeoc-mission", "variable": "settings", "instance": "m2", "bag": {"name": "Other site", "at": 2}})
 class Door2(Door):
     def do_GET(self):
         q = parse_qs(urlparse(self.path).query)
         if q.get("op") == ["rams"]: self.answer({"ok": True, "rams": {"general": GEN2}})
+        elif q.get("op") == ["roles"]: self.answer({"ok": True, "roles": {"eoc": {"category": "EOC"}, "alpha": {"category": "Teams", "ram": True}}})
         else: self.answer({"ok": False, "error": "op"})
 dp2 = free(); srv2 = ThreadingHTTPServer(("127.0.0.1", dp2), Door2); threading.Thread(target=srv2.serve_forever, daemon=True).start()
 DOOR2 = "127.0.0.1:%d" % dp2

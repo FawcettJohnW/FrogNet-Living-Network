@@ -17,7 +17,7 @@ messages and start using memory.
 ## What this repository is
 
 The whole of it, in one tree: the node software (installed onto ordinary Linux
-machines), the Ribbit platform and its examples, the FD&F region software, the
+machines), the Ribbit platform and its examples, CroakOS (the FD&F region software), the
 Android app and the Windows bridge sources, the simulator and the tests, the
 book, and the website.
 
@@ -51,14 +51,18 @@ other's /24s, and split, heal and merge as links come and go, with no external
 service. This is the LAN-only mode of a node. The node software is
 `opt/frognet_semantic/`, `usr/local/bin/`, `var/www/html/` and `etc/`.
 
-**FD&F (Farinacci, Day & Fawcett) is a different transport.** It joins machines
+**FD&F (Farinacci, Day & Fawcett) is a different transport, and CroakOS is its
+implementation.** FD&F is the architecture; CroakOS is the distributed operating
+system that implements it, offering memory and scheduling (held reads) instead of
+messaging between computers, across the Internet. The code keeps the `fdf` name in
+its paths and commands (`opt/fdf`, `fdf-app`, `fdf-region-join`). It joins machines
 at separate sites into one network. Members attach at the region's droplet, and
 attaching is the droplet's only special job. Between sites, the fabric carries
 IP traffic over WireGuard through the region's hub (fdf-hub), which runs on that
 host. Nodes on one LAN still reach each other directly. Routing is the fabric's
 and is transparent to every server, the droplet included. Applications meet in
 their own RAM, served by a droplet that each app's selection places on a member
-(`opt/fdf/docs/APP-SETUP-AND-OPERATION.md`). This is the region mode of a node. The FD&F sources, the built binaries and the
+(`opt/fdf/docs/APP-SETUP-AND-OPERATION.md`). This is the region mode of a node. The CroakOS sources, the built binaries and the
 installers are in `opt/fdf/`.
 
 A Ribbit program that behaves the same over FrogNet and over FD&F shows that the
@@ -90,10 +94,10 @@ opt/frognet_semantic/     the node engine
   simulation/             the simulator and its tiers
   ribbit/                 Ribbit: platform, default API, documents, examples
   docs/                   the book (magnum_croakus/) and engineering notes
-opt/fdf/                  FD&F
+opt/fdf/                  CroakOS, the implementation of FD&F
   bin/  lib/  www/        what a region node or region host runs (laid down by the .run / fdf-droplet.tgz)
   dist/                   the node installers fdf-install-{x86_64,aarch64}.run and the region host's fdf-droplet.tgz
-  src/fdf-source/         FD&F sources: rinab/ (C++ and its netns tests), fdf/ (scripts), docs/
+  src/fdf-source/         CroakOS sources: rinab/ (C++ and its netns tests), fdf/ (scripts), docs/
   src/frognet-android/    the Android app, the member protocol in Kotlin, fdf-tun
   windows/                the Windows bridge (bridge/) and the older Windows client
 docs/                     OPERATING.md, and cleanup-2026-10/ (the cleanup's records, logs and test harness)

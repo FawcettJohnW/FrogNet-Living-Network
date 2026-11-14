@@ -1,0 +1,20 @@
+menu "Closed loop on the memory"
+    config LOOP_RAM
+        string "The memory: http://HOST:PORT (the meshtastic-ram host)"
+        default "http://127.0.0.1:18899"
+    config LOOP_ROLE
+        string "sensor or controller"
+        default "sensor"
+    config LOOP_NAME
+        string "This node's name in the memory (empty: the chip id)"
+        default ""
+    config LOOP_PERIOD_MS
+        int "sensor: the starting period between readings (ms)"
+        default 2000
+    config LOOP_WIFI_SSID
+        string "Wi-Fi SSID (a real chip; the Linux target ignores it)"
+        default ""
+    config LOOP_WIFI_PASS
+        string "Wi-Fi password"
+        default ""
+endmenu

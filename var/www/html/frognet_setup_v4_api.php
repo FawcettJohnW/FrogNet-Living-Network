@@ -159,10 +159,9 @@ switch ($action) {
         if ($node === '' || !in_array($op, ['setup', 'clear', 'dump', 'backup', 'reboot'], true)) fail('node and op (setup, clear, dump, backup, reboot) required');
         $args = [$op, '--node', $node, '--no-wait'];
         if ($op === 'setup') {
-            $name = trim($input['name'] ?? ''); $ip = trim($input['ip'] ?? ''); $port = trim((string)($input['port'] ?? ''));
+            $name = trim($input['name'] ?? ''); $ip = trim($input['ip'] ?? '');   // [ROLES_ON_API_V1] no RAM port
             if ($name === '' || $ip === '') fail('name and ip required');
-            if ($port !== '' && (!ctype_digit($port) || (int)$port < 1024 || (int)$port > 65535)) fail('port: 1024..65535');   // [RAM_PORT_CONFIGURABLE_V1]
-            $args[] = $name; $args[] = $ip; if ($port !== '') $args[] = $port;
+            $args[] = $name; $args[] = $ip;
         }
         frognet_host($args);
 

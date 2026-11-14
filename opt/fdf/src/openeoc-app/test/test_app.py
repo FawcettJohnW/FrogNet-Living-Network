@@ -4,7 +4,7 @@
 #  SPDX-License-Identifier: GPL-2.0-only                       #
 ################################################################
 # test_app.py FDF_RAM [SHOTS_DIR] -- [RT_APP_TEST_V1] the OpenEOC app (its real core and its real page, through
-# DevHost) against real RAMs: fdf-ram for the general RAM and one per team, rt-sim writing the world, and a stand-in
+# DevHost) against real RAMs: fdf-ram for the general RAM and one per team, openeoc-sim writing the world, and a stand-in
 # for the node's door (ram.php's op=rams from app-where.json, and op=login for the EOC's user). Three devices: the
 # EOC, a member of team Alpha, the public.
 #   1 the EOC's map shows the whole simulated world, moving
@@ -12,7 +12,7 @@
 #   3 the Alpha member's team message is on the EOC's Alpha tab; the EOC's direct message is on the member's Direct tab
 #   4 the public view shows hospitals, fires and outages only, and has no chat
 #   5 the EOC's own presence is on the Alpha member's map; the Alpha member's on the EOC's
-#   6 rt-sim stopped: every simulated instance leaves the RAM; the EOC draws them as last known positions
+#   6 openeoc-sim stopped: every simulated instance leaves the RAM; the EOC draws them as last known positions
 #   7 the EOC with a wrong password is refused, and says so
 #   8 the To list has every person present (direct messages) and every team
 #   9 a message while the chat is closed: a notice on the map, a count on the Chat button
@@ -49,7 +49,7 @@ def check(ok, what):
 def free():
     s = socket.socket(); s.bind(("127.0.0.1", 0)); p = s.getsockname()[1]; s.close(); return p
 
-T = tempfile.mkdtemp(prefix="rt-app-"); os.makedirs(T + "/var")
+T = tempfile.mkdtemp(prefix="openeoc-app-"); os.makedirs(T + "/var")
 procs = []
 where = {}
 for r in ("general", "alpha", "bravo", "charlie", "delta"):
@@ -100,12 +100,12 @@ def sensors(q):
 dp = free(); door = ThreadingHTTPServer(("127.0.0.1", dp), Door); threading.Thread(target=door.serve_forever, daemon=True).start()
 DOOR = "127.0.0.1:%d" % dp
 
-# [APP_SERVICES_V1] rt-sim finds the general AppRam as a node does: its AppHost in /etc/hosts (FDF_HOSTS) and its port
+# [APP_SERVICES_V1] openeoc-sim finds the general AppRam as a node does: its AppHost in /etc/hosts (FDF_HOSTS) and its port
 # in the app's configuration (FDF_APPS/openeoc.json)
 os.makedirs(T + "/apps", exist_ok=True)
 open(T + "/hosts", "w").write("127.0.0.1 openeocHost.frognet\n")
 json.dump({"rams": ["general"], "ports": {"general": int(where["openeoc.general"].split(":")[1])}}, open(T + "/apps/openeoc.json", "w"))
-sim = subprocess.Popen([os.path.join(FDF, "bin", "rt-sim"), "--tick", "1"], env=dict(os.environ, FDF_VAR=T + "/var", FDF_HOSTS=T + "/hosts", FDF_APPS=T + "/apps", FDF_PY=os.path.join(FDF, "lib", "python")),
+sim = subprocess.Popen([os.path.join(FDF, "bin", "openeoc-sim"), "--tick", "1"], env=dict(os.environ, FDF_VAR=T + "/var", FDF_HOSTS=T + "/hosts", FDF_APPS=T + "/apps", FDF_PY=os.path.join(FDF, "lib", "python")),
                        stdout=open(T + "/sim.log", "w"), stderr=subprocess.STDOUT)
 CP = os.pathsep.join([os.path.join(SRC, "frognet-ram-java", "build", "frognet-ram.jar"), os.path.join(APP, "build", "core"), os.path.join(APP, "build", "test")])
 dev, ROLE = {}, {}
@@ -282,27 +282,27 @@ with sync_playwright() as pw:
               {k: st.get(k) for k in ("camera", "mic", "speaker", "ram", "media")}, ring.replace("\n", " ")))
     # [RT_TEAM_APP_V1] [RT_PUBLIC_APP_V1] the Team app and the Public app on a phone's screen: one view each, no choice
     ta = open_dev("teamapp", 412, 860)
-    t_ok = ta.is_hidden("#roleSet") and ta.inner_text("#connect h1") == "OpenEOC Team" and "openeoc-app-" in ta.inner_text("#cstatus")
+    t_ok = ta.is_hidden("#roleSet") and ta.inner_text("#connect h1") == "OpenEOC -- Team" and "openeoc-app-" in ta.inner_text("#cstatus")
     ta.select_option("[name=team]", "Bravo"); ta.click("#connect button[type=submit]"); ta.wait_for_selector("#main:not([hidden])", timeout=8000)
     ta.wait_for_function("S.role==='team' && S.team==='Bravo' && Object.keys(S.markers).length >= 4", timeout=15000)
     tt2 = ta.evaluate("[...new Set(Object.keys(S.markers).filter(id=>!id.startsWith('gps:') && (S.pos[id]||{}).kind!=='host').map(id=>(S.pos[id]||{}).team))]")
     ta.click("#misBtn"); back1 = ta.evaluate("rtBack()"); closed = ta.is_hidden("#sheet"); back2 = ta.evaluate("rtBack()")
     tl = ta.evaluate("RT.loaded.join()")
     check(t_ok and tt2 == ["Bravo"] and back1 and closed and back2 is False and tl == "help,field,team",
-          "30 the Team app (layers " + tl + "): no view to choose (titled OpenEOC Team, its build on the first screen), opens on its own team (%s); Back closes the open sheet, then has nothing to close" % tt2)
+          "30 the Team app (layers " + tl + "): no view to choose (titled OpenEOC -- Team, its build on the first screen), opens on its own team (%s); Back closes the open sheet, then has nothing to close" % tt2)
     if SHOTS: ta.screenshot(path=os.path.join(SHOTS, "team-app-phone.png"))
     pa = open_dev("pubapp", 412, 860)
-    p_ok = pa.is_hidden("#roleSet") and pa.inner_text("#connect h1") == "OpenEOC Public" and pa.is_hidden(".for-team") and pa.is_hidden(".for-eoc")
+    p_ok = pa.is_hidden("#roleSet") and pa.inner_text("#connect h1") == "OpenEOC -- Public" and pa.is_hidden(".for-team") and pa.is_hidden(".for-eoc")
     pa.click("#connect button[type=submit]"); pa.wait_for_selector("#home:not([hidden])", timeout=8000)
     pa.click("[data-go=map]"); pb_back = pa.evaluate("rtBack()"); home_again = pa.is_visible("#home")
     pa.evaluate("setTimeout(()=>{ nosuchfunction() }, 0)"); time.sleep(0.3)
     err = pa.evaluate("S.errs.join(' | ')")                   # (the status line: whatever came last; the page error is in the said list)
     pl = pa.evaluate("RT.loaded.join()")
     check(p_ok and pb_back and home_again and "page error" in err and pl == "help,public",
-          "31 the Public app (layers " + pl + "): no view to choose (titled OpenEOC Public), opens on its home; Back from the map goes Home; a page error is said on the status line: '%s'" % err[:80])
+          "31 the Public app (layers " + pl + "): no view to choose (titled OpenEOC -- Public), opens on its home; Back from the map goes Home; a page error is said on the status line: '%s'" % err[:80])
     if SHOTS: pa.screenshot(path=os.path.join(SHOTS, "public-app-phone.png"))
     pk = dict(PICKED)
-    check(set(pk) == {"eoc1", "alpha9", "pub1", "hosp1", "med12"} and any(t.startswith("OpenEOC EOC") for t in pk["eoc1"]) and len(pk["eoc1"]) >= 5,
+    check(set(pk) == {"eoc1", "alpha9", "pub1", "hosp1", "med12"} and any(t.startswith("OpenEOC -- CommandCenter") for t in pk["eoc1"]) and len(pk["eoc1"]) >= 5,
           "33 [RT_APP_PICKER_V1] the OpenEOC app asks which app first (%s); the Team and Public apps do not: asked on %s" % (pk.get("eoc1"), sorted(pk)))
     # [RT_DIAG_V1] the team member's Diagnostics: its followers up, its position written and in the positions RAM, its message back
     tm.evaluate("$('#sheet').hidden=true"); tm.click("#diagBtn"); tm.wait_for_function("/Where this device reads/.test($('#sheet').textContent) && /Last message/.test($('#sheet').textContent)", timeout=8000)
@@ -330,7 +330,7 @@ with sync_playwright() as pw:
     mis = _re.search(r"mission (\S+)", dg).group(1)
     gr = fdfram.Ram(where["openeoc.general"])
     for i, (t, la) in enumerate((("Echo", 47.61), ("Zulu", 47.62))):
-        gr.write("rt-pos", mis, "x-" + t.lower(), {"name": t + " 1", "kind": "team", "team": t, "lat": la, "lng": -122.33, "at": int(time.time())})
+        gr.write("openeoc-pos", mis, "x-" + t.lower(), {"name": t + " 1", "kind": "team", "team": t, "lat": la, "lng": -122.33, "at": int(time.time())})
     try: eoc.wait_for_function("S.markers['x-echo'] && S.markers['x-zulu']", timeout=10000); drawn = True
     except Exception: drawn = False
     lay = eoc.evaluate("[...document.querySelectorAll('#layers label')].map(l=>l.textContent.trim())")
@@ -340,7 +340,7 @@ with sync_playwright() as pw:
     # [RT_RADIO_LOG_IN_THE_APP_V1] a scribe's entry, as the radio log app writes it (rt.js logEntry), on the EOC's Radio log
     sys.path.insert(0, os.path.join(FDF, "lib", "python")); import fnw1
     gh, gp = json.load(open(T + "/var/app-where.json"))["openeoc.general"].rsplit(":", 1); ls = fnw1.Session(gh, gp)
-    ls.write("rt-log", "seattle-metro.1", "scribe1.1", {"uid": "scribe1.1", "callsign": "KJ7ABC", "status": "urgent", "location": {"text": "Burton dock"},
+    ls.write("openeoc-log", "seattle-metro.1", "scribe1.1", {"uid": "scribe1.1", "callsign": "KJ7ABC", "status": "urgent", "location": {"text": "Burton dock"},
              "notes": "Two injured at the dock, need transport", "date": "2026-11-02T12:40:00.000Z", "msgNo": {"station": "vashon-post", "seq": 1},
              "dev": "scribe1", "by": "Vashon post"}, wait=True); ls.close()
     eoc.evaluate("$('#sheet').hidden=true"); eoc.click("#logBtn")
@@ -369,7 +369,7 @@ with sync_playwright() as pw:
     eoc.wait_for_function("Object.values(S.pos).filter(b=>b.sim).length===0", timeout=10000)
     time.sleep(0.5)
     lkp = eoc.evaluate("document.querySelectorAll('.mk.lkp').length")
-    check(lkp >= 60, "6 rt-sim stopped: no simulated instance in the RAM; %d drawn as last known positions" % lkp)
+    check(lkp >= 60, "6 openeoc-sim stopped: no simulated instance in the RAM; %d drawn as last known positions" % lkp)
     if SHOTS: eoc.screenshot(path=os.path.join(SHOTS, "eoc-lkp.png"))
     tm.evaluate("$('#chat').hidden=true"); tm.click("#misBtn"); tm.click("text=Start a new mission")
     tm.fill(".mf [name=name]", "Vashon windstorm"); tm.fill(".mf [name=event]", "Windstorm, island power out"); tm.click(".mf .go")

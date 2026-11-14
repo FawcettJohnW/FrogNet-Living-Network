@@ -22,7 +22,7 @@ RT.layer('public', (RT) => {
     </div>
     <div class="cards">
       <button class="card2" data-go="find"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M15.5 14h-.8l-.3-.3A6.5 6.5 0 1 0 14 15.5l.3.3v.8l5 5 1.5-1.5-5-5zm-6 0A4.5 4.5 0 1 1 14 9.5 4.5 4.5 0 0 1 9.5 14z"/></svg><b>Find someone</b><span>who has checked in, by name</span></button>
-      <button class="card2" data-go="report"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8l-6-6zm2 16H8v-2h8v2zm0-4H8v-2h8v2zm-3-5V3.5L18.5 9H13z"/></svg><b>Report to the EOC</b><span>damage · hazards · what you see</span></button>
+      <button class="card2" data-go="report"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8l-6-6zm2 16H8v-2h8v2zm0-4H8v-2h8v2zm-3-5V3.5L18.5 9H13z"/></svg><b>Report to the Command Center</b><span>damage · hazards · what you see</span></button>
       <button class="card2" data-go="places"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M19 3H5a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2V5a2 2 0 0 0-2-2zm-2 10h-4v4h-2v-4H7v-2h4V7h2v4h4v2z"/></svg><b>Hospitals &amp; services</b><span>beds · fires · power outages</span></button>
       <button class="card2" data-go="library"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M18 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V4a2 2 0 0 0-2-2zM6 4h5v8l-2.5-1.5L6 12V4z"/></svg><b>Survival library</b><span>first aid · water · shelter · safety</span></button>
       <button class="card2" data-go="fema"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 1 3 5v6c0 5.6 3.8 10.7 9 12 5.2-1.3 9-6.4 9-12V5l-9-4z"/></svg><b>Contact FEMA</b><span>apply for disaster assistance</span></button>
@@ -79,7 +79,7 @@ function helpForm(status) {
     <label>How to reach you (phone, radio)<input name="contact"></label>
     <label>Anything else<textarea name="note" rows="3"></textarea></label>
     <button class="go">${safe ? 'Tell everyone I am safe' : 'Ask for help'}</button></form>
-    <div class="meta">${safe ? 'Your family can find you by name under Find someone.' : 'Responders and the EOC see this at once, on their maps.'}</div>`)
+    <div class="meta">${safe ? 'Your family can find you by name under Find someone.' : 'Responders and the Command Center see this at once, on their maps.'}</div>`)
   const f = document.querySelector('.hf'), loc = wireWhere(f)
   f.onsubmit = (e) => {
     e.preventDefault()
@@ -114,15 +114,15 @@ function findDraw(text) {
       ${b.note ? `<div>${esc(b.note)}</div>` : ''}</div>`).join('') : '<div class="meta">No one by that name has checked in yet.</div>'
 }
 function reportForm() {
-  sheet('form', 'Report to the EOC', `<form class="rf">
+  sheet('form', 'Report to the Command Center', `<form class="rf">
     <label>What is it<select name="category"><option>Damage</option><option>Hazard</option><option>Fire</option><option>Flooding</option><option>Power line down</option><option>Road blocked</option><option>Missing person</option><option>Other</option></select></label>
     <label>What do you see<textarea name="text" rows="4" required></textarea></label>
-    ${whereHtml()}<button class="go">Send to the EOC</button></form>`)
+    ${whereHtml()}<button class="go">Send to the Command Center</button></form>`)
   const f = document.querySelector('.rf'), loc = wireWhere(f)
   f.onsubmit = (e) => {
     e.preventDefault(); const l = loc()
     send({ op: 'report', category: f.category.value, text: f.text.value.trim() + (l.text ? ' (at ' + l.text + ')' : ''), lat: l.lat, lng: l.lon })
-    sheet('form', 'Report to the EOC', '<div class="card">Sent. The EOC has it now.</div>')
+    sheet('form', 'Report to the Command Center', '<div class="card">Sent. The Command Center has it now.</div>')
   }
 }
 function placesList() {
@@ -144,7 +144,7 @@ function heroSummary() {
 // ------------------------------------------------------------ the survival library: in the app, so it works with no network
 const LIBRARY = [
   ['Emergencies: call first', ['Call 911 for life-threatening emergencies if any phone works. Text 911 where it is supported.',
-    'If you cannot call, use "I need help" here: responders and the EOC see it at once, with where you are.',
+    'If you cannot call, use "I need help" here: responders and the Command Center see it at once, with where you are.',
     'Three of anything (whistle blasts, shouts, flashes, rock piles) is a call for help.']],
   ['Bleeding and first aid', ['Press firmly on the wound with a clean cloth and keep pressing. Do not lift it to look.',
     'For bleeding from an arm or leg that pressure will not stop: a tourniquet 2-3 inches above the wound, tight until the bleeding stops; note the time.',
@@ -171,7 +171,7 @@ const LIBRARY = [
     'For wildfire smoke, stay indoors with windows closed; an N95 mask helps outdoors.']],
   ['Shelter and warmth', ['Stay dry: wet clothing loses most of its warmth. Layer, cover your head, insulate yourself from the ground.',
     'Shivering, confusion, slurred speech: hypothermia. Get them warm and dry, warm drinks if they are awake, and get help.',
-    'Shelters are under Hospitals & services as the EOC opens them.']],
+    'Shelters are under Hospitals & services as the Command Center opens them.']],
 ]
 function library() {
   sheet('library', 'Survival library', `<div class="lib"><div class="meta">Kept in this app: it works with no network at all.</div>` +
@@ -187,7 +187,7 @@ function fema() {
       <li>In person: a <b>Disaster Recovery Center</b> (DisasterAssistance.gov lists them once they open)</li></ul></div>
     <div class="card"><b>Have ready</b><ul><li>Your address at the time of the disaster, and where you can be reached now</li>
       <li>Insurance information</li><li>Bank account details, for direct deposit</li></ul></div>
-    <div class="card"><b>No Internet here?</b> Use "Report to the EOC": the EOC can pass a FEMA request on for you.</div>
+    <div class="card"><b>No Internet here?</b> Use "Report to the Command Center": the Command Center can pass a FEMA request on for you.</div>
     <div class="src">From USA.gov, "How to apply for disaster assistance" (checked 2026-11-01).</div></div>`)
 }
 })

@@ -18,8 +18,9 @@
        done: it opens on the map, and none of this is shown. -->
   <div id="qrSec" hidden>
     <button type="button" id="scanTeam">Scan a QR code</button>
-    <div class="meta">Your team lead's QR code to join the team, or the EOC's to lead a team.</div>
+    <div class="meta">Your team lead's QR code to join the team, or the Command Center's to lead a team.</div>
     <div id="enrollBox" hidden><div class="meta" id="enrollWho"></div>
+      <label id="enrollUserL" hidden>User <input id="enrollUser" autocomplete="username" autocapitalize="none"></label>
       <label id="enrollCallL" hidden><span class="ecl">Your call sign</span> <input id="enrollCall" autocomplete="off" autocapitalize="characters"></label>
       <label>Password <input id="enrollPw" type="password" autocomplete="current-password"></label>
       <button type="button" id="enrollGo">Join</button></div>
@@ -37,7 +38,7 @@
     <div class="for-invite" hidden><label>FrogNet invitation <input name="invite" placeholder="fdfinv1.… (pasted once; kept on this phone)" autocomplete="off"></label>
       <div class="meta inv-say"></div></div>
     <button type="submit">Connect</button>
-    <button type="button" id="joinEoc" class="linkish" hidden title="[CHILDREN_JOIN_V1] with no EOC QR code at hand: the Node above, your team's name, the EOC's teams password; this phone leads the team">Start a team without the EOC's QR code</button>
+    <button type="button" id="joinEoc" class="linkish" hidden title="[EOC_LEADS_V1] with no Command Center QR code at hand: the Node above, the user the Command Center gave you, your team's name and your password; this phone leads the team">Create a team without the Command Center's QR code</button>
   </div></details>
   <div id="cstatus"></div>
   <button type="button" id="cexit" class="linkish" hidden>Exit</button>   <!-- [APP_EXIT_V1] -->

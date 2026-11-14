@@ -140,12 +140,20 @@ table.rl td { padding: 5px 6px; border-bottom: 1px solid #1f2a24; vertical-align
 
 /* [RT_APP_PICKER_V1] which app: one button per view */
 #pick { position: fixed; inset: 0; display: grid; place-items: center; background: rgba(0,0,0,.6); z-index: 9000; padding: 16px; }
-#pick .pick-card { background: var(--pn); border: 1px solid var(--bd); border-radius: 14px; padding: 20px; width: min(380px, 100%); }
+#pick .pick-card { background: var(--pn); border: 1px solid var(--bd); border-radius: 14px; padding: 20px; width: min(380px, 100%);
+  max-height: calc(100vh - 32px); overflow-y: auto; box-sizing: border-box; }   /* [PICKER_SCROLLS_V1] more apps than the window is tall: it scrolls */
 #pick h2 { margin: 0 0 12px; font-size: 22px; }
 #pick .pick-list { display: grid; gap: 8px; }
 #pick .pick-list button { font-size: 17px; padding: 12px 14px; text-align: left; border-radius: 9px; border: 1px solid var(--bd); background: #0b130e; color: var(--fg); display: flex; justify-content: space-between; align-items: center; cursor: pointer; }
 #pick .pick-list button:hover { border-color: #3fb36b; }
 #pick .pick-last { font-size: 12px; color: var(--mu); }
+/* [NOTHING_UNTIL_ASKED_V1] the existing team or unit, or a new one: the picker's look */
+#startAs { position: fixed; inset: 0; display: grid; place-items: center; background: rgba(0,0,0,.6); z-index: 9000; padding: 16px; }
+#startAs .pick-card { background: var(--pn); border: 1px solid var(--bd); border-radius: 14px; padding: 20px; width: min(380px, 100%); }
+#startAs h2 { margin: 0 0 12px; font-size: 22px; }
+#startAs .pick-list { display: grid; gap: 8px; }
+#startAs .pick-list button { font-size: 17px; padding: 12px 14px; text-align: left; border-radius: 9px; border: 1px solid var(--bd); background: #0b130e; color: var(--fg); cursor: pointer; }
+#startAs .pick-last { font-size: 12px; color: var(--mu); }
 #connect .linkish { align-self: flex-start; background: none; border: 0; color: #8fe0ad; padding: 0; font-size: 14px; cursor: pointer; text-decoration: underline; }
 
 /* [RT_DIAG_V1] */
@@ -162,3 +170,33 @@ header #chatBtn { flex: none; }
 #menu { position: fixed; top: 46px; right: 6px; z-index: 6000; background: var(--pn); border: 1px solid var(--bd); border-radius: 10px; padding: 6px; display: grid; gap: 4px; min-width: 170px; box-shadow: 0 6px 24px rgba(0,0,0,.5); }
 #menu button { text-align: left; font-size: 16px; padding: 10px 12px; background: #24382c; color: var(--fg); border: 1px solid var(--bd); border-radius: 7px; }
 #menu button[hidden] { display: none; }
+/* [FEMA_EOC_V1] the EOC function (layers/fema.js) and EOCAdmin's paperwork (layers/paper.js) */
+.lld { display: inline-block; width: 10px; height: 10px; border-radius: 50%; vertical-align: -1px; margin-right: 4px; }
+.llrow { display: flex; flex-wrap: wrap; gap: 4px 10px; margin: 6px 0 10px; font-size: 13px; } .llp { white-space: nowrap; }
+.card.ll { margin: 6px 0; } .card.ll button { display: block; margin-top: 6px; }
+body.paperwide #sheet { width: min(900px, 100%); }
+#sheet .paper { background: #f6f4ee; color: #1b1b1b; border-radius: 6px; padding: 12px 14px; margin: 8px 0; }
+#sheet .paper h2 { margin: 0 0 4px; font-size: 18px; } #sheet .paper .meta { color: #555; }
+#sheet .paperform { display: grid; grid-template-columns: repeat(auto-fill, minmax(200px, 1fr)); gap: 8px 12px; margin-top: 8px; }
+#sheet .paperform label { display: flex; flex-direction: column; gap: 3px; font-size: 12px; color: #555; } #sheet .paperform label.wide { grid-column: 1 / -1; }
+#sheet .paperform input, #sheet .paperform select, #sheet .paperform textarea { font: inherit; font-size: 14px; color: #1b1b1b; background: #fff; border: 1px solid #c9c4b6; border-radius: 5px; padding: 5px 7px; }
+#sheet .paperform [disabled] { background: #efece4; color: #1b1b1b; }
+#sheet .paper table.ics th, #sheet .paper table.ics td { color: #1b1b1b; border-color: #c9c4b6; }
+@media print {
+  body.printing > *:not(#main), body.printing #main > *:not(#sheet), body.printing #sheet .sh-head, body.printing #sheet .noprint { display: none !important; }
+  body.printing #main { position: static !important; display: block !important; }
+  body.printing #sheet { position: static !important; width: auto !important; border: 0; background: #fff; display: block; }
+  body.printing #sheet .sh-body { overflow: visible !important; }
+  body.printing #sheet .paper { background: #fff; padding: 0; page-break-inside: auto; }
+}
+.leadform { display: flex; flex-direction: column; gap: 6px; } .leadform label { display: flex; flex-direction: column; gap: 3px; font-size: 13px; color: var(--mu); }
+.leadform input { font-size: 16px; padding: 7px; border-radius: 6px; border: 1px solid var(--bd); background: #0b130e; color: var(--fg); }
+.leadqr .qrbox { background: #fff; display: inline-block; padding: 8px; border-radius: 6px; margin: 8px 0; }   /* [EOC_LEADS_V1] */
+.leadsay { font-size: 14px; min-height: 1.3em; color: var(--ac); } .leadsay.bad { color: #ff8a80; }   /* [LEAD_SAYS_ITS_ANSWER_V1] */
+
+/* [CHAT_CALL_TAB_V1] the chat's Call tab: one row per person, Call at its end */
+.calls { display: grid; gap: 6px; }
+.callrow { display: flex; justify-content: space-between; align-items: center; gap: 8px; padding: 6px 8px; border: 1px solid var(--bd); border-radius: 8px; }
+
+/* [LEAD_HOST_CHOICES_V1] a choice's warning */
+.warn { color: #ffb74d; font-weight: 600; }

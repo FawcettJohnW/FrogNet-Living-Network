@@ -1,10 +1,10 @@
 # OpenEOC on FrogNet: results
 
-Each run is tied to the RangerTrak commit it ran on and to this tree's build. Numbers are measured, not estimated.
+Each run is tied to the OpenEOC commit it ran on and to this tree's build. Numbers are measured, not estimated.
 
 ## Phase 1, step 1: stock, as it is (2026-10-31)
 
-RangerTrak `b6745f49` (SteadyEOC/RangerTrak, `fix(map): E-266 offline save keeps going past failed tiles`), cloned
+OpenEOC `b6745f49` (SteadyEOC/OpenEOC, `fix(map): E-266 offline save keeps going past failed tiles`), cloned
 outside this tree. One machine (the session's container: 2 cores, Node 22.23.4, npm 10.9.9, Chromium 153 headless).
 
 What was changed to run it here, and only this:
@@ -38,8 +38,8 @@ Not yet run: `e2e --full`, the two-scribe baseline (Report Packet from one devic
 
 ## The app's pages, first cut (2026-10-31)
 
-`opt/fdf/src/fdf-source/fdf/www/rt` (`log.html`, `rt.js`, `rules.js`), [RT_PAGES_V1]: the mission, the Entry form and the Radio Log.
-`test_rt_pages.py` there: a real rina-host, two posts (two web servers, each a node's `ram.php`), three devices in
+`opt/fdf/src/fdf-source/fdf/www/openeoc` (`log.html`, `openeoc.js`, `rules.js`), [RT_PAGES_V1]: the mission, the Entry form and the Radio Log.
+`test_openeoc_pages.py` there: a real rina-host, two posts (two web servers, each a node's `ram.php`), three devices in
 Chromium (scribe A at post A, scribe B at post B, a field phone on post A):
 
 | Check | Result |
@@ -62,7 +62,7 @@ How the cut is survived: each answer from `ram.php` says which RAM manager the n
 reads everything there and writes this device's own entries again where they are missing (memory is never moved; each
 owner writes its own). A held read lasts at most 8 s, the longest a page stays on a RAM manager its node has left.
 
-Stock RangerTrak's equivalent of the second row is a Report Packet: a file, carried by hand, merged on the other device.
+Stock OpenEOC's equivalent of the second row is a Report Packet: a file, carried by hand, merged on the other device.
 Not yet in the app: offline basemap areas, Messages (213), Summary, After-action (214), the 213 form, the post's 309 file,
 spreadsheet roster import.
 
@@ -84,7 +84,7 @@ A split is emulated only as the fabric presents one: behind that address, anothe
 | b cut off | b writes its configuration and capability on its side's RAM and serves both there, 1.07 s after; a and c still on c |
 | b back | b maps both to c again and stops serving |
 
-`fdf/www/rt/test_rt_pages.py`: two posts, each a member as above; the radio log's services in the app's general RAM
+`fdf/www/openeoc/test_openeoc_pages.py`: two posts, each a member as above; the radio log's services in the app's general RAM
 (apps.json), served by the selection's member (A); `ram.php` reads the post's `app-where.json`.
 
 | Check | Result |
@@ -97,11 +97,11 @@ A split is emulated only as the fabric presents one: behind that address, anothe
 
 ## Step 3: positions are each device's own (2026-11-01)
 
-`(rt-pos, <mission>, <dev>)`, written by the device as its GPS moves (from the Radio Log and Map pages), watched by it
+`(openeoc-pos, <mission>, <dev>)`, written by the device as its GPS moves (from the Radio Log and Map pages), watched by it
 so that after a RAM move its last fix is written again. The map is a query over those cells; how long since each was
 heard is the map page's own clock. A position in a log entry stays the scribe's record and is not on the map.
 
-| Check (`test_rt_pages.py`) | Result |
+| Check (`test_openeoc_pages.py`) | Result |
 | --- | --- |
 | B's map (scribe A and the phone give a position; B's browser gives none) | 2 devices, 2 markers |
 | The phone walks | its marker moves on B's map in 232 ms; nothing logged (54 entries before and after) |
@@ -111,13 +111,13 @@ heard is the map page's own clock. A position in a log entry stays the scribe's 
 
 ## Step 4: the truth-table corrections (2026-11-01)
 
-| Correction | How | Check (`test_rt_pages.py`) |
+| Correction | How | Check (`test_openeoc_pages.py`) |
 | --- | --- | --- |
 | Station ID = the device's hostname | `ram.php?op=whoami`: the lease the post gave the device's address; nothing typed | each device's station is its lease name (`laptop-a`, `laptop-b`, `phone-f`); numbers `laptop-a-001`, `phone-f-001` |
-| Handled marks per handler | `(rt-handled, <mission>, <entry>.<dev>)`; the mark shown is the newest across handlers | B marks ✓ then →, A marks !: ! shown on B in 110-154 ms; the RAM holds one cell per handler |
+| Handled marks per handler | `(openeoc-handled, <mission>, <entry>.<dev>)`; the mark shown is the newest across handlers | B marks ✓ then →, A marks !: ! shown on B in 110-154 ms; the RAM holds one cell per handler |
 | Own truth kept on the device | every write also in browser storage; on a RAM change every family the device owns is read there and what is missing written again | B reloads during the cut: its 28 own entries back on its side; B's position on its side's map |
 | The mission the device is on | the device's own, opened on load whatever that side's RAM holds | the reload during the cut |
-| 309 written in write order, once each | `rt-post309` on each post: held reads on `rt-log`, appended by id once, a new RAM read from the start | A's file 57 rows in A's order, each once, after a restart before the cut; B's 57, each once, its cut entries first |
+| 309 written in write order, once each | `openeoc-post309` on each post: held reads on `openeoc-log`, appended by id once, a new RAM read from the start | A's file 57 rows in A's order, each once, after a restart before the cut; B's 57, each once, its cut entries first |
 | Overdue on the page's own clock | the board and the map redraw their bands on a timer, with no write | |
 
 In the first run of this step a handled mark reached A in 8.1 s instead of ~100 ms. The cause was found in step 5
@@ -125,12 +125,12 @@ In the first run of this step a handled mark reached A in 8.1 s instead of ~100 
 
 ## Step 5: team RAMs, messages, direct messages (2026-11-01)
 
-The app's RAMs are general and hospitals, each served by the droplet its own selection picks. `rt-team` is mapped to
-`"team"`: a team's messages go to `<app>.<team>`. Announcements (`rt-msg`) and direct messages (`rt-dm`, in the
-addressee's variable, by station ID) are in the general RAM. Each device writes its own directory cell (`rt-who`). The
+The app's RAMs are general and hospitals, each served by the droplet its own selection picks. `openeoc-team` is mapped to
+`"team"`: a team's messages go to `<app>.<team>`. Announcements (`openeoc-msg`) and direct messages (`openeoc-dm`, in the
+addressee's variable, by station ID) are in the general RAM. Each device writes its own directory cell (`openeoc-who`). The
 device's team is its own fact, set on the Radio Log page.
 
-| Check 14 (`test_rt_pages.py`) | Result |
+| Check 14 (`test_openeoc_pages.py`) | Result |
 | --- | --- |
 | A announces | on B and the phone in 0.21-0.33 s |
 | The phone sends B a direct message | on B in 0.04-0.13 s; not in A's direct list |
@@ -139,22 +139,22 @@ device's team is its own fact, set on the Radio Log page.
 **Found on the way: one web server worker per held read.** The first run passed, but slowly: 2.5, 5.2 and 6.5 s. The
 pages' own log ([DIAG-WATCH]) showed the phone's write asked at :31 and answered 5194 ms later. Post A's server log
 showed it accepted by a worker only at :36: every worker was held by a page's held reads, one per family, 4-6 per
-page. Fix: `ram.php?op=watch` holds all of a page's families in one request, and `rt.js` keeps one held request per
+page. Fix: `ram.php?op=watch` holds all of a page's families in one request, and `openeoc.js` keeps one held request per
 page; a page adding or dropping a family ends it, and the door frees its worker when the page has gone. After the fix,
 all checks pass and the times are in the table.
 
-A direct message needs no check: it is in the addressee's own variable, `(rt-dm, <mission>.<station>)`, which only
+A direct message needs no check: it is in the addressee's own variable, `(openeoc-dm, <mission>.<station>)`, which only
 the addressee reads; the sender keeps its copy as its own truth. A team's RAM is checked by its droplet (step 6).
 
 ## Step 7: the 213, the Summary and the 214 (2026-11-01)
 
 | Screen | What | Check |
 | --- | --- | --- |
-| ICS-213 | opt-in per entry on the Entry form (to, subject, message, in the scribe's entry); `print213.html` fills the form's fields as RangerTrak's `ics213FieldsFromReport` does, with the full number; the reply block and signatures stay blank. The post writes each asked-for 213 once (`rt-post309`, `rt/213/`) | B logs one; A prints it (To `IC, EOC`, Subject, Message, mm/dd/yyyy, 24-hour, `26-0142 / OP 2 / laptop-b-029`); post A's file has it |
-| After-action / ICS-214 | `(rt-notes, <mission>, <dev>.<ms>)`: 214 lines (a time, logged late if need be, and a line) and after-action notes (area, about the incident or the app); `print214.html` | A's two lines on B's After-action in 0.07 s; A's ICS-214 in time order, not entry order |
-| Summary | `rules.js summarizeMission`, RangerTrak's `domain/mission-summary.ts` on these cells: totals, time buckets, status, team, call sign, scribe, needs attention, notes by area; whole log or a window | B's Summary: every entry, the flagged ones as needing attention, the note under Communications |
+| ICS-213 | opt-in per entry on the Entry form (to, subject, message, in the scribe's entry); `print213.html` fills the form's fields as OpenEOC's `ics213FieldsFromReport` does, with the full number; the reply block and signatures stay blank. The post writes each asked-for 213 once (`openeoc-post309`, `rt/213/`) | B logs one; A prints it (To `IC, EOC`, Subject, Message, mm/dd/yyyy, 24-hour, `26-0142 / OP 2 / laptop-b-029`); post A's file has it |
+| After-action / ICS-214 | `(openeoc-notes, <mission>, <dev>.<ms>)`: 214 lines (a time, logged late if need be, and a line) and after-action notes (area, about the incident or the app); `print214.html` | A's two lines on B's After-action in 0.07 s; A's ICS-214 in time order, not entry order |
+| Summary | `rules.js summarizeMission`, OpenEOC's `domain/mission-summary.ts` on these cells: totals, time buckets, status, team, call sign, scribe, needs attention, notes by area; whole log or a window | B's Summary: every entry, the flagged ones as needing attention, the note under Communications |
 
-`test_rules.mjs`: RangerTrak's own summary cases and the 213 field mapping, 22 of 22. The cases that need fields
+`test_rules.mjs`: OpenEOC's own summary cases and the 213 field mapping, 22 of 22. The cases that need fields
 these cells do not carry (rangerUid, tactical calls, source, late entries, revisions, per-mission status lists) are not
 ported. The summary leaves those totals out rather than show a zero it did not measure.
 
@@ -173,9 +173,9 @@ server, the grants, the key, `apply_app_access.py`, `RINA_GRANT` and `X-App-Gran
 | Check | Result |
 | --- | --- |
 | `test_fdf_app.py` 7: the access definition in each droplet's configuration tuple | roles, users with verifiers; no password in the network RAM |
-| `test_rt_pages.py` 0: login at the door | kim's password gives hospitals; a wrong one is refused; `eoc` (a default role) needs no password; `hospitals` does |
-| `test_rt_pages.py` 0: B and the phone log in on the Radio Log (kim, lee) | the role shown beside the station |
-| `test_rt_pages.py` 11: the devices' access records | B's written again on its side's network RAM during the cut; all three on the region's |
-| `test_rt_pages.py` 16: the client's focus | an EOC client (default role, no password) opens on the Summary; no role on the Radio Log; kim on the hospitals messages |
+| `test_openeoc_pages.py` 0: login at the door | kim's password gives hospitals; a wrong one is refused; `eoc` (a default role) needs no password; `hospitals` does |
+| `test_openeoc_pages.py` 0: B and the phone log in on the Radio Log (kim, lee) | the role shown beside the station |
+| `test_openeoc_pages.py` 11: the devices' access records | B's written again on its side's network RAM during the cut; all three on the region's |
+| `test_openeoc_pages.py` 16: the client's focus | an EOC client (default role, no password) opens on the Summary; no role on the Radio Log; kim on the hospitals messages |
 
 Not yet: the admin app is the `fdf-app config` command line, not a screen.

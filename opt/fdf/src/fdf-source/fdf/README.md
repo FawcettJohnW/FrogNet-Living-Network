@@ -1,8 +1,10 @@
-# FD&F on real machines
+# CroakOS on real machines
+
+CroakOS is the implementation of the FD&F architecture; the code keeps the `fdf` name.
 
 Everything installs under /opt/fdf; nothing goes into /usr/local/bin. Run as root. How to create a region, join
 nodes, phones and Windows PCs, and leave: `docs/OPERATING.md` in the FrogNet repository (section 3). This file is the
-FD&F package's own notes: what is shown where, the build, and the older set-ups the package still carries.
+CroakOS package's own notes: what is shown where, the build, and the older set-ups the package still carries.
 
 ## What is shown where (build fdf-2026-10-16-r21)
 
@@ -42,6 +44,13 @@ One file per machine type, in `dist/`; the build each carries is in /opt/fdf/BUI
 `systemctl daemon-reload`, restart `fdf-ram-AREA fdf-client-AREA fdf-hub`; the region's settings (hub.env, the site
 key, the units, /opt/fdf/var) are not in the package and survive. A node's `.run` unpacks /opt/fdf and the FrogNet
 region modules and runs /opt/fdf/bin/fdf-region-join; all three arguments are required (there is no built-in region).
+
+## The roles on a node
+
+`databasehost.frognet` (the SystemRam) and `databasehost_control.frognet` are not FD&F RAM managers. Each is the
+`api.php` on port 80 of the host the elections name (`[ROLES_ON_API_V1]`). `fdfram.RoleRam` reaches them, and held
+reads are in api.php. There is no LAN RAM port. Services (8840, the AppRams) keep theirs. See `AI_READ_FIRST.md`
+section 10a.
 
 ## Build from source
 

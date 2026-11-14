@@ -14,8 +14,8 @@ with that sequence). Frame = [len u32 BE][body]; body = "FNW1" + op + ...; REQ_R
 Nothing falls back: a lost connection fails every call in flight and every call after it.
 
   s = Session("10.170.170.1", 23827)
-  s.write("rt-who", "m", "dev1", {...}, own=True)       posted, never waited for
-  s.read("rt-who", "m")                                  -> cells
+  s.write("openeoc-who", "m", "dev1", {...}, own=True)       posted, never waited for
+  s.read("openeoc-who", "m")                                  -> cells
   s.close()                                              every own tuple of this session goes ({} at the host)
 """
 import json, secrets, socket, struct, threading, urllib.parse

@@ -148,3 +148,23 @@ DELETE s FROM Sensor s
 ALTER TABLE Sensor DROP INDEX IF EXISTS idx_sensor_name;
 ALTER TABLE Sensor ADD UNIQUE KEY IF NOT EXISTS idx_tuple_address
       (`SensorName`, `SensorType`, `SensorAddress`);
+
+-- [HELD_READ_IN_API_V1 - John 2026-11-07] The holders of held reads on this host.
+-- A held read is a core function of api.php: a holder registers a read on a tuple
+-- (SensorType + SensorName) or a family (SensorType, optionally a SensorName LIKE
+-- pattern); the next completed upsert that matches fires it once to the holder's
+-- held_fire.php on port 80, and the row is deleted. Never copied, never saved
+-- anywhere else: a split or merge ends every hold, and each holder re-registers at
+-- the role's new address. '' (not NULL) for "any", so the unique key works.
+CREATE TABLE IF NOT EXISTS HeldRead (
+  `HoldID`     BIGINT       NOT NULL AUTO_INCREMENT,
+  `Holder`     VARCHAR(45)  NOT NULL,
+  `HolderID`   VARCHAR(64)  NOT NULL,
+  `SensorType` VARCHAR(191) NOT NULL,
+  `NameExact`  VARCHAR(191) NOT NULL DEFAULT '',
+  `NameLike`   VARCHAR(191) NOT NULL DEFAULT '',
+  `CreatedAt`  TIMESTAMP    NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  PRIMARY KEY (`HoldID`),
+  UNIQUE KEY `idx_hold` (`Holder`, `HolderID`, `SensorType`, `NameExact`, `NameLike`),
+  KEY `idx_hold_type` (`SensorType`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;

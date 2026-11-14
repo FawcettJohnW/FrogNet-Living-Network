@@ -21,10 +21,15 @@ RT.layer('ics', (RT) => {
   const EV_PRIORITY = ['High: life safety / mission critical', 'Medium: injury / property / environment', 'Low: information']
   const B = {
     incident: { title: 'Incident', single: true, overviewWrites: true, fields: [
-      ['name', 'Incident name', 'text'], ['number', 'Incident number', 'text'],
+      // [FEMA_EOC_V1] incName, not name: the core puts the filer's name in "name" (found 2026-11-09: the incident's name came back
+      // as whoever filed it)
+      ['incName', 'Incident name', 'text'], ['number', 'Incident number', 'text'],
       ['type', 'Incident type', ['Activated', 'Exercise', 'Planned event', 'Training event', 'Not activated']],
       ['level', 'Activation level', ['IV: Routine readiness', 'III: Increased readiness', 'II: Limited activation', 'I: Full activation']],
       ['opFrom', 'Operational period from', 'dt'], ['opTo', 'Operational period to', 'dt'],
+      ['opPeriod', 'Operational period number', 'number'],
+      ['structure', 'EOC structure (NIMS)', ['ICS or ICS-like', 'Incident Support Model', 'Departmental', 'Emergency Support Functions']],
+      ['ictype', 'Incident complexity (NIMS)', ['Type 5', 'Type 4', 'Type 3', 'Type 2', 'Type 1']],
       ['agency', 'Agency', 'text'], ['location', 'Agency location', 'text'], ['poc', 'Point of contact', 'text'], ['phone', 'Contact number', 'text'],
       ['proclamation', 'Emergency proclamation', ['None', 'Local proclamation', 'State declaration', 'Federal declaration']],
       ['summary', 'Summary', 'area']] },
@@ -83,12 +88,13 @@ RT.layer('ics', (RT) => {
       ['title', 'Title', 'text', true], ['lead', 'Lead', 'text'], ['text', 'Release', 'area', true], ['url', 'Link (when posted)', 'text']],
       list: ['title', 'name'], updates: [['text', 'Comment', 'area']] },
     signin: { title: 'Sign in / out', status: ['Signed in', 'Signed out'], fields: [
-      ['person', 'Name', 'text', true], ['position', 'EOC position', SECTIONS.concat(['EOC Director', 'ESF representative', 'Agency representative'])],
+      ['person', 'Name', 'text', true], ['post', 'EOC position', SECTIONS.concat(['EOC Director', 'ESF representative', 'Agency representative'])],
       ['agency', 'Agency', 'text'], ['phone', 'Phone', 'text'], ['email', 'Email', 'text'], ['shift', 'Shift', ['Alpha', 'Bravo']]],
-      list: ['person', 'position', 'agency'] },
+      list: ['person', 'post', 'agency'] },   // [FEMA_EOC_V1] post, not position: the core puts the filer's role in "position"
   }
   const ORDER = ['incident', 'events', 'rr', 'sitrep', 'shelters', 'roads', 'damage', 'ics214', 'press', 'signin']
-  RT.icsBoards = B
+  // [FEMA_EOC_V1] another layer adds its boards: RT.icsBoards[b] = def, RT.icsOrder.push(b) (the core's IcsLayer.BOARDS names them too)
+  RT.icsBoards = B; RT.icsOrder = ORDER
 
   RT.on('ics', (m) => { S.ics = m.rec || {}; S.icsAct = m.act || {}; redraw(); refreshSheet('ics') })
   const acts = (b, id) => Object.entries(S.icsAct[b] || {}).filter(([k]) => k.startsWith(id + '~')).map(([, a]) => a).sort((x, y) => (x.at || 0) - (y.at || 0))
@@ -97,7 +103,8 @@ RT.layer('ics', (RT) => {
   const when = (t) => t ? new Date(t * 1000).toLocaleString([], { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' }) : ''
   const val = (f, v) => f[2] === 'check' ? (v ? 'yes' : '') : f[2] === 'dt' && v ? new Date(v).toLocaleString([], { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' }) : v
   const field = (f, v) => {
-    const [k, label, t, req] = f, r = req ? ' required' : '', e = esc(v ?? '')
+    const [k, label, t0, req] = f, r = req ? ' required' : '', e = esc(v ?? '')
+    const t = typeof t0 === 'function' ? t0() : t0            // [FEMA_EOC_V1] choices worked out now (the organizations on the network)
     if (Array.isArray(t)) return `<label>${esc(label)}<select name="${k}">${t.map(o => `<option${o === v ? ' selected' : ''}>${esc(o)}</option>`).join('')}</select></label>`
     if (t === 'area') return `<label>${esc(label)}<textarea name="${k}" rows="3"${r}>${e}</textarea></label>`
     if (t === 'check') return `<label class="chk"><input type="checkbox" name="${k}"${v ? ' checked' : ''}> ${esc(label)}</label>`
@@ -137,9 +144,10 @@ RT.layer('ics', (RT) => {
   })
   RT.screen('ics-new', (b, prefill) => {
     const d = B[b], r = prefill || {}
-    if (!canWrite(d)) { status('only the EOC sets the ' + d.title.toLowerCase()); return }
+    if (!canWrite(d)) { status('only the Command Center sets the ' + d.title.toLowerCase()); return }
     sheet('ics-new', 'New: ' + d.title, `<button type="button" onclick="RT.open('ics-list','${b}')">◂ ${esc(d.title)}</button>
-      <form class="icsform">${d.fields.map(f => field(Array.isArray(f[2]) && r[f[0]] === undefined ? [f[0], f[1], [''].concat(f[2]), f[3]] : f, r[f[0]])).join('')}${d.status ? field(['status', 'Status', d.status], r.status) : ''}
+      <form class="icsform">${d.fields.map(f => { const t = typeof f[2] === 'function' ? f[2]() : f[2]
+        return field(Array.isArray(t) && r[f[0]] === undefined ? [f[0], f[1], [''].concat(t), f[3]] : [f[0], f[1], t, f[3]], r[f[0]]) }).join('')}${d.status ? field(['status', 'Status', d.status], r.status) : ''}
       <div class="meta">Filed as ${esc(S.cfg.name)} (${esc(RT.me().label || S.role)}${S.team ? ' ' + esc(S.team) : ''}), ${esc(new Date().toLocaleString())}.</div><button class="go">File it</button></form>`)
     document.querySelector('#sheet .icsform').onsubmit = (e) => {
       e.preventDefault(); const bag = read(e.target, d.fields.concat(d.status ? [['status', 'Status', d.status]] : []))
@@ -148,7 +156,9 @@ RT.layer('ics', (RT) => {
         bag.due = t.getFullYear() + '-' + z(t.getMonth() + 1) + '-' + z(t.getDate()) + 'T' + z(t.getHours()) + ':' + z(t.getMinutes())
       }
       const id = d.single ? b : S.cfg.dev.replace(/[^A-Za-z0-9]/g, '').slice(-8) + '-' + Date.now()
-      send({ op: 'icsWrite', board: b, id, bag }); RT.open('ics-list', b)
+      // [FEMA_EOC_V1] a screen that opened this form (Staffing, Lifelines ...) is where it goes back to
+      const back = S.icsBack; S.icsBack = null
+      send({ op: 'icsWrite', board: b, id, bag }); if (back) RT.open(back); else RT.open('ics-list', b)
     }
   })
   RT.screen('ics-rec', (b, id) => {
@@ -193,8 +203,8 @@ RT.layer('ics', (RT) => {
       }
     }
   })
-  RT.button('icsBtn', 'Boards', () => RT.open('ics'), 'the EOC boards: incident, activity log, resource requests, sitreps, shelters, roads, damage, logs', '#layersBtn')
+  RT.button('icsBtn', 'Boards', () => RT.open('ics'), 'the Command Center boards: incident, activity log, resource requests, sitreps, shelters, roads, damage, logs', '#layersBtn')
   RT.hook('connected', () => { $('#icsBtn').hidden = !!RT.me().only })
   // the incident's name and level on the status line
-  RT.on('ics', () => { const i = now('incident', 'incident'); if (i.name) $('#mission').textContent = i.name + (i.level ? ' · ' + i.level.split(':')[0] : '') })
+  RT.on('ics', () => { const i = now('incident', 'incident'); if (i.incName) $('#mission').textContent = i.incName + (i.level ? ' · ' + i.level.split(':')[0] : '') })
 })

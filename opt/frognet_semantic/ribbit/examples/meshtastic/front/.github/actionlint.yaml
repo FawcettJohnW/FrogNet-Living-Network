@@ -1,0 +1,9 @@
+# Configuration related to self-hosted runner.
+self-hosted-runner:
+  # Labels of self-hosted runner in array of strings.
+  labels:
+    - arctastic
+    - test-runner
+    # GitHub-Hosted runners:
+    - ubuntu-26.04
+    - ubuntu-26.04-arm

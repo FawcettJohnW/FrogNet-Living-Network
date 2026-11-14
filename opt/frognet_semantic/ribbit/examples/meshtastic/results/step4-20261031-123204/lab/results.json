@@ -1,0 +1,137 @@
+{
+ "S1_views": {
+  "pass": true,
+  "seconds": 0.45,
+  "views": {
+   "!ac5313bd": [
+    "!1a8221e7",
+    "!370ad54d",
+    "!3bde9cd4"
+   ],
+   "!3bde9cd4": [
+    "!1a8221e7",
+    "!370ad54d",
+    "!ac5313bd"
+   ],
+   "!370ad54d": [
+    "!1a8221e7",
+    "!3bde9cd4",
+    "!ac5313bd"
+   ],
+   "!1a8221e7": [
+    "!370ad54d",
+    "!3bde9cd4",
+    "!ac5313bd"
+   ]
+  }
+ },
+ "S2_broadcast": {
+  "pass": true,
+  "received": {
+   "!ac5313bd": [
+    "BD-1a8221e7",
+    "BD-370ad54d",
+    "BD-3bde9cd4"
+   ],
+   "!3bde9cd4": [
+    "BD-1a8221e7",
+    "BD-370ad54d",
+    "BD-ac5313bd"
+   ],
+   "!370ad54d": [
+    "BD-1a8221e7",
+    "BD-3bde9cd4",
+    "BD-ac5313bd"
+   ],
+   "!1a8221e7": [
+    "BD-370ad54d",
+    "BD-3bde9cd4",
+    "BD-ac5313bd"
+   ]
+  }
+ },
+ "S3_dm_ack": {
+  "pass": true,
+  "error": "NONE",
+  "seconds": 0.01,
+  "from": "!3bde9cd4"
+ },
+ "S8_position": {
+  "pass": true,
+  "live_client_seconds": 0.01,
+  "live_ok": true,
+  "fresh_client_seconds": 1.63,
+  "position": {
+   "latitude": 47.4677248,
+   "longitude": -122.3360512,
+   "altitude": 120,
+   "precisionBits": 15
+  },
+  "fresh_client_20s_later": {
+   "latitude": 47.4677248,
+   "longitude": -122.3360512,
+   "altitude": 120,
+   "precisionBits": 15
+  }
+ },
+ "S9_requests": {
+  "nodeinfo": {
+   "answer": "NODEINFO_APP",
+   "error": null,
+   "seconds": 0.0,
+   "from": "!ac5313bd"
+  },
+  "position": {
+   "answer": "POSITION_APP",
+   "error": null,
+   "seconds": 0.0,
+   "from": "!ac5313bd"
+  },
+  "telemetry": {
+   "answer": "TELEMETRY_APP",
+   "error": null,
+   "seconds": 0.01,
+   "from": "!ac5313bd"
+  },
+  "pass": true
+ },
+ "S10_unattended": {
+  "pass": true,
+  "seconds": 0.61,
+  "got": [
+   "UA-bcast",
+   "UA-dm"
+  ]
+ },
+ "S11_unattended_restart": {
+  "pass": true,
+  "seconds": 0.61,
+  "got": [
+   "UR-bcast",
+   "UR-dm"
+  ]
+ },
+ "S4_kill": {
+  "pass": true,
+  "seconds": 0.34
+ },
+ "S5_dm_dead": {
+  "observed": "PKI_SEND_FAIL_PUBLIC_KEY",
+  "seconds": 0.0,
+  "from": "!ac5313bd",
+  "pass": true
+ },
+ "S6_restart": {
+  "pass": true,
+  "seconds": 0.34
+ },
+ "S7_malformed": {
+  "pass": true,
+  "answering": {
+   "!ac5313bd": true,
+   "!3bde9cd4": true,
+   "!370ad54d": true,
+   "!1a8221e7": true
+  }
+ }
+}

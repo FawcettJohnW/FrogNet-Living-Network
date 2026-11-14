@@ -13,7 +13,7 @@ import java.util.Map;
  * [RT_LAYERS_V1] [RT_HELP_V1] help requests, as DisasterComm's help page keeps them: (help, request, <rid>) the
  * registrant's own record (status open / safe / resolved: "safe" is how a person says they are safe); (help, action,
  * <rid>~<dev>) a responder's or the EOC's action on it. Not own: a request stays when the phone that made it is gone.
- * And the reports to the EOC: (rt-report, <mission>, <dev>.<ms>), read by every view but the public's.
+ * And the reports to the EOC: (openeoc-report, <mission>, <dev>.<ms>), read by every view but the public's.
  */
 public final class HelpLayer extends Layer {
     private volatile Follower helpF, reports;
@@ -21,7 +21,7 @@ public final class HelpLayer extends Layer {
 
     public void start(final Here h) {
         helpF = h.follow("help", "help", null, new Runnable() { public void run() { onHelp(h); } });
-        reports = h.isPublic() ? null : h.follow("reports", "rt-report", h.mission(), new Runnable() { public void run() { onReports(h); } });
+        reports = h.isPublic() ? null : h.follow("reports", "openeoc-report", h.mission(), new Runnable() { public void run() { onReports(h); } });
     }
     private void onHelp(Here h) {
         Follower f = helpF; if (f == null) return;
@@ -49,8 +49,8 @@ public final class HelpLayer extends Layer {
             Map<String, Object> b = Json.o("from", h.dev(), "name", h.name(), "category", Json.str(m.get("category")), "text", Json.str(m.get("text")),
                     "at", ms / 1000);
             if (m.get("lat") instanceof Number) { b.put("lat", Json.dbl(m.get("lat"))); b.put("lng", Json.dbl(m.get("lng"))); }
-            // the public has no reports follower (it reads none): the write is one of its own, to rt-report
-            h.writeOnce("rt-report", h.mission(), h.dev() + "." + ms, b);
+            // the public has no reports follower (it reads none): the write is one of its own, to openeoc-report
+            h.writeOnce("openeoc-report", h.mission(), h.dev() + "." + ms, b);
             h.say("your report is with the EOC");
         } else return false;
         return true;

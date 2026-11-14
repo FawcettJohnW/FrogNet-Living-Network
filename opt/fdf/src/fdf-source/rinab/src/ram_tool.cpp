@@ -9,11 +9,6 @@
 //        WAIT_S: {"ok":true,"got":[]}; a failure: {"ok":false,"k":i,"why":...} (ESTALE: another memory than the page
 //        read); a RAM not reachable: held until it says it is up ("up": read it again in full), else "down": [k..].
 //        Nothing is asked twice: the memory hands each follow its rows as they are written.
-//   ram hold SERVICE VARIABLE INSTANCE BAG_JSON
-//        [CAPABILITY_HELD_BY_ITS_SESSION_V1] written own:true on THIS session and held: the tuple is the session's, so
-//        it is written {} the moment this process ends (stopped, crashed, its network gone) -- a service's capability
-//        tuple goes with the service. Prints "ready" once written; held on the tuple's family, it writes the tuple again
-//        if it finds it gone; exits 1 when the session ends. RINA_RAM names the RAM host.
 //   ram written WAIT_S SINCE PATH [PATH ...]
 //        [EVENTS_NOT_TIMERS_V1] held until one of the files is written at or after SINCE (epoch seconds), at most
 //        WAIT_S: {"ok":true,"written":PATH} or {"ok":true,"written":""}. The door's op=rams waits on this: the AppHosts
@@ -143,30 +138,12 @@ int main(int argc, char** argv) {
             const std::string body = "{\"service\":" + frogram::Json::quote(argv[2]) + ",\"variable\":" + frogram::Json::quote(argv[3]) +
                                      ",\"instance\":" + frogram::Json::quote(argv[4]) + ",\"bag\":" + argv[5] + "}";
             frogram::Json r = s.call("POST", api + "?op=write", body); printf("{\"ok\":true,\"id\":%lld}\n", (long long)r["id"].n); return 0; }
-        if (cmd == "hold" && argc == 6) {
-            const std::string body = "{\"service\":" + frogram::Json::quote(argv[2]) + ",\"variable\":" + frogram::Json::quote(argv[3]) +
-                                     ",\"instance\":" + frogram::Json::quote(argv[4]) + ",\"bag\":" + argv[5] + ",\"own\":true}";
-            frogram::Memory m(s, api);
-            s.call("POST", api + "?op=write", body);
-            printf("ready\n"); fflush(stdout);
-            try {
-                int64_t at = 0; for (auto& c : m.read(argv[2], argv[3])) if (int64_t(c.id) > at) at = int64_t(c.id);
-                for (;;) {
-                    bool ev = false;
-                    for (auto& c : m.read(argv[2], argv[3], "", at, 600)) { if (int64_t(c.id) > at) at = int64_t(c.id); ev = true; }
-                    if (!ev) continue;
-                    bool mine = false;
-                    for (auto& c : m.read(argv[2], argv[3], argv[4])) if (c.bag.type == frogram::Json::Obj && !c.bag.o.empty()) mine = true;
-                    if (!mine) { s.call("POST", api + "?op=write", body); printf("written again (it was gone)\n"); fflush(stdout); }
-                }
-            } catch (const std::exception& x) { fprintf(stderr, "ram hold: the session ended: %s\n", x.what()); return 1; }
-        }
         if (cmd == "read" && argc >= 4 && argc <= 7) {
             std::string path = api + "?op=read&service=" + enc(argv[2]) + "&variable=" + enc(argv[3]);
             if (argc > 4 && *argv[4]) path += "&instance=" + enc(argv[4]);
             if (argc > 5) path += "&after=" + enc(argv[5]);
             if (argc > 6) path += "&wait_s=" + enc(argv[6]);
             const std::string text = s.call_text("GET", path, "", argc > 6 ? atof(argv[6]) + 5 : 30.0); printf("%s\n", text.c_str()); return 0; }
-        fprintf(stderr, "usage: ram write SERVICE VARIABLE INSTANCE BAG_JSON | ram read SERVICE VARIABLE [INSTANCE] [AFTER] [WAIT_S] | ram hold SERVICE VARIABLE INSTANCE BAG_JSON | ram watch WAIT_S RAM SERVICE VARIABLE AFTER ...\n"); return 2;
+        fprintf(stderr, "usage: ram write SERVICE VARIABLE INSTANCE BAG_JSON | ram read SERVICE VARIABLE [INSTANCE] [AFTER] [WAIT_S] | ram watch WAIT_S RAM SERVICE VARIABLE AFTER ...\n"); return 2;
     } catch (const std::exception& e) { fprintf(stderr, "ram: %s\n", e.what()); return 1; }
 }

@@ -96,3 +96,6 @@ A vendor that says true answers writes as FD&F's RAM manager does (`fdf-ram`, an
 `"own":true` goes with its session (refused without one: plain HTTP has none), any other stays until written again or
 removed, and `"permanent":true` is refused (this host keeps no file). First used by the Team app's team RAM on a lead's
 phone (`opt/fdf/src/openeoc-app/android/teamram`), which passes OpenEOC's own app test as every RAM.
+The roles (`databasehost.frognet`, `databasehost_control.frognet`) are not RAM hosts: each is one host's `api.php` on
+port 80, with held reads in api.php (`[ROLES_ON_API_V1]`, `AI_READ_FIRST.md` section 10a). This contract is for
+services: the region's RAM manager and the AppRams.

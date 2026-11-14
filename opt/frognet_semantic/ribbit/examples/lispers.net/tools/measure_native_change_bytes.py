@@ -34,7 +34,7 @@ try:
  call(ms,'resolver.wait_site',iid='0',prefix='198.29.0.0/16',group='',active=True)
  call(ms,'ms_governor.start',iid='0',group='',name='ms-bytes')
  call(etr,'etr.identity',name='etr-bytes',xtr_id='0f0f')
- call(etr,'etr_liveness.start',interval_s=30,lifetime_s=120)   # long interval: keep beats out of the change window
+ call(etr,'etr_liveness.start')   # one cell, written once: nothing recurs in the change window
  call(etr,'database_mapping.add',iid='0',prefix='198.29.1.0/24',group='',rloc_set=['192.0.2.29'])
  assert call(etr,'etr_decision.wait',governor='ms-bytes',iid='0',group='',prefix='198.29.1.0/24',decision='accepted',timeout_s=5)=='good'
  assert call(itr,'resolver.wait',iid='0',prefix='198.29.1.0/24',group='',present=True,rloc='192.0.2.29',timeout_s=5)=='good'

@@ -285,11 +285,20 @@ or into the authorized input space of another service.** The rule I've
 been using from there is pretty simple: **Determine your truth. Write
 your truth. Read the other truths. Go.**
 
-The rule that you only write your own truth isn't something Ribbit tries
-to enforce globally. The vendor owns the memory region and the interface
-to it, and the vendor is responsible for deciding who may read or write
-what. Ribbit supplies the programming model; the vendor supplies the
-policy.
+Who may write what is a question of roles, and it is answered on the
+machine. Every service is a role, held by one machine at a time. A role
+comes up when its lead logs into the app's admin app on the same network
+as the parent role, which can be across the Internet when the device
+already has a tunnel. The role is authenticated by network membership,
+plus a challenge when it connects to the machine holding the role, and
+authorization is set on that machine: its accounts, file ownership and
+firewall. A child can take on its parent's authorization transparently,
+but it doesn't have to.
+
+Reach is a different question. Whether something can get to a memory at
+all is decided by the network's admission levels and the hub, not by
+which roles it holds. Ribbit supplies the programming model; the app's
+roles and the machine that holds them supply the authorization.
 
 A GPS receiver writes its position. A temperature sensor writes its
 temperature. If I need both to make a decision, I read both. If the

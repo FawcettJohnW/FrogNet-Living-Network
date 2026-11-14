@@ -1,0 +1,585 @@
+{
+ "protobufs_commit": "8d0ed0c135f91ad1d6f9c60bc341277d64946bce",
+ "ToRadio": [
+  {
+   "name": "packet",
+   "type": "MeshPacket",
+   "field": 1
+  },
+  {
+   "name": "want_config_id",
+   "type": "uint32",
+   "field": 3
+  },
+  {
+   "name": "disconnect",
+   "type": "bool",
+   "field": 4
+  },
+  {
+   "name": "xmodemPacket",
+   "type": "XModem",
+   "field": 5
+  },
+  {
+   "name": "mqttClientProxyMessage",
+   "type": "MqttClientProxyMessage",
+   "field": 6
+  },
+  {
+   "name": "heartbeat",
+   "type": "Heartbeat",
+   "field": 7
+  }
+ ],
+ "FromRadio": [
+  {
+   "name": "packet",
+   "type": "MeshPacket",
+   "field": 2
+  },
+  {
+   "name": "my_info",
+   "type": "MyNodeInfo",
+   "field": 3
+  },
+  {
+   "name": "node_info",
+   "type": "NodeInfo",
+   "field": 4
+  },
+  {
+   "name": "config",
+   "type": "Config",
+   "field": 5
+  },
+  {
+   "name": "log_record",
+   "type": "LogRecord",
+   "field": 6
+  },
+  {
+   "name": "config_complete_id",
+   "type": "uint32",
+   "field": 7
+  },
+  {
+   "name": "rebooted",
+   "type": "bool",
+   "field": 8
+  },
+  {
+   "name": "moduleConfig",
+   "type": "ModuleConfig",
+   "field": 9
+  },
+  {
+   "name": "channel",
+   "type": "Channel",
+   "field": 10
+  },
+  {
+   "name": "queueStatus",
+   "type": "QueueStatus",
+   "field": 11
+  },
+  {
+   "name": "xmodemPacket",
+   "type": "XModem",
+   "field": 12
+  },
+  {
+   "name": "metadata",
+   "type": "DeviceMetadata",
+   "field": 13
+  },
+  {
+   "name": "mqttClientProxyMessage",
+   "type": "MqttClientProxyMessage",
+   "field": 14
+  },
+  {
+   "name": "fileInfo",
+   "type": "FileInfo",
+   "field": 15
+  },
+  {
+   "name": "clientNotification",
+   "type": "ClientNotification",
+   "field": 16
+  },
+  {
+   "name": "deviceuiConfig",
+   "type": "DeviceUIConfig",
+   "field": 17
+  },
+  {
+   "name": "lockdown_status",
+   "type": "LockdownStatus",
+   "field": 18
+  },
+  {
+   "name": "region_presets",
+   "type": "LoRaRegionPresetMap",
+   "field": 19
+  }
+ ],
+ "AdminMessage": [
+  {
+   "name": "get_channel_request",
+   "type": "uint32",
+   "field": 1
+  },
+  {
+   "name": "get_channel_response",
+   "type": "Channel",
+   "field": 2
+  },
+  {
+   "name": "get_owner_request",
+   "type": "bool",
+   "field": 3
+  },
+  {
+   "name": "get_owner_response",
+   "type": "User",
+   "field": 4
+  },
+  {
+   "name": "get_config_request",
+   "type": "ConfigType",
+   "field": 5
+  },
+  {
+   "name": "get_config_response",
+   "type": "Config",
+   "field": 6
+  },
+  {
+   "name": "get_module_config_request",
+   "type": "ModuleConfigType",
+   "field": 7
+  },
+  {
+   "name": "get_module_config_response",
+   "type": "ModuleConfig",
+   "field": 8
+  },
+  {
+   "name": "get_canned_message_module_messages_request",
+   "type": "bool",
+   "field": 10
+  },
+  {
+   "name": "get_canned_message_module_messages_response",
+   "type": "string",
+   "field": 11
+  },
+  {
+   "name": "get_device_metadata_request",
+   "type": "bool",
+   "field": 12
+  },
+  {
+   "name": "get_device_metadata_response",
+   "type": "DeviceMetadata",
+   "field": 13
+  },
+  {
+   "name": "get_ringtone_request",
+   "type": "bool",
+   "field": 14
+  },
+  {
+   "name": "get_ringtone_response",
+   "type": "string",
+   "field": 15
+  },
+  {
+   "name": "get_device_connection_status_request",
+   "type": "bool",
+   "field": 16
+  },
+  {
+   "name": "get_device_connection_status_response",
+   "type": "DeviceConnectionStatus",
+   "field": 17
+  },
+  {
+   "name": "set_ham_mode",
+   "type": "HamParameters",
+   "field": 18
+  },
+  {
+   "name": "get_node_remote_hardware_pins_request",
+   "type": "bool",
+   "field": 19
+  },
+  {
+   "name": "get_node_remote_hardware_pins_response",
+   "type": "NodeRemoteHardwarePinsResponse",
+   "field": 20
+  },
+  {
+   "name": "enter_dfu_mode_request",
+   "type": "bool",
+   "field": 21
+  },
+  {
+   "name": "delete_file_request",
+   "type": "string",
+   "field": 22
+  },
+  {
+   "name": "set_scale",
+   "type": "uint32",
+   "field": 23
+  },
+  {
+   "name": "backup_preferences",
+   "type": "BackupLocation",
+   "field": 24
+  },
+  {
+   "name": "restore_preferences",
+   "type": "BackupLocation",
+   "field": 25
+  },
+  {
+   "name": "remove_backup_preferences",
+   "type": "BackupLocation",
+   "field": 26
+  },
+  {
+   "name": "send_input_event",
+   "type": "InputEvent",
+   "field": 27
+  },
+  {
+   "name": "set_owner",
+   "type": "User",
+   "field": 32
+  },
+  {
+   "name": "set_channel",
+   "type": "Channel",
+   "field": 33
+  },
+  {
+   "name": "set_config",
+   "type": "Config",
+   "field": 34
+  },
+  {
+   "name": "set_module_config",
+   "type": "ModuleConfig",
+   "field": 35
+  },
+  {
+   "name": "set_canned_message_module_messages",
+   "type": "string",
+   "field": 36
+  },
+  {
+   "name": "set_ringtone_message",
+   "type": "string",
+   "field": 37
+  },
+  {
+   "name": "remove_by_nodenum",
+   "type": "uint32",
+   "field": 38
+  },
+  {
+   "name": "set_favorite_node",
+   "type": "uint32",
+   "field": 39
+  },
+  {
+   "name": "remove_favorite_node",
+   "type": "uint32",
+   "field": 40
+  },
+  {
+   "name": "set_fixed_position",
+   "type": "Position",
+   "field": 41
+  },
+  {
+   "name": "remove_fixed_position",
+   "type": "bool",
+   "field": 42
+  },
+  {
+   "name": "set_time_only",
+   "type": "fixed32",
+   "field": 43
+  },
+  {
+   "name": "get_ui_config_request",
+   "type": "bool",
+   "field": 44
+  },
+  {
+   "name": "get_ui_config_response",
+   "type": "DeviceUIConfig",
+   "field": 45
+  },
+  {
+   "name": "store_ui_config",
+   "type": "DeviceUIConfig",
+   "field": 46
+  },
+  {
+   "name": "set_ignored_node",
+   "type": "uint32",
+   "field": 47
+  },
+  {
+   "name": "remove_ignored_node",
+   "type": "uint32",
+   "field": 48
+  },
+  {
+   "name": "toggle_muted_node",
+   "type": "uint32",
+   "field": 49
+  },
+  {
+   "name": "begin_edit_settings",
+   "type": "bool",
+   "field": 64
+  },
+  {
+   "name": "commit_edit_settings",
+   "type": "bool",
+   "field": 65
+  },
+  {
+   "name": "add_contact",
+   "type": "SharedContact",
+   "field": 66
+  },
+  {
+   "name": "key_verification",
+   "type": "KeyVerificationAdmin",
+   "field": 67
+  },
+  {
+   "name": "factory_reset_device",
+   "type": "int32",
+   "field": 94
+  },
+  {
+   "name": "reboot_ota_seconds",
+   "type": "int32",
+   "field": 95
+  },
+  {
+   "name": "exit_simulator",
+   "type": "bool",
+   "field": 96
+  },
+  {
+   "name": "reboot_seconds",
+   "type": "int32",
+   "field": 97
+  },
+  {
+   "name": "shutdown_seconds",
+   "type": "int32",
+   "field": 98
+  },
+  {
+   "name": "factory_reset_config",
+   "type": "int32",
+   "field": 99
+  },
+  {
+   "name": "nodedb_reset",
+   "type": "bool",
+   "field": 100
+  },
+  {
+   "name": "ota_request",
+   "type": "OTAEvent",
+   "field": 102
+  },
+  {
+   "name": "sensor_config",
+   "type": "SensorConfig",
+   "field": 103
+  },
+  {
+   "name": "lockdown_auth",
+   "type": "LockdownAuth",
+   "field": 104
+  }
+ ],
+ "PortNum": [
+  {
+   "name": "UNKNOWN_APP",
+   "value": 0
+  },
+  {
+   "name": "TEXT_MESSAGE_APP",
+   "value": 1
+  },
+  {
+   "name": "REMOTE_HARDWARE_APP",
+   "value": 2
+  },
+  {
+   "name": "POSITION_APP",
+   "value": 3
+  },
+  {
+   "name": "NODEINFO_APP",
+   "value": 4
+  },
+  {
+   "name": "ROUTING_APP",
+   "value": 5
+  },
+  {
+   "name": "ADMIN_APP",
+   "value": 6
+  },
+  {
+   "name": "TEXT_MESSAGE_COMPRESSED_APP",
+   "value": 7
+  },
+  {
+   "name": "WAYPOINT_APP",
+   "value": 8
+  },
+  {
+   "name": "AUDIO_APP",
+   "value": 9
+  },
+  {
+   "name": "DETECTION_SENSOR_APP",
+   "value": 10
+  },
+  {
+   "name": "ALERT_APP",
+   "value": 11
+  },
+  {
+   "name": "KEY_VERIFICATION_APP",
+   "value": 12
+  },
+  {
+   "name": "REMOTE_SHELL_APP",
+   "value": 13
+  },
+  {
+   "name": "REPLY_APP",
+   "value": 32
+  },
+  {
+   "name": "IP_TUNNEL_APP",
+   "value": 33
+  },
+  {
+   "name": "PAXCOUNTER_APP",
+   "value": 34
+  },
+  {
+   "name": "STORE_FORWARD_PLUSPLUS_APP",
+   "value": 35
+  },
+  {
+   "name": "NODE_STATUS_APP",
+   "value": 36
+  },
+  {
+   "name": "MESH_BEACON_APP",
+   "value": 37
+  },
+  {
+   "name": "PAGING_APP",
+   "value": 38
+  },
+  {
+   "name": "SERIAL_APP",
+   "value": 64
+  },
+  {
+   "name": "STORE_FORWARD_APP",
+   "value": 65
+  },
+  {
+   "name": "RANGE_TEST_APP",
+   "value": 66
+  },
+  {
+   "name": "TELEMETRY_APP",
+   "value": 67
+  },
+  {
+   "name": "ZPS_APP",
+   "value": 68
+  },
+  {
+   "name": "SIMULATOR_APP",
+   "value": 69
+  },
+  {
+   "name": "TRACEROUTE_APP",
+   "value": 70
+  },
+  {
+   "name": "NEIGHBORINFO_APP",
+   "value": 71
+  },
+  {
+   "name": "ATAK_PLUGIN",
+   "value": 72
+  },
+  {
+   "name": "MAP_REPORT_APP",
+   "value": 73
+  },
+  {
+   "name": "POWERSTRESS_APP",
+   "value": 74
+  },
+  {
+   "name": "LORAWAN_BRIDGE",
+   "value": 75
+  },
+  {
+   "name": "RETICULUM_TUNNEL_APP",
+   "value": 76
+  },
+  {
+   "name": "CAYENNE_APP",
+   "value": 77
+  },
+  {
+   "name": "ATAK_PLUGIN_V2",
+   "value": 78
+  },
+  {
+   "name": "LORA_OTA_APP",
+   "value": 79
+  },
+  {
+   "name": "GROUPALARM_APP",
+   "value": 112
+  },
+  {
+   "name": "PRIVATE_APP",
+   "value": 256
+  },
+  {
+   "name": "ATAK_FORWARDER",
+   "value": 257
+  },
+  {
+   "name": "MAX",
+   "value": 511
+  }
+ ]
+}

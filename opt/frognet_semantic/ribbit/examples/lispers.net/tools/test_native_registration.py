@@ -40,7 +40,7 @@ try:
  assert a.call('etr.identity',name='etr-a',xtr_id='0a0a0a0a')=='good'
  assert b.call('etr.identity',name='etr-b',xtr_id='0b0b0b0b')=='good'
  # v0.44: a native registration resolves only while its ETR publishes liveness
- assert a.call('etr_liveness.start',interval_s=1,lifetime_s=5)=='good' and b.call('etr_liveness.start',interval_s=1,lifetime_s=5)=='good'
+ assert a.call('etr_liveness.start')=='good' and b.call('etr_liveness.start')=='good'
  # ETR A: its database is its truth; it sends nothing to anyone
  for p,r in ((P16,'192.0.2.16'),(P17,'192.0.2.17'),(OUT,'192.0.2.99')):
   assert a.call('database_mapping.add',iid=IID,prefix=p,group=G,rloc_set=[r])=='good'

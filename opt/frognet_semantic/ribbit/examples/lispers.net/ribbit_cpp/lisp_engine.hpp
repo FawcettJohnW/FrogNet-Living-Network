@@ -164,7 +164,7 @@ struct Rloc{
 };
 struct Mapping{
     std::string iid="0",prefix,group,xtr_id,site_id;
-    std::string live_key;       // native registration: resolvable only while etr-live/<live_key> is fresh (v0.44)
+    std::string live_key;       // native registration: resolvable only while etr-live/<live_key> is there ([LIVE_WHILE_ITS_SESSION_IS_V1])
     std::vector<Rloc> rlocs;
     uint32_t ttl=0;
     int64_t last_registered=0,expires_at=0;
@@ -703,7 +703,7 @@ class Engine{
     // this, a Map-Server front with 10 Engines held 10 copies of every view: every write woke all 10, and each re-read
     // and wrote its own applied cell -- 15 of the 19 frames one Map-Register cost.
     struct ResolverRegistry{
-        struct Node{ std::string key; std::unique_ptr<HeldResolverView> view; std::atomic<int> ready{0}; Node*next=nullptr; };
+        struct Node{ std::string key; std::unique_ptr<HeldResolverView> view; std::atomic<int> ready{0}; Node*next=nullptr; };   // 0 arming, 1 ready, -1 its builder failed (a futex word: waiters sleep on it)
         static constexpr size_t B=256; std::atomic<Node*> b[B]={};
         template<class F> void each(F f){ for(auto&slot:b)for(Node*n=slot.load(std::memory_order_acquire);n;n=n->next)if(n->ready.load(std::memory_order_acquire))f(*n->view); }
         size_t size(){ size_t k=0; each([&](HeldResolverView&){++k;}); return k; }
@@ -711,7 +711,7 @@ class Engine{
     };
     ResolverRegistry held_resolvers;
     std::atomic<std::string*> failed_{nullptr};
-    void fail(const std::string&why){ auto*m=new std::string(why); std::string*z=nullptr; if(!failed_.compare_exchange_strong(z,m))delete m; }
+    void fail(const std::string&why){ auto*m=new std::string(why); std::string*z=nullptr; if(!failed_.compare_exchange_strong(z,m))delete m; wake(); }
     template<class F> std::thread spawn(F f){
         return std::thread([this,f]()mutable{
             try{ f(); }
@@ -736,7 +736,7 @@ class Engine{
         uint64_t watermark=0;
     };
     std::unique_ptr<HeldMapResolverView> held_map_resolvers;
-    using LiveTable=std::map<std::string,int64_t>;
+    using LiveTable=std::set<std::string>;   // [LIVE_WHILE_ITS_SESSION_IS_V1] the xtr_ids whose liveness cell is there
     struct HeldLivenessView { std::atomic<const LiveTable*> table{nullptr}; std::thread thread; uint64_t watermark=0; };
     std::unique_ptr<HeldLivenessView> held_liveness_view;
     struct HeldMapServerView { std::atomic<const MapServerTable*> table{nullptr}; std::thread thread; uint64_t watermark=0; };
@@ -1285,7 +1285,7 @@ class Engine{
         if(!m.registered){
             m.last_registered=now_ms(); m.expires_at=0; ram->write("lisp",regvar,inst,bag_json(m)); decision="withdrawn";
         } else if(governor_authorizes(g,m)){
-            m.last_registered=now_ms(); m.expires_at=0; m.live_key=xtr;   // alive only while the ETR's liveness cell is fresh
+            m.last_registered=now_ms(); m.expires_at=0; m.live_key=xtr;   // alive only while the ETR's liveness cell is there
             ram->write("lisp",regvar,inst,bag_json(m));
             publish_known_length("registration",g.iid,g.group,rp.bits);
             ram->write("lisp",ram_var_len("registration-governance",g.iid,g.group,rp.bits),m.prefix,"{\"mode\":\"merge\",\"site_id\":\"\"}");
@@ -1327,11 +1327,14 @@ class Engine{
         } catch(const frogram::Unreachable&){}
         for(auto&t:g.children)if(t.joinable())t.join();
     }
-    // ETR liveness (v0.44): one cell per ETR, etr-live/<xtr_id> {alive_until}. Death is derived from time at read;
-    // nothing is written when an ETR dies.
+    // [LIVE_WHILE_ITS_SESSION_IS_V1] ETR liveness: one cell per ETR, etr-live/<xtr_id>, written ONCE by the ETR's own
+    // session. The memory removes it when that session ends -- the process exits, crashes, or its host stops answering
+    // (the memory's own sockets: keepalive and user timeout) -- and every read held on etr-live is handed the row as
+    // gone, in order. Alive = the cell is there. No heartbeat, no alive_until, no clock at read. (v0.44 to v0.64: a
+    // heartbeat rewrote {alive_until} every interval_s and death was derived from time at read.)
     void apply_liveness(HeldLivenessView&v,const std::vector<frogram::Cell>&cells){
         auto g=ebr.guard(); auto old=snap_load(v.table,g); auto next=new LiveTable(old?*old:LiveTable{});
-        for(auto&c:cells)if(c.bag["alive_until"].type==Json::Num)(*next)[c.instance]=(int64_t)c.bag["alive_until"].n;
+        for(auto&c:cells){ if(c.gone)next->erase(c.instance); else next->insert(c.instance); }
         snap_store(v.table,next);
     }
     void watch_liveness(HeldLivenessView*vp,uint64_t after){
@@ -1348,22 +1351,8 @@ class Engine{
         apply_liveness(v,cells); auto after=v.watermark;
         v.thread=spawn([this,after]{watch_liveness(held_liveness_view.get(),after);}); return v;
     }
-    struct Heartbeat{ std::thread thread; std::atomic<bool> stop{false}; double interval_s=20,lifetime_s=60; };
-    std::unique_ptr<Heartbeat> heartbeat;
-    // The ETR's heartbeat participant: writes its one liveness cell, then waits on its own control cell for the
-    // interval (a bounded held read: the timeout is the clock, a stop wakes it at once).
-    void run_heartbeat(Heartbeat*hp,std::string xtr,std::string name){
-        auto&h=*hp; uint64_t after=0;
-        try{
-            for(auto&c:ram->read("lisp","etr-live-control",name))if(c.id>after)after=c.id;
-            while(!h.stop&&!stopping){
-                int64_t until=now_ms()+(int64_t)(h.lifetime_s*1000);
-                ram->write("lisp","etr-live",xtr,"{\"etr\":"+q(name)+",\"alive_until\":"+std::to_string(until)+"}");
-                auto cells=ram->read("lisp","etr-live-control",name,(int64_t)after,h.interval_s);
-                for(auto&c:cells)if(c.id>after)after=c.id;
-            }
-        } catch(const frogram::Unreachable&){}
-    }
+    uint64_t liveness_id=0;   // this ETR's own etr-live cell (0: none written)
+    std::string liveness_xtr;
     HeldMapResolverView& held_map_resolver_view(){
         if(held_map_resolvers)return *held_map_resolvers;
         held_map_resolvers=std::make_unique<HeldMapResolverView>();
@@ -1424,12 +1413,16 @@ class Engine{
         for(;;){
             ResolverRegistry::Node*head=slot.load(std::memory_order_acquire);
             for(auto*n=head;n;n=n->next)if(n->key==vk){
-                while(!n->ready.load(std::memory_order_acquire))std::this_thread::yield();   // its builder is arming it
+                // [ARMING_WAITS_ON_THE_WORD_V1] its builder is arming it: sleep on the word until the builder says
+                // (it used to spin in yield() for as long as the view's first reads took)
+                int r; while((r=n->ready.load(std::memory_order_acquire))==0)n->ready.wait(0,std::memory_order_acquire);
+                if(r<0)throw std::runtime_error("held resolver view "+vk+": its builder failed");
                 return *n->view;
             }
             auto*fresh=new ResolverRegistry::Node; fresh->key=vk; fresh->view=std::make_unique<HeldResolverView>(); fresh->next=head;
             if(!slot.compare_exchange_strong(head,fresh,std::memory_order_acq_rel)){ delete fresh; continue; }
             HeldResolverView&v=*fresh->view;          // this thread won the insert: it arms the view
+            try{
             auto manifest=read_ram("registration-lengths|"+iid+"|"+group),site_manifest=read_ram("site-lengths|"+iid+"|"+group),ddt_manifest=read_ram("ddt-delegation-lengths|"+iid+"|"+group);
             for(auto&c:manifest)if(c.id>v.manifest_watermark)v.manifest_watermark=c.id;
             for(auto&c:site_manifest)if(c.id>v.site_manifest_watermark)v.site_manifest_watermark=c.id;
@@ -1441,7 +1434,8 @@ class Engine{
             v.manifest_thread=spawn([this,&v,iid,group,ma]{watch_manifest(&v,iid,group,ma);});
             v.site_manifest_thread=spawn([this,&v,iid,group,sa]{watch_site_manifest(&v,iid,group,sa);});
             v.ddt_manifest_thread=spawn([this,&v,iid,group,da]{watch_ddt_manifest(&v,iid,group,da);});
-            fresh->ready.store(1,std::memory_order_release);
+            } catch(...){ fresh->ready.store(-1,std::memory_order_release); fresh->ready.notify_all(); throw; }
+            fresh->ready.store(1,std::memory_order_release); fresh->ready.notify_all();
             return v;
         }
     }
@@ -1814,6 +1808,19 @@ class Engine{
     // ends, and the next operation on the Engine throws it -- with the cause -- instead of answering from a view
     // that has stopped. ribbit-lisp then reports it once and exits.
     std::string failure(){ auto*p=failed_.load(std::memory_order_acquire); return p?*p:std::string(); }
+    // [WAIT_ON_THE_EVENT_WORD_V1] a failure (or wake()) moves this word; a caller with nothing else to do sleeps on it
+    // (lisp-service polled failure() every 100 ms)
+    std::atomic<uint32_t> events{0};
+    void wake(){ events.fetch_add(1,std::memory_order_seq_cst); events.notify_all(); }
+    void report(const std::string&why){ fail(why); }
+    // A held read of one of the service's own variables: parked in the memory until a row past `after` is written or
+    // goes (gone rows included). Throws Unreachable when the session ends (close()).
+    std::vector<frogram::Cell> wait_cells(const std::string&variable,uint64_t after){
+        if(!ram)throw std::runtime_error("wait_cells requires the shared-memory backend");
+        return ram->read("lisp",variable,"",(int64_t)after,3600.0);
+    }
+    // Ends the session now: every read parked in it returns (Unreachable), and everything it wrote goes.
+    void close(){ stopping=true; if(session)session->shutdown(); wake(); }
     void adopt_site_key(const Json&a){
         auto iid=arg(a,"iid","0"),p=arg(a,"prefix"),g=arg(a,"group"); prefix_parse(p);
         int kid=a["key_id"].type==Json::Num?(int)a["key_id"].n:0; auto pass=arg(a,"password");
@@ -1859,8 +1866,7 @@ class Engine{
         return r["result_json"].s;
     }
     ~Engine(){
-        stopping=true; stop_registrar(); if(governor)governor->stop=true; if(heartbeat)heartbeat->stop=true; if(session)session->shutdown();
-        if(heartbeat&&heartbeat->thread.joinable())heartbeat->thread.join();
+        stopping=true; stop_registrar(); if(governor)governor->stop=true; if(session)session->shutdown();
         if(held_liveness_view&&held_liveness_view->thread.joinable())held_liveness_view->thread.join();
         if(governor&&governor->thread.joinable())governor->thread.join();
         if(registrar&&registrar->thread.joinable())registrar->thread.join();
@@ -2056,18 +2062,16 @@ class Engine{
         }
         if(op=="etr_liveness.start"){
             if(!ram||etr_name.empty())throw std::runtime_error("etr liveness requires the shared-memory backend and an etr identity");
-            if(heartbeat&&heartbeat->thread.joinable()){ if(!heartbeat->stop)throw std::runtime_error("heartbeat already running"); heartbeat->thread.join(); }
-            auto h=std::make_unique<Heartbeat>();
-            if(a["interval_s"].type==Json::Num)h->interval_s=a["interval_s"].n;
-            if(a["lifetime_s"].type==Json::Num)h->lifetime_s=a["lifetime_s"].n;
-            if(h->interval_s<=0||h->lifetime_s<=h->interval_s)throw std::runtime_error("need 0 < interval_s < lifetime_s");
-            heartbeat=std::move(h); auto*hp=heartbeat.get(); auto xtr=etr_xtr,name=etr_name;
-            heartbeat->thread=spawn([this,hp,xtr,name]{run_heartbeat(hp,xtr,name);});
+            if(resident)throw std::runtime_error("etr liveness is the ETR's own session's cell: not from inside the RAM host");
+            for(auto*k:{"interval_s","lifetime_s"})if(a[k].type!=Json::Null)
+                throw std::runtime_error(std::string("etr_liveness.start: ")+k+" is gone -- the liveness cell lives as long as this ETR's session ([LIVE_WHILE_ITS_SESSION_IS_V1])");
+            if(liveness_id)throw std::runtime_error("etr liveness already started");
+            liveness_xtr=etr_xtr;
+            liveness_id=ram->write("lisp","etr-live",etr_xtr,"{\"etr\":"+q(etr_name)+"}");
             return q("good");
         }
         if(op=="etr_liveness.stop"){
-            if(heartbeat&&!heartbeat->stop){ heartbeat->stop=true;
-                ram->write("lisp","etr-live-control",etr_name,"{\"stop\":true}"); }   // wakes the heartbeat now
+            if(liveness_id){ ram->remove("lisp","etr-live",liveness_id); liveness_id=0; }   // gone now, to every held read
             return q("good");
         }
         if(op=="etr.identity"){
@@ -2619,8 +2623,7 @@ class Engine{
                     if(m.expires_at!=0&&m.expires_at<=now)return false;
                     if(m.live_key.empty())return true;
                     if(!lt)return false;
-                    auto it=lt->find(m.live_key);
-                    return it!=lt->end()&&it->second>now&&site_authorizes(v,m.prefix); };
+                    return lt->count(m.live_key)&&site_authorizes(v,m.prefix); };
                 std::pair<std::string,std::string> gv;
                 if(gov)if(auto*x=gov->get(prefix_key(prefix),prefix))gv=*x;
                 bool present=false,rloc_seen=want_rloc.empty();
@@ -2662,7 +2665,7 @@ class Engine{
                         if(!m.registered||!governed_in(m,gv)||(m.expires_at!=0&&m.expires_at<=now))return;
                         if(!m.live_key.empty()){                      // native: its ETR must be alive now,
                             if(!lt)return;
-                            auto it=lt->find(m.live_key); if(it==lt->end()||it->second<=now)return;
+                            if(!lt->count(m.live_key))return;
                             if(!site_authorizes(v,m.prefix))return;   // and a site must authorize it now
                         }
                         Prefix mp=prefix_parse(m.prefix); if(!contains(mp,tp))return;

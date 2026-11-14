@@ -18,6 +18,7 @@
 ################################################################
 from __future__ import annotations
 
+import os
 import socket
 import struct
 import threading
@@ -63,6 +64,30 @@ def _send_frame(conn, payload: bytes) -> None:
     conn.sendall(hdr + payload)
 
 
+
+# [WRITER_GONE_V1] this host's own api.php (local Apache), told that a peer's permanent socket closed
+API_LOCAL = os.environ.get("FROGNET_API_LOCAL", "http://127.0.0.1:8080/api.php")
+
+
+def _writer_gone(ip: str) -> None:
+    """the peer is a FrogNet node, named by its .1: it and every machine attached to its /24 reached this network
+    through that socket, so what was written from that /24 belonged to it"""
+    import json as _json
+    import urllib.request as _ur
+    p = ip.split(".")
+    if len(p) != 4 or not all(x.isdigit() for x in p) or ip == "0.0.0.0":
+        print(f"[WRITER_GONE_V1] a permanent socket closed with no peer address ({ip!r}): nothing to remove", flush=True)
+        return
+    subnet = ".".join(p[:3]) + ".0/24"
+    req = _ur.Request(API_LOCAL + "?entity=sensors&action=remove_writer", method="POST",
+                      data=_json.dumps({"subnet": subnet}).encode(), headers={"Content-Type": "application/json"})
+    try:
+        with _ur.urlopen(req, timeout=10) as r:
+            print(f"[WRITER_GONE_V1] {ip}'s permanent socket closed: {r.read().decode()[:200]}", flush=True)
+    except Exception as e:
+        # logged; the next event (its return, or another close) acts again. No second mechanism.
+        print(f"[WRITER_GONE_V1] {ip}'s permanent socket closed; its tuples were NOT removed: {e!r}", flush=True)
+
 class DaemonServer:
     def __init__(self, host: str, port: int, resolver):
         self.host = host
@@ -72,6 +97,7 @@ class DaemonServer:
         # Sessions waiting for a RETURN connection, keyed by return_ip
         self._pending_sessions = {}
         self._pending_lock = threading.RLock()
+        self._live_by_ip = {}         # [WRITER_GONE_V1] return_ip -> live established sessions
 
     def run(self) -> None:
         """[RETURN_ONLY_V1] Non-blocking accept loop.
@@ -376,10 +402,34 @@ class DaemonServer:
         t.start()
 
     def _run_session(self, session: SemanticSession, return_ip: str) -> None:
-        """Run session and clean up pending registration when done."""
+        """Run session and clean up pending registration when done.
+
+        [WRITER_GONE_V1 - John 2026-11-07] The permanent socket between this daemon and a peer's proxy closing is the
+        LAN's network event for that machine: when the last established session from that peer ends, what we know
+        belonged to it -- every tuple it wrote in this host's api.php -- is removed, and the holds on them fire. On the
+        SystemRam that is the machine leaving the network. (Across the WAN the WAN role acts: it closes the island's
+        tunnel.) A probe connection that never brought up its RETURN channel is not a session and changes nothing."""
+        peer = (return_ip or "").split("#", 1)[0]     # the HELLO names the peer's .1, then its channel set
+        def _up():
+            with self._pending_lock:
+                self._live_by_ip[peer] = self._live_by_ip.get(peer, 0) + 1
+            print(f"[WRITER_GONE_V1] {peer} joined through this daemon "
+                  f"({self._live_by_ip.get(peer)} live session(s))", flush=True)
+        session.on_established = _up
         try:
             session.run()
         finally:
+            last = False
             with self._pending_lock:
                 if self._pending_sessions.get(return_ip) is session:
                     self._pending_sessions.pop(return_ip, None)
+                if session.established:
+                    n = self._live_by_ip.get(peer, 1) - 1
+                    if n > 0:
+                        self._live_by_ip[peer] = n
+                    else:
+                        self._live_by_ip.pop(peer, None)
+                        last = True
+            if last:
+                threading.Thread(target=_writer_gone, args=(peer,), daemon=True,
+                                 name=f"writer-gone-{peer}").start()

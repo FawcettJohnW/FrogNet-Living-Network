@@ -1,0 +1,29 @@
+{
+ "nums": {
+  "S": "!461f5083",
+  "F": "!f0aaf4e9",
+  "G": "!8a6a8496"
+ },
+ "results": {
+  "L_G_lists_S": {
+   "pass": true
+  },
+  "B1_S_broadcast_to_G": {
+   "pass": true,
+   "seconds": 0.2
+  },
+  "B2_G_broadcast_to_S": {
+   "pass": true,
+   "seconds": 0.2
+  },
+  "D1_S_dm_to_G": {
+   "pass": true,
+   "seconds": 0.2
+  },
+  "D2_G_dm_to_S": {
+   "pass": true,
+   "seconds": 0.2
+  }
+ },
+ "pass": true
+}

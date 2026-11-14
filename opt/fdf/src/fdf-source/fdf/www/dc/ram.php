@@ -40,15 +40,16 @@
 // AppRam has no AppHost now is refused: the client connects first. [TEAM_RAM_V1] a service whose RAM is "team" is in
 // the team's own AppRam, named by the request (read: &team=, write: "team" in the body). ?op=rams lists them.
 // The app's one configuration tuple, (fdf-app, config, <app>), and each Team's, (fdf-app, config, <app>.<team>), are in
-// databasehost-control (databasehost_control.frognet's RAM host); the installed machines' capability and answers,
-// (fdf-app, can|applied, ...), in the SystemRam (databasehost.frognet's); a device's own record in the general AppRam.
+// databasehost-control (databasehost_control.frognet's api.php); the installed machines' capability and answers,
+// (fdf-app, can|applied, ...), in the SystemRam (databasehost.frognet's api.php); a device's own record in the general
+// AppRam. [ROLES_ON_API_V1] both roles are api.php on port 80.
 // The launcher's own service (dc) stays on the network RAM (fdf.env's RINA_RAM).
 // [STATION_IS_HOSTNAME_V1] whoami: the asking device's hostname, as this node's facts have it (the lease this node gave
 // that address, facts.addrs kind "given", value). It is the device's station ID (PLAN.md, "Message numbers"): unique on
 // the network, typed by nobody. A device this node gave no lease has none here, and is told so.
 header('Content-Type: application/json');
 // [DOOR_SAYS_ITS_BUILD_V1] every answer says which door answered: the header, and "door" in the admin and roles answers
-const DOOR_BUILD = 'dc-door-2026-11-06-r18';
+const DOOR_BUILD = 'dc-door-2026-11-10-roleadmin1';   // [ROLE_ADMIN_V1]   // [COMMAND_CENTER_V1] the EOC is the Command Center in what it says   // [ROLES_ON_API_V1] [EOC_LEADS_V1] [TEAM_ON_SYSTEMRAM_V1]
 // [SENSORS_BY_THE_DOOR_V1] the sensor store (api.php on databasehost.frognet) by the address this node's /etc/hosts gives
 // it: an app through the tunnel has no .frognet names (the phone's DNS is its carrier's), the address routes
 function door_sensors() {
@@ -82,7 +83,7 @@ function ram($env, $args) {
 
 $where = trim((string)shell_exec('. ' . escapeshellarg(dirname(__DIR__, 2) . '/fdf.env') . ' && printf %s "$RINA_RAM"'));
 // [APP_SERVICES_V1] /etc/hosts (FDF_HOSTS), read at each request: the election rewrites it
-$hostenv = explode("\n", (string)shell_exec('. ' . escapeshellarg(dirname(__DIR__, 2) . '/fdf.env') . ' && printf "%s\n%s\n%s\n%s" "${FDF_HOSTS:-/etc/hosts}" "${FDF_LAN_RAM_PORT:-$(cat ${FDF_RAM_PORT_FILE:-/etc/frognet/ram_port} 2>/dev/null)}" "${RINA_CONTROL_RAM:-}" "${RINA_SYSTEM_RAM:-}"'));
+$hostenv = explode("\n", (string)shell_exec('. ' . escapeshellarg(dirname(__DIR__, 2) . '/fdf.env') . ' && printf "%s\n%s\n%s\n%s" "${FDF_HOSTS:-/etc/hosts}" "" "${RINA_CONTROL_RAM:-}" "${RINA_SYSTEM_RAM:-}"'));
 function host_ip($name) {
     global $hostenv;
     foreach ((array)@file(trim($hostenv[0] ?? '/etc/hosts')) as $l) {
@@ -91,22 +92,100 @@ function host_ip($name) {
     }
     return '';
 }
-function role_env($name, $over, $what) {                         // the ram CLI on the RAM host of databasehost-control or the SystemRam
+// [ROLES_ON_API_V1 - John 2026-11-07] databasehost-control (the ControlRam) and the SystemRam are roles: one host each,
+// named in /etc/hosts, served by that host's default api.php on port 80. A cell (service, variable, instance) is the
+// api.php tuple SensorType=<service>, SensorName=<variable>.<instance>, SensorAddress=<the writer>, jsonData=<the bag>.
+// There is no RAM host on a FrogNetHost and no RAM port (8841 and /etc/frognet/ram_port are gone).
+function role_host($name, $over, $what) {                      // the role's address (RINA_CONTROL_RAM/RINA_SYSTEM_RAM: a test's)
     global $hostenv;
     $at = trim($hostenv[$over] ?? '');
-    $port = trim($hostenv[1] ?? ''); if ($port === '') $port = '8841';     // [RAM_PORT_CONFIGURABLE_V1] /etc/frognet/ram_port, else 8841
-    if ($at === '') { $ip = host_ip($name); $at = $ip === '' ? '' : $ip . ':' . $port; }
-    if (!preg_match('/^[0-9.]+:[0-9]+$/', $at)) fail(503, "this node names no $name yet (/etc/hosts): the election has not run here ($what)");
-    return [$at, '. ' . escapeshellarg(dirname(__DIR__, 2) . '/fdf.env') . ' && RINA_RAM=' . escapeshellarg($at) . ' exec "$FDF_BIN"/ram '];
+    if ($at === '') $at = host_ip($name);
+    if (!preg_match('/^[0-9.]+(:[0-9]+)?$/', $at)) fail(503, "this node names no $name yet (/etc/hosts): the election has not run here ($what)");
+    return $at;
 }
-function ctl_env() { return role_env('databasehost_control.frognet', 2, 'databasehost-control')[1]; }
-function sys_env() { return role_env('databasehost.frognet', 3, 'the SystemRam')[1]; }
-function sys_at() { return role_env('databasehost.frognet', 3, 'the SystemRam')[0]; }
+function ctl_host() { return role_host('databasehost_control.frognet', 2, 'databasehost-control'); }
+function sys_host() { return role_host('databasehost.frognet', 3, 'the SystemRam'); }
+function role_call($host, $method, $q, $body = null, $timeout = 10) {
+    $url = 'http://' . $host . '/api.php?' . http_build_query($q);
+    $ctx = ['http' => ['method' => $method, 'timeout' => $timeout, 'ignore_errors' => true]];
+    if ($body !== null) { $ctx['http']['header'] = "Content-Type: application/json\r\n"; $ctx['http']['content'] = json_encode($body, JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE); }
+    $raw = @file_get_contents($url, false, stream_context_create($ctx));
+    $j = $raw === false ? null : json_decode($raw, true);
+    if (!is_array($j) || empty($j['ok'])) fail(502, "the role's api.php at $host did not answer " . ($q['action'] ?? ''), (string)$raw);
+    return $j;
+}
+function role_filter($svc, $var, $inst) {
+    $f = ['SensorType' => $svc];
+    $esc = function ($x) { return str_replace(['%', '_'], ['\\%', '\\_'], $x); };
+    if ($var !== '' && $inst !== '') $f['SensorName'] = $var . '.' . $inst;
+    elseif ($var !== '') $f['SensorName__like'] = $esc($var) . '.%';
+    elseif ($inst !== '') $f['SensorName__like'] = '%.' . $esc($inst);
+    return $f;
+}
+function role_cells($rows) {                                   // api.php rows as the cells the pages know, the newest first
+    $out = [];
+    foreach ($rows as $r) {
+        $nm = (string)($r['SensorName'] ?? ''); $dot = strpos($nm, '.');
+        $out[] = ['id' => intval($r['SensorID'] ?? 0), 'service' => $r['SensorType'] ?? '', 'variable' => $dot === false ? $nm : substr($nm, 0, $dot),
+                  'instance' => $dot === false ? '' : substr($nm, $dot + 1), 'bag' => $r['data'] ?? (object)[], 'writer' => $r['SensorAddress'] ?? '',
+                  'updated' => intval($r['UpdatedAtEpoch'] ?? 0)];
+    }
+    usort($out, function ($a, $b) { return [$b['updated'], $b['id']] <=> [$a['updated'], $a['id']]; });
+    return $out;
+}
+function role_sig($rows) {                                     // what the rows hold, as one number a page can hand back
+    $k = [];
+    foreach ($rows as $r) $k[] = [(string)($r['SensorID'] ?? ''), (string)($r['SensorAddress'] ?? ''), (string)($r['jsonData'] ?? '')];
+    sort($k);
+    return intval(sprintf('%u', crc32(json_encode($k))));
+}
+function role_rows($host, $svc, $var = '', $inst = '') {
+    return role_call($host, 'GET', ['entity' => 'sensors', 'action' => 'values', 'parse' => '1'] + role_filter($svc, $var, $inst))['rows'] ?? [];
+}
+function role_read($host, $svc, $var = '', $inst = '') { return ['ok' => true, 'rows' => role_cells(role_rows($host, $svc, $var, $inst))]; }
+function source_ip_toward($host) {                            // [WRITER_GONE_V1] this node's own FrogNet address (its .1):
+    global $fdf_facts;                                         // the writer address its tuples are removed by when it leaves
+    $f = json_decode((string)@file_get_contents($fdf_facts), true);
+    foreach ((is_array($f) ? ($f['addrs'] ?? []) : []) as $a)
+        if (($a['kind'] ?? '') === 'own' && preg_match('/^10\.\d+\.\d+\.1$/', (string)($a['ip'] ?? ''))) return $a['ip'];
+    fail(503, "this node's facts name no own .1 address ($fdf_facts): fdf-facts has not run here");
+}
+function role_write($host, $svc, $var, $inst, $bag) {
+    $j = role_call($host, 'POST', ['entity' => 'sensor_data', 'action' => 'upsert_by_name'],
+                   ['SensorType' => $svc, 'SensorName' => $var . '.' . $inst, 'SensorAddress' => source_ip_toward($host), 'jsonData' => $bag]);
+    return json_encode(['ok' => true, 'id' => intval($j['sensor_id'] ?? 0)]);
+}
+// [HELD_READ_IN_API_V1] a held read from this door: hold at the role's api.php with this request's own socket in
+// /run/frognet/held (held_fire.php hands the fire to it); return as soon as the rows are not the ones the page has
+// ($seen, role_sig), or at $wait s. No polling: each wake is the fire.
+function role_hold_wait($host, $svc, $var, $inst, $seen, $wait) {
+    $hid = 'dcdoor.' . getmypid() . '.' . bin2hex(random_bytes(4));
+    $path = '/run/frognet/held/' . $hid . '.sock';
+    $sock = @stream_socket_server('udg://' . $path, $en, $es, STREAM_SERVER_BIND);
+    if (!$sock) fail(503, "the door could not hold a read here ($path: $es)");
+    @chmod($path, 0666);
+    $end = microtime(true) + $wait;
+    try {
+        while (true) {
+            $j = role_call($host, 'GET', ['entity' => 'held', 'action' => 'hold', 'holder' => source_ip_toward($host), 'hid' => $hid] + role_filter($svc, $var, $inst));
+            $rows = $j['rows'] ?? [];
+            if (role_sig($rows) !== $seen) return $rows;
+            $left = $end - microtime(true);
+            // [HOLD_ENDS_WITH_NOW_V1] (found 2026-11-10: a held read that timed out handed back the rows it had when it began,
+            // so a write in between, whose fire did not arrive, was missed for one more hold) the end of the wait reads again
+            if ($left <= 0) return role_rows($host, $svc, $var, $inst);
+            $r = [$sock]; $w = null; $e = null;
+            if (!@stream_select($r, $w, $e, intval($left), intval(fmod($left, 1) * 1e6))) return role_rows($host, $svc, $var, $inst);
+            @stream_socket_recvfrom($sock, 65536);                 // the fire: hold again; its reply is the current rows
+        }
+    } finally { fclose($sock); @unlink($path); }
+}
 function svc_host($app, $ram) { return $ram === 'general' ? $app . 'Host.frognet' : $ram . 'Host.' . $app; }   // a Team's scoped to its app
 $fdf_var = trim((string)shell_exec('. ' . escapeshellarg(dirname(__DIR__, 2) . '/fdf.env') . ' && printf %s "${FDF_VAR:-/opt/fdf/var}"'));
+$fdf_facts = trim((string)shell_exec('. ' . escapeshellarg(dirname(__DIR__, 2) . '/fdf.env') . ' && printf %s "${FDF_FACTS:-${FDF_VAR:-/opt/fdf/var}/facts.json}"'));   // fdf-facts' file, as the Python tools name it
 function station_of($ip) {                                      // [STATION_IS_HOSTNAME_V1] the lease this node gave $ip
-    global $fdf_var;
-    $f = json_decode((string)@file_get_contents($fdf_var . '/facts.json'), true);
+    global $fdf_facts;
+    $f = json_decode((string)@file_get_contents($fdf_facts), true);
     foreach ((is_array($f) ? ($f['addrs'] ?? []) : []) as $a)
         if (($a['kind'] ?? '') === 'given' && ($a['ip'] ?? '') === $ip && ($a['value'] ?? '') !== '')
             return preg_match('/^([0-9a-f]{2}:){5}[0-9a-f]{2}$/i', $a['value']) ? '' : $a['value'];   // a lease with no name: fdf-facts wrote the MAC
@@ -142,11 +221,14 @@ function app_tuple($app) {
     global $cfg_cache;
     if (array_key_exists($app, $cfg_cache)) return $cfg_cache[$app];
     $bag = null; $places = [];
-    foreach ((json_decode(ram(ctl_env(), ['read', 'fdf-app', 'config']), true)['rows'] ?? []) as $c) {
+    foreach (array_reverse(role_read(ctl_host(), 'fdf-app', 'config')['rows']) as $c) {     // oldest first
         $i = (string)($c['instance'] ?? ''); $b = $c['bag'] ?? null;
         if (!is_array($b) || !$b) continue;
         if ($i === $app && ($bag === null || intval($b['seq'] ?? 0) > intval($bag['seq'] ?? 0))) $bag = $b;
-        elseif (strpos($i, $app . '.') === 0) $places[substr($i, strlen($app) + 1)] = $b;
+        elseif (strpos($i, $app . '.') === 0) {
+            if (($b['at'] ?? '') === 'removed') unset($places[substr($i, strlen($app) + 1)]);   // [TEAM_DELETE_V1]
+            else $places[substr($i, strlen($app) + 1)] = $b;
+        }
     }
     $cfg = null;
     if (is_array($bag)) {
@@ -172,7 +254,16 @@ function served_at($app, $ram) {
 function served_map($app) {
     $cfg = app_tuple($app); $o = [];
     foreach ((is_array($cfg) ? ($cfg['rams'] ?? []) : []) as $r) { $w = served_at($app, $r); if ($w !== '') $o[$r] = $w; }
+    // [TEAM_ON_SYSTEMRAM_V1] a Team its lead put on the SystemRam has no RAM of its own: it is "systemram" here, and its
+    // tuples are in the SystemRam's api.php (op=team, op=teamwrite)
+    foreach ((is_array($cfg) ? ($cfg['places'] ?? []) : []) as $t => $p) if (is_array($p) && ($p['at'] ?? '') === 'systemram') $o[$t] = 'systemram';
     return $o;
+}
+/** [TEAM_ON_SYSTEMRAM_V1] the SystemRam's service for a Team's service: its own, scoped to the team */
+function team_svc($svc, $team) { return $svc . '@' . strtolower($team); }
+function team_on_sysram($app, $team) {
+    foreach ((app_tuple($app)['places'] ?? []) as $t => $p) if (strtolower((string)$t) === strtolower($team)) return is_array($p) && ($p['at'] ?? '') === 'systemram';
+    return false;
 }
 // [ENROLL_V1] a user and password, checked against the verifier in the app's configuration: the user's record
 // [CHILDREN_JOIN_V1] (John 2026-11-05: "One qr code for the whole team, and one password" ... "Same thing for the eoc. The
@@ -184,16 +275,55 @@ function served_map($app) {
 function verified($v, $pw) { return is_array($v) && hash_equals((string)($v['hash'] ?? ''), hash_pbkdf2('sha256', (string)$pw, hex2bin((string)($v['salt'] ?? '')), intval($v['n'] ?? 1))); }
 function children($app) {
     $o = [];
-    foreach ((json_decode(ram(ctl_env(), ['read', 'fdf-app', 'child']), true)['rows'] ?? []) as $c) {
+    foreach (array_reverse(role_read(ctl_host(), 'fdf-app', 'child')['rows']) as $c) {      // oldest first: the newest stands
         $i = (string)($c['instance'] ?? ''); $b = $c['bag'] ?? null;
-        if (is_array($b) && $b && strpos($i, $app . '.') === 0) $o[substr($i, strlen($app) + 1)] = $b;
+        if (!is_array($b) || !$b || strpos($i, $app . '.') !== 0) continue;
+        if (!empty($b['removed'])) unset($o[substr($i, strlen($app) + 1)]);   // [TEAM_DELETE_V1] deleted by the Command Center
+        else $o[substr($i, strlen($app) + 1)] = $b;
     }
     return $o;
+}
+// [EOC_LEADS_V1] (John 2026-11-09: "The EOC should just have a way for me to add users. When I scan the QR code it should
+// take me to a filled in screen with my username filled in, but the team name blank. I fill in the team name, add my
+// password, and hit the button to create the Team") a lead the EOC added: (fdf-app, lead, <app>.<user>) {name, verifier,
+// by, at} in databasehost-control, written here for an EOC user (its role eoc, or a role in the EOC category); never a
+// password, only its verifier. The lead names its team when it enrolls; the team (a child) records its lead.
+function leads($app) {
+    $o = [];
+    foreach (array_reverse(role_read(ctl_host(), 'fdf-app', 'lead')['rows']) as $c) {       // oldest first: the newest stands
+        $i = (string)($c['instance'] ?? ''); $b = $c['bag'] ?? null;
+        if (!is_array($b) || strpos($i, $app . '.') !== 0) continue;
+        $n = substr($i, strlen($app) + 1);
+        if (!empty($b['removed'])) unset($o[$n]); else $o[$n] = $b;
+    }
+    return $o;
+}
+function lead_ok($name) { return is_string($name) && preg_match('/^[A-Za-z0-9][A-Za-z0-9._-]{0,39}$/', $name); }
+/** the team a lead created (the newest child that names it its lead), or '' */
+function team_of_lead($app, $lead) {
+    $t = ''; $at = -1;
+    foreach (children($app) as $n => $b) if ((string)($b['lead'] ?? '') === $lead && intval($b['at'] ?? 0) >= $at) { $t = $n; $at = intval($b['at'] ?? 0); }
+    return $t;
+}
+/** an EOC user, by its password: the configuration's user whose role is eoc or in the EOC category */
+function eoc_user($app, $in) {
+    $cfg = app_cfg($app); $u = check_user($app, $in);
+    $r = (string)($u['role'] ?? ''); $c = strtolower((string)(($cfg['roles'][$r] ?? [])['category'] ?? ''));
+    if (strtolower($r) !== 'eoc' && $c !== 'eoc') fail(403, 'user ' . ($in['user'] ?? '') . " has role $r, not a Command Center user's: only the Command Center adds users");
+    return $u;
 }
 function child_ok($name) { return is_string($name) && preg_match('/^[A-Za-z0-9][A-Za-z0-9 ._-]{0,39}$/', $name) && $name !== 'general'; }
 function check_user($app, $in) {
     $cfg = app_cfg($app);
     $user = (string)($in['user'] ?? '');
+    // [EOC_LEADS_V1] a lead the EOC added, with its own password: it leads the team it created
+    $ld = ($user !== '' && !isset($cfg['users'][$user])) ? (leads($app)[$user] ?? null) : null;
+    if (is_array($ld)) {
+        if (!verified($ld['verifier'] ?? null, $in['password'] ?? '')) fail(403, "that user and password are not this app's");
+        $t = team_of_lead($app, $user);
+        if ($t === '') fail(403, "user $user has not created a team yet: scan the Command Center's QR for $user and name the team");
+        return ['role' => $t, 'lead' => true, 'child' => true];
+    }
     // [CHILDREN_JOIN_V1] a child the app's join password made: its lead is whoever has that password and the child's name
     if ($user !== '' && !isset($cfg['users'][$user]) && isset(children($app)[$user]) && verified($cfg['join'] ?? null, $in['password'] ?? ''))
         return ['role' => $user, 'lead' => true, 'child' => true];
@@ -357,22 +487,17 @@ if ($op === 'read') {
         exit;
     }
     // the admin's view: held until an installed machine answers, its capability comes or goes, or the configuration
-    // changes (or W s). [FAMILY_LOG_V1] one blocking read on the service fdf-app in the SystemRam: `after` is a place
-    // in that family (the `last` this answer gives)
-    $last = -1;
+    // changes (or W s). [HELD_READ_IN_API_V1] one held read on the service fdf-app at the SystemRam's api.php: `after`
+    // is what the page has (the `last` this answer gives: a number for what the family holds, not a place in it)
     if (isset($_GET['after'])) {
         $wait = max(0, min(25, intval($_GET['wait'] ?? 20)));
-        $t0 = microtime(true);
-        [$rc, $said] = ram_try(sys_env(), ['read', 'fdf-app', '', '', intval($_GET['after']), $wait]);
-        // [EVENTS_NOT_TIMERS_V1][NOT_THIS_MEMORY_V1] ESTALE: another memory: the full read below gives the new `last`.
-        // Not answering: held until it says it is up, within the same W s; then the full read below.
-        if ($rc !== 0 && strpos($said, 'ESTALE') === false && preg_match('/^([0-9.]+):([0-9]+)$/', sys_at(), $mm))
-            ram($env, ['written', sprintf('%.3f', max(0.1, $wait - (microtime(true) - $t0))), sprintf('%.6f', $t0),
-                       $fdf_var . '/ram/' . $mm[1] . '_' . $mm[2] . '.up', $fdf_var . '/ram/0.0.0.0_' . $mm[2] . '.up']);
+        $rows = role_hold_wait(sys_host(), 'fdf-app', '', '', intval($_GET['after']), $wait);
         $cfg_cache = []; $best = app_cfg($app); $served = served_map($app);
+    } else {
+        $rows = role_rows(sys_host(), 'fdf-app');
     }
-    $all = json_decode(ram(sys_env(), ['read', 'fdf-app', '']), true)['rows'] ?? [];
-    foreach ($all as $c) $last = max($last, intval($c['id'] ?? -1));
+    $all = role_cells($rows);
+    $last = role_sig($rows);
     // one row per installed machine (its capability tuples), each showing the one configuration; its answer in applied
     $pub = $best; unset($pub['_bag']); $machines = [];
     foreach ($all as $c) {
@@ -396,7 +521,120 @@ if ($op === 'read') {
     $cur = app_cfg($app);
     if ($in['seq'] <= intval($cur['seq'] ?? 0)) fail(409, 'seq ' . $in['seq'] . ' is not newer than the configuration in databasehost-control (' . intval($cur['seq'] ?? 0) . ')');
     $bag = ['config' => $in['config'], 'seq' => $in['seq'], 'user' => (string)($in['user'] ?? ''), 'mac' => $in['mac'], 'admin' => $cur['admin'] ?? (object)[], 'at' => time()];
-    echo ram(ctl_env(), ['write', 'fdf-app', 'config', $app, json_encode($bag, JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE)]);
+    echo role_write(ctl_host(), 'fdf-app', 'config', $app, $bag);
+} elseif ($op === 'lead' && $_SERVER['REQUEST_METHOD'] === 'POST') {
+    // [EOC_LEADS_V1] an EOC user adds a lead (its name and its password's verifier: the password is never sent here), or
+    // removes one (remove: true). The EOC user's own password says it is the EOC's.
+    $in = json_decode(file_get_contents('php://input'), true);
+    $app = $_GET['app'] ?? '';
+    if (!is_array($in) || !preg_match('/^[A-Za-z0-9_-]{1,40}$/', $app)) fail(400, 'app and a JSON body needed');
+    eoc_user($app, $in); $cfg = app_cfg($app);
+    $ld = (string)($in['lead'] ?? '');
+    if (!lead_ok($ld)) fail(400, "a user's name: letters, digits, . _ - (at most 40)");
+    if (isset($cfg['users'][$ld])) fail(409, "$ld is a user the admin configured");
+    if (!empty($in['remove'])) {
+        $bag = ['name' => $ld, 'removed' => true, 'by' => (string)$in['user'], 'at' => time()];
+        // [TEAM_DELETE_V1] (John 2026-11-09: "say that we are deleting the current lead for a role") a lead removed takes the
+        // team it created with it: its phone, and its members', are refused when they next connect as it
+        foreach (children($app) as $t => $kb) if ((string)($kb['lead'] ?? '') === $ld) {
+            role_write(ctl_host(), 'fdf-app', 'child', $app . '.' . $t, ['name' => $t, 'removed' => true, 'by' => (string)$in['user'], 'at' => time(), 'with' => 'its lead ' . $ld]);
+            if (isset((app_tuple($app)['places'] ?? [])[$t])) role_write(ctl_host(), 'fdf-app', 'config', $app . '.' . $t, ['at' => 'removed', 'by' => (string)$in['user'], 'seq' => (int)(microtime(true) * 1000)]);
+            error_log('dc ram.php: [TEAM_DELETE_V1] ' . $app . ': team ' . $t . ' deleted with its lead ' . $ld);
+        }
+    }
+    else {
+        $v = $in['verifier'] ?? null;
+        if (!is_array($v) || !preg_match('/^[0-9a-f]{16,128}$/', (string)($v['salt'] ?? '')) || !preg_match('/^[0-9a-f]{64}$/', (string)($v['hash'] ?? '')) || intval($v['n'] ?? 0) < 10000)
+            fail(400, "the user's password as a verifier (salt, n, hash): the password itself is never sent");
+        // the roles (the apps' views) this lead can run its team as: ["*"] for all, or a list (team, hospital, ambulance ...)
+        $roles = [];
+        foreach ((is_array($in['roles'] ?? null) ? $in['roles'] : []) as $r) { $r = strtolower(trim((string)$r)); if ($r === '*' || preg_match('/^[a-z0-9_-]{1,40}$/', $r)) $roles[] = $r; }
+        $roles = array_values(array_unique($roles));
+        if (!$roles) fail(400, 'roles: ["*"] for all, or the roles this lead can run');
+        if (in_array('*', $roles, true)) $roles = ['*'];
+        $bag = ['name' => $ld, 'verifier' => ['salt' => (string)$v['salt'], 'n' => intval($v['n']), 'hash' => (string)$v['hash']], 'roles' => $roles, 'by' => (string)$in['user'], 'at' => time()];
+    }
+    role_write(ctl_host(), 'fdf-app', 'lead', $app . '.' . $ld, $bag);
+    error_log('dc ram.php: [EOC_LEADS_V1] ' . $app . ': user ' . $ld . (empty($in['remove']) ? ' added' : ' removed') . ' by the Command Center user ' . $in['user']);
+    echo json_encode(['ok' => true, 'lead' => $ld, 'removed' => !empty($in['remove']), 'door' => DOOR_BUILD]);
+} elseif ($op === 'leads') {
+    // [EOC_LEADS_V1] the users the EOC added and the team each created: names only, never a verifier
+    $app = $_GET['app'] ?? '';
+    if (!preg_match('/^[A-Za-z0-9_-]{1,40}$/', $app)) fail(400, 'app needed');
+    $o = [];
+    // [TEAM_DELETE_V1] every team created on the network (by a lead, or by the old teams password), for the Command Center
+    $teams = [];
+    foreach (children($app) as $t => $b) $teams[$t] = ['lead' => (string)($b['lead'] ?? ''), 'kind' => (string)($b['kind'] ?? 'team'), 'at' => intval($b['at'] ?? 0),
+                                                      'place' => (string)(((app_tuple($app)['places'] ?? [])[$t] ?? [])['at'] ?? '')];
+    foreach (leads($app) as $n => $b) { $t = team_of_lead($app, $n);
+        $o[$n] = ['by' => (string)($b['by'] ?? ''), 'at' => intval($b['at'] ?? 0), 'roles' => $b['roles'] ?? ['*'], 'team' => $t, 'kind' => $t !== '' ? (string)((children($app)[$t] ?? [])['kind'] ?? '') : ''];
+    }
+    echo json_encode(['ok' => true, 'leads' => (object)$o, 'teams' => (object)$teams, 'door' => DOOR_BUILD], JSON_UNESCAPED_SLASHES);
+} elseif ($op === 'teamdel' && $_SERVER['REQUEST_METHOD'] === 'POST') {
+    // [TEAM_DELETE_V1] (John 2026-11-09: "I need a way to delete a team") the Command Center deletes a team created on the
+    // network: its record (a child) and its place go; its lead keeps its login and can create a team again. A Team the
+    // admin configured is the admin tool's to remove.
+    $in = json_decode(file_get_contents('php://input'), true);
+    $app = $_GET['app'] ?? '';
+    if (!is_array($in) || !preg_match('/^[A-Za-z0-9_-]{1,40}$/', $app)) fail(400, 'app and a JSON body needed');
+    eoc_user($app, $in); $cfg = app_cfg($app);
+    $t = (string)($in['team'] ?? '');
+    if (isset($cfg['roles'][$t]) || in_array($t, $cfg['rams'] ?? [], true)) fail(409, "Team $t is one the admin configured: remove it in the admin tool (its ✕, then Apply)");
+    $kid = children($app)[$t] ?? null;
+    if (!is_array($kid)) fail(404, "there is no team $t on the network");
+    role_write(ctl_host(), 'fdf-app', 'child', $app . '.' . $t, ['name' => $t, 'removed' => true, 'by' => (string)$in['user'], 'at' => time()]);
+    if (isset((app_tuple($app)['places'] ?? [])[$t])) role_write(ctl_host(), 'fdf-app', 'config', $app . '.' . $t, ['at' => 'removed', 'by' => (string)$in['user'], 'seq' => (int)(microtime(true) * 1000)]);
+    error_log('dc ram.php: [TEAM_DELETE_V1] ' . $app . ': team ' . $t . ' (lead ' . (string)($kid['lead'] ?? '') . ') deleted by the Command Center user ' . $in['user']);
+    echo json_encode(['ok' => true, 'team' => $t, 'deleted' => true, 'door' => DOOR_BUILD], JSON_UNESCAPED_SLASHES);
+} elseif ($op === 'roleconf') {
+    // [ROLE_ADMIN_V1] (John 2026-11-10: "Create -Admin roles for everything that has a non-admin version. For now, it's just
+    // the RAM host"; "they have a held read on the configuration tuples of the current <App>Admin so that they get called
+    // when there is a change") a role's one configuration, written by its Admin (a Command Center user), read and held by
+    // every instance of the role: (fdf-app, roleconf, <app>.<role>) {ramhost, by, seq, at} in databasehost-control.
+    //   GET  ?app&role                    its configuration now ({} when its Admin has set none)
+    //   GET  ?app&role&after=SIG&wait=W   held (role_hold_wait) until it is not SIG, at most W s
+    //   POST ?app {user, password, role, ramhost}   its Admin sets it
+    $app = $_GET['app'] ?? '';
+    if (!preg_match('/^[A-Za-z0-9_-]{1,40}$/', $app)) fail(400, 'app needed');
+    $hosts = ['device' => 1, 'systemram' => 1, 'none' => 1];
+    if ($_SERVER['REQUEST_METHOD'] === 'POST') {
+        $in = json_decode(file_get_contents('php://input'), true);
+        if (!is_array($in)) fail(400, 'a JSON body needed');
+        $r = strtolower((string)($in['role'] ?? ''));
+        if (!preg_match('/^[a-z][a-z0-9_-]{0,39}$/', $r)) fail(400, 'role needed');
+        $h = (string)($in['ramhost'] ?? '');
+        if (!isset($hosts[$h])) fail(400, "ramhost: device, systemram or none (another machine is not implemented)");
+        eoc_user($app, $in);
+        $bag = ['role' => $r, 'ramhost' => $h, 'by' => (string)$in['user'], 'seq' => (int)(microtime(true) * 1000), 'at' => time()];
+        role_write(ctl_host(), 'fdf-app', 'roleconf', $app . '.' . $r, $bag);
+        error_log('dc ram.php: [ROLE_ADMIN_V1] ' . $app . ' role ' . $r . ': RAM host ' . $h . ' (by ' . $bag['by'] . ')');
+        echo json_encode(['ok' => true, 'conf' => $bag, 'door' => DOOR_BUILD], JSON_UNESCAPED_SLASHES); exit;
+    }
+    $r = strtolower((string)($_GET['role'] ?? ''));
+    if (!preg_match('/^[a-z][a-z0-9_-]{0,39}$/', $r)) fail(400, 'role needed');
+    $rows = isset($_GET['after']) ? role_hold_wait(ctl_host(), 'fdf-app', 'roleconf', $app . '.' . $r, intval($_GET['after']), max(0, min(25, intval($_GET['wait'] ?? 20))))
+                                  : role_rows(ctl_host(), 'fdf-app', 'roleconf', $app . '.' . $r);
+    $c = role_cells($rows); $conf = (object)[];
+    foreach ($c as $x) { if (is_array($x['bag'] ?? null) && $x['bag']) { $conf = $x['bag']; break; } }   // the newest first
+    echo json_encode(['ok' => true, 'conf' => $conf, 'last' => role_sig($rows), 'door' => DOOR_BUILD], JSON_UNESCAPED_SLASHES);
+} elseif ($op === 'team') {
+    // [TEAM_ON_SYSTEMRAM_V1] a Team on the SystemRam: its service's tuples, read at databasehost.frognet's api.php;
+    // &after=LAST&wait=W: held there (role_hold_wait: api.php fires this door's held socket) until they are not LAST
+    $app = $_GET['app'] ?? ''; $s = (string)($_GET['s'] ?? ''); $t = (string)($_GET['team'] ?? '');
+    if (!preg_match('/^[A-Za-z0-9_-]{1,40}$/', $app) || !isset($allowed[$s]) || !child_ok($t)) fail(400, 'app, s (an installed service) and team needed');
+    if (!team_on_sysram($app, $t)) fail(409, "team $t is not on the SystemRam (its lead has not said Use SystemRam)");
+    $svc = team_svc($s, $t);
+    $rows = isset($_GET['after']) ? role_hold_wait(sys_host(), $svc, '', '', intval($_GET['after']), max(0, min(25, intval($_GET['wait'] ?? 20)))) : role_rows(sys_host(), $svc);
+    echo json_encode(['ok' => true, 'rows' => role_cells($rows), 'last' => role_sig($rows), 'at' => sys_host(), 'door' => DOOR_BUILD], JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE);
+} elseif ($op === 'teamwrite' && $_SERVER['REQUEST_METHOD'] === 'POST') {
+    $in = json_decode(file_get_contents('php://input'), true);
+    $app = $_GET['app'] ?? '';
+    if (!is_array($in) || !preg_match('/^[A-Za-z0-9_-]{1,40}$/', $app)) fail(400, 'app and a JSON body needed');
+    $s = (string)($in['s'] ?? ''); $t = (string)($in['team'] ?? '');
+    if (!isset($allowed[$s]) || !child_ok($t)) fail(400, 's (an installed service) and team needed');
+    if (!name_ok($in['v'] ?? null) || !name_ok($in['i'] ?? null) || !is_array($in['bag'] ?? null)) fail(400, 'v, i and bag (an object) needed');
+    if (!team_on_sysram($app, $t)) fail(409, "team $t is not on the SystemRam (its lead has not said Use SystemRam)");
+    echo role_write(sys_host(), team_svc($s, $t), (string)$in['v'], (string)$in['i'], $in['bag']);
 } elseif ($op === 'whoami') {
     // [STATION_IS_HOSTNAME_V1] the asking device's host name, from its lease here; '' when it gave none (the device's
     // own name is then its name: the page asks for it). Nobody sees a station ID: it is the host or device name.
@@ -409,13 +647,36 @@ if ($op === 'read') {
     // [CHILDREN_JOIN_V1] a name the configuration does not have, with the app's join password: a new child (a team, named
     // by whoever joins it), or the one of that name again
     $cfg = app_cfg($app); $nm = (string)($in['user'] ?? '');
+    // [EOC_LEADS_V1] a lead the EOC added creates its team: its password, and the team's name it gives. A team another lead
+    // created is that lead's: no replacement. Its own team again (another device of the lead's): the same team.
+    $ld = ($op === 'enroll' && $nm !== '' && !isset($cfg['users'][$nm])) ? (leads($app)[$nm] ?? null) : null;
+    if (is_array($ld)) {
+        if (!verified($ld['verifier'] ?? null, $in['password'] ?? '')) fail(403, "that is not $nm's password");
+        $team = trim((string)($in['team'] ?? ''));
+        if ($team === '') fail(400, "give your team's name: you lead the team you name");
+        if (!child_ok($team)) fail(400, "a team's name: letters, digits, space . _ -, at most 40 (not general)");
+        $kind = preg_replace('/[^a-z0-9_-]/', '', strtolower((string)($in['kind'] ?? 'team'))) ?: 'team';
+        $can = $ld['roles'] ?? ['*'];
+        if (!in_array('*', $can, true) && !in_array($kind, $can, true)) fail(403, "$nm can run " . implode(', ', $can) . ", not $kind: the Command Center gives a lead its roles (Leads)");
+        $kids = children($app); $was = $kids[$team] ?? null;
+        if (isset($cfg['users'][$team]) || isset($cfg['roles'][$team])) fail(409, "$team is a group the admin configured: name your team something else");
+        if (is_array($was) && (string)($was['lead'] ?? '') !== $nm) fail(409, "team $team is " . ((string)($was['lead'] ?? '') !== '' ? (string)$was['lead'] . "'s" : 'already on the network') . ': there is no replacement; name your team something else');
+        if (!is_array($was)) {
+            $b = ['name' => $team, 'kind' => $kind, 'lead' => $nm, 'at' => time(), 'from' => $_SERVER['REMOTE_ADDR'] ?? ''];
+            role_write(ctl_host(), 'fdf-app', 'child', $app . '.' . $team, $b);
+            error_log('dc ram.php: [EOC_LEADS_V1] ' . $app . ': ' . $b['kind'] . ' ' . $team . ' created by its lead ' . $nm . ' (' . $b['from'] . ')');
+        }
+        echo json_encode(['ok' => true, 'user' => $nm, 'role' => $team, 'kind' => is_array($was) ? (string)($was['kind'] ?? $kind) : $kind, 'lead' => true, 'child' => true, 'at' => '',
+                          'invite' => region_identity(ident_name([$app, $team])), 'door' => DOOR_BUILD], JSON_UNESCAPED_SLASHES);
+        exit;
+    }
     if ($op === 'enroll' && $nm !== '' && !isset($cfg['users'][$nm]) && is_array($cfg['join'] ?? null)) {
         if (!child_ok($nm)) fail(400, "a team's name: letters, digits, space . _ -, at most 40 (not general)");
-        if (!verified($cfg['join'], $in['password'] ?? '')) fail(403, "that is not the EOC's teams password");
+        if (!verified($cfg['join'], $in['password'] ?? '')) fail(403, "that is not the Command Center's teams password");
         $kids = children($app);
         if (!isset($kids[$nm])) {
             $b = ['name' => $nm, 'kind' => (string)($in['kind'] ?? 'team') ?: 'team', 'at' => time(), 'from' => $_SERVER['REMOTE_ADDR'] ?? ''];
-            ram(ctl_env(), ['write', 'fdf-app', 'child', $app . '.' . $nm, json_encode($b, JSON_UNESCAPED_SLASHES)]);
+            role_write(ctl_host(), 'fdf-app', 'child', $app . '.' . $nm, $b);
             error_log('dc ram.php: [CHILDREN_JOIN_V1] ' . $app . ': ' . $b['kind'] . ' ' . $nm . ' joined (' . $b['from'] . ')');
         }
         echo json_encode(['ok' => true, 'user' => $nm, 'role' => $nm, 'lead' => true, 'child' => true, 'at' => '',
@@ -442,7 +703,13 @@ if ($op === 'read') {
     if (!is_array($in) || !preg_match('/^[A-Za-z0-9_-]{1,40}$/', $app)) fail(400, 'app and a JSON body needed');
     $cfg = app_cfg($app);
     $user = (string)($in['user'] ?? ''); $role = (string)($in['role'] ?? '');
-    if ($user !== '' && !isset($cfg['users'][$user]) && isset(children($app)[$user])) {
+    $ld = ($user !== '' && !isset($cfg['users'][$user])) ? (leads($app)[$user] ?? null) : null;
+    if (is_array($ld)) {
+        // [EOC_LEADS_V1] a lead the EOC added: its team is its role
+        if (!verified($ld['verifier'] ?? null, $in['password'] ?? '')) fail(403, "that user and password are not this app's");
+        $role = team_of_lead($app, $user);
+        if ($role === '') fail(403, "user $user has not created a team yet: scan the Command Center's QR for $user and name the team");
+    } elseif ($user !== '' && !isset($cfg['users'][$user]) && isset(children($app)[$user])) {
         // [CHILDREN_JOIN_V1] a team that joined, its lead logging in with the EOC's teams password: the team is its role
         if (!verified($cfg['join'] ?? null, $in['password'] ?? '')) fail(403, "that user and password are not this app's");
         $role = $user;
@@ -467,14 +734,24 @@ if ($op === 'read') {
     $u = check_user($app, $in);
     if (empty($u['lead'])) fail(403, 'user ' . $in['user'] . ' does not lead a group: only its lead says where it lives');
     $role = (string)$u['role']; $cfg = app_cfg($app);
-    if (!empty($u['child']) && ($in['at'] ?? '') === 'databasehost') fail(400, "team $role joined the EOC: it lives on its lead's phone (Host team); the SystemRam serves the RAMs the admin configured");
+    $at0 = (string)($in['at'] ?? '');
+    if ($at0 === 'systemram') {
+        // [TEAM_ON_SYSTEMRAM_V1] (John 2026-11-09: "If that is set, the role does not have its own RAM and runs everything
+        // through databasehost.frognet, using the default api.php") the lead says so; every device follows the team there
+        $bag = ['at' => 'systemram', 'guid' => '', 'user' => (string)$in['user'], 'role' => $role, 'seq' => (int)(microtime(true) * 1000), 'from' => $_SERVER['REMOTE_ADDR'] ?? ''];
+        role_write(ctl_host(), 'fdf-app', 'config', $app . '.' . $role, $bag);
+        error_log('dc ram.php: [TEAM_ON_SYSTEMRAM_V1] ' . $app . ' team ' . $role . ' is on the SystemRam (its lead ' . $bag['user'] . ')');
+        echo json_encode(['ok' => true, 'place' => $bag, 'door' => DOOR_BUILD], JSON_UNESCAPED_SLASHES);
+        exit;
+    }
+    if (!empty($u['child']) && ($in['at'] ?? '') === 'databasehost') fail(400, "team $role joined the Command Center: it lives on its lead's phone (Host team); the SystemRam serves the RAMs the admin configured");
     if (empty($u['child']) && !in_array($role, $cfg['rams'] ?? [], true)) fail(400, "group $role has no RAM of its own (the app's RAMs: " . implode(',', $cfg['rams'] ?? []) . ')');
     $at = (string)($in['at'] ?? ''); $guid = (string)($in['guid'] ?? '');
-    if ($at !== 'here' && $at !== 'databasehost') fail(400, "at: here (the lead's device, named by its guid) or databasehost");
+    if ($at !== 'here' && $at !== 'databasehost') fail(400, "at: here (the lead's device, named by its guid), databasehost or systemram");
     if ($at === 'here' && !preg_match('/^[A-Za-z0-9._:-]{1,80}$/', $guid)) fail(400, "guid: the lead's device that serves the group");
     $bag = ['at' => $at, 'guid' => $at === 'here' ? $guid : '', 'user' => (string)$in['user'], 'role' => $role,
             'seq' => (int)(microtime(true) * 1000), 'from' => $_SERVER['REMOTE_ADDR'] ?? ''];
-    ram(ctl_env(), ['write', 'fdf-app', 'config', $app . '.' . $role, json_encode($bag, JSON_UNESCAPED_SLASHES)]);
+    role_write(ctl_host(), 'fdf-app', 'config', $app . '.' . $role, $bag);
     error_log('dc ram.php: [GROUP_PLACE_V1] ' . $app . ' group ' . $role . ' placed ' . $at . ($bag['guid'] !== '' ? ' (' . $bag['guid'] . ')' : '') . ' by its lead ' . $bag['user']);
     echo json_encode(['ok' => true, 'place' => $bag, 'door' => DOOR_BUILD], JSON_UNESCAPED_SLASHES);
 } elseif ($op === 'device' && $_SERVER['REQUEST_METHOD'] === 'POST') {
@@ -488,5 +765,5 @@ if ($op === 'read') {
     if ($at === '') fail(503, "the app's general AppRam has no AppHost yet (" . svc_host($app, 'general') . "): nothing works until it has");
     echo ram('. ' . escapeshellarg(dirname(__DIR__, 2) . '/fdf.env') . ' && RINA_RAM=' . escapeshellarg($at) . ' exec "$FDF_BIN"/ram ', ['write', 'fdf-app', 'device', $app . '.' . $dev, json_encode($bag, JSON_UNESCAPED_SLASHES)]);
 } else {
-    fail(400, 'op is read, write, watch, announce, rams, roles, admin, whoami, login, device, enroll, identity or place');
+    fail(400, 'op is read, write, watch, announce, rams, roles, admin, whoami, login, device, enroll, identity, place, lead, leads, team, teamwrite or teamdel');
 }

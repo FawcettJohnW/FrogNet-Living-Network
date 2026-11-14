@@ -24,22 +24,24 @@
 // [CAPABILITY_REGISTRATION_V1] John 2026-09-27: "this is automatic registration of capabilities, not identification
 // of peers." Every role this machine plays is registered as a capability tuple of its own, addressed by the
 // capability and by what the capability is reached through -- never by which machine offers it:
-//   lisp / capability|map-server   / udp:<address>:<port>   {"capability","udp","sites":[{"iid","prefix"}],"beat",...}
-//   lisp / capability|map-resolver / udp:<address>:<port>   {"capability","udp","beat",...}
+//   lisp / capability|map-server   / udp:<address>:<port>   {"capability","udp","sites":[{"iid","prefix"}],...}
+//   lisp / capability|map-resolver / udp:<address>:<port>   {"capability","udp",...}
 //   lisp / capability|etr          / xtr:<xtr_id>           {"capability","xtr_id","prefixes":[{"iid","prefix"}],...}
 //   lisp / capability|itr          / participant:<id>       {"capability","iids":[...],...}
-// After the startup wait, each role reads -- one plain read each -- the capabilities it uses, and handles them: an
-// ETR the map-servers, an ITR the map-resolvers, a map-server the ETRs' prefixes. The heartbeat rewrites this machine's
-// capability tuples with the next beat.
-// John 2026-09-26: "everyone installs the same vendor package; systems come up, register themselves by writing
-// capability tuples, wait 5 seconds for other machines to come up, then query and handle them with a plain read (no
-// blocking read). The service runs the heartbeat thread and the high-speed data socket."
+// [CAPABILITIES_HELD_V1] Each tuple is written ONCE, by this service's own session, and lives exactly as long as that
+// session: when the service stops, crashes, or its host stops answering, the memory removes it and every read held on
+// the family is handed it as gone. Each role holds a read on the capabilities it uses -- an ETR the map-servers, an
+// ITR the map-resolvers, a map-server the ETRs' prefixes -- and handles each as it arrives or goes: a machine that
+// comes up later is seen when it writes, not after a wait. The service also holds a read on its own first tuple: when
+// that goes, its session has, and it stops.
+// John 2026-11-11: "make it all memory and role based". Before (John 2026-09-26): a startup wait of startup_wait_s,
+// one plain read per family, and a heartbeat thread rewriting every tuple every heartbeat_s with the next beat.
 //
 // What lispers.net does instead (its source): RUN-LISP starts lisp-core; `lisp enable` starts one process per role
 // (lisp-itr, lisp-etr, lisp-ms, lisp-mr, ...); peers are written by hand in lisp.config (lisp map-server {...},
 // lisp map-resolver {...}); an ETR re-sends its whole Map-Register to every map-server every 60 s; lisp-core relays
-// configuration to the role processes over IPC. Here: capability tuples instead of a hand-written peer list, a
-// heartbeat and changes-only registration instead of the 60 s re-register, the shared memory instead of IPC, and the
+// configuration to the role processes over IPC. Here: capability tuples instead of a hand-written peer list, held by
+// the session; liveness that is the session itself and changes-only registration instead of the 60 s re-register, the shared memory instead of IPC, and the
 // roles started in this one process from its configuration.
 //
 // The configuration (JSON):
@@ -47,21 +49,22 @@
 //   ram            {"host": H, "port": P, "api": "/Vendor.Product.ram_interface.php"}  -- where the shared space is
 //   roles          any of "map-server", "map-resolver", "etr", "itr"
 //   udp            {"address": A, "port": N}           map-server / map-resolver: the LISP control-plane front
-//   heartbeat_s    seconds between capability heartbeats
-//   startup_wait_s seconds to wait for the other machines before reading theirs (John: 5)
+//   (heartbeat_s, startup_wait_s: gone -- refused, so a configuration from before says so)
 //   sites          map-server: [{"iid","prefix","group","accept_more_specifics","key_id","password"}]
 //   governor       map-server: {"iid","group"} -- governs the native registrations of Ribbit ETRs (name = `name`)
 //   ms_authoritative_prefixes  map-server: ["198.18.0.0/15", ...] -- LISP-DDT authority (Map-Referrals when the
 //                  machine is a map-server but not a map-resolver)
 //   ms_peers       map-server: ["a.b.c.d", ...] -- its peers: the referral set in its Map-Referrals
-//   etr            {"xtr_id", "database_mappings": [{"iid","prefix","group","rloc_set":[...]}],
-//                   "liveness": {"interval_s","lifetime_s"}}
+//   etr            {"xtr_id", "database_mappings": [{"iid","prefix","group","rloc_set":[...]}]}
+//                  -- its liveness cell is written at start and lives with the session ("liveness": gone, refused)
 //   itr            {"iids": [{"iid","group"}]}         resolver views held from startup
 
 #include "lisp_handler.hpp"
 #include "version.hpp"
 #include <climits>
 #include <csignal>
+#include <pthread.h>
+#include <thread>
 #include <fcntl.h>
 #include <sys/stat.h>
 #include <cstdio>
@@ -70,7 +73,6 @@
 #include <sstream>
 
 static std::atomic<bool> g_stop{false};
-static void on_signal(int) { g_stop = true; }
 
 static std::string dump(const Json& j) {
     switch (j.type) {
@@ -126,9 +128,15 @@ int main(int argc, char** argv) {
         const std::string host = need(ram, "host", "ram").s, api = need(ram, "api", "ram").s;
         const int port = int(need(ram, "port", "ram").n);
         const Json& roles = need(cfg, "roles", "the service");
-        const double beat_s = need(cfg, "heartbeat_s", "the service").n, wait_s = need(cfg, "startup_wait_s", "the service").n;
+        for (const char* k : {"heartbeat_s", "startup_wait_s"})
+            if (cfg[k].type != Json::Null) throw std::runtime_error(std::string("configuration: \"") + k + "\" is gone -- capability tuples live as long as this service's session and each role holds a read on the ones it uses ([CAPABILITIES_HELD_V1])");
+        if (cfg["etr"].type == Json::Obj && cfg["etr"]["liveness"].type != Json::Null)
+            throw std::runtime_error("configuration: etr \"liveness\" is gone -- an ETR's liveness cell is written at start and lives with its session ([LIVE_WHILE_ITS_SESSION_IS_V1])");
         const bool ms = has_role(roles, "map-server"), mr = has_role(roles, "map-resolver"), etr = has_role(roles, "etr"), itr = has_role(roles, "itr");
-        std::signal(SIGINT, on_signal); std::signal(SIGTERM, on_signal);
+        // [WAIT_ON_THE_EVENT_WORD_V1] SIGINT / SIGTERM are taken by one thread in sigwait, not a handler: blocked here,
+        // before any thread exists, so every thread inherits the mask
+        sigset_t sigs; sigemptyset(&sigs); sigaddset(&sigs, SIGINT); sigaddset(&sigs, SIGTERM);
+        pthread_sigmask(SIG_BLOCK, &sigs, nullptr);
         say(std::string("version ") + RIBBIT_LISP_VERSION + ", name " + name + ", RAM host " + host + ":" + std::to_string(port) + api);
 
         // The session: this Engine's Session holds the semantic socket and the high-speed data socket open for as
@@ -146,8 +154,7 @@ int main(int argc, char** argv) {
         // 1. register this machine's capabilities: one tuple per role, addressed by what reaches it
         struct Cap { std::string var, inst, body; };
         std::vector<Cap> caps;
-        const std::string common = ",\"participant\":" + Json::quote(Engine::participant()) + ",\"heartbeat_s\":" + dump(cfg["heartbeat_s"]) +
-                                   ",\"version\":" + Json::quote(RIBBIT_LISP_VERSION);
+        const std::string common = ",\"participant\":" + Json::quote(Engine::participant()) + ",\"version\":" + Json::quote(RIBBIT_LISP_VERSION) + "}";
         if (ms) {
             std::string sites = "[";
             for (auto& x : cfg["sites"].a) sites += (sites.size() > 1 ? "," : "") + std::string("{\"iid\":") + Json::quote(x["iid"].s) + ",\"prefix\":" + Json::quote(x["prefix"].s) + "}";
@@ -165,23 +172,12 @@ int main(int argc, char** argv) {
             for (auto& v : need(cfg, "itr", "an itr")["iids"].a) iids += (iids.size() > 1 ? "," : "") + Json::quote(v["iid"].s);
             caps.push_back({"capability|itr", "participant:" + Engine::participant(), "{\"capability\":\"itr\",\"iids\":" + iids + "]" + common});
         }
-        auto publish = [&](uint64_t beat) {
-            for (auto& c : caps) e.write_cell(c.var, c.inst, c.body + ",\"beat\":" + std::to_string(beat) + "}");   // bodies are left open for the beat
-        };
-        publish(0);
+        for (auto& c : caps) e.write_cell(c.var, c.inst, c.body);      // once: the session holds them
         for (auto& c : caps) say("capability registered: " + c.var.substr(11) + " at " + c.inst);
 
-        // 2. the heartbeat thread: this machine's capabilities, rewritten every heartbeat_s with the next beat
-        std::atomic<uint64_t> beats{0};
-        std::thread heartbeat([&] {
-            uint64_t b = 0;
-            while (!g_stop) {
-                for (double t = 0; t < beat_s && !g_stop; t += 0.05) std::this_thread::sleep_for(std::chrono::milliseconds(50));
-                if (g_stop) break;
-                try { publish(++b); beats = b; }
-                catch (const std::exception& x) { say(std::string("heartbeat: ") + x.what()); g_stop = true; }
-            }
-        });
+        // 2. the signal thread: a signal ends the wait below
+        std::atomic<bool> signalled{false};
+        std::thread signals([&] { int sig = 0; sigwait(&sigs, &sig); signalled = true; g_stop = true; e.wake(); });
 
         // 3. the roles
         if (ms) {
@@ -204,38 +200,65 @@ int main(int argc, char** argv) {
             const Json& x = need(cfg, "etr", "an etr");
             say("etr identity: " + e.call("etr.identity", Json::parse("{\"name\":" + Json::quote(name) + ",\"xtr_id\":" + Json::quote(need(x, "xtr_id", "etr").s) + "}")));
             for (auto& m : x["database_mappings"].a) say("database mapping " + m["prefix"].s + ": " + e.call("database_mapping.add", m));
-            if (x["liveness"].type == Json::Obj) say("etr liveness: " + e.call("etr_liveness.start", x["liveness"]));
+            say("etr liveness: " + e.call("etr_liveness.start", Json::parse("{}")));   // gone with this session
         }
         if (itr)
             for (auto& v : need(cfg, "itr", "an itr")["iids"].a)
                 say("resolver view iid " + v["iid"].s + ": " + e.call("resolver.wait_site", Json::parse("{\"iid\":" + Json::quote(v["iid"].s) + ",\"prefix\":\"0.0.0.0/0\",\"group\":" + Json::quote(v["group"].s) + ",\"active\":false}")));
 
-        // 4. wait for the other machines to come up, then read -- one plain read each -- the capabilities this
-        // machine's roles use, and handle them
-        for (double t = 0; t < wait_s && !g_stop; t += 0.05) std::this_thread::sleep_for(std::chrono::milliseconds(50));
+        // 4. each role holds a read on the capabilities it uses, and handles each as it arrives or goes
+        auto describe = [](const frogram::Cell& c) {
+            std::string d = c.bag["udp"].type == Json::Str ? " at " + c.bag["udp"].s : std::string();
+            for (auto& p : c.bag["prefixes"].a) d += " " + p["prefix"].s + " (iid " + p["iid"].s + ")";
+            for (auto& p : c.bag["sites"].a) d += " site " + p["prefix"].s + " (iid " + p["iid"].s + ")";
+            return d;
+        };
+        std::vector<std::thread> watches;
         auto use = [&](const std::string& what, const std::string& why) {
-            auto cells = e.read_cells("capability|" + what);
-            say(why + ": " + std::to_string(cells.size()) + " " + what + " capabilit" + (cells.size() == 1 ? "y" : "ies"));
-            for (auto& c : cells) {
-                std::string d = c.bag["udp"].type == Json::Str ? " at " + c.bag["udp"].s : std::string();
-                for (auto& p : c.bag["prefixes"].a) d += " " + p["prefix"].s + " (iid " + p["iid"].s + ")";
-                for (auto& p : c.bag["sites"].a) d += " site " + p["prefix"].s + " (iid " + p["iid"].s + ")";
-                say("  " + what + d);
-            }
+            watches.emplace_back([&, what, why] {
+                const std::string var = "capability|" + what;
+                try {
+                    uint64_t after = 0;
+                    auto cells = e.read_cells(var);                 // what is there now, then everything after it
+                    for (;;) {
+                        for (auto& c : cells) {
+                            if (c.id > after) after = c.id;
+                            if (c.gone) say(why + ": " + what + " " + c.instance + " gone");
+                            else say(why + ": " + what + describe(c));
+                        }
+                        cells = e.wait_cells(var, after);
+                    }
+                } catch (const std::exception& x) { if (!g_stop) e.report("capability watch " + var + ": " + x.what()); }
+            });
         };
         if (etr) use("map-server", "etr");
         if (itr) use("map-resolver", "itr");
         if (ms) use("etr", "map-server");
+        // this service's own first tuple: when it goes, the session has
+        watches.emplace_back([&] {
+            const Cap own = caps.front();
+            try {
+                uint64_t after = 0;
+                for (auto& c : e.read_cells(own.var)) if (c.instance == own.inst && c.id > after) after = c.id;
+                for (;;) for (auto& c : e.wait_cells(own.var, after)) {
+                    if (c.id > after) after = c.id;
+                    if (c.instance == own.inst && c.gone) { e.report("this service's capability " + own.var.substr(11) + " at " + own.inst + " is gone: its session has ended"); return; }
+                }
+            } catch (const std::exception& x) { if (!g_stop) e.report("session watch: " + std::string(x.what())); }
+        });
         say("running");
-        while (!g_stop) {
-            std::this_thread::sleep_for(std::chrono::milliseconds(100));
-            std::string f = e.failure();
-            if (!f.empty()) { say("stopping: " + f); g_stop = true; }
-        }
-        heartbeat.join();
+        // [WAIT_ON_THE_EVENT_WORD_V1] asleep until a signal or a failure moves the Engine's event word
+        for (uint32_t seen = e.events.load(); !g_stop && e.failure().empty(); seen = e.events.load()) e.events.wait(seen);
+        const std::string failed = e.failure();
+        if (!failed.empty()) say("stopping: " + failed);
+        g_stop = true;
+        e.close();                                          // the parked reads return; the session's rows go
+        for (auto& t : watches) t.join();
+        if (!signalled) pthread_kill(signals.native_handle(), SIGTERM);   // a failure ended the wait: end the signal thread
+        signals.join();
         if (front) front->stop();
-        say("stopped after " + std::to_string(beats.load()) + " heartbeats");
-        return 0;
+        say("stopped");
+        return failed.empty() ? 0 : 3;                      // a lost memory is a failure: the supervisor restarts it
     } catch (const std::exception& x) {
         std::cerr << "lisp-service: " << x.what() << "\n";
         return 1;

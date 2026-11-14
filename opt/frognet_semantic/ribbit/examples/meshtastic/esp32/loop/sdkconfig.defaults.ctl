@@ -1,0 +1,2 @@
+CONFIG_LOOP_ROLE="controller"
+CONFIG_LOOP_NAME="ctl"

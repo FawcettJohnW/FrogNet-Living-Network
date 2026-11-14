@@ -1,14 +1,14 @@
 # OpenEOC on FrogNet: the conversion plan (from RangerTrak)
 
-2026-10-31 · John Fawcett, with Claude. The live copy is a Claude Doc; this file is its export. The checkpoint files the reference process names (`RANGERTRAK-SUITE-MAP.md`, `study-*.md`, `QUESTION-3.md`, `DESIGN.md`, `RESULTS.md`, `README.md`, `VERSION`) land in this directory as the phases produce them.
+2026-10-31 · John Fawcett, with Claude. The live copy is a Claude Doc; this file is its export. The checkpoint files the reference process names (`OPENEOC-SUITE-MAP.md`, `study-*.md`, `QUESTION-3.md`, `DESIGN.md`, `RESULTS.md`, `README.md`, `VERSION`) land in this directory as the phases produce them.
 
 ## Decision, 2026-10-31 (John): our own app
 
 "You own it all. This is an app. It does not need the angular shit to do this." The radio log is FrogNet's own app,
-written fresh, GPL-2.0-only like the rest of the tree: node-served pages (`opt/fdf/src/fdf-source/fdf/www/rt`, an add-in of the
-DisasterComm launcher, `../dc/ram.php` as its door to the RAM), no Angular, nothing of RangerTrak's code in it.
-RangerTrak stays what the app is measured against: its screens, its words, its forms (ICS-309 numbers `A007`,
-`26-0142 / OP 2 / A007`) and its suite, which `RESULTS.md` and `RANGERTRAK-SUITE-MAP.md` record. Where this plan says the
+written fresh, GPL-2.0-only like the rest of the tree: node-served pages (`opt/fdf/src/fdf-source/fdf/www/openeoc`, an add-in of the
+DisasterComm launcher, `../dc/ram.php` as its door to the RAM), no Angular, nothing of OpenEOC's code in it.
+OpenEOC stays what the app is measured against: its screens, its words, its forms (ICS-309 numbers `A007`,
+`26-0142 / OP 2 / A007`) and its suite, which `RESULTS.md` and `OPENEOC-SUITE-MAP.md` record. Where this plan says the
 conversion keeps his `domain/` or his screens, read: the app does what they do, in its own code. The Windows and Android
 devices open the same pages (decided the same day: node-served pages first).
 
@@ -48,16 +48,16 @@ the radio log ("absolutely the least interesting thing there is"). This replaces
 - **Independent of this:** the ESP32 work, which makes a Sensors page (all in an area, all of a type, all out of
   tolerance, ...).
 - **Meshtastic (John, 2026-11-01):** "MeshTastic protocols do not need to be carried to the rest of the system."
-  "MeshTastic does what MeshTastic does. For this first demo, it is just a collector." The app is on RangerTrak's own
+  "MeshTastic does what MeshTastic does. For this first demo, it is just a collector." The app is on OpenEOC's own
   families; nothing Meshtastic is in it. A Meshtastic device becomes a host or node only later, when one has the memory
   and capability for it. Taken from that work: only the platform's own behaviour, cells that go with their writer's
   session (ribbit-platform 0.69), so a device that has left drops off the map.
 - **Area (John):** the Seattle metro area, Vashon included; water is not excluded ("Boats may be first responder
-  transports"). The simulated world is `rt-sim` (`[RT_SIM_V1]`, in the dc add-in from r2).
+  transports"). The simulated world is `openeoc-sim` (`[RT_SIM_V1]`, in the dc add-in from r2).
 
 ## The demo this plan is for (2026-10-31, superseded by the decision above)
 
-John Cornelison sees RangerTrak's screens and words running at three posts at once, with no Board or coordination
+John Cornelison sees OpenEOC's screens and words running at three posts at once, with no Board or coordination
 server to deploy: a scribe at each post typing what teams say over the radio, every post's radio log, roster and map
 showing everyone's entries as they are typed, and each device's own position on every map. The pages are served by
 the posts' nodes; the app's RAMs are served by droplets on members, as `APP-SETUP-AND-OPERATION.md` says. A post loses
@@ -65,15 +65,15 @@ its uplink; its scribe keeps working; the others keep each other; the uplink com
 every screen again, because their owners wrote them again to the RAM that serves the app now. Nothing is merged,
 restored or sent by hand.
 
-## What RangerTrak is, from its source
+## What OpenEOC is, from its source
 
-Read from a clone of [SteadyEOC/RangerTrak](https://github.com/SteadyEOC/RangerTrak) on 2026-10-31: Angular 22, TypeScript, AGPLv3. 47,506 lines of TypeScript in 271 files (7,282 of them pure rules in `src/app/domain/`, no Angular, no storage), 8,782 of HTML, 10,376 of SCSS; 137 Karma spec files, 16,074 lines; a Playwright end-to-end driver (`tools/e2e.js`); a 1,202-line Node "Board" server (`tools/board/`). One browser tab per device holds the whole state in memory and writes it whole to IndexedDB on every change (`ARCHITECTURE.md`, "Data stored on the device": 33 keys; "One active tab per browser": a `navigator.locks` lock so two tabs don't overwrite each other).
+Read from a clone of [SteadyEOC/OpenEOC](https://github.com/SteadyEOC/OpenEOC) on 2026-10-31: Angular 22, TypeScript, AGPLv3. 47,506 lines of TypeScript in 271 files (7,282 of them pure rules in `src/app/domain/`, no Angular, no storage), 8,782 of HTML, 10,376 of SCSS; 137 Karma spec files, 16,074 lines; a Playwright end-to-end driver (`tools/e2e.js`); a 1,202-line Node "Board" server (`tools/board/`). One browser tab per device holds the whole state in memory and writes it whole to IndexedDB on every change (`ARCHITECTURE.md`, "Data stored on the device": 33 keys; "One active tab per browser": a `navigator.locks` lock so two tabs don't overwrite each other).
 
 The state that is the mission, by its own inventory:
 
 | Entity | Fields that matter | Where it lives today | Who writes it today |
 | --- | --- | --- | --- |
-| Ranger (roster) | `uid` (app-minted join key), `id` (REW/TEW credential), `callsign`, `fullName`, `phone`, `team`, `role`, `note`, photo | IndexedDB `rangers`, `rangertrak-photos` | the scribe who imported or typed it; copied to other devices by Setup file, hand-over or backup |
+| Ranger (roster) | `uid` (app-minted join key), `id` (REW/TEW credential), `callsign`, `fullName`, `phone`, `team`, `role`, `note`, photo | IndexedDB `rangers`, `openeoc-photos` | the scribe who imported or typed it; copied to other devices by Setup file, hand-over or backup |
 | Radio log entry | `uid`, `rangerUid`, `callsign`, `location` (lat/lon + the typed form), `date`, `status`, `notes`, `msgNo` `{mission, opPeriod, station, seq}`, `handled`, 213 fields, attachments | IndexedDB `radioLog`, whole log rewritten per entry | the scribe's device stamps `msgNo` at save; a field phone's entries arrive unnumbered in a Report Packet and are numbered on merge |
 | Mission settings | `mission`, `event`, `opPeriod`, `opPeriodStart/End`, default lat/lon, which coordinate formats to show | localStorage `appSettings` | the scribe; a field phone never learns them (E-252) |
 | Mission locations (places) | named places with categories | IndexedDB `locations` | the scribe |
@@ -94,7 +94,7 @@ Every one of these exists because two devices have no shared memory. That is the
 
 ## The contract: behaviour and proof, in fresh code
 
-The app is FrogNet's own (decision of 2026-10-31). Nothing of RangerTrak's code is in it. What is kept is what a
+The app is FrogNet's own (decision of 2026-10-31). Nothing of OpenEOC's code is in it. What is kept is what a
 scribe or a viewer can see and do, and the proof that it is right:
 
 - **The screens and their words**: Entry, Radio Log, Rangers, Map, Mission, Messages (213), Summary, After-action (214),
@@ -103,11 +103,11 @@ scribe or a viewer can see and do, and the proof that it is right:
   connected".
 - **The printed forms**: ICS-309 with the mark and Msg # columns, ICS-213 with the full number, ICS-214, the CSV
   columns.
-- **Message numbers**: `{mission, opPeriod, station, seq}`, printed as the station ID and its count (RangerTrak's `A007`;
+- **Message numbers**: `{mission, opPeriod, station, seq}`, printed as the station ID and its count (OpenEOC's `A007`;
   here the station ID is the app's hostname) and in full as `26-0142 / OP 2 / <station>-007`, stamped once.
-- **The proof**: RangerTrak's `domain/` specs are table-driven. Their cases become oracles for this app's own rules
-  (`rules.js`): the same inputs, the same outputs, run against the fresh code. `RANGERTRAK-SUITE-MAP.md` says which
-  apply. Stock RangerTrak's suite and e2e, run as they are, are the baseline (`RESULTS.md`).
+- **The proof**: OpenEOC's `domain/` specs are table-driven. Their cases become oracles for this app's own rules
+  (`rules.js`): the same inputs, the same outputs, run against the fresh code. `OPENEOC-SUITE-MAP.md` says which
+  apply. Stock OpenEOC's suite and e2e, run as they are, are the baseline (`RESULTS.md`).
 
 ## What is thrown away
 
@@ -118,7 +118,7 @@ scribe or a viewer can see and do, and the proof that it is right:
 | Mission backup, restore, import safety copy, undo last import | `backup.service.ts`, `import-safety.service.ts`, `domain/import-safety.ts` | the only copy of the mission was in one browser's IndexedDB | nothing kept by hand: the mission is in the app's RAMs, each owner keeps its own truth to write again, and the durable file is the post's own, below |
 | The Board: server, claim, publish key, 5-second snapshot POST, viewer page, causes, self-check, status line, kit, launchers | `tools/board/` (1,202 lines), `command-post-publish.service.ts`, `domain/board-*.ts`, `src/command-post-view/` | viewers on the post's Wi-Fi had no way to see the scribe's screen | the node at the post serves the same screens read-only from the same cells; no server to claim, no key, no snapshot |
 | Service worker, `ngsw-config.json`, tab lock, `RecordStore`, the 33 storage keys and their migrations | `shared/storage/`, `domain/*-migration.ts` | one tab had to hold the state and survive a reload | each device keeps only its own truth (to write it again after a RAM change or a reload); the shared state is in the app's RAMs |
-| `fieldModeSentUids`, `rt-board-publisher`, `missionJournal` copy-in-backup | prefs | counting what was sent, who holds the Board | not needed: a write that landed is sent |
+| `fieldModeSentUids`, `openeoc-board-publisher`, `missionJournal` copy-in-backup | prefs | counting what was sent, who holds the Board | not needed: a write that landed is sent |
 
 ## The admin app and the client app
 
@@ -165,7 +165,7 @@ again there).
 network, so the station ID is unique by construction and nobody types it: no clash to detect, warn of or claim.
 **John, 2026-11-01:** "Station ID is hidden from the users. Use the host name or device name." A device that sends no
 host name with its lease (many Android phones) uses the name typed for the device. Users see that name, not a station ID.
-RangerTrak's typed station letter, its clash report (`findMsgNoClashes`) and its *Take over station* / *Log
+OpenEOC's typed station letter, its clash report (`findMsgNoClashes`) and its *Take over station* / *Log
 alongside* choice all go. `<dev>.<seq>` stays the entry's identity in the RAM; the printed number is the station ID and
 that station's own count.
 
@@ -175,7 +175,7 @@ that station's own count.
 | --- | --- | --- | --- |
 | **Scribe** | a laptop or phone, on a post's Wi-Fi (the post's pages) or as a member of the region | its entries, its handled marks, rangers and places it typed, the mission if it started it | the log, roster, places, handled and mission families; positions for the map |
 | **Field** | a phone in the field | its own position, its own entries, its own marks | the same families |
-| **Post** | the node at the post (`fdf/bin/rt-post309`; its unit is to come with the app's install) | the 309 and 213 files | the log and handled families |
+| **Post** | the node at the post (`fdf/bin/openeoc-post309`; its unit is to come with the app's install) | the 309 and 213 files | the log and handled families |
 
 **Each device keeps its own truth.** Everything a device wrote is kept on that device (browser storage for a page) as
 well as written to the RAM, so that after a RAM change, or a page reload during a partition, it can write its own
@@ -189,14 +189,14 @@ the app's timing, not a read.
 
 Steps 1-7 of the page work (below, "Done") are built. The work now is the demo John set on 2026-11-01:
 
-1. **Presence goes with its writer**: `rt-who` and `rt-pos` cells end with the session that wrote them
+1. **Presence goes with its writer**: `openeoc-who` and `openeoc-pos` cells end with the session that wrote them
    (ribbit-platform 0.69's gone-with-its-writer), so the map shows who is connected now. Gone is gone: a participant
    whose session ended is not in the RAM. John, 2026-11-01: "If they are there they are there. You might do a LKP kind
    of thing, that would be a wireframe or translucent avatar": the app draws a last known position from what it last
    read, as a wireframe or translucent avatar, distinct from a connected participant; nothing is written for it.
    "And, completely under app control": whether an LKP is drawn, how and for how long is the app's own choice; the
    platform knows nothing of it.
-   `rt-sim` writes the same way.
+   `openeoc-sim` writes the same way.
 2. **The shared library**, abstracted from what exists and used by the app (and later by the Communicator): the member's
    RAM session and join line, the held-read loop, the presence and position writer.
 3. **The Windows app**: the splash; the EOC's default view, the big map of everything with chat beside it; presence with
@@ -205,7 +205,7 @@ Steps 1-7 of the page work (below, "Done") are built. The work now is the demo J
    enough, through the media piece of the library.
 5. **The team view**: teams colour-coded at a glance.
 6. **The Android app**: the first responder on a phone, the same screens, GPS on every fix.
-7. **The demo run**: Seattle7 and a second post, `rt-sim` on one node, the EOC on Windows, a responder on a phone.
+7. **The demo run**: Seattle7 and a second post, `openeoc-sim` on one node, the EOC on Windows, a responder on a phone.
 
 Each step: its own test first, the incumbent tests after, results in `RESULTS.md`.
 
@@ -244,7 +244,7 @@ Not in the demo: anything needing the Internet (geocoding off, coordinates only)
 
 Side by side against stock, on at least two machines with traffic between them (`RESULTS.md`, tied to a `VERSION`):
 
-| measured | stock RangerTrak | on FrogNet |
+| measured | stock OpenEOC | on FrogNet |
 | --- | --- | --- |
 | Entry typed at one post to visible at another | a Report Packet: minutes, by hand | ms from the write to the other screen |
 | Two scribes logging at once, 500 entries each | merge, clash report, renumbering | one log in write order; 0 identity clashes by construction |
@@ -269,11 +269,11 @@ the same truths Meshtastic's client API serves, so the Meshtastic client edge ca
 
 | OpenEOC cell | Meshtastic | The Meshtastic edge |
 | --- | --- | --- |
-| `(rt-pos, <mission>, <dev>)` `{name, lat, lng, alt, acc, at}` | Position (`latitude_i`, `longitude_i`, `altitude`, `time`) | a node's position is its own cell; a Meshtastic node's is written by the FrogNet node that hears it, as that node's |
-| `(rt-who, <mission>, <dev>)` `{name, host, station, team}` | NodeInfo / User (`long_name`, `short_name`, `id`) | the node list is a read of this family |
-| `(rt-msg, <mission>, <dev>.<ms>)` | TEXT_MESSAGE_APP on the primary channel | an announcement is a channel message |
-| `(rt-dm, <mission>.<to>, <dev>.<ms>)` | a direct message (`to` = the node) | in the addressee's variable; nothing checks it |
-| `(rt-team@<team>, <mission>, <dev>.<ms>)` | a message on a secondary channel | a team's RAM is a channel's audience |
+| `(openeoc-pos, <mission>, <dev>)` `{name, lat, lng, alt, acc, at}` | Position (`latitude_i`, `longitude_i`, `altitude`, `time`) | a node's position is its own cell; a Meshtastic node's is written by the FrogNet node that hears it, as that node's |
+| `(openeoc-who, <mission>, <dev>)` `{name, host, station, team}` | NodeInfo / User (`long_name`, `short_name`, `id`) | the node list is a read of this family |
+| `(openeoc-msg, <mission>, <dev>.<ms>)` | TEXT_MESSAGE_APP on the primary channel | an announcement is a channel message |
+| `(openeoc-dm, <mission>.<to>, <dev>.<ms>)` | a direct message (`to` = the node) | in the addressee's variable; nothing checks it |
+| `(openeoc-team@<team>, <mission>, <dev>.<ms>)` | a message on a secondary channel | a team's RAM is a channel's audience |
 | the device's access record | the node's keys and channel PSKs | each written again by its owner after a RAM change |
 
 What the merge adds, not built here: the Meshtastic client edge (ToRadio / FromRadio) reading and writing these cells;

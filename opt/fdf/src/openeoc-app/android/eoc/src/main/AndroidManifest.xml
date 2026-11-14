@@ -12,7 +12,7 @@
     <uses-feature android:name="android.hardware.location.gps" android:required="false" />
     <!-- [RT_CALL_V1] Call opens the FrogNet Communicator (the FrogNet Member app) -->
     <queries><intent><action android:name="net.frognet.communicator.CALL" /></intent></queries>
-    <application android:icon="@drawable/ic_openeoc" android:roundIcon="@drawable/ic_openeoc" android:label="OpenEOC EOC" android:usesCleartextTraffic="true" android:theme="@style/RtTheme">
+    <application android:icon="@drawable/ic_openeoc" android:roundIcon="@drawable/ic_openeoc" android:label="OpenEOC Command Center" android:usesCleartextTraffic="true" android:theme="@style/RtTheme">
         <meta-data android:name="net.frognet.openeoc.ROLE" android:value="eoc" />
         <meta-data android:name="net.frognet.openeoc.LAYERS" android:value="${rtLayers}" />   <!-- [RT_LAYERS_V1] its layers (build.gradle.kts) -->
         <activity android:name="net.frognet.openeoc.android.MainActivity" android:exported="true"

@@ -1,4 +1,4 @@
 name=dc
-build=dc-2026-11-08-r7
+build=dc-2026-11-04-r6
 on-loss=stay
-about=DisasterComm: help requests, responders, hospital capacity, coordination and the radio log, as web pages this machine serves at /dc/ and /rt/
+about=DisasterComm: help requests, responders, hospital capacity, coordination and the radio log, as web pages this machine serves at /dc/ and /openeoc/

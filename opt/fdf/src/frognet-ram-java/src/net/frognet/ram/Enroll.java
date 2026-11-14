@@ -60,7 +60,7 @@ import javax.crypto.spec.SecretKeySpec;
  * opening one. A door's line (on the EOC's own LAN, the trusted first connection) has no KEY and is posted as before.
  */
 public final class Enroll {
-    public static final String BUILD = "frognet-enroll-2026-11-06-r5";
+    public static final String BUILD = "frognet-enroll-2026-11-09-r6";   // [EOC_LEADS_V1] r6: the team's name with a lead's enrollment
     public static final String PREFIX = "fdfenroll1";
     private Enroll() { }
 
@@ -96,7 +96,11 @@ public final class Enroll {
 
     // ------------------------------------------------------------------ the device's side
     /** POST {user, password} to the sponsor; the answer, or an Exception saying the sponsor's why */
-    public static Map<String, Object> enroll(Line l, String password) throws Exception {
+    public static Map<String, Object> enroll(Line l, String password) throws Exception { return enroll(l, password, ""); }
+    /** [EOC_LEADS_V1] with TEAM: a lead the EOC added creates (or claims again) the team it names, as KIND (the app's view:
+     *  team, hospital, ambulance ...: one of the roles the EOC gave the lead) */
+    public static Map<String, Object> enroll(Line l, String password, String team) throws Exception { return enroll(l, password, team, ""); }
+    public static Map<String, Object> enroll(Line l, String password, String team, String kind) throws Exception {
         String url = l.url + (l.url.contains("?") ? "&" : "?") + "op=enroll&app=" + URLEncoder.encode(l.app, "UTF-8");
         if (l.team()) throw new Exception("a team's QR: give your own call sign (Line.as)");
         Map<String, Object> a;
@@ -104,16 +108,21 @@ public final class Enroll {
             String key = Json.str(post(l.url + (l.url.contains("?") ? "&" : "?") + "op=key&app=" + URLEncoder.encode(l.app, "UTF-8"), "{}", 20000).get("key"));
             if (!Seal.fingerprint(key).equals(l.key)) throw new Exception("the key " + l.url + " gave is not the one in its QR: not enrolled there");
             Seal sl = Seal.to(key, l.app);
-            Map<String, Object> r = postRaw(url, Json.write(sl.request(Json.o("user", l.user, "password", password, "t", System.currentTimeMillis()))), 60000);
+            Map<String, Object> r = postRaw(url, Json.write(sl.request(withTeam(Json.o("user", l.user, "password", password, "t", System.currentTimeMillis()), team, kind))), 60000);
             try { a = sl.answer(r); }
             catch (Exception e) {
                 String why = Json.str(r.get("why"));
                 throw new Exception("the answer was not sealed by the key in its QR" + (why.isEmpty() ? "" : " (it said: " + why + ")"));
             }
             if (!Json.bool(a.get("ok"))) { String why = Json.str(a.get("why")); throw new Exception(why.isEmpty() ? "refused" : why); }
-        } else a = post(url, Json.write(Json.o("user", l.user, "password", password)), 60000);
+        } else a = post(url, Json.write(withTeam(Json.o("user", l.user, "password", password), team, kind)), 60000);
         if (!Json.str(a.get("invite")).startsWith("fdfinv1.")) throw new Exception("the sponsor at " + l.url + " gave no invitation");
         return a;
+    }
+    private static Map<String, Object> withTeam(Map<String, Object> m, String team, String kind) {
+        if (team != null && !team.trim().isEmpty()) m.put("team", team.trim());
+        if (kind != null && !kind.trim().isEmpty()) m.put("kind", kind.trim());
+        return m;
     }
     /** POST JSON; the JSON answer when ok:true, else an Exception with its why */
     public static Map<String, Object> post(String url, String body, int readMs) throws Exception {
