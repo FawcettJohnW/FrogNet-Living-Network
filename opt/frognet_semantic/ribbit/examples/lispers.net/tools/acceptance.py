@@ -1081,7 +1081,7 @@ def t_l411(c, sysm):
 # harness writes each command as a cell (acceptance_ctl / <agent>|cmd / <run>.<n>); the agent holds a read on that
 # variable, runs the command on its systems exactly as the harness does on one machine, and writes the answer
 # (acceptance_ctl / <agent>|res / the same instance), on which the harness holds a read.
-ACCEPTANCE_VERSION = "v0.71-monitor-skips-gone"      # this file's own version: the banner names the file that is running
+ACCEPTANCE_VERSION = "v0.72-each-family-its-own-position"      # this file's own version: the banner names the file that is running
 AGENT_CALLS = {"start", "stop", "evidence", "delete_site", "add_site", "restart_keep_state", "lose_ram_host"}
 CTL = "acceptance_ctl"
 
@@ -1824,7 +1824,7 @@ class PerfHarness:
         self.sp = Space(a.ram)
         self.start_id = max([0] + [c["id"] for c in self.sp.wait("perf|sample", 0, 0)] + [c["id"] for c in self.sp.wait("perf|snap", 0, 0)])
         self.monitors = sorted(c["instance"] for c in self.sp.wait("perf|monitors", 0, 0))
-        self.run_n = 0; self.run_tag = "%s.%d" % (socket.gethostname(), os.getpid()); self.snap_after = self.start_id
+        self.run_n = 0; self.run_tag = "%s.%d" % (socket.gethostname(), os.getpid()); self.snap_after = max([0] + [c["id"] for c in self.sp.wait("perf|snap", 0, 0)])   # this family's own position: the memory refuses a position past a family's log (ESTALE)
         self.phase_t = {}                                        # (run, phase) -> this machine's time
         self.load_snaps = {}
         # [MONITOR_ROWS_V1] the monitors overwrite their rows; the harness keeps their history as it arrives
@@ -1832,10 +1832,12 @@ class PerfHarness:
         self.hist_stop = False
         self.hist = threading.Thread(target=self.keep_samples, daemon=True); self.hist.start()
     def keep_samples(self):
-        sp = Space(self.a.ram); after = self.start_id
+        sp = Space(self.a.ram); after = max([0] + [c["id"] for c in sp.wait("perf|sample", 0, 0)])   # this family's own position
         while not self.hist_stop:
             for c in sp.wait("perf|sample", after, 2.0):
-                after = max(after, c["id"]); self.samples.setdefault(c["instance"], []).append(c["bag"])
+                after = max(after, c["id"])
+                if c.get("bag") is None: continue     # [GONE_CELLS_SKIPPED_V1]
+                self.samples.setdefault(c["instance"], []).append(c["bag"])
     def phase(self, run, ph):
         inst = "%s|%s" % (run, ph); self.phase_t[(run, ph)] = time.time()
         self.load_snaps[(run, ph)] = {"t": time.time(), "procs": {"load-generator": {"cpu_s": time.process_time(), "rss_mb": proc_rss_mb([os.getpid()]), "n": 1}}, "host": host_counters()}
