@@ -2,6 +2,8 @@
 #   make -j$(nproc)                 everything the nodes run
 #   make -j$(nproc) front           Seattle7-style systems machine: the front (tools/lisp-boundary)
 #   make -j$(nproc) ram             the RAM host: ribbit_cpp/lisper-ram
+# Both also build tools/tuple-write, which tools/acceptance.py and the simulator's LISP tier use to reach the
+# neutral RAM host.
 # The Ribbit platform (../../cpp/src) is compiled once into build/libribbit.a and recompiled only when a platform
 # source or header changes. -MMD -MP: every object knows the headers it includes, so a header change rebuilds
 # exactly the objects that include it.
@@ -17,17 +19,21 @@ PLATFORM := frogram ram_host lf_ebr ribbit_space ribbit_pp ram_client
 PLAT_OBJ := $(addprefix $(B)/plat/,$(addsuffix .o,$(PLATFORM)))
 
 PROGRAMS := tools/lisp-boundary ribbit_cpp/lisper-ram ribbit_cpp/ribbit-lisp tools/lisp-handler-driver tools/lisp-service \
-            tools/check-ms-secret tools/check-site-secret
+            tools/check-ms-secret tools/check-site-secret tools/tuple-write
 
 .PHONY: all front ram clean
 all: $(PROGRAMS)
-front: tools/lisp-boundary ribbit_cpp/ribbit-lisp
-ram: ribbit_cpp/lisper-ram ribbit_cpp/ribbit-lisp
+front: tools/lisp-boundary ribbit_cpp/ribbit-lisp tools/tuple-write
+ram: ribbit_cpp/lisper-ram ribbit_cpp/ribbit-lisp tools/tuple-write
 
 build/libribbit.a: $(PLAT_OBJ)
 	ar rcs $@ $^
 
 $(B)/plat/%.o: $(R)/src/%.cpp
+	@mkdir -p $(dir $@)
+	$(CXX) $(CXXFLAGS) $(CPPFLAGS) -c $< -o $@
+
+$(B)/rt/%.o: $(R)/tools/%.cpp
 	@mkdir -p $(dir $@)
 	$(CXX) $(CXXFLAGS) $(CPPFLAGS) -c $< -o $@
 
@@ -43,6 +49,7 @@ tools/lisp-handler-driver:  $(B)/tools/lisp_handler_driver.o  build/libribbit.a
 tools/lisp-service:         $(B)/tools/lisp_service.o         build/libribbit.a
 tools/check-ms-secret:      $(B)/tools/check_ms_secret.o      build/libribbit.a
 tools/check-site-secret:    $(B)/tools/check_site_secret.o    build/libribbit.a
+tools/tuple-write:          $(B)/rt/tuple_write.o             build/libribbit.a
 $(PROGRAMS):
 	$(CXX) $(CXXFLAGS) $^ $(LDLIBS) -o $@
 
