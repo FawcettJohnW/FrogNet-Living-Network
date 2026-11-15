@@ -24,7 +24,11 @@ whose policy rules out the GPL.*
 
 ## Get started
 
-**Watch it run, on one machine.** The simulator runs the production code (the
+**New here? Read [START-HERE.md](START-HERE.md)** first: what this is in plain words, what it feels like to use, and
+one command that shows it working.
+
+**Watch it run, on one machine.** `bash opt/frognet_semantic/simulation/quickstart.sh` builds what it needs and
+shows CroakOS at work in plain words. The full gate runs the production code (the
 discovery, the route planner, the CroakOS binaries) across simulated networks:
 200 members, the hardware topologies, slow links, splits and merges, and
 lispers.net under Ribbit-LISP. On Linux, from the root of the checkout:
