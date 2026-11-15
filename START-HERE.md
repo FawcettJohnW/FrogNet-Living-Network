@@ -68,6 +68,7 @@ After every change, it checks every path between every pair of machines.
 | install it on two machines | [docs/OPERATING.md](docs/OPERATING.md) |
 | write a program for it | [`opt/frognet_semantic/ribbit/RIBBIT.md`](opt/frognet_semantic/ribbit/RIBBIT.md) |
 | convert a system you already run | [`opt/frognet_semantic/ribbit/docs/CONVERTING-TO-RIBBIT.md`](opt/frognet_semantic/ribbit/docs/CONVERTING-TO-RIBBIT.md) |
+| read the specification | [docs/spec/](docs/spec/README.md) |
 | see every result and what supports it | [CLAIMS.md](CLAIMS.md) |
 | read the whole engineering record | `opt/frognet_semantic/docs/magnum_croakus/Magnum Croakus.html` |
 | work with the author | john@fawcettinnovations.com · [fawcettinnovations.com/consulting.html](https://fawcettinnovations.com/consulting.html) |

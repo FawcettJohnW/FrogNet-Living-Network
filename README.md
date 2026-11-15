@@ -113,6 +113,7 @@ programming model is not tied to one network.
 
 | | |
 |---|---|
+| [docs/spec/](docs/spec/README.md) | the FrogNet specification, §1–§22: the normative clauses (§1–§18) and the Ribbit reference (§19–§22), the same text as the site's specification pages |
 | [docs/OPERATING.md](docs/OPERATING.md) | install, run, upgrade, remove; what the logs say |
 | `opt/frognet_semantic/docs/magnum_croakus/Magnum Croakus.html` | the book: the three specifications (Part 0 is normative), every mechanism, and what broke along the way. Part "Connecting Across the Internet" (chapters 19–22) and the "From Clean to the Communicator" walkthrough describe the internet path as it was before October 2026; a region (FD&F) replaces it |
 | [CLAIMS.md](CLAIMS.md) | each claim with the test or log that shows it, or marked not shown |
