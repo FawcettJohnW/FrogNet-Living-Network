@@ -5,17 +5,17 @@
 # step1-mesh-e2e.sh BINARY -- [MT_PACKETS_ON_THE_RAM_V1] oracle for Phase 1 step 1.
 # meshtastic-mcp's own scripts/ci_device_mesh_e2e.py, unmodified: two nodes, a broadcast token must reach the DUT over
 # its TCP client API. UDP multicast to the Meshtastic groups is blackholed for the run, so the only path between the
-# nodes is the shared RAM (bin/meshtastic-ram). Prints the e2e verdict line, the memory's view, and the nodes'
+# nodes is the shared RAM (bin/frogtastic-ram). Prints the e2e verdict line, the memory's view, and the nodes'
 # [MT_RIBBIT] counts; every log is kept under results/step1-<stamp>/.
 set -u
 BIN=${1:?usage: step1-mesh-e2e.sh /path/to/meshtasticd}
 EX=$(cd "$(dirname "$0")/.." && pwd)
-export FROGTASTIC_RAM_BIN=$EX/bin/frogtastic-ram # each node's firmware starts its own [FROGTASTIC_SHM_TRANSPORT_V1]
+export FROGTASTIC_BRIDGE_BIN=$EX/bin/frogtastic-bridge # each node's firmware starts its own [FROGTASTIC_SHM_TRANSPORT_V1]
 MCP=${MCP:-/home/claude/mesh/mcp}
 OUT=$EX/results/step1-$(date +%Y%m%d-%H%M%S); mkdir -p "$OUT"
 PORT=${RAM_PORT:-18800}
 echo "== $(cat "$EX/VERSION")"; echo "== binary $BIN ($("$BIN" --version 2>/dev/null | head -1))"; echo "== results $OUT"
-"$EX/bin/meshtastic-ram" --listen 127.0.0.1:$PORT > "$OUT/meshtastic-ram.log" 2>&1 & RAM=$!
+"$EX/bin/frogtastic-ram" --listen 127.0.0.1:$PORT > "$OUT/frogtastic-ram.log" 2>&1 & RAM=$!
 for _ in $(seq 50); do (exec 3<>/dev/tcp/127.0.0.1/$PORT) 2>/dev/null && break; sleep 0.1; done
 for g in 224.0.0.69 239.0.0.69; do ip route add blackhole $g/32 2>/dev/null; done
 echo "== multicast blackholed: $(ip route show type blackhole | tr '\n' ' ')"

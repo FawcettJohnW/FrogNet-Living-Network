@@ -3,7 +3,7 @@
 //
 // ft_probe.cpp -- [FROGTASTIC_SHM_TRANSPORT_V1] every mt_ribbit.h call, between two nodes, no firmware involved.
 // Built twice by harness/ft-transport.sh: linked to libmtribbit.a (the calls made here), and linked to the firmware's
-// shim (the calls carried to FrogTastic-RAM). Node a's output must be the same both ways.
+// shim (the calls carried to FrogTastic-Bridge). Node a's output must be the same both ways.
 //
 //   ft-probe a HOST:PORT     node !0000000a: holds, writes, reads, marks, sends; prints what every call returned
 //   ft-probe b HOST:PORT     node !0000000b: sends to a at the times a waits for, prints what a sent it

@@ -136,7 +136,7 @@ extern "C" int mtr_start(const char *where, uint32_t me, mtr_on_packet on, void 
         g_me = node_name(me);
         g_on = on;
         g_ctx = ctx;
-        g_space.reset(new ribbit::Space(where, "meshtastic"));
+        g_space.reset(new ribbit::Space(where, "frogtastic"));
         hold(dm_topic(me)); // what is addressed to this node
         fprintf(stderr, "[MT_RIBBIT] %s: node %s on the memory at %s\n", VERSION, g_me.c_str(), where);
         return 0;

@@ -15,7 +15,7 @@
 //
 // Both roles hold reads: a GET with wait_s and min_rows that returns when the cell changes. Nobody polls, nobody
 // talks to anybody; the loop closes in the memory. The same source runs on the ESP-IDF Linux target (several at once,
-// against meshtastic-ram here) and on a real chip over Wi-Fi.
+// against frogtastic-ram here) and on a real chip over Wi-Fi.
 #include <inttypes.h>
 #include <stdio.h>
 #include <stdlib.h>
@@ -43,7 +43,7 @@
 #endif
 
 static const char *TAG = "loop";
-#define API CONFIG_LOOP_RAM "/meshtastic-api"
+#define API CONFIG_LOOP_RAM "/frogtastic-api"
 
 // ------------------------------------------------------------------------------------------------ the memory, over HTTP
 typedef struct {

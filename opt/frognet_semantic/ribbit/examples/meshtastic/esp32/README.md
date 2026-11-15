@@ -13,20 +13,20 @@ No hardware sensor: the payload is what the chip knows of itself — free and mi
 model and cores, IDF version, reset reason, a temperature that is the internal sensor where one exists and a modelled
 drift (+0.05 °C/s) on the Linux target, so the controller has something to correct.
 
-A held read over HTTP: `GET /meshtastic-api?op=read&service=esp&variable=adjust&instance=!x&after=<id>&wait_s=30&min_rows=1`
+A held read over HTTP: `GET /frogtastic-api?op=read&service=esp&variable=adjust&instance=!x&after=<id>&wait_s=30&min_rows=1`
 returns when a row lands past `after` (or at `wait_s`), and the chip asks again from the newest id. Nobody polls.
 
 ## Run it here (ESP-IDF Linux target)
 
 The same source builds for a real chip (`idf.py set-target esp32`, Wi-Fi from `menuconfig` → "Closed loop on the
-memory") and for Linux, where several instances run as processes against `bin/meshtastic-ram`:
+memory") and for Linux, where several instances run as processes against `bin/frogtastic-ram`:
 
     . ~/esp/esp-idf/export.sh                      # IDF 5.3; the Linux target needs no Xtensa toolchain
     cd esp32/loop
     idf.py --preview set-target linux && idf.py build                                   # the sensor
     idf.py -B build-ctl -D SDKCONFIG=sdkconfig.ctl -D SDKCONFIG_DEFAULTS=sdkconfig.defaults.ctl --preview set-target linux
     idf.py -B build-ctl -D SDKCONFIG=sdkconfig.ctl build                                 # the controller
-    ../../bin/meshtastic-ram --listen 127.0.0.1:18899 &
+    ../../bin/frogtastic-ram --listen 127.0.0.1:18899 &
     build/loop.elf & build-ctl/loop.elf
 
 What it shows (30 s, 2026-11-01):

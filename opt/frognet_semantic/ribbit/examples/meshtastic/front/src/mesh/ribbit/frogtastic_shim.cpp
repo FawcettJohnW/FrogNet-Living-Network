@@ -2,17 +2,17 @@
 // SPDX-License-Identifier: GPL-3.0-only
 //
 // frogtastic_shim.cpp -- [FROGTASTIC_SHM_TRANSPORT_V1] the firmware's side of the memory: every mt_ribbit.h call,
-// carried to FrogTastic-RAM (a separate process) through the shared segment in frogtastic_shm.h. The firmware links
-// this file and none of the Ribbit platform; FrogTastic-RAM makes the calls into the memory and writes back the answers.
+// carried to FrogTastic-Bridge (a separate process) through the shared segment in frogtastic_shm.h. The firmware links
+// this file and none of the Ribbit platform; FrogTastic-Bridge makes the calls into the memory and writes back the answers.
 //
 // Calls that return nothing are written and the caller goes on. Calls that return something wait for their END on the
 // replies ring; their items are handed to the caller's callback on the caller's thread, as before. What the held reads
 // hand over arrives on the events ring and is handed over on this file's events thread -- the held read's thread, as
 // before.
 //
-// mtr_start starts this node's FrogTastic-RAM (an exec: its own process), segment /frogtastic-ram-<node>, and waits for
-// its "serving" line; $FROGTASTIC_RAM_BIN names the program (default: frogtastic-ram on PATH). $FROGTASTIC_SHM names a
-// segment a FrogTastic-RAM already serves instead. FrogTastic-RAM leaves the memory when this firmware exits. When it
+// mtr_start starts this node's FrogTastic-Bridge (an exec: its own process), segment /frogtastic-bridge-<node>, and waits for
+// its "serving" line; $FROGTASTIC_BRIDGE_BIN names the program (default: frogtastic-bridge on PATH). $FROGTASTIC_SHM names a
+// segment a FrogTastic-Bridge already serves instead. FrogTastic-Bridge leaves the memory when this firmware exits. When it
 // cannot be started or reached, mtr_start says so and returns -1; when it goes away, this file says so once and every
 // call does nothing, as the calls did with no memory.
 #if defined(ARCH_PORTDUINO) && defined(__linux__)
@@ -48,23 +48,23 @@ void *g_on_ctx = nullptr;
 std::atomic<void (*)(void *)> g_wake{nullptr};
 std::atomic<void *> g_wake_ctx{nullptr};
 std::string g_version = VERSION;
-std::string g_front_version = "(FrogTastic-RAM not reached)";
+std::string g_front_version = "(FrogTastic-Bridge not reached)";
 
 bool bridge_alive()
 {
     int32_t pid = g_seg->bridge_pid.load(std::memory_order_acquire);
     bool alive = pid > 0 && (kill(pid, 0) == 0 || errno == EPERM);
     if (!alive && !g_gone.exchange(true))
-        fprintf(stderr, "[FROGTASTIC_SHIM] FrogTastic-RAM (pid %d) is gone: this node is off the memory\n", pid);
+        fprintf(stderr, "[FROGTASTIC_SHIM] FrogTastic-Bridge (pid %d) is gone: this node is off the memory\n", pid);
     return alive;
 }
 
 extern "C" char **environ;
 
-// start this node's FrogTastic-RAM and wait for its "serving" line (a blocking read: nothing is polled)
+// start this node's FrogTastic-Bridge and wait for its "serving" line (a blocking read: nothing is polled)
 bool spawn_bridge(const std::string &name)
 {
-    const char *bin = getenv("FROGTASTIC_RAM_BIN") ? getenv("FROGTASTIC_RAM_BIN") : "frogtastic-ram";
+    const char *bin = getenv("FROGTASTIC_BRIDGE_BIN") ? getenv("FROGTASTIC_BRIDGE_BIN") : "frogtastic-bridge";
     int out[2];
     if (pipe(out) != 0) return false;
     posix_spawn_file_actions_t fa;
@@ -73,7 +73,7 @@ bool spawn_bridge(const std::string &name)
     posix_spawn_file_actions_addclose(&fa, out[0]);
     posix_spawn_file_actions_addclose(&fa, out[1]);
     std::string shm = name;
-    char *argv[] = {const_cast<char *>("frogtastic-ram"), const_cast<char *>("--shm"), &shm[0], nullptr};
+    char *argv[] = {const_cast<char *>("frogtastic-bridge"), const_cast<char *>("--shm"), &shm[0], nullptr};
     pid_t pid = 0;
     int rc = posix_spawnp(&pid, bin, &fa, nullptr, argv, environ);
     posix_spawn_file_actions_destroy(&fa);
@@ -106,13 +106,13 @@ bool attach(uint32_t me)
         name = getenv(NAME_ENV);
     } else {
         char b[40];
-        snprintf(b, sizeof b, "/frogtastic-ram-%08x", me);
+        snprintf(b, sizeof b, "/frogtastic-bridge-%08x", me);
         name = b;
         if (!spawn_bridge(name)) return false;
     }
     int fd = shm_open(name.c_str(), O_RDWR, 0);
     if (fd < 0) {
-        fprintf(stderr, "[FROGTASTIC_SHIM] %s: no FrogTastic-RAM segment %s: %s\n", VERSION, name.c_str(),
+        fprintf(stderr, "[FROGTASTIC_SHIM] %s: no FrogTastic-Bridge segment %s: %s\n", VERSION, name.c_str(),
                 strerror(errno));
         return false;
     }
@@ -133,7 +133,7 @@ bool attach(uint32_t me)
     // what an earlier firmware left unread is not for this one
     uint64_t ev = drop_all(g_seg->events), re = drop_all(g_seg->replies);
     g_seg->firmware_pid.store(getpid(), std::memory_order_release);
-    fprintf(stderr, "[FROGTASTIC_SHIM] %s: attached to %s (FrogTastic-RAM pid %d); %llu+%llu bytes left by an earlier "
+    fprintf(stderr, "[FROGTASTIC_SHIM] %s: attached to %s (FrogTastic-Bridge pid %d); %llu+%llu bytes left by an earlier "
                     "firmware dropped\n",
             VERSION, name.c_str(), g_seg->bridge_pid.load(), (unsigned long long)ev, (unsigned long long)re);
     return true;
@@ -208,7 +208,7 @@ extern "C" int mtr_start(const char *where, uint32_t me, mtr_on_packet on, void 
         g_front_version = front;
     }
     if (ret != 0 || !in.ok) {
-        fprintf(stderr, "[FROGTASTIC_SHIM] node !%08x: FrogTastic-RAM did not put it on the memory at %s\n", me,
+        fprintf(stderr, "[FROGTASTIC_SHIM] node !%08x: FrogTastic-Bridge did not put it on the memory at %s\n", me,
                 where ? where : "");
         return -1;
     }

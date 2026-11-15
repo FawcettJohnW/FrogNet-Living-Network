@@ -3,9 +3,9 @@
 # SPDX-License-Identifier: GPL-2.0-only
 #
 # build-ribbit.sh -- the Ribbit side of Meshtastic on Ribbit, from the platform's own sources (cpp/):
-#   bin/meshtastic-ram       the memory the nodes share (answers /meshtastic-api)
+#   bin/frogtastic-ram       the memory the nodes share (answers /frogtastic-api)
 #   lib/libmtribbit.a        mt_ribbit (packets on the RAM) and the platform under it, for the programs below
-#   bin/frogtastic-ram       the firmware's bridge onto the memory [FROGTASTIC_SHM_TRANSPORT_V1]: a separate process;
+#   bin/frogtastic-bridge       the firmware's bridge onto the memory [FROGTASTIC_SHM_TRANSPORT_V1]: a separate process;
 #                            the firmware links none of this and reaches it through a shared segment
 # Compiler output goes to the terminal. Ends with "build-ribbit PASS" or stops at the first error.
 set -e -o pipefail
@@ -21,8 +21,8 @@ done
 # the VERSION line goes into the library so every node's log says what it carries (mtr_front_version)
 echo "  compile mt_ribbit.cpp"; $CXX $F "-DMTR_FRONT_VERSION=\"$(cat VERSION)\"" -c ribbit/mt_ribbit.cpp -o obj/mt_ribbit.o
 rm -f lib/libmtribbit.a; ar rcs lib/libmtribbit.a obj/mt_ribbit.o obj/ribbit_space.o obj/frogram.o obj/ram_host.o obj/lf_ebr.o
-echo "  link meshtastic-ram"; $CXX $F ribbit/meshtastic_ram.cpp obj/ram_host.o obj/lf_ebr.o obj/frogram.o -o bin/meshtastic-ram -llz4 -lcrypto
-echo "  link frogtastic-ram (the firmware's bridge)"; $CXX $F ribbit/frogtastic_ram.cpp lib/libmtribbit.a -o bin/frogtastic-ram -llz4 -lcrypto -lrt
+echo "  link frogtastic-ram"; $CXX $F ribbit/frogtastic_ram.cpp obj/ram_host.o obj/lf_ebr.o obj/frogram.o -o bin/frogtastic-ram -llz4 -lcrypto
+echo "  link frogtastic-bridge (the firmware's bridge)"; $CXX $F ribbit/frogtastic_bridge.cpp lib/libmtribbit.a -o bin/frogtastic-bridge -llz4 -lcrypto -lrt
 echo "  link mtr-probe (harness)"; $CXX $F harness/mtr_probe.cpp lib/libmtribbit.a -o bin/mtr-probe -llz4 -lcrypto
 # [MT_APP_LIBRARY_V1] the app-facing library: mesh_app on libmtribbit, with nanopb and the Meshtastic protobufs it decodes
 NP=/home/claude/mesh/fwb/.pio/libdeps/native/Nanopb
@@ -38,4 +38,4 @@ else
   echo "  (nanopb not at $NP: mesh_app not built)"
 fi
 echo "  link mtx (coordination cells)"; $CXX $F harness/mtx.cpp obj/ribbit_space.o obj/frogram.o obj/ram_host.o obj/lf_ebr.o -o bin/mtx -llz4 -lcrypto
-echo "build-ribbit PASS ($(bin/meshtastic-ram --version 2>/dev/null | head -1))"
+echo "build-ribbit PASS ($(bin/frogtastic-ram --version 2>/dev/null | head -1))"

@@ -7,7 +7,7 @@
 set -u
 BIN=${1:?usage: step4-bad-data.sh /path/to/meshtasticd [count]}; N=${2:-4}
 EX=$(cd "$(dirname "$0")/.." && pwd)
-export FROGTASTIC_RAM_BIN=$EX/bin/frogtastic-ram # each node's firmware starts its own [FROGTASTIC_SHM_TRANSPORT_V1]
+export FROGTASTIC_BRIDGE_BIN=$EX/bin/frogtastic-bridge # each node's firmware starts its own [FROGTASTIC_SHM_TRANSPORT_V1]
 MCP=${MCP:-/home/claude/mesh/mcp}
 OUT=$EX/results/step4-$(date +%Y%m%d-%H%M%S); mkdir -p "$OUT"
 PORT=${RAM_PORT:-18830}
@@ -16,7 +16,7 @@ if [ "${STOCK:-0}" = 1 ]; then
   # the same scenarios against stock: nodes on UDP multicast, no memory; S7 (malformed cells) does not apply
   echo "== STOCK mode: UDP multicast, no shared RAM"; RAMARG=""; ENVSET=""
 else
-  "$EX/bin/meshtastic-ram" --listen 127.0.0.1:$PORT > "$OUT/meshtastic-ram.log" 2>&1 & RAM=$!
+  "$EX/bin/frogtastic-ram" --listen 127.0.0.1:$PORT > "$OUT/frogtastic-ram.log" 2>&1 & RAM=$!
   for _ in $(seq 50); do (exec 3<>/dev/tcp/127.0.0.1/$PORT) 2>/dev/null && break; sleep 0.1; done
   for g in 224.0.0.69 239.0.0.69; do ip route add blackhole $g/32 2>/dev/null; done
   cleanup(){ for g in 224.0.0.69 239.0.0.69; do ip route del blackhole $g/32 2>/dev/null; done; kill $RAM 2>/dev/null; wait $RAM 2>/dev/null; }

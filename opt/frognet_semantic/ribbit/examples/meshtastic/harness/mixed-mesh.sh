@@ -11,7 +11,7 @@
 set -u
 STOCK=${1:?stock meshtasticd}; FRONT=${2:?front meshtasticd}
 EX=$(cd "$(dirname "$0")/.." && pwd); PY=/home/claude/mesh/venv-mpy/bin/python
-export FROGTASTIC_RAM_BIN=$EX/bin/frogtastic-ram # each node's firmware starts its own [FROGTASTIC_SHM_TRANSPORT_V1]
+export FROGTASTIC_BRIDGE_BIN=$EX/bin/frogtastic-bridge # each node's firmware starts its own [FROGTASTIC_SHM_TRANSPORT_V1]
 OUT=$EX/results/mixed-$(date +%Y%m%d-%H%M%S); mkdir -p $OUT/{s,f,g}/vfs
 echo "== $(cat $EX/VERSION)"; echo "== stock $STOCK"; echo "== front $FRONT"; echo "== results $OUT"
 for n in s f g; do
@@ -20,7 +20,7 @@ for n in s f g; do
 done
 ip route del blackhole 224.0.0.69/32 2>/dev/null; ip route del blackhole 239.0.0.69/32 2>/dev/null
 PORT=18896
-setsid "$EX/bin/meshtastic-ram" --listen 127.0.0.1:$PORT > $OUT/ram.log 2>&1 < /dev/null & RAM=$!
+setsid "$EX/bin/frogtastic-ram" --listen 127.0.0.1:$PORT > $OUT/ram.log 2>&1 < /dev/null & RAM=$!
 sleep 0.5
 setsid "$STOCK" -c $OUT/s/config.yaml -h 61 -p 4581 -d $OUT/s/vfs -e > $OUT/s/node.log 2>&1 < /dev/null & S=$!
 MESHTASTIC_RIBBIT=127.0.0.1:$PORT setsid "$FRONT" -c $OUT/f/config.yaml -h 62 -p 4582 -d $OUT/f/vfs -e > $OUT/f/node.log 2>&1 < /dev/null & F=$!

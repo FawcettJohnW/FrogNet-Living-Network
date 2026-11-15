@@ -2,10 +2,10 @@
 // SPDX-License-Identifier: GPL-2.0-only OR GPL-3.0-only
 //
 // frogtastic_shm.h -- [FROGTASTIC_SHM_TRANSPORT_V1] the local transport between the Meshtastic firmware and
-// FrogTastic-RAM, the bridge that is on the memory for it.
+// FrogTastic-Bridge, the bridge that is on the memory for it.
 //
 // Two processes, one shared segment. The firmware (GPL-3.0, with Meshtastic's code) calls the mt_ribbit.h functions;
-// its shim (front/src/mesh/ribbit/frogtastic_shim.cpp) writes each call into the segment as a record. FrogTastic-RAM
+// its shim (front/src/mesh/ribbit/frogtastic_shim.cpp) writes each call into the segment as a record. FrogTastic-Bridge
 // (GPL-2.0-only, with the Ribbit platform) takes the record, makes the same call into mt_ribbit.cpp, and writes back what
 // it returns. Nothing is kept in the segment: it is a transport, not a copy of the memory. The held reads, the marks and
 // the fact queue are where they were, in the RAM and in mt_ribbit.cpp.
@@ -36,7 +36,7 @@ constexpr uint32_t MAGIC = 0x464f5254;     // "TROF"
 constexpr uint32_t LAYOUT = 1;            // bumped on any change to what follows; the two sides must agree
 constexpr uint64_t RING_BYTES = 1u << 20;  // per ring
 constexpr uint32_t MAX_RECORD = 64 * 1024; // one record's payload, at most
-constexpr const char *DEFAULT_NAME = "/frogtastic-ram";
+constexpr const char *DEFAULT_NAME = "/frogtastic-bridge";
 constexpr const char *NAME_ENV = "FROGTASTIC_SHM";
 
 // calls (firmware -> bridge); those marked R are answered on replies

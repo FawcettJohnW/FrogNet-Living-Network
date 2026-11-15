@@ -11,7 +11,7 @@
 set -u
 STOCK=${1:?stock meshtasticd}; FRONT=${2:?front meshtasticd}
 EX=$(cd "$(dirname "$0")/.." && pwd); PY=/home/claude/mesh/venv-mpy/bin/python
-export FROGTASTIC_RAM_BIN=$EX/bin/frogtastic-ram # each node's firmware starts its own [FROGTASTIC_SHM_TRANSPORT_V1]
+export FROGTASTIC_BRIDGE_BIN=$EX/bin/frogtastic-bridge # each node's firmware starts its own [FROGTASTIC_SHM_TRANSPORT_V1]
 OUT=$EX/results/mqtt-$(date +%Y%m%d-%H%M%S); mkdir -p $OUT/{s,m,g}/vfs
 echo "== $(cat $EX/VERSION)"; echo "== stock $STOCK"; echo "== front $FRONT"; echo "== results $OUT"
 for n in s m g; do
@@ -30,7 +30,7 @@ plugins:
   - amqtt.plugins.authentication.AnonymousAuthPlugin
 Y
 /home/claude/mesh/venv-mpy/bin/amqtt -c $OUT/broker.yaml > $OUT/broker.log 2>&1 < /dev/null & B=$!
-"$EX/bin/meshtastic-ram" --listen 127.0.0.1:$PORT > $OUT/ram.log 2>&1 < /dev/null & RAM=$!
+"$EX/bin/frogtastic-ram" --listen 127.0.0.1:$PORT > $OUT/ram.log 2>&1 < /dev/null & RAM=$!
 sleep 1
 "$STOCK" -c $OUT/s/config.yaml -h 71 -p 4591 -d $OUT/s/vfs -e > $OUT/s/node.log 2>&1 < /dev/null & S=$!
 MESHTASTIC_RIBBIT=127.0.0.1:$PORT "$FRONT" -c $OUT/m/config.yaml -h 72 -p 4592 -d $OUT/m/vfs -e > $OUT/m/node.log 2>&1 < /dev/null & M=$!

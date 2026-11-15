@@ -26,7 +26,7 @@ int main(int argc, char **argv)
     if (argc < 5) { fprintf(stderr, "usage: see header\n"); return 2; }
     std::string mode = argv[1], where = argv[2], topic = argv[3];
     try {
-        ribbit::Space sp(where, "meshtastic");
+        ribbit::Space sp(where, "frogtastic");
         if (mode == "put" && argc >= 6) {
             sp.linger("mtx", topic, ribbit::Space::STAYS);
             sp.write("mtx", topic, argv[4], argv[5]);

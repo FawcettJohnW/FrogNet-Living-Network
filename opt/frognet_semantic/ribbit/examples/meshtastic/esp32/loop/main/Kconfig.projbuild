@@ -1,6 +1,6 @@
 menu "Closed loop on the memory"
     config LOOP_RAM
-        string "The memory: http://HOST:PORT (the meshtastic-ram host)"
+        string "The memory: http://HOST:PORT (the frogtastic-ram host)"
         default "http://127.0.0.1:18899"
     config LOOP_ROLE
         string "sensor or controller"
