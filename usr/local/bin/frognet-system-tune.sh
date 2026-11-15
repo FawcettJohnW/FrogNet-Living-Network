@@ -20,7 +20,8 @@
 # FrogNet system auto-tuning — discovers hardware capabilities and configures
 # MariaDB, Apache, kernel, and systemd for optimal FrogNet performance.
 #
-# Called once during setup_lillypad.bash, safe to re-run at any time.
+# Run by setup_lillypad_v4.bash, by the installer (phase F7) and at every boot (frognet-system-tune.service);
+# safe to re-run at any time.
 # All decisions logged.  Nothing masked.  No silent failures.
 #
 # Usage: frognet-system-tune.sh [--dry-run]
@@ -267,6 +268,9 @@ net.core.rmem_max = 2621440
 net.core.wmem_max = 2621440
 net.core.rmem_default = 262144
 net.core.wmem_default = 262144
+
+# --- Queueing: fq_codel on every interface [FQ_CODEL_EVERYWHERE_V1] ---
+net.core.default_qdisc = fq_codel
 "
 
 if [[ $DRYRUN -eq 0 ]]; then
@@ -274,6 +278,41 @@ if [[ $DRYRUN -eq 0 ]]; then
     # Always re-apply forwarding settings (separate file, never overwritten)
     [[ -f /etc/sysctl.d/90-frognet-forwarding.conf ]] && sysctl -p /etc/sysctl.d/90-frognet-forwarding.conf || true
     log "Applied sysctl settings"
+fi
+
+# ─────────────────────────────────────────────────────────────────
+# QUEUEING (fq_codel) [FQ_CODEL_EVERYWHERE_V1 - John 2026-11-13]
+# ─────────────────────────────────────────────────────────────────
+# Measured 2026-11-12/13 on the mesh: Seattle5's wlan0 is the access point both Seattle7 and Seattle3B join, so their
+# traffic to each other crosses it twice. It ran pfifo_fast -- one 1,000-packet first-in-first-out queue shared by
+# every flow on the radio -- and had tail-dropped 9,364 times. The Seattle7 <-> Seattle3B link (3 ms path) moved
+# 0.06-0.25 MB/s while its sender measured a 0.8-1.7 s round trip: the short flow waited behind the WAN flows in that
+# queue. fq_codel gives each flow its own queue and keeps queueing delay near 5 ms; with it, gloo's first step went
+# 82.6 -> 31.7 s and its warmup 6m19s -> 2m41s on the same mesh. Seattle7 already ran fq_codel everywhere.
+#
+# The sysctl above makes fq_codel the kernel's default; the kernel attaches the default when an interface comes up, and
+# systemd-sysctl reads this file early in every boot, before any interface is up. An interface that is already up keeps
+# the queue it came up with, so here each interface still on pfifo_fast has its root queue deleted: the kernel then
+# reattaches the default (fq_codel, under mq for a multi-queue device). Packets queued at that instant are dropped once;
+# TCP resends them.
+if [[ $DRYRUN -eq 0 ]]; then
+    command -v tc >/dev/null || die "tc (iproute2) not found: cannot set the interfaces' queueing"
+    for _dev in $(ls /sys/class/net); do
+        [[ "$_dev" == lo ]] && continue
+        tc qdisc show dev "$_dev" 2>/dev/null | grep -q pfifo_fast || continue
+        if tc qdisc del dev "$_dev" root 2>/dev/null; then
+            if tc qdisc show dev "$_dev" | grep -q pfifo_fast; then
+                warn "$_dev: still on pfifo_fast after resetting its queue: $(tc qdisc show dev "$_dev" | head -1)"
+            else
+                log "$_dev: pfifo_fast -> $(tc qdisc show dev "$_dev" | awk 'NR==1{print $2}')$(tc qdisc show dev "$_dev" | grep -q fq_codel && echo ' with fq_codel')"
+            fi
+        else
+            warn "$_dev: could not reset its queue (tc qdisc del dev $_dev root failed)"
+        fi
+    done
+    log "Queueing: $(tc qdisc show | grep -c fq_codel) fq_codel queues, $(tc qdisc show | grep -c pfifo_fast) pfifo_fast"
+else
+    log "DRY-RUN: would reset every interface still on pfifo_fast so it comes back on fq_codel"
 fi
 
 # ─────────────────────────────────────────────────────────────────

@@ -91,7 +91,23 @@ import torch.distributed as dist
 
 from . import frogtorch_ram_client as T  # [ONE_RAM_V1] the control cells: the one RAM on databasehost.frognet; the September code, otherwise unchanged
 
-from .tensor_plane import READ_CURRENT, TensorClient, TensorServer
+from .tensor_plane import (READ_CURRENT, AdaptivePool, StreamSubscription,
+                           TensorClient, TensorServer, plane_view,
+                           writable_bytes)
+
+#: [HOOK_ON_THE_FAMILY_LINK_V1 - John 2026-11-12 "I need them both"] The hook
+#: on the same link as the all_reduce: one permanent link per peer, cells
+#: named per step, every peer's cell landing straight into its slot, and the
+#: Future completed on a pool thread when the last peer is in -- so DDP goes
+#: on with backward while the bucket is on the wire. The September path
+#: (TensorClient.read: one request and reply per peer, in turn, with the
+#: Future already done) measured ddp4322 warmup 10m46s against the no-hook
+#: arm's 3m27s. FROGNET_HOOK_STREAM=0 puts it back.
+#:
+#: faithful reads every peer, so it holds a read on each peer's family and
+#: every write fires it. The skipping hooks ask only for the cells they take
+#: (request(), one-shot), so a skipped peer's bucket never crosses the wire.
+HOOK_STREAM = os.environ.get("FROGNET_HOOK_STREAM", "1") != "0"
 
 SERVICE = os.environ.get("FROGNET_HOOK_SERVICE", "ddphook")
 
@@ -145,6 +161,14 @@ class FrogNetHookState:
         #: [A_SKIP_IS_A_DECISION_ABOUT_THE_FUTURE_V1] per-state so a test can
         #: sweep it without touching the environment
         self.FRESH_MAX_DRIFT = MAX_DRIFT
+        #: [HOOK_ON_THE_FAMILY_LINK_V1]
+        self.which = "faithful"
+        self.subs: Dict[int, StreamSubscription] = {}
+        self._sub_lock = threading.Lock()
+        self.pool = AdaptivePool("ddphook-r%d" % rank)
+        self.own_cells: Dict[int, List[str]] = {}
+        self.landed_direct = self.landed_buffered = 0
+        self.assembly_ms: List[float] = []
 
     def client(self, r: int) -> TensorClient:
         c = self.clients.get(r)
@@ -266,6 +290,13 @@ class FrogNetHookState:
                 "bag_same": self.bag_same,
                 "bag_same_pct": (100.0 * self.bag_same / self.bag_reads)
                                 if self.bag_reads else None,
+                "stream": HOOK_STREAM, "which": self.which,
+                "landed_direct": self.landed_direct,
+                "landed_buffered": self.landed_buffered,
+                "assembly_ms_min": min(self.assembly_ms) if self.assembly_ms else None,
+                "assembly_ms_max": max(self.assembly_ms) if self.assembly_ms else None,
+                "links": {str(r): s.stats() for r, s in sorted(self.subs.items())},
+                "pool": self.pool.stats(),
                 "plane": self.server.stats()
                          if hasattr(self.server, "stats") else {}}
 
@@ -339,6 +370,28 @@ class FrogNetHookState:
         bucket rather than how far along the reader happens to be.
         """
         return "h%d.b.%d" % (rank, key)
+
+    def scell(self, rank: int, key: int, n: int) -> str:
+        """[HOOK_ON_THE_FAMILY_LINK_V1] The streamed cell: bucket `key` as of
+        its n-th publish, which is the step number on every rank. A name per
+        step, so a cell is written once and retired, never overwritten."""
+        return "h%d.hb.%d.%d" % (rank, key, n)
+
+    def sub(self, r: int) -> StreamSubscription:
+        s = self.subs.get(r)
+        if s is not None:
+            return s
+        import re
+        with self._sub_lock:
+            s = self.subs.get(r)
+            if s is None:
+                d = self.rendezvous()[r]
+                fam = ([re.escape("h%d" % r) + r"\.hb\.\d+\.\d+"]
+                       if self.which == "faithful" else [])
+                s = self.subs[r] = StreamSubscription(
+                    "r%d" % self.rank, d["host"], int(d["port"]),
+                    "hook-r%d-from-r%d" % (self.rank, r), family=fam)
+        return s
 
     # [A_SHADOWED_DEFINITION_IS_NOT_A_DEFINITION_V1] A second stats() stood
     # here and shadowed the one above -- Python keeps the last definition,
@@ -435,9 +488,81 @@ def _publish(state: FrogNetHookState, key: int, t: torch.Tensor) -> int:
             # it; a policy that DOES need it will find the bags stale and
             # can say so itself.
             pass
+    if HOOK_STREAM:
+        # Every peer reads a faithful cell exactly once: it is retired on its
+        # last send. A skipping hook's peers may never ask, so its cells are
+        # retired by age instead -- KEEP steps back, past the furthest any
+        # peer can fall behind (fresh_only reads a peer once it is more than
+        # FRESH_MAX_DRIFT behind, which bounds the gap).
+        name = state.scell(state.rank, key, n)
+        faithful = state.which == "faithful"
+        state.server.publish(name, n, t, incarnation=str(state.rank),
+                             readers=(state.world - 1) if faithful else None)
+        if not faithful:
+            keep = max(2, state.FRESH_MAX_DRIFT) + HOOK_KEEP_STEPS
+            mine = state.own_cells.setdefault(key, [])
+            mine.append(name)
+            while len(mine) > keep:
+                state.server.retire(mine.pop(0))
+        return n
     state.server.publish(state.cell(state.rank, key), n, t,
                          incarnation=str(state.rank))
     return n
+
+
+#: [HOOK_ON_THE_FAMILY_LINK_V1] steps of a skipping hook's own cells kept
+#: beyond its drift bound
+HOOK_KEEP_STEPS = int(os.environ.get("FROGNET_HOOK_KEEP_STEPS", "3"))
+
+
+def _assemble(state: FrogNetHookState, key: int, n: int, t: torch.Tensor,
+              take: List[int]) -> torch.futures.Future:
+    """[HOOK_ON_THE_FAMILY_LINK_V1] Peers `take`, bucket `key` at step `n`,
+    each landing straight into its own slot; averaged in rank order
+    ([REDUCTION_ORDER_IS_RANK_ORDER_V1]) on a pool thread, which completes
+    the Future. Returns at once: DDP carries on with backward."""
+    slots: List[Optional[torch.Tensor]] = [None] * state.world
+    slots[state.rank] = t.clone()
+    names = {}
+    for r in take:
+        slots[r] = torch.empty_like(t)
+        names[r] = state.scell(r, key, n)
+        sub = state.sub(r)
+        if state.which == "faithful":
+            sub.expect(names[r], writable_bytes(slots[r]))
+        else:
+            sub.request([(names[r], writable_bytes(slots[r]))])
+    fut = torch.futures.Future()
+    t0 = time.perf_counter()
+
+    def _job():
+        try:
+            for r in take:
+                sub = state.sub(r)
+                c = sub.take(names[r], timeout_s=_peer_wait(state))
+                want = slots[r].numel() * slots[r].element_size()
+                if c["n"] != want:
+                    raise RuntimeError(
+                        "rank %d step %d bucket %d: r%d's cell %s is %d bytes, "
+                        "this bucket is %d. The ranks do not agree on the "
+                        "bucket." % (state.rank, n, key, r, names[r], c["n"], want))
+                if c["direct"]:
+                    state.landed_direct += 1
+                else:
+                    slots[r].reshape(-1).copy_(
+                        plane_view(c["buf"], t.dtype, slots[r].numel()))
+                    sub.release(c)
+                    state.landed_buffered += 1
+                state.taken += 1
+            parts = [x for x in slots if x is not None]
+            out = torch.stack(parts).mean(0)
+            state.assembly_ms.append((time.perf_counter() - t0) * 1000.0)
+            fut.set_result(out)
+        except BaseException as e:
+            fut.set_exception(e)
+
+    state.pool.submit(_job)
+    return fut
 
 
 def _read(state: FrogNetHookState, r: int, key: int, want_n: int,
@@ -472,6 +597,10 @@ def faithful_hook(state: FrogNetHookState,
     t = bucket.buffer()
     key = _bucket_key(state, bucket)
     n = _publish(state, key, t)
+    if HOOK_STREAM:
+        peers = [r for r in range(state.world) if r != state.rank]
+        state.offered += len(peers)
+        return _assemble(state, key, n, t, peers)
     # [REDUCTION_ORDER_IS_RANK_ORDER_V1 - John 2026-09-14] Sum in rank order,
     # the same order on every rank.
     #
@@ -546,6 +675,7 @@ def fresh_only_hook(state: FrogNetHookState,
     # survivors keep ascending rank order on every rank.
     slots: List[Optional[torch.Tensor]] = [None] * state.world
     slots[state.rank] = t.clone()
+    take: List[int] = []
     for r in range(state.world):
         if r == state.rank:
             continue
@@ -569,9 +699,14 @@ def fresh_only_hook(state: FrogNetHookState,
                 and state.gen > 1):
             state.skipped += 1
             continue
-        slots[r] = _read(state, r, key, n, t)
         state.last_taken[r] = state.gen
+        if HOOK_STREAM:
+            take.append(r)
+            continue
+        slots[r] = _read(state, r, key, n, t)
         state.taken += 1
+    if HOOK_STREAM:
+        return _assemble(state, key, n, t, take)
     parts = [x for x in slots if x is not None]
     out = torch.stack(parts).mean(0)
     fut = torch.futures.Future()
@@ -620,6 +755,7 @@ def every_k_hook(state: FrogNetHookState,
     slots[state.rank] = t.clone()
     state.seq += 1
     take = (state.seq % k) == 0
+    takers: List[int] = []
     for r in range(state.world):
         if r == state.rank:
             continue
@@ -627,8 +763,13 @@ def every_k_hook(state: FrogNetHookState,
         if not take:
             state.skipped += 1
             continue
+        if HOOK_STREAM:
+            takers.append(r)
+            continue
         slots[r] = _read(state, r, key, n, t)
         state.taken += 1
+    if HOOK_STREAM:
+        return _assemble(state, key, n, t, takers)
     parts = [x for x in slots if x is not None]
     out = torch.stack(parts).mean(0)
     fut = torch.futures.Future()
@@ -649,6 +790,7 @@ def attach(model, rank: int, world: int, which: str = "faithful",
            **kw) -> FrogNetHookState:
     """Put FrogNet under a DDP model without changing the model."""
     state = FrogNetHookState(rank, world, **kw)
+    state.which = which
     # [A_MECHANISM_NOBODY_CALLS_IS_NOT_A_MECHANISM_V1] The harness has no
     # other handle on the state -- DDP keeps it privately -- so the stats it
     # needs to record would be unreachable. One module-level reference,
