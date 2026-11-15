@@ -5,6 +5,9 @@
 #include "rowcodec.hpp"
 #include "cellwire.hpp"
 #include "dataplane.hpp"
+#include "tcpdiag.hpp"
+#include <cstdio>
+#include <cstdlib>
 
 #ifdef _WIN32
 #  ifndef _WIN32_WINNT
@@ -472,6 +475,10 @@ Session::Session(const std::string& host, int port, const std::string& api) : ho
     d_->applier = std::thread([this] { apply_loop(); });    // [CLIENT_APPLIER_V1]
 }
 Session::~Session() {
+    // [SOCKET_SAYS_WHAT_HELD_IT_V1] what held each of this session's sockets back, before they close
+    if (req_ >= 0 && !std::getenv("FROGRAM_NO_SOCK_DIAG"))
+        std::fprintf(stderr, "[DIAG-SOCK] session %s to %s:%d req: %s | ret: %s | data: %s\n", token_.c_str(), host_.c_str(), port_,
+                     tcpdiag::line(req_).c_str(), tcpdiag::line(ret_).c_str(), tcpdiag::line(dat_).c_str());
     shutdown();
     d_->stop.store(true, std::memory_order_release); d_->work.fetch_add(1); futex_wake_all(d_->work);
     d_->queued.store(0); futex_wake_all(d_->queued); d_->ring_free.fetch_add(1); futex_wake_all(d_->ring_free);

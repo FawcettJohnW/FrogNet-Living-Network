@@ -117,3 +117,18 @@ Every result of the loopback run reproduced. Reading the evidence closely also s
   retransmissions go out, 2 s later -- and the retransmit queue is keyed by nonce, so of the Map-Notifies for one
   register only the one to the LAST xTR is ever retransmitted. The other xTRs of the merged set never hear of it.
   (Observed in lisp-ms.log / lisp-core.log.)
+
+## F-DEBIAN-SH: on Debian and Raspberry Pi OS, `lisp enable` starts no component -- found 2026-11-13
+On Seattle7 (Raspberry Pi OS, Python 3.12.16, distro 1.9.0) lisp-core logged `Start process 'lisp-mr'` and
+`Start process 'lisp-ms'`, each followed by `sh: 1: Syntax error: Bad fd number`, and neither process ran: every
+Map-Register then logged `Suppress sending IPC to lisp-ms`.
+- `lispconfig.lisp_start_stop_process()` writes `python3 -O <component>.pyc 2>&1 > <log> &` when `lisp_is_ubuntu()`,
+  `lisp_is_raspbian()`, `lisp_is_debian()` or `lisp_is_debian_kali()` is true, and `... >& <log> &` otherwise, and runs
+  it with `os.system()`, so through `/bin/sh`.
+- Those tests compare `distro.linux_distribution()[0]` with "Ubuntu", "debian" and "Kali". With distro 1.x that is the
+  system's full name -- "Debian GNU/Linux" on Debian and Raspberry Pi OS -- so they are all false there, the `>&` form
+  is chosen, and dash (Debian's `/bin/sh`) refuses it. On Ubuntu the name is "Ubuntu", which is why AI-Host ran.
+- A fix on lispers.net's side would be to compare `distro.id()` ("debian", "ubuntu", "raspbian", "kali"), or to write
+  the one redirection every `/bin/sh` reads, `> <log> 2>&1`.
+- The acceptance harness runs lispers.net unmodified; where the condition holds, it starts RUN-LISP in a mount namespace
+  of its own in which `/bin/sh` is bash ([LISPERS_SHELL_ON_DEBIAN_V1] in tools/acceptance.py).

@@ -26,6 +26,7 @@
 #include <unistd.h>
 #include <algorithm>
 #include <cstdint>
+#include <cstdlib>
 #include <iostream>
 #include <map>
 #include <array>
@@ -719,6 +720,17 @@ class Engine{
         });
     }
     Engine*view_owner=this;
+    // [ONE_READ_FEEDS_THE_VIEWS_V1] John 2026-11-14 ("you do not need a separate watch for every fucking thing that
+    // changes"): a fed Engine arms no view itself -- no read when a view is first used, no thread per prefix length per
+    // kind. ONE read held on the whole "lisp" space (the front's Space follow) hands every row, in write order, to
+    // feed(), which applies it to the view it belongs to. A request is answered from what the views hold: it reads
+    // nothing from the memory. fed_watermark is the id of the newest row applied.
+    public:
+    bool fed=false;
+    std::atomic<uint64_t> fed_watermark{0};
+    using SmallTable=std::map<std::string,std::map<std::string,frogram::Cell>>;   // variable -> instance -> row
+    std::atomic<const SmallTable*> fed_small{nullptr};                             // ms-policy, ms-named, site-groups|<iid>
+    private:
     struct HeldMapCacheView {
         std::array<std::atomic<const MappingTable*>,129> mappings{};
         std::array<bool,129> started{};
@@ -1347,6 +1359,7 @@ class Engine{
     HeldLivenessView& held_liveness(){
         if(held_liveness_view)return *held_liveness_view;
         held_liveness_view=std::make_unique<HeldLivenessView>(); auto&v=*held_liveness_view;
+        if(fed)return v;                                // [ONE_READ_FEEDS_THE_VIEWS_V1]
         auto cells=read_ram("etr-live"); for(auto&c:cells)if(c.id>v.watermark)v.watermark=c.id;
         apply_liveness(v,cells); auto after=v.watermark;
         v.thread=spawn([this,after]{watch_liveness(held_liveness_view.get(),after);}); return v;
@@ -1406,6 +1419,52 @@ class Engine{
             for(auto&c:cells){if(c.id>after)after=c.id;materialize_ddt_length(*vp,iid,group,checked_bits(c));}}
         catch(const frogram::Unreachable&){if(stopping)break;return;}
     }
+    public:
+    // [ONE_READ_FEEDS_THE_VIEWS_V1] rows of the "lisp" space, in write order, from the one held read: each applied to
+    // the view it belongs to. Called on the read's own thread only.
+    void feed(std::vector<frogram::Cell>&cells){
+        std::map<std::string,std::vector<frogram::Cell>> by; uint64_t top=0;
+        for(auto&c:cells){ if(c.id>top)top=c.id; by[c.variable].push_back(std::move(c)); }
+        SmallTable*small=nullptr;
+        for(auto&kv:by){
+            const std::string&var=kv.first; auto&cs=kv.second;
+            if(var=="etr-live"){ apply_liveness(held_liveness(),cs); continue; }
+            if(var=="ms-policy"||var=="ms-named"||var.rfind("site-groups|",0)==0){
+                if(!small){ auto g=ebr.guard(); auto*old=snap_load(fed_small,g); small=new SmallTable(old?*old:SmallTable{}); }
+                for(auto&c:cs){ if(c.gone)(*small)[var].erase(c.instance); else (*small)[var][c.instance]=c; }
+                continue;
+            }
+            const auto p1=var.find('|'), pl=var.rfind("|/");
+            if(p1==std::string::npos||pl==std::string::npos||pl<=p1)continue;
+            const std::string kind=var.substr(0,p1);
+            if(kind!="registration"&&kind!="registration-governance"&&kind!="site"&&kind!="ddt-delegation")continue;
+            const int bits=std::atoi(var.c_str()+pl+2); if(bits<0||bits>128)continue;
+            const std::string rest=var.substr(p1+1,pl-p1-1); const auto p2=rest.find('|'); if(p2==std::string::npos)continue;
+            auto&v=held_resolver(rest.substr(0,p2),rest.substr(p2+1));
+            if(kind=="registration"){
+                auto*rs=v.registrations[bits].load(std::memory_order_acquire);
+                if(!rs){ rs=new HeldSlot<Mapping>; v.registrations[bits].store(rs,std::memory_order_release); }
+                hold_registrations(*rs,cs);
+            } else if(kind=="registration-governance"){
+                auto*gs=v.governance[bits].load(std::memory_order_acquire);
+                if(!gs){ gs=new HeldSlot<GovPair>; v.governance[bits].store(gs,std::memory_order_release); }
+                hold_governance(*gs,cs);
+            } else if(kind=="site") apply_site_slot(v.site_policy[bits],cs);
+            else apply_mapping_slot(v.ddt_delegations[bits],cs);
+        }
+        if(small)snap_store(fed_small,small);
+        if(top>fed_watermark.load(std::memory_order_relaxed))fed_watermark.store(top,std::memory_order_release);
+    }
+    // The rows of a small variable (an instance, or "" for all of them): from the fed views, else read from the memory.
+    std::vector<frogram::Cell> small_rows(const std::string&var,const std::string&inst){
+        if(!fed)return inst.empty()?ram->read("lisp",var):ram->read("lisp",var,inst);
+        std::vector<frogram::Cell> out; auto g=ebr.guard(); auto*t=snap_load(fed_small,g); if(!t)return out;
+        auto it=t->find(var); if(it==t->end())return out;
+        if(inst.empty()){ for(auto&kv:it->second)out.push_back(kv.second); return out; }
+        auto jt=it->second.find(inst); if(jt!=it->second.end())out.push_back(jt->second);
+        return out;
+    }
+    private:
     HeldResolverView& held_resolver(const std::string&iid,const std::string&group){
         if(view_owner!=this)return view_owner->held_resolver(iid,group);
         auto vk=view_key(iid,group);
@@ -1422,6 +1481,7 @@ class Engine{
             auto*fresh=new ResolverRegistry::Node; fresh->key=vk; fresh->view=std::make_unique<HeldResolverView>(); fresh->next=head;
             if(!slot.compare_exchange_strong(head,fresh,std::memory_order_acq_rel)){ delete fresh; continue; }
             HeldResolverView&v=*fresh->view;          // this thread won the insert: it arms the view
+            if(fed){ fresh->ready.store(1,std::memory_order_release); fresh->ready.notify_all(); return v; }   // [ONE_READ_FEEDS_THE_VIEWS_V1]
             try{
             auto manifest=read_ram("registration-lengths|"+iid+"|"+group),site_manifest=read_ram("site-lengths|"+iid+"|"+group),ddt_manifest=read_ram("ddt-delegation-lengths|"+iid+"|"+group);
             for(auto&c:manifest)if(c.id>v.manifest_watermark)v.manifest_watermark=c.id;
@@ -1683,6 +1743,19 @@ class Engine{
         return m.merge && (g.second.empty() || m.site_id==g.second);
     }
     public:
+    // [FRONT_SANITIZES_V1] John 2026-11-13: garbage need not cost a trip -- "there can be sanitization". The structural
+    // part of wire.register_notify, which needs nothing from the region: the encryption bit, the instance-id / (S,G)
+    // LCAF, then the records for the EID's address family. It throws exactly what the region's operation would throw
+    // for the same packet, and changes nothing else: a packet it passes goes to the region whole, and the region still
+    // decides everything (decryption, authentication, site policy, the registration, the Map-Notify). An encrypted
+    // register's body can only be read with its key, so only its header is checked here.
+    static void sanitize_register(const std::vector<unsigned char>&raw){
+        if(raw.size()<4)throw std::runtime_error("truncated map-register");
+        if((be32(raw.data())>>13)&1)return;                          // encrypted: the region decrypts, then checks
+        std::string wiid,wgroup; auto plain=strip_iid_register(raw,wiid,&wgroup);
+        auto recs=register_eid_afi(plain)==2?decode_register6(plain):decode_register4(plain);
+        for(auto&w:recs)prefix_parse(w.prefix);                   // the region's "bad prefix syntax" (e.g. mask > 32)
+    }
     // [BOUNDARY_NEVER_WAITS_V1] A site's key is this process's secret: site.add keeps it in site_keys and never writes
     // it into memory. An Engine that verifies Map-Registers for a site another Engine of the same process added is
     // given the key here -- the same arguments as site.add / site.delete, nothing written anywhere.
@@ -1720,7 +1793,7 @@ class Engine{
         m.ttl=1440;
         int action=0;
         if(have&&pol.force_proxy&&!pol.policy.empty()){                   // [MS_POLICY_V1]
-            auto pc=ram->read("lisp","ms-policy",pol.policy);
+            auto pc=small_rows("ms-policy",pol.policy);
             if(!pc.empty()){
                 const Json&P=pc.front().bag; bool match=false;
                 std::string srloc=request_itr_rloc(plain);
@@ -1742,7 +1815,7 @@ class Engine{
                         Rloc x; x.address=P["set_rloc_address"].s; x.priority=255; x.weight=0;
                         std::vector<unsigned char> inner;
                         for(auto kn:{std::make_pair("geo","set_geo_name"),std::make_pair("elp","set_elp_name"),std::make_pair("rle","set_rle_name"),std::make_pair("json","set_json_name")})
-                            if(P[kn.second].type==Json::Str){ auto oc=ram->read("lisp","ms-named",std::string(kn.first)+"|"+P[kn.second].s);
+                            if(P[kn.second].type==Json::Str){ auto oc=small_rows("ms-named",std::string(kn.first)+"|"+P[kn.second].s);
                                 if(!oc.empty()){ auto ob=unhex(oc.front().bag["lcaf"].s); inner.insert(inner.end(),ob.begin(),ob.end()); } }
                         unsigned char ad[4]; bool v4=inet_pton(AF_INET,x.address.c_str(),ad)==1;
                         std::vector<unsigned char> rec={0xff,0,0xff,0,0,1};
@@ -1780,7 +1853,7 @@ class Engine{
         if(group.find('/')==std::string::npos)return group;          // a name: its sites are its own (exact)
         Prefix gp=prefix_parse(group);                                   // "addr/len": must be a valid prefix
         std::string best; int bits=-1;
-        for(auto&c:ram->read("lisp","site-groups|"+iid)){
+        for(auto&c:small_rows("site-groups|"+iid,"")){
             Prefix sp=prefix_parse(c.instance);
             if(sp.family==gp.family&&contains(sp,gp)&&sp.bits>bits){best=c.instance;bits=sp.bits;}
         }
@@ -1852,6 +1925,21 @@ class Engine{
              return r["version"].type==frogram::Json::Str?r["version"].s:std::string("(host answered without a version)"); }
         catch(const std::exception&x){ return std::string("(host older than v0.53: ")+x.what()+")"; }
     }
+    // [MIXED_BUILDS_REFUSED_V1] The lesson of the PyTorch campaign: one node left on an older build made a group that
+    // ran, slowly and wrongly, until a rendezvous check named it. Here the front and the RAM host run the SAME region
+    // code on either side of every call (the host runs the operation, the front applies the cells it answers with), so
+    // a front talking to a host whose region it does not speak is refused at start, saying both versions. The hosts it
+    // speaks are listed in version.hpp (RIBBIT_LISP_REGION_COMPAT): a release that changes only the front adds to it.
+    // RIBBIT_LISP_ALLOW_MIXED=1 lets it through, saying so.
+    void require_same_build(const std::string& who){
+        if(!session)return;
+        const std::string theirs=ram_version();
+        for(const char*v:RIBBIT_LISP_REGION_COMPAT)if(theirs==v)return;
+        const std::string msg=who+": this is "+RIBBIT_LISP_VERSION+", the RAM host's LISP region is "+theirs+
+                              ", which this front does not speak -- install this package on the RAM host (or set RIBBIT_LISP_ALLOW_MIXED=1)";
+        if(const char*a=std::getenv("RIBBIT_LISP_ALLOW_MIXED"); a&&std::string(a)=="1"){ std::cerr<<"[MIXED_BUILDS_REFUSED_V1] allowed: "<<msg<<"\n"; return; }
+        throw std::runtime_error(msg);
+    }
     std::string remote_call(const std::string& op,const std::string& args_json){
         if(!session)throw std::runtime_error("remote_call: no RAM session");
         if(auto*p=failed_.load(std::memory_order_acquire))throw frogram::Unreachable(*p);
@@ -1865,6 +1953,47 @@ class Engine{
         await_own(written);
         return r["result_json"].s;
     }
+    // [REGISTERS_IN_FLIGHT_V1] remote_call without the wait: the request goes on the session and this returns. done(result,
+    // err) runs when the answer is in and this participant's own consequences are observable -- the cells the answer
+    // carries are applied to the held views first, as remote_call does ([OWN_WRITES_HELD_V1]), so put() is complete by
+    // the same rule. It runs on the session's reader thread, so nothing in it may wait on the session: a write whose
+    // cell the answer did not carry (rare) is waited for on a thread of its own. The session keeps the calls in the
+    // order they were made, and the memory runs them in that order, so a caller that makes its calls in order gets
+    // them done in order without waiting a round trip for each.
+    using RemoteDone=std::function<void(std::string result,std::string err)>;
+    void remote_call_async(const std::string& op,const std::string& args_json,RemoteDone done){
+        if(!session){ done("","remote_call: no RAM session"); return; }
+        if(auto*p=failed_.load(std::memory_order_acquire)){ done("",*p); return; }
+        session->call_async("POST",ram_api+"?op=lisp","{\"operation\":"+frogram::Json::quote(op)+",\"args\":"+args_json+"}",
+            [this,done](int status,std::string body,std::string err){
+                if(!err.empty()){ done("",err); return; }
+                try{
+                    if(status>=400)throw std::runtime_error("RAM host answered "+std::to_string(status)+": "+body.substr(0,200));
+                    frogram::Json r=frogram::Json::parse(body);
+                    if(r["ok"].type!=frogram::Json::Bool||!r["ok"].b)throw std::runtime_error(r["error"].type==frogram::Json::Str?r["error"].s:std::string("lisp op refused"));
+                    std::vector<std::pair<std::string,uint64_t>> written; std::set<std::pair<std::string,uint64_t>> held;
+                    if(r["cells_json"].type==frogram::Json::Str&&!r["cells_json"].s.empty())held=hold_own_cells(frogram::Json::parse(r["cells_json"].s));
+                    for(auto&e:r["written"].a)if(e.type==frogram::Json::Arr&&e.a.size()==2&&!held.count({e.a[0].s,uint64_t(e.a[1].n)}))
+                        written.emplace_back(e.a[0].s,uint64_t(e.a[1].n));
+                    std::string result=r["result_json"].s;
+                    if(written.empty()||own_applied(written)){ done(result,""); return; }
+                    own_waits_.fetch_add(1,std::memory_order_relaxed);
+                    std::thread([this,done,written,result]{
+                        try{ await_own(written); done(result,""); } catch(const std::exception&x){ done("",x.what()); }
+                    }).detach();
+                } catch(const std::exception&x){ done("",x.what()); }
+            });
+    }
+    uint64_t own_waits() const { return own_waits_.load(std::memory_order_relaxed); }
+    private:
+    std::atomic<uint64_t> own_waits_{0};
+    // every write's held view has applied it already (await_own would return at once)
+    bool own_applied(const std::vector<std::pair<std::string,uint64_t>>&written){
+        if(view_owner!=this)return view_owner->own_applied(written);
+        for(auto&w:written){ AppliedMark*m=mark_find(w.first,false); if(m&&m->id.load(std::memory_order_acquire)<w.second)return false; }
+        return true;
+    }
+    public:
     ~Engine(){
         stopping=true; stop_registrar(); if(governor)governor->stop=true; if(session)session->shutdown();
         if(held_liveness_view&&held_liveness_view->thread.joinable())held_liveness_view->thread.join();
