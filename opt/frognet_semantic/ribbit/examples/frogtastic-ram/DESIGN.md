@@ -1,4 +1,4 @@
-# Meshtastic on Ribbit — DESIGN v2
+# FrogTastic-RAM (Meshtastic on Ribbit) — DESIGN v2
 
 **Goal (John, 2026-10-30):** a node library that satisfies the Meshtastic client API contract and tests for existing
 apps, runs on FrogNet internally, and exposes an extended API for multi-transport participation and richer services.

@@ -2,7 +2,7 @@
 # Copyright (C) 2016-2026 Fawcett Innovations LLC
 # SPDX-License-Identifier: GPL-2.0-only
 #
-# build-ribbit.sh -- the Ribbit side of Meshtastic on Ribbit, from the platform's own sources (cpp/):
+# build-ribbit.sh -- the Ribbit side of FrogTastic-RAM, from the platform's own sources (cpp/):
 #   bin/frogtastic-ram       the memory the nodes share (answers /frogtastic-api)
 #   lib/libmtribbit.a        mt_ribbit (packets on the RAM) and the platform under it, for the programs below
 #   bin/frogtastic-bridge       the firmware's bridge onto the memory [FROGTASTIC_SHM_TRANSPORT_V1]: a separate process;

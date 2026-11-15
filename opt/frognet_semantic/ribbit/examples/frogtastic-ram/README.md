@@ -1,4 +1,4 @@
-# Meshtastic on Ribbit — the node's infrastructure as a library on the shared RAM
+# FrogTastic-RAM — a Meshtastic node's infrastructure as a library on the shared RAM
 
 Goal: one infrastructure library that replaces the plumbing of a Meshtastic node and is transparent to every existing
 Meshtastic application, while the same cells are open to new applications through Ribbit's own API (`Space`, API++).
