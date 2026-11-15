@@ -36,6 +36,7 @@ import argparse
 import array
 import multiprocessing, hashlib, hmac, json, os, shutil, signal, socket, struct, subprocess, sys, time
 import glob
+import re
 HERE = os.path.dirname(os.path.abspath(__file__)); sys.path.insert(0, HERE)
 from compare_lispers import ecm, map_request, ip4, Recorder
 
@@ -215,27 +216,39 @@ class Client:
     def __init__(self, local_ip, target):
         self.s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM); self.s.bind((local_ip, 0))
         self.local_ip, self.target, self.nonce = local_ip, target, 0x0acc000000000000 + (os.getpid() << 20)
-        self.sent = {}
+        self.sent = {}; self.pkts = {}
     _last = [0]                                # [WIRE_WATCH_V1] one nonce sequence for the whole run, not one per client:
     def next(self):                            # every request of the run is told apart by its nonce on both machines' captures
         Client._last[0] = max(Client._last[0] + 1, self.nonce + 1); self.nonce = Client._last[0]; return self.nonce
     def send(self, msg):
         nh, typ = lisp_nonce(msg)
-        if nh: self.sent[nh] = (time.time(), typ)          # [WIRE_WATCH_V1] what was sent, when
+        if nh: self.sent[nh] = (time.time(), typ); self.pkts[nh] = msg   # [WIRE_WATCH_V1] what was sent, when
         self.s.sendto(msg, self.target)
     def wait_for(self, nonce, timeout):
-        t0 = time.perf_counter(); want = struct.pack("!Q", nonce)
+        # [RETRANSMITS_AS_AN_XTR_V1] An xTR does not give up on a control message after one datagram: it sends it again
+        # (RFC 9301 section 6.1; lispers.net's own map-request and map-register retries). The wire between the two
+        # machines loses datagrams -- WIRE-REPORT.md traced each loss: the answer left the systems' machine and never
+        # reached this one, for both systems -- so a wait sends the same message (same nonce) again at a third and two
+        # thirds of its time when it has no answer. Every retransmission, and every answer that needed one, is
+        # counted and reported; a message with no answer after all three copies is unanswered, as before.
+        t0 = time.perf_counter(); want = struct.pack("!Q", nonce); nh = want.hex(); resent = 0
         while True:
-            left = timeout - (time.perf_counter() - t0)
-            if left <= 0: return self._unanswered(want, timeout)
-            self.s.settimeout(left)
+            el = time.perf_counter() - t0; left = timeout - el
+            if left <= 0: return self._unanswered(want, timeout, resent)
+            nxt = (resent + 1) * timeout / 3.0
+            if resent < 2 and nh in self.pkts and el >= nxt:
+                self.s.sendto(self.pkts[nh], self.target); resent += 1; RETRANSMIT[0] += 1; continue
+            self.s.settimeout(max(0.001, min(left, (nxt - el) if (resent < 2 and nh in self.pkts) else left)))
             try: d, _ = self.s.recvfrom(65535)
-            except socket.timeout: return self._unanswered(want, timeout)
-            if len(d) >= 12 and d[4:12] == want: return d, time.perf_counter() - t0
-    def _unanswered(self, want, timeout):
+            except socket.timeout: continue
+            if len(d) >= 12 and d[4:12] == want:
+                if resent: RETRANSMIT[1] += 1; RETRANSMIT_SAVED.append({"t": self.sent.get(nh, (0,))[0], "test": CURRENT_TEST[0], "nonce": nh, "target": "%s:%d" % self.target, "copies": resent + 1})
+                self.pkts.pop(nh, None)
+                return d, time.perf_counter() - t0
+    def _unanswered(self, want, timeout, resent=0):
         # [WIRE_WATCH_V1] every wait that ends without its answer is traced through both machines' captures at the end
-        t, typ = self.sent.get(want.hex(), (time.time(), None))
-        WIRE_LOG.append({"t": t, "test": CURRENT_TEST[0], "nonce": want.hex(), "target": "%s:%d" % self.target, "type": typ, "timeout": timeout})
+        t, typ = self.sent.get(want.hex(), (time.time(), None)); self.pkts.pop(want.hex(), None)
+        WIRE_LOG.append({"t": t, "test": CURRENT_TEST[0], "nonce": want.hex(), "target": "%s:%d" % self.target, "type": typ, "timeout": timeout, "copies": resent + 1})
         return None, None
     def reg(self, records, timeout=2.0, **kw):
         n = self.next(); self.send(register(records, n, **kw)); return self.wait_for(n, timeout)
@@ -379,7 +392,25 @@ class Ribbit:
                     if not b.get("ok"): refused.append("%s: %s" % (op, b.get("error")))
         if refused: raise RuntimeError("the region refused: " + "; ".join(refused))
         if pending: raise RuntimeError("the region applied nothing for %d configuration operation(s) in 120 s: %s" % (len(pending), sorted(set(pending.values()))))
+    def region_version(self):
+        """[REGION_VERSION_CHECKED_V1] the LISP region the RAM host runs, as it says itself (ribbit-lisp's version op)."""
+        rh, rp = self.ram()
+        r = subprocess.run([os.path.join(HERE, "..", "ribbit_cpp", "ribbit-lisp"), "--ram", rh, str(rp)], input='{"operation":"version","args":{}}\n',
+                           capture_output=True, text=True, timeout=30)
+        for line in r.stdout.splitlines():
+            try: j = json.loads(line)
+            except ValueError: continue
+            if j.get("ok"): return (j.get("result") or {}).get("ram_host", "")
+        raise RuntimeError("ribbit: the RAM host %s:%d did not say its LISP region's version: %s" % (rh, rp, (r.stdout + r.stderr).strip()[-300:]))
     def configure(self):
+        # [REGION_VERSION_CHECKED_V1] the region on the RAM host must be this package's: an older one does not apply
+        # configuration written into the memory, and the agent would wait for answers that never come
+        rv = self.region_version()
+        say("ribbit: the RAM host's LISP region is %s (this package: %s)" % (rv, self.version))
+        if rv != self.version:
+            rh, rp = self.ram()
+            raise RuntimeError("ribbit: the RAM host %s:%d runs LISP region %s, not this package's %s -- install this package "
+                               "on the RAM host and restart lisper-ram there" % (rh, rp, rv, self.version))
         ops = []
         for kind, o in NAMED.items():
             a = {"kind": kind, "name": o["name"]}
@@ -402,12 +433,17 @@ class Ribbit:
                                       stdin=subprocess.DEVNULL, stdout=self.errlog, stderr=self.errlog)
         t0 = time.time()
         while time.time() - t0 < 30:
-            if self.front.poll() is not None: say("ribbit: the front ended at its start (exit %s): see ribbit-front.log" % self.front.returncode); return
+            if self.front.poll() is not None:
+                # [FRONT_THAT_DIES_STOPS_THE_RUN_V1] a front that cannot start is not "up": the run stops here, with the
+                # front's own last words, instead of failing every test after it
+                self.errlog.flush(); tail = open(os.path.join(self.a.out, "ribbit-front.log"), errors="replace").read()[-600:]
+                why = [l for l in tail.splitlines() if "what():" in l or "refus" in l or "does not speak" in l]
+                raise RuntimeError("ribbit: the front ended at its start (exit %s): %s" % (self.front.returncode, (why[-1] if why else tail.strip()[-300:]).strip()))
             for c in sp.wait("all", after, 5, service="lisp.fronts"):
                 after = max(after, c["id"])
                 if (c.get("bag") or {}).get("pid") == self.front.pid:
                     say("ribbit: the front is serving on %s:%d after %.1f s" % (self.target[0], self.target[1], time.time() - t0)); return
-        say("ribbit: the front did NOT say it is serving 30 s after its start")
+        raise RuntimeError("ribbit: the front did NOT say it is serving 30 s after its start (ribbit-front.log has what it said)")
     def start(self):
         say("ribbit: stopping the front, starting it against the RAM host %s:%d" % self.ram())
         self.stop_procs()
@@ -1081,7 +1117,7 @@ def t_l411(c, sysm):
 # harness writes each command as a cell (acceptance_ctl / <agent>|cmd / <run>.<n>); the agent holds a read on that
 # variable, runs the command on its systems exactly as the harness does on one machine, and writes the answer
 # (acceptance_ctl / <agent>|res / the same instance), on which the harness holds a read.
-ACCEPTANCE_VERSION = "v0.72-each-family-its-own-position"      # this file's own version: the banner names the file that is running
+ACCEPTANCE_VERSION = "v0.82-front-decides"      # this file's own version: the banner names the file that is running
 AGENT_CALLS = {"start", "stop", "evidence", "delete_site", "add_site", "restart_keep_state", "lose_ram_host"}
 CTL = "acceptance_ctl"
 
@@ -1117,11 +1153,29 @@ def lispers_pids():
 
 class Space:
     """The neutral RAM host, through tools/tuple-write (write, get, held read)."""
+    SESSION_LOST = ("send", "recv", "connect", "connection closed", "tuple-write")   # transport, not the memory's answer
     def __init__(self, host_port, api="/lisper-api"):
-        h, _, p = host_port.rpartition(":")
-        self.p = subprocess.Popen([os.path.join(HERE, "tuple-write"), "--ram", h, p] + ["--api", api],
+        self.host_port, self.api = host_port, api; self._open()
+    def _open(self):
+        h, _, p = self.host_port.rpartition(":")
+        self.p = subprocess.Popen([os.path.join(HERE, "tuple-write"), "--ram", h, p] + ["--api", self.api],
                                   stdin=subprocess.PIPE, stdout=subprocess.PIPE, text=True)
     def _line(self, o):
+        # [SPACE_SESSION_REOPENED_V1] a session the RAM host stopped answering (14 Nov, 2048 clients: 5 s keepalive,
+        # then a reset) is logged, a new session is opened and the same operation is sent on it -- a held read from the
+        # same position, a write of the same row. A transport failure that lasts 60 s stops the run, as before.
+        t0 = time.time()
+        while True:
+            try: return self._line1(o)
+            except RuntimeError as x:
+                e = str(x)[len("tuple space: "):]
+                if not e.startswith(self.SESSION_LOST) or time.time() - t0 > 60: raise
+                print("    [%s] [SPACE_SESSION_REOPENED_V1] session to %s lost (%s): opening a new one and sending the same %s again"
+                      % (time.strftime("%H:%M:%S"), self.host_port, e, "held read" if "wait" in o else "operation"), flush=True)
+                try: self.p.kill()
+                except Exception: pass
+                time.sleep(1.0); self._open()
+    def _line1(self, o):
         try:
             self.p.stdin.write(json.dumps(o) + "\n"); self.p.stdin.flush()
             line = self.p.stdout.readline()
@@ -1150,6 +1204,9 @@ class Space:
 # came back after the harness stopped waiting. tcpdump's own "dropped by kernel" count is part of the report: a
 # capture that lost packets says so.
 WIRE_LOG = []                 # harness: every wait that ended without its answer
+RETRANSMIT = [0, 0]           # [RETRANSMITS_AS_AN_XTR_V1] copies sent again; waits answered only after a copy was sent again
+RETRANSMIT_SAVED = []
+PERF_FAILED = []              # [PRELOAD_FAILS_ITS_STEP_V1] (system, step, why) for perf steps a system could not run         # the waits answered only after a retransmission: traced too (where the first copy was lost)
 CURRENT_TEST = ["start"]      # harness: what was running when a wait ended
 WIRE_KEEP = 2                 # capture directories kept per machine (the newest): at most 2 x 768 MB
 
@@ -1308,7 +1365,7 @@ class WireWatch:
                         c, rule = l.split(" ", 1); fw["%s %s" % (table, rule)] = int(c.strip("[]").split(":")[0])
                 o["firewall_drops"] = fw
             routes = subprocess.run(["ip", "-o", "route", "show", "table", "all"], capture_output=True, text=True).stdout
-            addrs = subprocess.run(["ip", "-o", "addr", "show"], capture_output=True, text=True).stdout
+            addrs = re.sub(r"(valid|preferred)_lft \S+", "", subprocess.run(["ip", "-o", "addr", "show"], capture_output=True, text=True).stdout)   # lifetimes count down every second
             if routes != last_routes: o["routes"] = routes; last_routes = routes
             if addrs != last_addrs: o["addrs"] = addrs; last_addrs = addrs
             f.write(json.dumps(o) + "\n"); f.flush()
@@ -1435,7 +1492,7 @@ def wire_verdict(w, here, there, offset, here_oldest=None, there_oldest=None):
 
 def wire_report(a, here_watch, link, why):
     """[WIRE_WATCH_V1] Trace every unanswered wait through both machines' captures; write WIRE-REPORT.md."""
-    nonces = sorted({w["nonce"] for w in WIRE_LOG})
+    nonces = sorted({w["nonce"] for w in WIRE_LOG} | {w["nonce"] for w in RETRANSMIT_SAVED})
     print("    [%s] [WIRE_WATCH_V1] tracing %d unanswered wait(s) through both machines' captures (%s)" % (time.strftime("%H:%M:%S"), len(WIRE_LOG), why), flush=True)
     here = here_watch.seen(nonces) if here_watch else None
     there, there_err = None, None
@@ -1465,6 +1522,16 @@ def wire_report(a, here_watch, link, why):
             if word in v: counts[word] = counts.get(word, 0) + 1; break
         lines.append("| %s | %s | %s | %s | %.1f s | %s |" % (_ts(w["t"]), w["test"], w["target"], w["type"], w["timeout"], v))
     lines += ["", "Summary: " + (", ".join("%s %d" % kv for kv in sorted(counts.items())) or "nothing unanswered"), ""]
+    # [RETRANSMITS_AS_AN_XTR_V1] the losses the retransmissions covered, traced the same way
+    lines += ["## Answered only after a retransmission (%d; %d copies sent again in all)" % (RETRANSMIT[1], RETRANSMIT[0]), "",
+              "Each of these got its answer only because the harness sent the same message again, as an xTR does. Where the first copy (or its answer) was last seen:", "",
+              "| when (harness) | test | sent to | copies | where the first copy was last seen |", "|---|---|---|---|---|"]
+    for w in RETRANSMIT_SAVED:
+        h = here["seen"].get(w["nonce"], []) if here else []
+        t = there["seen"].get(w["nonce"], []) if there else None
+        lines.append("| %s | %s | %s | %d | %s |" % (_ts(w["t"]), w["test"], w["target"], w["copies"],
+                     wire_verdict(dict(w, type=3, timeout=2.0), h, t, offset, here and here.get("oldest"), there and there.get("oldest"))))
+    lines.append("")
     for label, side in (("harness's", here), ("agent's", there)):
         if not side: continue
         rows = [c for c in side["ram"] if "error" in c or c["retrans"] or c["rst"]]
@@ -1489,6 +1556,7 @@ def wire_report(a, here_watch, link, why):
     lines += ["The once-a-second kernel, interface, WireGuard, socket and route record is `host.jsonl` in each capture directory; the whole journal is `journal.log` beside it.", ""]
     path = os.path.join(a.out, "WIRE-REPORT.md")
     open(path, "w").write("\n".join(lines))
+    print("    [RETRANSMITS_AS_AN_XTR_V1] %d copies sent again; %d waits answered only after one" % (RETRANSMIT[0], RETRANSMIT[1]), flush=True)
     print("    [WIRE_WATCH_V1] unanswered: %s   (report: %s)" % (", ".join("%s %d" % kv for kv in sorted(counts.items())) or "none", path), flush=True)
 
 def say(msg):
@@ -1794,16 +1862,74 @@ class Worker(threading.Thread):
             elif r is False: self.errors += 1
             else: self.lat.append(r)
 
+class WindowWorker:
+    """[MANY_IN_FLIGHT_V1] Many clients on one socket in one thread: each client index keeps exactly one request
+    outstanding, as a closed-loop client does, but every client of this process shares the socket and the loop -- so
+    a process can hold a thousand requests in flight where a thread per client could not. A request unanswered after
+    1 s counts as unanswered and its client sends its next one. Latency per answered operation, as Worker."""
+    def __init__(self, idxs, local_ip, target, kind, pick, stop_at, measure_from, mix_req=0.8, base=0):
+        self.idxs, self.target, self.kind, self.pick = list(idxs), target, kind, pick
+        self.stop_at, self.measure_from, self.mix_req = stop_at, measure_from, mix_req
+        self.s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM); self.s.bind((local_ip, 0))
+        self.s.setsockopt(socket.SOL_SOCKET, socket.SO_RCVBUF, 8 << 20); self.s.setsockopt(socket.SOL_SOCKET, socket.SO_SNDBUF, 8 << 20)
+        self.local_ip = local_ip; self.lat = []; self.errors = self.unanswered = 0; self.missed = []
+        self.base = base; self.seq = 0; self.flip = {}
+    def _send(self, idx):
+        self.seq += 1; n = self.base | ((idx + 1) << 40) | (self.seq & 0xffffffffff)
+        kind = self.kind if self.kind != "mixed" else ("req" if random.random() < self.mix_req else "reg")
+        if kind == "reg":
+            eid = "198.18.%d.%d" % (200 + idx // 250, idx % 250 + 1)
+            f = self.flip[idx] = not self.flip.get(idx, False)
+            pkt = reg_packet(eid, 32, [self.local_ip] if f else [self.local_ip, "198.51.100.%d" % (idx % 250 + 1)], n); want = 4
+        else:
+            eid = self.pick(); pkt = ecm(map_request(eid, n, self.local_ip), self.local_ip, eid, self.s.getsockname()[1]); want = 2
+        self.s.sendto(pkt, self.target)
+        return (struct.pack("!Q", n), struct.pack("=Q", n)), (time.perf_counter(), kind, want, idx, n)
+    def run(self):
+        out = {}                                            # nonce bytes -> (t0, kind, want, idx, nonce)
+        for idx in self.idxs:
+            keys, v = self._send(idx)
+            for k in keys: out[k] = v
+        self.s.settimeout(0.05); last_scan = time.perf_counter()
+        while time.time() < self.stop_at:
+            try: d, _ = self.s.recvfrom(65535)
+            except socket.timeout: d = None
+            now = time.perf_counter(); measuring = time.time() >= self.measure_from
+            if d is not None and len(d) >= 12 and d[4:12] in out:
+                t0, kind, want, idx, n = out[d[4:12]]
+                for k in (struct.pack("!Q", n), struct.pack("=Q", n)): out.pop(k, None)
+                if measuring:
+                    if d[0] >> 4 != want: self.errors += 1
+                    else: self.lat.append(now - t0)
+                keys, v = self._send(idx)
+                for k in keys: out[k] = v
+            # a request unanswered after 1 s: counted, and its client sends its next one (looked for every 100 ms)
+            if now - last_scan < 0.1: continue
+            last_scan = now
+            stale = [v for k, v in out.items() if now - v[0] > 1.0 and k == struct.pack("!Q", v[4])]
+            for t0, kind, want, idx, n in stale:
+                for k in (struct.pack("!Q", n), struct.pack("=Q", n)): out.pop(k, None)
+                if measuring:
+                    self.unanswered += 1
+                    if len(self.missed) < 300: self.missed.append((time.time(), struct.pack("!Q", n).hex(), kind))
+                keys, v = self._send(idx)
+                for k in keys: out[k] = v
+
 def _load_child(conn, idxs, local_ip, target, kind, pick, stop_at, measure_from, base=0):
     """[LOAD_PROCESSES_V1] One load-generator process: its share of the clients, as threads. Returns what it measured
     and the CPU it spent inside the measured window."""
     try:
         random.seed(os.getpid() ^ int(time.time() * 1e6))                    # forked: every child its own sequence
-        ws = [Worker(i, local_ip, target, kind, pick, stop_at, measure_from, base=base) for i in idxs]
-        for w in ws: w.start()
-        time.sleep(max(0.0, measure_from - time.time())); c0 = time.process_time()
-        for w in ws: w.join()
-        c1 = time.process_time()
+        if len(idxs) > 32:                                  # [MANY_IN_FLIGHT_V1] many clients: one socket, one loop
+            w = WindowWorker(idxs, local_ip, target, kind, pick, stop_at, measure_from, base=base); ws = [w]
+            th = threading.Thread(target=w.run, daemon=True); th.start()
+            time.sleep(max(0.0, measure_from - time.time())); c0 = time.process_time(); th.join(); c1 = time.process_time()
+        else:
+            ws = [Worker(i, local_ip, target, kind, pick, stop_at, measure_from, base=base) for i in idxs]
+            for w in ws: w.start()
+            time.sleep(max(0.0, measure_from - time.time())); c0 = time.process_time()
+            for w in ws: w.join()
+            c1 = time.process_time()
         lat = array.array("d", [x for w in ws for x in w.lat])
         conn.send((lat.tobytes(), sum(w.errors for w in ws), sum(w.unanswered for w in ws), c1 - c0, None, [m for w in ws for m in w.missed]))
     except Exception as x:
@@ -1834,7 +1960,8 @@ class PerfHarness:
     def keep_samples(self):
         sp = Space(self.a.ram); after = max([0] + [c["id"] for c in sp.wait("perf|sample", 0, 0)])   # this family's own position
         while not self.hist_stop:
-            for c in sp.wait("perf|sample", after, 2.0):
+            cells = sp.wait("perf|sample", after, 2.0)
+            for c in cells:
                 after = max(after, c["id"])
                 if c.get("bag") is None: continue     # [GONE_CELLS_SKIPPED_V1]
                 self.samples.setdefault(c["instance"], []).append(c["bag"])
@@ -1862,17 +1989,69 @@ class PerfHarness:
         missing = sorted({(m, ph) for m in self.monitors for ph in ("start", "end")} - set(got))
         if missing: print("  !! no snapshot from %s -- that machine's numbers are missing for this run" % missing, flush=True)
         return got
+    def settle(self, s, limit_s=60.0):
+        """[STEP_SETTLES_V1] John 2026-11-14: "have the tests either wait until the Lispers stuff is done, or kill it".
+        A step that overloaded a system leaves it working through what it queued (the 14 Nov run: Ribbit's 1-client
+        lookups measured while the RAM host was still serving the 2048-client registers, 2 cores busy). After every
+        throughput step the harness waits until the system's own processes -- lispers.net's, or Ribbit's front and RAM
+        server -- are idle (under 5% of a core between two monitor samples), for up to limit_s; a system still busy then
+        is restarted. Returns True when it settled, False when it was restarted."""
+        groups = [("control", "lispers.net")] if s.name == "lispers.net" else [("control", "ribbit-front"), ("ram", "ram-server")]
+        groups = [(m, g) for m, g in groups if m in self.monitors]       # a machine with no monitor cannot be watched
+        if not groups: return True
+        t0 = time.time(); busy = {}
+        while time.time() - t0 < limit_s:
+            busy = {}
+            for mon, g in groups:
+                v = self.samples.get(mon, [])
+                if len(v) < 2: continue
+                a, b = v[-2], v[-1]
+                try: dt = b["t"] - a["t"]; dc = b["procs"][g]["cpu_s"] - a["procs"][g]["cpu_s"]
+                except (KeyError, TypeError): continue
+                if dt > 0: busy[g] = dc / dt
+            if busy and all(x < 0.05 for x in busy.values()) and len(busy) == len(groups):
+                if time.time() - t0 > 2: print("    [STEP_SETTLES_V1] %s idle after %.0f s" % (s.name, time.time() - t0), flush=True)
+                return True
+            time.sleep(1.0)
+        print("    [STEP_SETTLES_V1] %s still busy %.0f s after the step (%s): restarting it" % (s.name, limit_s,
+              ", ".join("%s %.0f%% of a core" % (g, 100 * x) for g, x in busy.items()) or "no samples"), flush=True)
+        s.stop(); s.start()
+        return False
+    PRELOAD_RATE = 50            # Map-Registers per second (40 records each: 2,000 registrations a second)
     def preload(self, s, eids):
-        """Register the given (eid, mask) set, 40 records per Map-Register, and wait for every Map-Notify."""
+        """[PRELOAD_WITHOUT_ACKS_V1] Load the table the way a fleet of xTRs does: Map-Registers with M clear (no
+        Map-Notify asked for), 40 records each, sent at a steady rate, nothing waited for. The table is then checked
+        the way anyone uses it -- by resolving: one EID from every tenth register. A step whose sample does not all
+        resolve is reported FAILED with what did, and the run goes on."""
         c = Client(self.local_ip, s.target); CURRENT_TEST[0] = "perf preload %s (%d registrations)" % (s.name, len(eids))
+        t0 = time.perf_counter(); k = 0
         for i in range(0, len(eids), 40):
             recs = [(e, m, 1440, [self.local_ip]) for e, m in eids[i:i + 40]]
-            n = c.next(); c.send(many_records_packet(recs, n)); d, _ = c.wait_for(n, 3.0)
-            if d is None: raise RuntimeError("%s: preload Map-Register %d (of %d) not acknowledged" % (s.name, i // 40 + 1, (len(eids) + 39) // 40))
+            due = t0 + k / self.PRELOAD_RATE; k += 1
+            if due > time.perf_counter(): time.sleep(due - time.perf_counter())
+            c.s.sendto(register(recs, c.next(), want_notify=False), s.target)
+        sent_s = time.perf_counter() - t0
+        sample = [eids[min(i + 39, len(eids) - 1)] for i in range(0, len(eids), 400)] or eids[-1:]
+        # Nothing acknowledged the writes, so a lookup may arrive before the system has applied them: each sampled EID
+        # is looked up until it resolves, for up to 180 s after the last register left; how long that took is reported.
+        # (15 s was too short for lispers.net at 10,000 registrations: it had 1,000 resolving 2.3 s after the last left.)
+        miss = []; settle = 0.0; t_last = time.perf_counter()
+        for e, m in sample:
+            while True:
+                r, _ = c.ask(e, timeout=1.0)
+                if r and r.get("records") and r["records"][0].get("locs"): settle = max(settle, time.perf_counter() - t_last); break
+                if time.perf_counter() - t_last > 180.0: miss.append("%s/%d" % (e, m)); break
+                time.sleep(0.25)
+        print("    [PRELOAD_WITHOUT_ACKS_V1] %s: %d registrations in %d Map-Registers sent in %.1f s; %d of %d sampled resolve, the last %.2f s after the last register left"
+              % (s.name, len(eids), k, sent_s, len(sample) - len(miss), len(sample), settle), flush=True)
+        if miss:
+            return "%d of %d sampled EIDs do not resolve after the preload (first: %s)" % (len(miss), len(sample), ", ".join(miss[:3]))
+        return None
     def withdraw(self, s, eids):
         c = Client(self.local_ip, s.target); CURRENT_TEST[0] = "perf withdraw %s (%d registrations)" % (s.name, len(eids))
-        for i in range(0, len(eids), 40):
-            n = c.next(); c.send(many_records_packet([(e, m, 0, []) for e, m in eids[i:i + 40]], n)); c.wait_for(n, 2.0)
+        for k, i in enumerate(range(0, len(eids), 40)):
+            if k: time.sleep(1.0 / self.PRELOAD_RATE)
+            c.s.sendto(register([(e, m, 0, []) for e, m in eids[i:i + 40]], c.next(), want_notify=False), s.target)
     def run(self, s, kind, clients, pick, warm, dur, state):
         # [LOAD_PROCESSES_V1] The clients are spread over several processes. In one Python process every client thread
         # shares one interpreter lock, so the load generator itself stopped near one core's worth of work (Ribbit's
@@ -1954,6 +2133,9 @@ def write_perf_report(a, h, rows):
         f.write("## Throughput and latency (load generator)\n\n| system | workload | clients | state | ops/s | p50 ms | p95 ms | p99 ms | errors | unanswered |\n|---|---|---|---|---|---|---|---|---|---|\n")
         for r in rows:
             f.write("| %s | %s | %d | %d | %.0f | %.2f | %.2f | %.2f | %d | %d |\n" % (r["system"], r["workload"], r["clients"], r["state"], r["ops_s"], r["p50_ms"], r["p95_ms"], r["p99_ms"], r["errors"], r["unanswered"]))
+        if PERF_FAILED:
+            f.write("\n## Steps a system could not run\n\n| system | step | why |\n|---|---|---|\n")
+            for nm, step, why in PERF_FAILED: f.write("| %s | %s | %s |\n" % (nm, step, why))
         f.write("\n## Work per successful operation -- CPU-seconds per 1M operations, by component\n\n"
                 "control = the systems' machine (lispers.net's lisp-* processes, or Ribbit's front); shared memory = the RAM server's machine; load = the generator.\n\n"
                 "| system | workload | clients | state | control: lispers.net | control: ribbit-front | shared memory: ram-server | system total | load-gen |\n|---|---|---|---|---|---|---|---|---|\n")
@@ -2029,12 +2211,19 @@ def run_performance(a, A, B):
                  cost_cell(r, "load", "load-generator")), flush=True)
         rows.append(r)
     for s in (h.A, h.B):
+        if s.version == "not run": continue        # [RIBBIT_ONLY_V1] development runs measure Ribbit alone
         print("== %s: starting fresh" % s.name, flush=True); s.start()
-        base = host_eids(1000); h.preload(s, base); pick = lambda: random.choice(base)[0]
+        base = host_eids(1000); pick = lambda: random.choice(base)[0]
+        bad = h.preload(s, base)
+        if bad:
+            print("  %s: FAILED -- %s; its throughput runs are skipped" % (s.name, bad), flush=True); PERF_FAILED.append((s.name, "base 1000", bad)); s.stop(); continue
         for kind in ("reg", "req", "mixed"):
             for n in clients:
                 print("  .. %s %s, %d clients (%gs warmup, %gs measured)" % (s.name, kind, n, a.warmup, a.duration), flush=True)
                 show(h.run(s, kind, n, pick, a.warmup, a.duration, len(base)))
+                if not h.settle(s):                    # [STEP_SETTLES_V1] restarted: the table it is measured against again
+                    bad = h.preload(s, base)
+                    if bad: print("  %s: FAILED after its restart -- %s" % (s.name, bad), flush=True); PERF_FAILED.append((s.name, "base 1000", bad))
         h.withdraw(s, base)
         for label, gen in (("host", host_eids), ("nested", nested_eids)):
             for n in scale:
@@ -2044,7 +2233,10 @@ def run_performance(a, A, B):
                 # against a table its label did not describe.
                 s.stop(); s.start()
                 eids = gen(n); print("  .. %s scale (%s prefixes): started fresh, preloading %d registrations" % (s.name, label, n), flush=True)
-                h.preload(s, eids)
+                bad = h.preload(s, eids)
+                if bad:
+                    print("  %-11s req-%-7s  16 cl %6d st   FAILED -- %s" % (s.name, label, len(eids), bad), flush=True)
+                    PERF_FAILED.append((s.name, "req-%s %d" % (label, n), bad)); continue
                 if label == "host": pick = (lambda e=eids: random.choice(e)[0])
                 else:
                     def pick(e=eids):
@@ -2053,7 +2245,8 @@ def run_performance(a, A, B):
                             span = 1 << (32 - m); v = ((o[0] << 24) | (o[1] << 16) | (o[2] << 8) | o[3]) + random.randrange(span)
                             o = [(v >> 24) & 255, (v >> 16) & 255, (v >> 8) & 255, v & 255]
                         return "%d.%d.%d.%d" % tuple(o)
-                r = h.run(s, "req", 16, pick, a.warmup, a.duration, n); r["workload"] = "req-" + label; show(r)
+                r = h.run(s, "req", 16, pick, a.warmup, a.duration, len(eids)); r["workload"] = "req-" + label; show(r)
+                h.settle(s)                                # [STEP_SETTLES_V1] (the next scale step starts fresh anyway)
                 h.withdraw(s, eids)
         s.stop()
     write_perf_report(a, h, rows)
@@ -2084,7 +2277,7 @@ def main():
     ap.add_argument("--perf-only", action="store_true", help="the performance qualification alone (the behaviour tests are skipped)")
     ap.add_argument("--load-procs", type=int, default=os.cpu_count() or 4,
                     help="load-generator processes the clients are spread over (default: this machine's cores)")
-    ap.add_argument("--clients", default="1,4,16,64"); ap.add_argument("--warmup", type=float, default=5)
+    ap.add_argument("--clients", default="1,4,16,64,256,1024,2048"); ap.add_argument("--warmup", type=float, default=5)   # [MANY_IN_FLIGHT_V1] past 32 clients per process: one socket, one loop
     ap.add_argument("--duration", type=float, default=20); ap.add_argument("--scale", default="1,100,1000,10000")
     ap.add_argument("--ribbit-front", help="the Map-Server front binary (default tools/lisp-boundary); P5 uses a coverage build")
     ap.add_argument("--record"); ap.add_argument("--wire"); ap.add_argument("--out", default="acceptance-out")

@@ -89,21 +89,12 @@ public:
     uint64_t registers() const { return registers_; }
     uint64_t requests() const { return requests_; }
     uint64_t rejected() const { return rejected_; }
-    uint64_t answered() const { return answered_; }   // registers whose answer from the region has landed here
+    uint64_t answered() const { return answered_; }   // registers whose reply from the region has come back
 private:
     std::string configure(const std::string& op, const std::string& args_json);
-    void on_answer(const ribbit::SpaceRow& r);
     void on_rows(std::vector<ribbit::SpaceRow>& rows);
-    // [NOTIFY_AFTER_ITS_ROWS_V1] a Map-Notify waits, as data, until the front's views hold the rows its register wrote:
-    // pushed on a lock-free list by the answer's read; sent by whichever thread drains the list (one at a time, the
-    // holder looking again if anything moved while it held it). No thread waits for anything.
-    struct PendingNotify { std::vector<unsigned char> pkt; sockaddr_in to; uint64_t after; PendingNotify* next = nullptr; };
-    std::atomic<PendingNotify*> pending_{nullptr};
-    std::atomic<bool> draining_{false};
-    std::atomic<uint64_t> moved_{0};
     std::atomic<bool> announced_{false};
     int udp_port_ = 0;
-    void send_ready();
     void loop();
     void reject(const sockaddr_in& from, ssize_t n, int type, const std::string& why);
     static int request_eid_afi(const std::vector<unsigned char>& m);
@@ -119,10 +110,9 @@ private:
     Engine req_e_;                                         // the views a Map-Request is answered from (fed)
     static constexpr uint64_t ASK_RING = 65536;            // [REGISTER_ASKED_V1] a front's ask cells: a ring, slot n mod ring
     std::unique_ptr<ribbit::Space> space_;                 // the front's one session for its asks and its answers
-    std::unique_ptr<ribbit::pp::Asker> asker_, config_;    // [CONFIG_WRITTEN_ONCE_V1] this front's own configuration asks
+    std::unique_ptr<ribbit::pp::Asker> config_;    // [CONFIG_WRITTEN_ONCE_V1] this front's own configuration asks
     std::atomic<uint64_t> configured_{0};
     std::string me_;                                       // this front: its ask topic and the topic of its answers
-    std::atomic<uint64_t> asked_{0};
     int fd_ = -1;
     std::atomic<bool> stop_{false};
     std::atomic<uint64_t> registers_{0}, requests_{0}, rejected_{0}, answered_{0};
@@ -301,9 +291,6 @@ inline LispBoundary::LispBoundary(const std::string& h, int p, int udp_port, int
     std::string vendor = api; if (vendor.rfind('/', 0) == 0) vendor.erase(0, 1);
     if (vendor.size() > 4 && vendor.compare(vendor.size() - 4, 4, "-api") == 0) vendor.resize(vendor.size() - 4);
     space_.reset(new ribbit::Space(h + ":" + std::to_string(p), vendor));
-    asker_.reset(new ribbit::pp::Asker(*space_, "lisp.register", me_, [this](const ribbit::SpaceRow& r) { on_answer(r); },
-        [this](const std::string& why) {
-            std::cerr << ("[REGISTER_ASKED_V1] the read held on this front's answers ended: " + why + "\n") << std::flush; }));
     config_.reset(new ribbit::pp::Asker(*space_, "lisp.config", me_, [](const ribbit::SpaceRow& r) {
         if (r.gone) return;
         Json a; try { a = Json::parse(r.text()); } catch (const std::exception&) { return; }
@@ -392,6 +379,7 @@ inline std::string LispBoundary::configure(const std::string& op, const std::str
         ms_peers_.store(next, std::memory_order_release); ebr_.retire(old);
         return "\"good\"";
     }
+    if (op == "front.write_stats") return req_e_.sender_stats();   // [WRITES_BACK_OFF_V1]
     if (op == "front.ddt_authority") { ddt_authority_ = Json::parse(args_json)["enabled"].b; return "\"good\""; }
     if (op == "ms.authoritative_prefix") {                 // [DDT_REFERRAL_V1] IPv4, instance 0 (lispers.net's common case)
         Json a = Json::parse(args_json); prefix_parse(a["prefix"].s);
@@ -406,6 +394,7 @@ inline void LispBoundary::stop() {
     stop_ = true;
     if (fd_ >= 0) ::shutdown(fd_, SHUT_RDWR);              // [STOP_WAKES_THE_RECEIVE_V1] recvfrom returns
     if (th_.joinable()) th_.join();                         // no receive, so no new ask
+    req_e_.flush_rows(5.0);                                 // [WRITES_BACK_OFF_V1] what was decided has reached the memory
     space_->flush(5.0);                                     // what was asked has left this process
 }
 inline void LispBoundary::loop() {
@@ -430,12 +419,19 @@ inline void LispBoundary::loop() {
             // it, and never leaves this machine
             try { Engine::sanitize_register(pkt); }
             catch (const std::exception& x) { reject(from, n, type, x.what()); continue; }
-            // [REGISTER_ASKED_V1] written into this front's own ask space: the whole of it
-            const uint64_t k = ++asked_;
-            const double t = std::chrono::duration<double>(std::chrono::system_clock::now().time_since_epoch()).count();
-            asker_->ask(ribbit::Space::slot("r", k, ASK_RING),
-                        "{\"hex\":" + Json::quote(hex(pkt)) + ",\"source\":" + Json::quote(pa) + ",\"port\":" +
-                        std::to_string(ntohs(from.sin_port)) + ",\"t\":" + std::to_string(t) + "}");
+            // [FRONT_DECIDES_V1] decided here, from this front's held views and key rows: verdict, Map-Notify and
+            // the rows it writes, which are in this front's views before the Map-Notify leaves (so "notified" means
+            // "resolves") and go to the memory without being waited for ([WRITES_BACK_OFF_V1]). Nothing here waits on
+            // the memory: a writer writes and a reader reads.
+            ++answered_;
+            try {
+                auto d = req_e_.decide_register(pkt, pa);
+                if (!d.notify_hex.empty()) {
+                    const auto nb = unhex(d.notify_hex);
+                    if (::sendto(fd_, nb.data(), nb.size(), 0, (sockaddr*)&from, sizeof from) != (ssize_t)nb.size())
+                        reject(from, n, 3, std::string("sendto: ") + std::strerror(errno));
+                }
+            } catch (const std::exception& x) { reject(from, n, 3, x.what()); }
             continue;
         }
         try {
@@ -537,54 +533,5 @@ inline void LispBoundary::on_rows(std::vector<ribbit::SpaceRow>& rows) {
     bool no = false;
     if (announced_.compare_exchange_strong(no, true))
         space_->write("lisp.fronts", "all", me_, "{\"udp\":" + std::to_string(udp_port_) + ",\"pid\":" + std::to_string(::getpid()) + "}");
-    moved_.fetch_add(1, std::memory_order_seq_cst); send_ready();
 }
-inline void LispBoundary::send_ready() {
-    for (;;) {
-        const uint64_t seen = moved_.load(std::memory_order_seq_cst);
-        bool no = false;
-        if (!draining_.compare_exchange_strong(no, true, std::memory_order_acq_rel)) return;   // the holder looks again
-        const uint64_t w = req_e_.fed_watermark.load(std::memory_order_acquire);
-        PendingNotify* keep = nullptr;
-        for (PendingNotify* p = pending_.exchange(nullptr, std::memory_order_acq_rel); p;) {
-            PendingNotify* n = p->next;
-            if (p->after <= w) {
-                if (::sendto(fd_, p->pkt.data(), p->pkt.size(), 0, (sockaddr*)&p->to, sizeof p->to) != (ssize_t)p->pkt.size())
-                    reject(p->to, -1, 3, std::string("sendto: ") + std::strerror(errno));
-                delete p;
-            } else { p->next = keep; keep = p; }
-            p = n;
-        }
-        while (keep) {                                       // not yet: back on the list
-            PendingNotify* n = keep->next; PendingNotify* h = pending_.load(std::memory_order_relaxed);
-            do { keep->next = h; } while (!pending_.compare_exchange_weak(h, keep, std::memory_order_release, std::memory_order_relaxed));
-            keep = n;
-        }
-        draining_.store(false, std::memory_order_release);
-        if (moved_.load(std::memory_order_seq_cst) == seen) return;
-    }
-}
-// [REGISTER_ASKED_V1] the region's answer to one of this front's registers: the Map-Notify, sent to whoever sent the
-// register; or why the region refused it, said as a rejection. Runs on the read held on this front's answers.
-inline void LispBoundary::on_answer(const ribbit::SpaceRow& r) {
-    if (r.gone || stop_) return;
-    Json a; try { a = Json::parse(r.text()); } catch (const std::exception&) { return; }
-    ++answered_;
-    sockaddr_in to{}; to.sin_family = AF_INET; to.sin_port = htons((uint16_t)a["port"].n);
-    if (inet_pton(AF_INET, a["to"].s.c_str(), &to.sin_addr) != 1) return;
-    // [DIAG-REGISTER] a register answered 500 ms or more after it arrived says so, with how long
-    const double now = std::chrono::duration<double>(std::chrono::system_clock::now().time_since_epoch()).count();
-    const double ms = (now - a["t"].n) * 1e3;
-    if (ms >= 500.0) {
-        std::ostringstream o; o << "[DIAG-REGISTER] peer=" << a["to"].s << ":" << (long)a["port"].n << " answered_after_ms=" << (long)ms << "\n";
-        std::cerr << o.str() << std::flush;
-    }
-    if (a["error"].type == Json::Str) { reject(to, -1, 3, a["error"].s); return; }
-    if (a["notify_hex"].s.empty()) return;                 // M clear: no Map-Notify
-    auto* p = new PendingNotify{unhex(a["notify_hex"].s), to, a["after"].type == Json::Num ? uint64_t(a["after"].n) : 0, nullptr};
-    PendingNotify* h = pending_.load(std::memory_order_relaxed);
-    do { p->next = h; } while (!pending_.compare_exchange_weak(h, p, std::memory_order_release, std::memory_order_relaxed));
-    moved_.fetch_add(1, std::memory_order_seq_cst); send_ready();
-}
-
 }  // namespace frognet

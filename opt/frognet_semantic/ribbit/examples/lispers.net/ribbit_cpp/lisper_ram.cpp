@@ -37,16 +37,10 @@ public:
         });
     }
 
-    // [REGISTER_ASKED_V1] A Map-Register is not a call. A front writes each register it receives into its own ask
-    // space (lisp.register.ask / <front> / <slot>) and is done; it holds one read on the answers written to it. The
-    // region holds ONE read on every front's asks (API++ ask/answer), decides each register in the memory itself --
-    // authentication, site policy, the registration and its governance, the Map-Notify -- and writes the answer into
-    // its own answer space (lisp.register.answer / <front> / <slot>): where to send it, and the Map-Notify if there is
-    // one. Nobody waits on anybody: the front never knows when the region reads, the region never knows who reads.
+    // [FRONT_DECIDES_V1] A front decides each Map-Register itself and sends the rows it wrote here in batches
+    // (op=lisp, operation wire.store_rows), which this region only stores ([WRITES_BACK_OFF_V1]).
     void listening(const std::string&) override {
         space_.reset(new ribbit::Space("here", "lisper"));
-        registers_.reset(new ribbit::pp::Answerer(*space_, "lisp.register",
-            [this](const std::string& front, const ribbit::SpaceRow& r) { answer_register(front, r); }));
         // [CONFIG_WRITTEN_ONCE_V1] configuration is written into the memory once, by whoever administers the region:
         // each operation (site.add with the site's key, site.delete, ms.policy, ms.named_locator, ms.encryption_key)
         // is a row in the administrator's own ask space, lisp.config.ask / <administrator> / <key>; the region applies
@@ -54,12 +48,12 @@ public:
         // is: nothing is sent to a front, and a front that restarts needs nothing sent again.
         config_.reset(new ribbit::pp::Answerer(*space_, "lisp.config",
             [this](const std::string& admin, const ribbit::SpaceRow& r) { apply_config(admin, r); }));
-        std::fprintf(stderr, "[REGISTER_ASKED_V1] the region answers the Map-Registers its fronts write in lisp.register.ask\n"
+        std::fprintf(stderr, "[FRONT_DECIDES_V1] fronts decide Map-Registers; their rows arrive in batches (wire.store_rows) and are stored\n"
                              "[CONFIG_WRITTEN_ONCE_V1] the region applies the configuration written in lisp.config.ask\n");
     }
 private:
     std::unique_ptr<ribbit::Space> space_;
-    std::unique_ptr<ribbit::pp::Answerer> registers_, config_;
+    std::unique_ptr<ribbit::pp::Answerer> config_;
     void apply_config(const std::string& admin, const ribbit::SpaceRow& r) {
         if (r.gone) return;                                 // the administrator's session ended; what it configured stays
         Json q; try { q = Json::parse(r.text()); } catch (const std::exception&) { return; }
@@ -78,29 +72,6 @@ private:
             } catch (const std::exception& x) { bag = "{\"ok\":false,\"operation\":" + Json::quote(op) + ",\"error\":" + Json::quote(x.what()) + "}"; }
         }
         config_->answer(admin, r.instance, bag);
-    }
-    void answer_register(const std::string& front, const ribbit::SpaceRow& r) {
-        if (r.gone) return;                                 // the front has gone, and its registers with it
-        Json q; try { q = Json::parse(r.text()); } catch (const std::exception&) { return; }
-        const std::string head = "{\"to\":" + Json::quote(q["source"].s) + ",\"port\":" + std::to_string((long long)q["port"].n) +
-                                 ",\"t\":" + std::to_string(q["t"].n);
-        std::string bag;
-        ribbit::Reply rep = resident_operation("lisp wire.register_notify", [&](std::unique_ptr<frogram::MemoryApi> memory) {
-            ::Engine e(std::move(memory));
-            return e.call("wire.register_notify", Json::parse("{\"hex\":" + Json::quote(q["hex"].s) + ",\"source\":" + Json::quote(q["source"].s) + "}"));
-        });
-        try {
-            Json body = Json::parse(rep.body);
-            if (body["ok"].type == Json::Bool && body["ok"].b) {
-                Json res = Json::parse(body["result_json"].s);
-                // [NOTIFY_AFTER_ITS_ROWS_V1] the newest row the register wrote: a front sends the Map-Notify once its own
-                // views hold that row, so "notified" still means "resolves" (as lispers.net)
-                uint64_t after = 0;
-                for (auto& w : body["written"].a) if (w.type == Json::Arr && w.a.size() == 2 && uint64_t(w.a[1].n) > after) after = uint64_t(w.a[1].n);
-                bag = head + ",\"after\":" + std::to_string(after) + ",\"notify_hex\":" + Json::quote(res["notify_hex"].s) + "}";
-            } else bag = head + ",\"error\":" + Json::quote(body["error"].type == Json::Str ? body["error"].s : rep.body) + "}";
-        } catch (const std::exception& x) { bag = head + ",\"error\":" + Json::quote(x.what()) + "}"; }
-        registers_->answer(front, r.instance, bag);
     }
 };
 

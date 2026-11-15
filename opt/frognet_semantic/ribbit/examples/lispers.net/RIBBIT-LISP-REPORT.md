@@ -172,13 +172,19 @@ over local IPC; that process decodes it, consults its own state and answers.
   atomic pointers (`[HELD_TUPLES_V1]`). All of them are fed by ONE read held on the whole `lisp` space, in write
   order (`[ONE_READ_FEEDS_THE_VIEWS_V1]`): no thread per view, no read when a view is first used. A lookup reads
   them lock-free and never goes to the RAM host.
-- **Map-Registers are written, not called** (`[REGISTER_ASKED_V1]`, API++ ask/answer, as MQTT and Redis use it). The
-  receive thread writes each register into the front's own ask space and goes back to `recvfrom`. The region on the
-  RAM host holds one read on every front's asks, decides each register in the memory, and writes its answer into its
-  own answer space; the front holds one read on its answers. Nobody waits on anybody.
-- **Notified means resolves** (`[NOTIFY_AFTER_ITS_ROWS_V1]`). The region's answer names the newest row its register
-  wrote; the Map-Notify is held as data until the front's views hold that row, then sent, so a register followed
-  immediately by a lookup through the same front sees the registration (L2C.1). No thread waits for it.
+- **The front decides each Map-Register where it arrives** (`[FRONT_DECIDES_V1]`, v0.75). A writer writes and a
+  reader reads: the front runs the register operation itself (decryption, HMAC, site policy, the prior registration,
+  governance, the Map-Notify) against its held views, including the key rows (`[KEYS_ARE_CONFIGURATION_V1]`: site
+  keys and Map-Register encryption keys are configuration rows of the `lisp` space, fed to every front like the
+  sites). A register costs only the round trip to the front; nothing in it waits on the RAM host.
+- **Notified means resolves.** The rows a decision writes are held in the front's views at once, marked pending
+  until the memory numbers them, then the Map-Notify is sent; a lookup through any client of the same front sees the
+  registration at once (L2C.1). The memory's own cell (in the reply, or on the feed) replaces the pending one.
+- **Writes back off** (`[WRITES_BACK_OFF_V1]`). Decided rows go to the RAM host in batches of up to 64
+  (`wire.store_rows`, which only stores them), with a window of batches in flight: one more per window of timely
+  answers, halved when an answer takes more than twice the fastest seen plus 20 ms. While the window is full, rows
+  wait at the front, and a later row for the same cell replaces the waiting one, so a backed-up memory is sent less.
+  `front.write_stats` reports rows sent, rows replaced, batches, the window and its cuts.
 - **Configuration is in the memory** (`[CONFIG_WRITTEN_ONCE_V1]`). Sites and their keys, policies, named locators and
   encryption keys are rows an administrator writes once into its own config ask space; the region applies them. A
   front takes no configuration, and one that restarts needs nothing sent again. A serving front writes its own row
