@@ -1,6 +1,6 @@
 <!-- Generated from the site page technicalhome.html (https://fawcettinnovations.com/technicalhome.html) on 2026-11-15. The site is the rendered edition; this is the same text for reading in the repository. -->
 
-**Engineering specifications, source references and implementation details.** This is the skilled route. For what CroakOS does and why it matters, start at [the home page](https://fawcettinnovations.com/index.html); for the whole machine in plain terms, [How CroakOS works](https://fawcettinnovations.com/croakos.html).
+**Engineering specifications, source references and implementation details.** The current architecture, November 2026: [How CroakOS works](https://fawcettinnovations.com/croakos.html) (the whole machine, with a walkthrough linked to its tests), [the simulator](https://fawcettinnovations.com/simulator.html), [every current result](https://fawcettinnovations.com/evidence.html), and the [source](https://github.com/FawcettJohnW/FrogNet-Living-Network). The specification below is Draft 0.9 (2026-08-31). Each section carries implementation clauses current to CroakOS build fdf-2026-11-15-r54; where they differ from the older clauses, the implementation clauses govern. The same text is in the repository at [docs/spec](https://github.com/FawcettJohnW/FrogNet-Living-Network/tree/main/docs/spec).
 
 Specification
 
