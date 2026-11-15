@@ -22,9 +22,10 @@ int main(int argc,char**argv){
     if(argc==2&&std::string(argv[1])=="--version"){ std::cout<<"ribbit-lisp "<<RIBBIT_LISP_VERSION<<"\n"; return 0; }
     std::unique_ptr<Engine> ep;
     if(argc==4&&std::string(argv[1])=="--ram"){
-        try{ ep.reset(new Engine(argv[2],std::stoi(argv[3]))); }
+        try{ ep.reset(new Engine(argv[2],std::stoi(argv[3]))); ep->require_same_build("ribbit-lisp"); }
         catch(const frogram::Unreachable&x){                      // [FAIL_ONCE_LOUDLY_V1] at start too
             std::cerr<<"ribbit-lisp: RAM host "<<argv[2]<<":"<<argv[3]<<" unreachable: "<<x.what()<<"\n"; return 3; }
+        catch(const std::runtime_error&x){ std::cerr<<x.what()<<"\n"; return 4; }
     }
     else if(argc==1)ep.reset(new Engine());
     else{

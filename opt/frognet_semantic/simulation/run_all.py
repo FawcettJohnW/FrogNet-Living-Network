@@ -439,7 +439,7 @@ def main():
     # the complete verification plan as the output. The gate runs it small; `day-claims scale` runs S=200 x E=1..100.
     # Needs fdf-ram, fdf-client, fdf-events: FDF_SIM_BIN, else the day-claims package's, else rinab's build/static.
     # Without them it FAILS (it does not skip).
-    print("\nTIER 3 - complex topologies, FD&F discovery from memory (S=20, E=1 2 5)")
+    print("\nTIER 3 - complex topologies, FD&F discovery from memory (S=200, E=1 5 20)")
     _arch = os.uname().machine
     _sbin = next((d for d in (os.environ.get("FDF_SIM_BIN", ""),
                                f"/opt/fdf/experiments/day-claims/scale/bin/{_arch}",
@@ -448,7 +448,22 @@ def main():
     _sout = _tmpf.mkdtemp(prefix="frogsim_s3_")
     results.append(_run_proc("S scale: memory discovery + complete verification plan",
                              ["simulation/s_scale_tier.py", "--bin", _sbin or "(fdf-ram/fdf-client/fdf-events not found)",
-                              "--S", "20", "--E", "1", "2", "5", "--out", _sout, "--work", _sout], retry=False))
+                              "--S", "200", "--E", "1", "5", "20", "--out", _sout, "--work", _sout], retry=False))
+    # [S_TOPO_TIER_V1] the rest of tier 3: the 20 hardware topologies, generated trees and meshes with every path stated,
+    # their events (link down, egress lost and back, a child moving, churn, a member's RAM link cut), every member on a
+    # slow link ([SLOW_LINKS_V1]), and which bearers a member's session can be held over
+    _tout = _tmpf.mkdtemp(prefix="frogsim_st_")
+    results.append(_run_proc("topologies: 20 hardware + generated, events, slow links, bearers",
+                             ["simulation/s_topo_tier.py", "--bin", _sbin or "(fdf-ram/fdf-client/fdf-events not found)",
+                              "--links", "mixed", "--out", _tout, "--work", _tout], retry=False))
+    # [LISP_SLOW_TIER_V1] Ribbit-LISP against lispers.net over simulated links (central, edge, slow-edge). Needs the
+    # Ribbit-LISP package built (make front ram) and lispers.net unpacked: LISP_PKG, LISPERS_DIR. Without them it FAILS.
+    _lpkg = os.environ.get("LISP_PKG", os.path.join(_PARENT, "ribbit/examples/lispers.net"))
+    _ldir = os.environ.get("LISPERS_DIR", "/opt/lispers.net-0.643")
+    _lout = _tmpf.mkdtemp(prefix="frogsim_lisp_")
+    results.append(_run_proc("Ribbit-LISP vs lispers.net over slow links (central, edge, slow-edge)",
+                             ["simulation/lisp_slow_tier.py", "--pkg", _lpkg, "--lispers", _ldir, "--clients", "1", "16", "64", "256",
+                              "--duration", "6", "--out", _lout], retry=False))
 
     print("\nTIER 4 - real kernel in netns (M2)")
     if os.environ.get("FROGNET_SIM_BACKEND") == "real":

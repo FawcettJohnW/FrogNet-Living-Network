@@ -107,7 +107,8 @@ int main(int argc, char** argv) {
             } else if (op == "boundary.counts") {
                 if (!boundary) throw std::runtime_error("driver: no boundary");
                 out = "{\"registers\":" + std::to_string(boundary->registers()) + ",\"requests\":" + std::to_string(boundary->requests()) +
-                      ",\"rejected\":" + std::to_string(boundary->rejected()) + "}";
+                      ",\"rejected\":" + std::to_string(boundary->rejected()) +
+                      ",\"answered\":" + std::to_string(boundary->answered()) + "}";
             } else if (op == "boundary.stop") {
                 if (!boundary) throw std::runtime_error("driver: no boundary");
                 boundary->stop(); boundary.reset(); out = "\"good\"";

@@ -38,6 +38,7 @@
 #include "ram_memory.hpp"
 #include "ram_host.hpp"
 #include "ebr.hpp"
+#include "tcpdiag.hpp"
 // [SESSION_IS_LIVENESS_V1] the session a request arrived on (a number unique for the life of the process,
 // [SESSION_EPOCH_V1]); the vendor hears when a session starts (its peer address) and when it ends (RamHost::session_up,
 // session_down)
@@ -1290,7 +1291,9 @@ void serve(int fd, std::string peer) {
           if (f.size() > 5 && uint8_t(f[4]) == cellwire::OP_CELL_WRITE) cell_write_frame(s, CELL_SEQ, f);
           else handle_frame(s, seq++, f); } }
     logline("session down " + peer + " " + token + " after " + std::to_string(seq) + " requests" +
-            (s->eng ? ", " + std::to_string(s->data_frames) + " replies (" + std::to_string(s->data_bytes) + " B) on the data socket" : ""));
+            (s->eng ? ", " + std::to_string(s->data_frames) + " replies (" + std::to_string(s->data_bytes) + " B) on the data socket" : "") +
+            // [SOCKET_SAYS_WHAT_HELD_IT_V1] the replies leave on the return socket: what held it back
+            " [DIAG-SOCK] req: " + tcpdiag::line(fd) + " | ret: " + tcpdiag::line(s->ret));
     { std::lock_guard<std::mutex> g(pend_m); live.erase(token); }
     s->closing.store(true, std::memory_order_release);
     for (auto* f = s->follows.load(std::memory_order_acquire); f; f = f->next) { ramm::Memory::unhook(f->hook); g_followers.fetch_sub(1); }

@@ -8,7 +8,7 @@ records (`T*.md`) and their logs.
 If a claim you care about is not in this file, treat it as **argued** until you
 find the test that shows it.
 
-Revision 2026-11-01.
+Revision 2026-11-15.
 
 ---
 
@@ -30,6 +30,17 @@ Revision 2026-11-01.
 | The simulator's offline engine reproduces 20 route-table baselines recorded on hardware | the 20 files in `opt/frognet_semantic/simulation/baselines/` are stamped `"source": "hardware"`; `simulation/run_all.py` TIER R passes (`docs/cleanup-2026-10/t5-logs/runall.txt`) |
 | The real planner and committer converge on the simulator's topologies | `simulation/run_all.py` TIER 2, "real-engine 23 topologies" PASS (`t5-logs/runall.txt`) |
 | The discovery and election logic meets its oracles | `python3 -m discovery selfcheck` 14/14 and `discovery/run_discovery_oracles.py` 84/84 (`docs/cleanup-2026-10/t5b-logs/selfcheck.txt`, `oracles.txt`) |
+
+## Recorded in this tree from runs on John's hardware
+
+The run's own output is in the tree; the run itself needs the machines named.
+
+| Claim | Recorded in |
+|---|---|
+| Ribbit-LISP v0.75 against lispers.net 0.643 over the Internet (New York load, Seattle map-servers, San Francisco RAM host): 78 behaviour tests, 0 failures against lispers.net's 14; peak lookups 1,468 against 87 a second (17X), peak registrations 1,474 against 186 (7.9X); lispers.net answered nothing from 256 clients up; about 140X less CPU per lookup | `opt/frognet_semantic/ribbit/examples/lispers.net/evidence/2026-11-14/RESULTS.md` and the run's whole output beside it |
+| The same job takes 68% fewer lines and 41% less total cyclomatic complexity in Ribbit-LISP v0.75 than in lispers.net 0.643 (application against application; with the whole FrogNet platform charged, Ribbit-LISP is larger) | `evidence/2026-11-14/MATCHED-AUDIT.md`, reproducible with `tools/matched_audit.py` |
+| PyTorch training on a five-node Seattle–New York mesh, same model and same held-out loss: meshfeed 329× faster than stock DDP (gloo) at batch 64 over 40 steps, 5.5× at batch 4096 over 10 steps; every single-machine run matches a one-thread oracle | `opt/frognet_semantic/agent_workload/PSYCHEDELIC-MESH-RESULTS-20261113.md`, sections 1 and 9 |
+| The Psychedelic backend (DDP's arrangement kept) ran 1.03× to 1.95× gloo in four September campaigns, and tied gloo within 2–3% on the November mesh once an access point's queue was changed to fq_codel | `opt/frognet_semantic/ribbit/examples/pytorch/README.md`; `PSYCHEDELIC-MESH-RESULTS-20261113.md`, section 3 |
 
 ## Recorded elsewhere; not shown by anything in this tree
 
@@ -68,7 +79,7 @@ experimental results.
 | | |
 |---|---|
 | **Raspberry Pi after the cleanup** | John's Pi nodes ran FrogNet in the field before October 2026. The cleaned tree has not been installed on a Pi; the aarch64 `.run` was built, not run |
-| **Size** | The largest region in the gates had three members, the largest LAN-only pond two nodes. Nothing larger was measured |
+| **Size** | On hardware, the largest region in the gates had three members and the largest LAN-only pond two nodes. The simulator's S tier discovers 200 members from memory (`simulation/s_scale_tier.py`); that is a simulation, not a measurement on 200 machines |
 | **Prediction** | The simulator reproduces what hardware did. No run has yet predicted something a real machine then confirmed |
 | **Concurrency** | The simulator runs merges one at a time in a single process, so a green suite is not evidence about races |
 | **Loss and jitter on a topology** | Modelled in the transport tier over a single link only |

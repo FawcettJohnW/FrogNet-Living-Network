@@ -1,6 +1,7 @@
 # Ribbit-LISP: lispers.net's map-server and map-resolver on FrogNet shared memory
 
-John Fawcett, Fawcett Innovations LLC -- report for package v0.63-bounded, 2026-09-28
+John Fawcett, Fawcett Innovations LLC -- report for package v0.63-bounded (run of 2026-09-28) and package
+v0.75-front-decides (run of 2026-11-14)
 
 This report describes what was built, component by component in the order the code is organized; how lispers.net
 does the same job; what changed and why; how both were tested; what the results were; and how far the results can
@@ -17,8 +18,24 @@ state -- sites, registrations, keys, policies, named locators -- lives in FrogNe
 host (in the runs reported here a 2-core DigitalOcean droplet on the open Internet). The map-server front that
 receives LISP packets holds no private copy of that state and takes no locks around it.
 
-Measured on one run (2026-09-28; a Raspberry Pi 5 load generator, both systems on one host, Ribbit's memory on
-the droplet):
+Measured over the Internet (2026-11-14; package v0.75; load from New-York-2 in New York, both map-servers on
+Seattle7 in Seattle, Ribbit's memory on the droplet in San Francisco; every operation pays about 100 ms of network,
+and the closed-loop load caps any server near 1,500 operations a second on this path). Section 7a has every row;
+`evidence/2026-11-14/RESULTS.md` stands on its own:
+
+| | lispers.net 0.643 | Ribbit-LISP v0.75 |
+|---|---|---|
+| behaviour: 78 tests | 14 failures; stopped serving 7 times | 0 failures; 53 byte-for-byte parity with lispers.net |
+| lookups/s at peak (clients) | 87 (64) | 1,468 (1,024): 17X |
+| registers/s at peak (clients) | 186 (64) | 1,474 (1,024): 7.9X |
+| 256 clients and up | nothing answered within 1 s | 1,357--1,479 ops/s |
+| CPU per million lookups | 13,088 s | 96 s front + 4 s RAM host: about 140X less |
+| 10,000 host-prefix registrations | 6 of 25 sampled never resolved | all 25 resolved 2.9 s after the preload; 128 lookups/s |
+| application code for the same job (matched audit) | 360 functions, 6,463 NLOC, total CCN 2,237 | 195 functions, 2,067 NLOC, total CCN 1,318: 68% less code, 41% less complexity |
+| ... with the whole FrogNet platform charged to it | -- | 985 functions, 8,326 NLOC, total CCN 5,495 |
+
+Measured on one earlier run (2026-09-28; package v0.63; a Raspberry Pi 5 load generator, both systems on one host,
+Ribbit's memory on the droplet). The two runs are different arrangements and are not comparable row for row:
 
 | | lispers.net 0.643 | Ribbit-LISP v0.63 |
 |---|---|---|
@@ -91,7 +108,7 @@ measured here are a fraction of the whole.
 |---|---|---|
 | `ribbit_cpp/lisp_engine.hpp` | the Engine: LISP state as cells, every map-server operation, the wire codecs | `lisp.py` codecs and processing; `lisp-ms.py` site state and timers; `lispconfig.py` |
 | `ribbit_cpp/lisp_handler.hpp` | the front: UDP control port, Map-Requests answered in place, Map-Registers sent to the memory | `lisp-core.py` dispatch; `lisp-ms.py` / `lisp-mr.py` main loops |
-| `tools/lisp_boundary.cpp` | the front as a program (configuration as JSON lines on stdin); used by the tests | `RUN-LISP` + `lisp.config` |
+| `tools/lisp_boundary.cpp` | the front as a program (it takes no configuration: the region's configuration is in the memory); used by the tests | `RUN-LISP` + `lisp.config` |
 | `tools/lisp_service.cpp` | the deployable service: one program, configured by a file, roles registered as capabilities | `RUN-LISP`, `lisp enable`, `lisp.config` peer lists |
 | `tools/ramsrv/ram_server.cpp` | the RAM host: FNW1 sessions, the memory, and the LISP operations run inside it | none (lispers.net's state is in its processes) |
 | `ribbit_cpp/ram_memory.hpp` | the memory: rows, per-row locks, waits, the write window | `lisp_cache`, the process heap |
@@ -167,19 +184,30 @@ over local IPC; that process decodes it, consults its own state and answers.
 
 **What changed.** The front is one process that owns the control port and holds no state of its own:
 
-- **Map-Requests are answered in place.** The front holds, for each instance and group, the registrations it has
-  read, as tuples: each one held once behind its own atomic pointer, replaced in place when the cell changes
-  (`[HELD_TUPLES_V1]`, `[ONE_SET_OF_VIEWS_PER_PARTICIPANT_V1]`). A lookup reads them lock-free and never goes to
-  the RAM host. The front learns of changes by holding a read on the memory, which returns when something is
-  written.
-- **Map-Registers go to the memory.** Each is one call to the RAM host. Each sender gets its own strand, so one
-  sender's registers stay in order while every sender's round trip overlaps every other's (`[REGISTER_STRANDS_V1]`);
-  a Map-Request never waits behind a Map-Register (`[BOUNDARY_NEVER_WAITS_V1]`).
-- **Read-your-own-write.** When the call returns, the cells it wrote come back with the reply and the front holds
-  them at once (`[OWN_WRITES_HELD_V1]`), so a register followed immediately by a lookup through the same front
-  sees the registration (L2C.1).
-- **No locks (`[BOUNDARY_NO_LOCKS_V1]`).** Queues are lock-free; waiting is on futex words; held tuples are
-  reclaimed by EBR.
+- **Map-Requests are answered in place.** The front holds, for each instance and group, the registrations, their
+  governance, the sites, DDT delegations, ETR liveness, policies, named locators and site groups, as tuples behind
+  atomic pointers (`[HELD_TUPLES_V1]`). All of them are fed by ONE read held on the whole `lisp` space, in write
+  order (`[ONE_READ_FEEDS_THE_VIEWS_V1]`): no thread per view, no read when a view is first used. A lookup reads
+  them lock-free and never goes to the RAM host.
+- **The front decides each Map-Register where it arrives** (`[FRONT_DECIDES_V1]`, v0.75). A writer writes and a
+  reader reads: the front runs the register operation itself (decryption, HMAC, site policy, the prior registration,
+  governance, the Map-Notify) against its held views, including the key rows (`[KEYS_ARE_CONFIGURATION_V1]`: site
+  keys and Map-Register encryption keys are configuration rows of the `lisp` space, fed to every front like the
+  sites). A register costs only the round trip to the front; nothing in it waits on the RAM host.
+- **Notified means resolves.** The rows a decision writes are held in the front's views at once, marked pending
+  until the memory numbers them, then the Map-Notify is sent; a lookup through any client of the same front sees the
+  registration at once (L2C.1). The memory's own cell (in the reply, or on the feed) replaces the pending one.
+- **Writes back off** (`[WRITES_BACK_OFF_V1]`). Decided rows go to the RAM host in batches of up to 64
+  (`wire.store_rows`, which only stores them), with a window of batches in flight: one more per window of timely
+  answers, halved when an answer takes more than twice the fastest seen plus 20 ms. While the window is full, rows
+  wait at the front, and a later row for the same cell replaces the waiting one, so a backed-up memory is sent less.
+  `front.write_stats` reports rows sent, rows replaced, batches, the window and its cuts.
+- **Configuration is in the memory** (`[CONFIG_WRITTEN_ONCE_V1]`). Sites and their keys, policies, named locators and
+  encryption keys are rows an administrator writes once into its own config ask space; the region applies them. A
+  front takes no configuration, and one that restarts needs nothing sent again. A serving front writes its own row
+  in `lisp.fronts` (`[FRONT_ANNOUNCES_ITSELF_V1]`).
+- **No locks, no polling (`[BOUNDARY_NO_LOCKS_V1]`, `[STOP_WAKES_THE_RECEIVE_V1]`).** Lists are lock-free; held
+  tuples are reclaimed by EBR; the receive blocks with no timeout and `stop()` wakes it by shutting the socket.
 - **The rest of the control plane.** ECM-encapsulated Map-Requests (`[ECM_MAP_REQUEST_V1]`); Info-Request ->
   Info-Reply (`[INFO_REQUEST_V1]`); Map-Notify-Ack consumed; Map-Referrals when configured as a DDT authority
   (`[DDT_REFERRAL_V1]`); Map-Notify sent to every registered xTR of a merged prefix (L2.9b).
@@ -193,8 +221,8 @@ for 64.
 **What lispers.net does.** `RUN-LISP` starts lisp-core, which starts the role processes; peers (map-servers,
 map-resolvers) are written by hand in `lisp.config`; an ETR re-sends its whole Map-Register every 60 seconds.
 
-**What changed.** `lisp-boundary` is the front as a program: `--ram HOST PORT --udp PORT`, configuration as JSON
-operations on stdin; the acceptance and performance tests drive it. `lisp-service` is the deployable form: one
+**What changed.** `lisp-boundary` is the front as a program: `--ram HOST PORT --udp PORT`, and nothing else (its
+configuration is the region's, in the memory); the acceptance and performance tests drive it. `lisp-service` is the deployable form: one
 program, one JSON configuration (`/etc/lispers.d/lisp-service.config`), every role it plays registered in the
 memory as a capability tuple (`[CAPABILITY_REGISTRATION_V1]`), so machines find each other by reading the memory
 instead of a hand-written peer list. `tools/make_hw_configs.py` writes matching configurations for lispers.net and
@@ -406,6 +434,32 @@ held from its reply instead of waiting for the next held read.
 
 ---
 
+## 7a. Results -- performance over the Internet (run of 2026-11-14, package v0.75)
+
+The whole run is `evidence/2026-11-14/acceptance-v0.82-run.txt`; `evidence/2026-11-14/RESULTS.md` has every table
+with its arrangement and limits. Load from New-York-2 (New York); both map-servers on Seattle7 (Seattle), measured
+one at a time; Ribbit's memory on the 2-core droplet in San Francisco. NY2 reaches Seattle7 through the RAM host, a
+152.6 ms round trip; the load is closed loop, so on this path no server can exceed about 1,500 operations a second.
+
+| clients | lispers.net reg | Ribbit reg | lispers.net lookup | Ribbit lookup | lispers.net mixed | Ribbit mixed |
+|---:|---:|---:|---:|---:|---:|---:|
+| 1 | 8 (104) | 9 (102) | 7 (112) | 6 (102) | 6 (111) | 6 (103) |
+| 16 | 125 (108) | 151 (103) | 86 (176) | 137 (103) | 86 (173) | 136 (103) |
+| 64 | 186 (346) | 555 (107) | 87 (703) | 497 (106) | 95 (691) | 556 (106) |
+| 256 | 0 | 1,357 (173) | 0 | 1,402 (175) | 0 | 1,391 (172) |
+| 1,024 | 0 | 1,474 (682) | 0 | 1,468 (669) | 0 | 1,479 (668) |
+| 2,048 | 0 | 184 (723) | 0 | 247 (677) | 0 | 30 (1,042) |
+
+Operations a second, p50 ms in brackets; 0 is nothing answered within one second. At one client both take the time
+the network takes. The 2,048-client rows measure the load generator's uplink (a USB network device on NY2; its
+session to the RAM host reached a 428 ms round trip and reset), not either map-server.
+
+What changed from v0.63 to v0.75 is section 5.2's front: it decides each Map-Register where it arrives
+(`[FRONT_DECIDES_V1]`), holds the keys as configuration rows (`[KEYS_ARE_CONFIGURATION_V1]`) and sends the rows it
+decides to the RAM host in batches through an adaptive window (`[WRITES_BACK_OFF_V1]`). Registers no longer wait
+on the RAM host; v0.74 took about 20 ms more per register than lispers.net at low client counts, v0.75 takes the
+same time.
+
 ## 8. Results -- behaviour (78 tests)
 
 PARITY 53, A FAIL 14, KNOWN DIFFERENCE 4, OBSERVATION 7, B FAIL 0. Ribbit failed no test. The full evidence --
@@ -479,11 +533,22 @@ not scored, and it is a question for lispers.net's author.
 | | functions | NLOC | total CCN | average CCN | functions over CCN 15 |
 |---|---:|---:|---:|---:|---:|
 | lispers.net 0.643, application (Python) | 360 | 6,463 | 2,237 | 6.2 | 26 |
-| Ribbit-LISP, application (C++) | 175 | 1,886 | 1,175 | 6.7 | 12 |
-| Ribbit-LISP, application + the whole FrogNet platform | 568 | 4,972 | 3,283 | 5.8 | 43 |
-| the FrogNet platform alone | 393 | 3,086 | 2,108 | 5.4 | 31 |
+| Ribbit-LISP v0.63, application (C++) | 175 | 1,886 | 1,175 | 6.7 | 12 |
+| Ribbit-LISP v0.63, application + the whole FrogNet platform | 568 | 4,972 | 3,283 | 5.8 | 43 |
+| the FrogNet platform alone, at v0.63 | 393 | 3,086 | 2,108 | 5.4 | 31 |
+| Ribbit-LISP v0.75, application (C++) | 195 | 2,067 | 1,318 | 6.8 | 13 |
+| Ribbit-LISP v0.75, application + the whole FrogNet platform | 985 | 8,326 | 5,495 | 5.6 | 70 |
+| the FrogNet platform alone, at v0.75 | 790 | 6,259 | 4,177 | 5.3 | 57 |
 
-For the application: 51% fewer functions, 71% fewer lines, 47% less total cyclomatic complexity, and less than
+The v0.75 rows are a fresh run of the same script under the same rules (`evidence/2026-11-14/MATCHED-AUDIT.md`;
+its source check passed: all 26 lispers.net files compile to the release's bytecode). v0.75's application is 68%
+smaller than lispers.net's in lines and 41% lower in total complexity; it grew from v0.63 by the front's own
+register path and the adaptive sender. The platform row doubled between the two audits; every platform
+function counted is listed in `evidence/2026-11-14/ribbit-functions.csv`, and the platform is still counted whole.
+With the whole platform charged to it, v0.75 is larger than lispers.net (8,326 lines against 6,463). The paragraphs
+below describe the v0.63 rows.
+
+For the v0.63 application: 51% fewer functions, 71% fewer lines, 47% less total cyclomatic complexity, and less than
 half as many functions over CCN 15. The average complexity per function is not lower (6.7 against 6.2): the job
 takes fewer functions, not simpler ones.
 

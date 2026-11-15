@@ -50,6 +50,7 @@ WORDS = r"broker|passcode|GROUP_TOKEN|mediahost|165\.232\.153\.144|StreamingFrog
 # (c) ALLOW: (document, line regex, reason)
 ALLOW = [
     (r".", r"static-no-broker\.sh", "the name of the static gate script (docs/cleanup-2026-10/static-no-broker.sh)"),
+    (r"^CLAIMS\.md$", r"through an earlier broker", "history: the route of the 121 kbit/s call, recorded before the region replaced the broker"),
     (r"^docs/OPERATING\.md$", r"old broker keys ignored", "the tunnel daemon's own log line, quoted for the operator (internet_tunnels_v3/config.py)"),
 ]
 

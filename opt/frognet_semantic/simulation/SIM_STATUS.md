@@ -1,4 +1,28 @@
-# Simulator status (last full run 2026-10-13; updated 2026-11-11)
+# Simulator status (last full run 2026-11-15)
+
+## The run of 2026-11-15: `GATE: PASS`
+
+Every in-container tier passes (`run_all.py`, integration branch merge-20261115; tier 4's execute and tier 5's
+transport legs are box-tier). Environment for a full run: the CroakOS binaries built (`rinab/tools/build.sh`,
+`build_static_host.sh`, `build_static_clients.sh`), the Ribbit-LISP package built and lispers.net unpacked
+(`LISP_PKG`, `LISPERS_DIR`), and MariaDB running for the door tier.
+
+What changed to get there:
+
+- **[NO_STRANDED_MEMBER_V1], `fdf_graph` r54.** The forest no longer cuts a member off. A tree with no exit and no hub
+  link is joined to a neighbouring tree over one of its own links; trees with a way out are left as chosen. Graph
+  oracle case 12, and `topo_asym_three_sites@as-leases` in the topology tier (the scenario as it failed before:
+  64/64 with r54, 50/64 with r53 -- B_end1 NO ROUTE).
+- **[WAN_IS_THE_HUB_V1], `s_topo_tier.py`.** The hardware topologies that span sites (`SITES`, from each builder's
+  docstring) are converted the CroakOS way: a link between two sites is not a lease, its gateways get the uplink and
+  the region hub link, and its /30 is gone. The expectation is unchanged (every pair reached, as on the hardware);
+  in addition every pair between sites must cross the hub, none inside a site may, and each path must be the one
+  the forest calls for. Nine topologies; 238 of 238 pairs between sites through the hub.
+- The three baselines that failed on 2026-11-14 (`topo_asym_three_sites`, `topo_dual_wg_transit_bridge`,
+  `topo_multilan_shared_wg_transit`) pass with their expectations unchanged.
+
+## Earlier record (2026-10-13 to 2026-11-14)
+
 
 The simulator runs the real planner, committer, proxy and daemon over modelled or namespaced environments. Run it from
 the checkout's root:
@@ -27,7 +51,7 @@ Since that run, `run_all.py` has changed in two ways. Neither has a recorded ful
 - **Both FAIL rows were removed from the gate on 2026-10-16** (`[PYTORCH_TIERS_PULLED_V1]`). They tested
   `agent_workload/`, which was not in this tree. `simulation/collective_tier.py` and
   `simulation/test_aiconnect_ramp_oracle.py` are kept, and run where `agent_workload/` is. The PyTorch work comes into
-  the tree with `agent_workload/` (PR #15). The collectives tier still reads `agent_workload/ddpbench.py`, the duplicate
+  the tree with `agent_workload/` (PR #15). The collectives tier still reads the agent_workload copy of ddpbench.py, the duplicate
   dropped on 2026-09-15; the copy the campaigns run is `usr/local/frognet-ai/ddpbench.py`. The tier has to read that
   copy before both tiers go back into the gate.
 - **TIER 3 is back, as FD&F discovery from memory** (`[S_SCALE_TIER_V1]`). It runs a real fdf-ram, an fdf-client per
@@ -47,3 +71,24 @@ What it covers and does not:
   tests in `opt/fdf/src/fdf-source/rinab/tools/` (README.md, "Running the gates").
 
 The simulator's dated build notes from June 2026 are `opt/frognet_semantic/docs/history/SIM_STATUS-2026-06.md`.
+
+## Tier 3, all of it (2026-11-14)
+
+`s_scale_tier.py` (the star: S nodes, E egresses) now runs in the gate at S=200, E=1 5 20. `s_topo_tier.py` is the
+rest of tier 3, every member a real fdf-client on a real fdf-ram, routes followed only in the verification plan:
+
+- the 20 hardware topologies, converted to the facts fdf-facts writes (a segment's .1 holder gives the lease, every
+  other member holds one); the oracle is the hardware's (every pair reached). 17 pass. Three do not, and the reason is
+  in the model, not the harness: `topo_asym_three_sites` (a .1 holder whose only link is to a node that chose another
+  parent is left with no link: [FOREST_V1] keeps one upward link per host), `topo_dual_wg_transit_bridge` and
+  `topo_multilan_shared_wg_transit` (transit segments with no .1 holder: no lease, so no FD&F link).
+- generated topologies with every path stated by the generator, hop for hop (trees, a mesh where the exit is chosen by
+  speed not hops, a mixed forest), and their events: link down, egress lost, egress back, a child moving, churn
+  (three rounds), a member's RAM link cut past its keepalive. All pass.
+- slow links (`slowlink.py`: a user-space shaper, since this kernel has no qdiscs): every member's session over wan,
+  wifi, 4g, geo, halow, with and without loss. The bearer test holds one member per profile for 120 s: every bearer
+  down to geo (256 kb/s) and lossy HaLow holds its session; the jammed bearer (2 kb/s, 2 s outages) does not -- a
+  member's participants read is 31 KB at 52 members.
+
+`lisp_slow_tier.py` runs Ribbit-LISP against lispers.net (both unmodified) over simulated links: central, edge,
+slow-edge. It needs the Ribbit-LISP package built and lispers.net unpacked (LISP_PKG, LISPERS_DIR).

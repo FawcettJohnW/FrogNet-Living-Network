@@ -1747,6 +1747,21 @@ class TensorServer:
             self._pinned.pop(name, None)
             self._materialised.pop(name, None)
 
+    def retire(self, name: str) -> bool:
+        """[HOOK_ON_THE_FAMILY_LINK_V1] Drop a cell that nobody will ask for
+        again, when the owner knows that and the reader count does not (a
+        comm hook that skips peers): the cell is gone from the plane, and a
+        request for it waits for a write that will never come."""
+        with self._sub_lock:
+            self._readers_left.pop(name, None)
+            self._pub_t.pop(name, None)
+            self._pinned.pop(name, None)
+            self._materialised.pop(name, None)
+            if self._current.pop(name, None) is None:
+                return False
+            self.retired += 1
+            return True
+
     def _want(self, sub, names) -> None:
         now = time.time()
         with self._sub_lock:

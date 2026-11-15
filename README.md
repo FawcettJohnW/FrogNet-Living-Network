@@ -10,9 +10,45 @@ FrogNet gives it RAM. One shared memory, directly addressable, that every
 machine on the network reads and writes. Programs stop sending each other
 messages and start using memory.
 
-*Free software under the GNU General Public License, version 2 only.*
+**CroakOS** is the distributed operating system that does it. The distributed collection is the computer.
+Programs use its memory and its scheduling; the threads happen to run on different machines. PyTorch trained the
+same model to the same loss 329× faster than stock DDP on a five-node Internet mesh, and lispers.net's map-server,
+rebuilt on it, served 17× the lookups over the Internet
+([PyTorch](opt/frognet_semantic/ribbit/examples/pytorch/README.md),
+[Ribbit-LISP](opt/frognet_semantic/ribbit/examples/lispers.net/evidence/2026-11-14/RESULTS.md)).
+
+*Free software under the GNU General Public License, version 2 only. A commercial licence is available to companies
+whose policy rules out the GPL.*
 
 ---
+
+## Get started
+
+**Watch it run, on one machine.** The simulator runs the production code (the
+discovery, the route planner, the CroakOS binaries) across simulated networks:
+200 members, the hardware topologies, slow links, splits and merges, and
+lispers.net under Ribbit-LISP. On Linux, from the root of the checkout:
+
+```
+cd opt/fdf/src/fdf-source/rinab && bash tools/build.sh && bash tools/build_static_host.sh && bash tools/build_static_clients.sh
+cd ../../../../frognet_semantic
+PYTHONPATH=$PWD FROGNET_PROXY_ROOT=$PWD FROGNET_BIN_ROOT=$PWD/../../usr/local/bin python3 simulation/run_all.py
+```
+
+`simulation/SIM_STATUS.md` says what each tier exercises and what the last run showed.
+
+**Install it on your own machines.** [docs/OPERATING.md](docs/OPERATING.md):
+one LAN, then a region across sites.
+
+**Convert something.** `opt/frognet_semantic/ribbit/docs/CONVERTING-TO-RIBBIT.md`
+is the method, with PyTorch and lispers.net as the worked examples. The examples
+are in `opt/frognet_semantic/ribbit/examples/`.
+
+**Work with me.** I take consulting on converting a system to Ribbit, on
+deploying FrogNet and CroakOS, and on the architecture. A commercial licence is
+available to companies whose policy rules out the GPL. Write to
+john@fawcettinnovations.com, or see
+[fawcettinnovations.com](https://fawcettinnovations.com).
 
 ## What this repository is
 
@@ -42,7 +78,8 @@ with shared memory: determine your truth, write your truth, read the other
 truths, go. A participant writes the facts it owns; others read them, query
 them, or hold a read until they change. Ribbit does not route packets and does
 not decide how its memory is reached. Its platform, default API, documents and
-examples (chat, lispers.net, Redis, the Communicator) are in
+examples (chat, the Communicator, lispers.net as Ribbit-LISP, Redis, MQTT, PyTorch, OpenEOC, FrogTastic-RAM
+for Meshtastic nodes) are in
 `opt/frognet_semantic/ribbit/`.
 
 **FrogNet is a transport and operating environment.** Nodes on connected LANs
@@ -110,9 +147,9 @@ What lands on a node is the node file set (`frognet_node_files` in
 
 ## Running the gates
 
-The checks the cleanup ran at every tranche, from the checkout's root. `opt/frognet_semantic`
-is the Python root. All pass except two tiers of `run_all.py`, red since before the cleanup
-(`opt/frognet_semantic/simulation/SIM_STATUS.md`).
+The checks, from the checkout's root. `opt/frognet_semantic` is the Python root. All pass
+(run of 2026-11-15; `opt/frognet_semantic/simulation/SIM_STATUS.md` has the simulator's tiers and what a full run
+needs: the CroakOS binaries, the Ribbit-LISP package with lispers.net, and MariaDB for the door tier).
 
 ```
 cd opt/frognet_semantic

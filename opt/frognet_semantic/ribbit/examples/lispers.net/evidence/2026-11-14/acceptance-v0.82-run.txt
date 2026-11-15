@@ -1,0 +1,671 @@
+root@FrogNetHost:/opt/frognet_semantic/ribbit/examples/lispers.net# cd /opt/frognet_semantic/ribbit/examples/lispers.net && python3 tools/acceptance.py --ram streamingfrog.com:17283 --local-ip $(/usr/local/bin/getEth0Address) --out acceptance-out
+################################################################################
+##  acceptance.py -- package v0.82-front-decides
+################################################################################
+    [19:00:54] [WIRE_WATCH_V1] FrogNetHost.New-York-2: recording the LISP ports, the RAM port 17283, the journal and the kernel's counters in /opt/frognet_semantic/ribbit/examples/lispers.net/acceptance-out/wire/harness-20261114-190054 (8.2 GB free there)
+    [19:00:56] the agent's clock is -24.4 ms from this one (round trip 152.6 ms through the RAM host)
+    [19:00:56] starting lispers.net on the agent's machine 10.170.170.1
+      agent: lispers.net: STOP-LISP
+      agent: lispers.net: RUN-LISP 45175 in /opt/lispers.net-0.643/ (python: /opt/python3.12/bin/python)
+      agent: lispers.net: this system's name is 'Debian GNU/Linux' and /bin/sh is dash, so lispers.net's '>&' would not run: it runs with /bin/sh = bash in its own mount namespace
+      agent: lispers.net: RUN-LISP returned; waiting for its Map-Server to answer a register
+      agent: lispers.net: answering Map-Registers on 10.170.170.1:4342 after 6 s
+    [19:01:05] lispers.net is up on 10.170.170.1:4342
+    [19:01:05] starting ribbit on the agent's machine 10.170.170.1
+      agent: ribbit: stopping the front, starting it against the RAM host streamingfrog.com:17283
+      agent: ribbit: the RAM host's LISP region is v0.75-front-decides (this package: v0.75-front-decides)
+      agent: ribbit: the region's configuration is in the memory (21 sites, 7 policies, 4 named locators)
+      agent: ribbit: the front is serving on 10.170.170.1:14342 after 0.3 s
+    [19:01:07] ribbit is up on 10.170.170.1:14342
+  .. P4 on lispers.net
+  .. P4 on ribbit
+P4     PARITY             A PASS  B PASS   liveness: a Map-Request outside every site is answered negatively
+  .. L1.1 on lispers.net
+  .. L1.1 on ribbit
+L1.1   PARITY             A PASS  B PASS   authenticated Map-Register (M set) -> Map-Notify: same nonce, HMAC valid with the site key
+  .. L1.2 on lispers.net
+  .. L1.2 on ribbit
+L1.2   PARITY             A PASS  B PASS   Map-Register with M clear: no Map-Notify, and the registration resolves
+  .. L1.3 on lispers.net
+  .. L1.3 on ribbit
+L1.3   PARITY             A PASS  B PASS   ECM Map-Request for a registered EID: exact EID-prefix, mask and locator set
+  .. L1.5 on lispers.net
+  .. L1.5 on ribbit
+L1.5   PARITY             A PASS  B PASS   ECM Map-Request inside an accept-more-specifics site, nothing registered: negative for the EID itself (/32), TTL 1, natively-forward
+  .. L1.5b on lispers.net
+  .. L1.5b on ribbit
+L1.5b  PARITY             A PASS  B PASS   ECM Map-Request inside a site that does NOT accept more-specifics, nothing registered: negative with the site's prefix
+  .. L1.6 on lispers.net
+  .. L1.6 on ribbit
+L1.6   PARITY             A PASS  B PASS   ECM Map-Request outside every site: negative, natively-forward
+  .. L1.7 on lispers.net
+  .. L1.7 on ribbit
+L1.7   OBSERVATION        A PASS  B PASS   a bare (non-ECM) Map-Request to the map-resolver port
+         lispers.net: not answered
+         ribbit: answered type 2
+  .. L2.1 on lispers.net
+  .. L2.1 on ribbit
+L2.1   PARITY             A PASS  B PASS   refresh (same locator set) keeps resolving
+  .. L2.2 on lispers.net
+  .. L2.2 on ribbit
+L2.2   PARITY             A PASS  B PASS   change of locator set: the new set resolves, the old never again
+  .. L2.3 on lispers.net
+  .. L2.3 on ribbit
+L2.3   PARITY             A PASS  B PASS   withdraw (TTL 0) from a registered RLOC: Map-Notify, then negative
+  .. L2.4 on lispers.net
+  .. L2.4 on ribbit
+L2.4   PARITY             A PASS  B PASS   withdraw from a source that is not a registered RLOC is ignored
+  .. L2.5 on lispers.net
+  .. waiting for the registration to expire (lispers.net sweeps once a minute: up to 64 s)
+  .. L2.5 on ribbit
+  .. waiting for the registration to expire (lispers.net sweeps once a minute: up to 64 s)
+L2.5   PARITY             A PASS  B PASS   TTL expiry without refresh (3-second TTL): resolves before; how long until it stops resolving
+  .. L2.6 on lispers.net
+  .. L2.6 on ribbit
+L2.6   PARITY             A PASS  B PASS   a more-specific inside an accept-more-specifics site is accepted
+  .. L2.7 on lispers.net
+  .. L2.7 on ribbit
+L2.7   PARITY             A PASS  B PASS   a more-specific without accept-more-specifics is rejected, no state
+  .. L2.8 on lispers.net
+  .. L2.8 on ribbit
+L2.8   PARITY             A PASS  B PASS   a prefix outside every site is rejected, no state
+  .. L2.10 on lispers.net
+  .. L2.10 on ribbit
+L2.10  PARITY             A PASS  B PASS   two-record register: both applied, one Map-Notify
+  .. L2.11 on lispers.net
+  .. L2.11 on ribbit
+L2.11  PARITY             A PASS  B PASS   longest-prefix match across nested registrations
+  .. L3.1 on lispers.net
+  .. L3.1 on ribbit
+L3.1   PARITY             A PASS  B PASS   HMAC-SHA-256-128 with the correct key is accepted
+  .. L3.2 on lispers.net
+  .. lispers.net stopped serving: restarting lispers.net and Ribbit
+    [19:02:27] starting lispers.net on the agent's machine 10.170.170.1
+      agent: lispers.net: STOP-LISP
+      agent: lispers.net: RUN-LISP 45175 in /opt/lispers.net-0.643/ (python: /opt/python3.12/bin/python)
+      agent: lispers.net: this system's name is 'Debian GNU/Linux' and /bin/sh is dash, so lispers.net's '>&' would not run: it runs with /bin/sh = bash in its own mount namespace
+      agent: lispers.net: RUN-LISP returned; waiting for its Map-Server to answer a register
+      agent: lispers.net: answering Map-Registers on 10.170.170.1:4342 after 6 s
+    [19:02:35] lispers.net is up on 10.170.170.1:4342
+    [19:02:35] starting ribbit on the agent's machine 10.170.170.1
+      agent: ribbit: stopping the front, starting it against the RAM host streamingfrog.com:17283
+      agent: ribbit: the front is serving on 10.170.170.1:14342 after 0.3 s
+    [19:02:36] ribbit is up on 10.170.170.1:14342
+  .. L3.2 on ribbit
+L3.2   A FAIL             A FAIL  B PASS   HMAC-SHA-1-96 with the correct key is accepted
+         lispers.net: notify False -- STOPPED SERVING after this test; evidence: ecode / File "lisp.py", line 6773, in lisp_concat_auth_data / File "lisp.py", line 11592, in byte_swap_64 / TypeError: unsupported operand type(s) for &: 'bytes' and 'int' | [RUN-LISP output] Running pyc files with python3 ... / Removed old
+  .. L3.3 on lispers.net
+  .. L3.3 on ribbit
+L3.3   A FAIL             A FAIL  B PASS   wrong key: rejected, no Map-Notify, no state
+         lispers.net: notify True, resolves to []
+  .. L3.4 on lispers.net
+  .. lispers.net stopped serving: restarting lispers.net and Ribbit
+    [19:02:44] starting lispers.net on the agent's machine 10.170.170.1
+      agent: lispers.net: STOP-LISP
+      agent: lispers.net: RUN-LISP 45175 in /opt/lispers.net-0.643/ (python: /opt/python3.12/bin/python)
+      agent: lispers.net: this system's name is 'Debian GNU/Linux' and /bin/sh is dash, so lispers.net's '>&' would not run: it runs with /bin/sh = bash in its own mount namespace
+      agent: lispers.net: RUN-LISP returned; waiting for its Map-Server to answer a register
+      agent: lispers.net: answering Map-Registers on 10.170.170.1:4342 after 6 s
+    [19:02:53] lispers.net is up on 10.170.170.1:4342
+    [19:02:53] starting ribbit on the agent's machine 10.170.170.1
+      agent: ribbit: stopping the front, starting it against the RAM host streamingfrog.com:17283
+      agent: ribbit: the front is serving on 10.170.170.1:14342 after 0.3 s
+    [19:02:53] ribbit is up on 10.170.170.1:14342
+  .. L3.4 on ribbit
+L3.4   A FAIL             A FAIL  B PASS   wrong key-id: rejected
+         lispers.net: notify False, resolves to None -- STOPPED SERVING after this test; evidence: e "lisp.py", line 7298, in lisp_parse_packet / File "lisp.py", line 10628, in lisp_process_map_register / File "lisp.py", line 9633, in lisp_build_map_notify / KeyError: 9 | [RUN-LISP output] Running pyc files with python3
+  .. L3.5 on lispers.net
+  .. L3.5 on ribbit
+L3.5   A FAIL             A FAIL  B PASS   no authentication on a keyed site: rejected
+         lispers.net: notify True, resolves to ['10.28.28.1']
+  .. L3.6 on lispers.net
+  .. L3.6 on ribbit
+L3.6   A FAIL             A FAIL  B PASS   one bit flipped in the authentication data / in the body: rejected
+         lispers.net: byte 20: notify True, resolves []; byte 50: notify True, resolves []
+  .. L3.7 on lispers.net
+  .. L3.7 on ribbit
+L3.7   KNOWN DIFFERENCE   A FAIL  B PASS   two-record register with the second record unauthorized: nothing applied
+         lispers.net: notify True, first record resolves to ['10.28.28.1']
+         ribbit: notify False, first record resolves to []
+  .. L4.1 on lispers.net
+  .. L4.1 on ribbit
+L4.1   PARITY             A PASS  B PASS   truncation: a valid Map-Register cut at every byte offset; after each, a valid register still works
+  .. L4.2 on lispers.net
+  .. L4.2 on ribbit
+L4.2   PARITY             A PASS  B PASS   wrong type values (0, 9-15) and an ECM whose inner packet is not a Map-Request; still serving after
+  .. L4.3 on lispers.net
+  .. L4.3 on ribbit
+L4.3   PARITY             A PASS  B PASS   record count larger than the records present, and locator count mismatch; still serving after
+  .. L4.4 on lispers.net
+  .. lispers.net stopped serving: restarting lispers.net and Ribbit
+    [19:03:12] starting lispers.net on the agent's machine 10.170.170.1
+      agent: lispers.net: STOP-LISP
+      agent: lispers.net: RUN-LISP 45175 in /opt/lispers.net-0.643/ (python: /opt/python3.12/bin/python)
+      agent: lispers.net: this system's name is 'Debian GNU/Linux' and /bin/sh is dash, so lispers.net's '>&' would not run: it runs with /bin/sh = bash in its own mount namespace
+      agent: lispers.net: RUN-LISP returned; waiting for its Map-Server to answer a register
+      agent: lispers.net: answering Map-Registers on 10.170.170.1:4342 after 6 s
+    [19:03:20] lispers.net is up on 10.170.170.1:4342
+    [19:03:20] starting ribbit on the agent's machine 10.170.170.1
+      agent: ribbit: stopping the front, starting it against the RAM host streamingfrog.com:17283
+      agent: ribbit: the front is serving on 10.170.170.1:14342 after 0.3 s
+    [19:03:21] ribbit is up on 10.170.170.1:14342
+  .. L4.4 on ribbit
+L4.4   A FAIL             A FAIL  B PASS   unknown AFI and mask > 32; still serving after
+         lispers.net: STOPPED SERVING -- STOPPED SERVING after this test; evidence: er / File "lisp.py", line 15174, in add_cache / File "lisp.py", line 11666, in add_cache / File "lisp.py", line 12352, in zero_host_bits / ValueError: negative shift count | [RUN-LISP output] Running pyc files with python3 ... / Removed o
+  .. L4.5 on lispers.net
+  .. L4.5 on ribbit
+L4.5   PARITY             A PASS  B PASS   authentication length disagreeing with the algorithm; still serving after
+  .. L4.8 on lispers.net
+  .. L4.8 on ribbit
+L4.8   PARITY             A PASS  B PASS   an oversize datagram (8 KiB of garbage after a valid header); still serving after
+  .. L4.9 on lispers.net
+  .. L4.9 on ribbit
+L4.9   PARITY             A PASS  B PASS   a flood of 500 malformed packets interleaved with valid registers: every valid one answered
+  .. L1.8 on lispers.net
+  .. L1.8 on ribbit
+L1.8   PARITY             A PASS  B PASS   IPv6 EIDs: register -> Map-Notify (HMAC valid); ECM (inner IPv6) request -> exact record; unregistered -> negative
+  .. L2.9 on lispers.net
+  .. L2.9 on ribbit
+L2.9   PARITY             A PASS  B PASS   merge semantics: two xTRs register one prefix with merge -> the union; one replacing its own changes only its own
+  .. L2.13 on lispers.net
+  .. L2.13 on ribbit
+L2.13  PARITY             A PASS  B PASS   site deleted while registered, then restored: a new register is accepted and resolves (what resolves in between is recorded)
+  .. L2.12 on lispers.net
+  .. L2.12 on ribbit
+L2.12  PARITY             A PASS  B PASS   instance-id isolation: the same prefix registered in iid 0 and iid 7, each resolves only its own
+  .. L1.11 on lispers.net
+  .. L1.11 on ribbit
+L1.11  PARITY             A PASS  B PASS   Info-Request (NAT traversal) -> Info-Reply: same nonce, the global ETR RLOC and port it came from, the private name
+  .. L1.12 on lispers.net
+  .. L1.12 on ribbit
+L1.12  PARITY             A PASS  B PASS   Map-Notify-Ack (authenticated, for a registered prefix) is consumed: no answer, still serving
+  .. L1.13 on lispers.net
+  .. L1.13 on ribbit
+L1.13  OBSERVATION        A PASS  B PASS   DDT-originated Map-Request to the map-server -> Map-Referral: MS-ACK for a registered EID, MS-NOT-REGISTERED inside a site, and outside every site
+         lispers.net: 198.18.141.9: no Map-Referral; answered with type(s) [2]; 198.18.251.9: no Map-Referral; answered with type(s) [2]; 203.0.113.141: no Map-Referral; answered with type(s) [2]
+         ribbit: 198.18.141.9: no Map-Referral; answered with type(s) [2]; 198.18.251.9: no Map-Referral; answered with type(s) [2]; 203.0.113.141: no Map-Referral; answered with type(s) [2]
+  .. L2.14.geo on lispers.net
+  .. L2.14.geo on ribbit
+L2.14.geo PARITY             A PASS  B PASS   an LCAF geo locator (encoded by lispers.net's own encoder) is registered and returned byte for byte
+  .. L2.14.elp on lispers.net
+  .. L2.14.elp on ribbit
+L2.14.elp PARITY             A PASS  B PASS   an LCAF elp locator (encoded by lispers.net's own encoder) is registered and returned byte for byte
+  .. L2.14.rle on lispers.net
+  .. L2.14.rle on ribbit
+L2.14.rle PARITY             A PASS  B PASS   an LCAF rle locator (encoded by lispers.net's own encoder) is registered and returned byte for byte
+  .. L2.14.json on lispers.net
+  .. L2.14.json on ribbit
+L2.14.json A FAIL             A FAIL  B PASS   an LCAF json locator (encoded by lispers.net's own encoder) is registered and returned byte for byte
+         lispers.net: notify False; locator returned none
+  .. L3.12 on lispers.net
+  .. L3.12 on ribbit
+L3.12  PARITY             A PASS  B PASS   encrypted Map-Registers (lisp encryption-keys): the right key -> accepted and resolves; a wrong key or an unknown key-id -> rejected; still serving
+  .. L2.15.shutdown on lispers.net
+  .. L2.15.shutdown on ribbit
+L2.15.shutdown A FAIL             A FAIL  B PASS   site shutdown = yes: a register is rejected, nothing resolves
+         lispers.net: notify True; resolves []
+  .. L2.15.allowed-rloc on lispers.net
+  .. L2.15.allowed-rloc on ribbit
+L2.15.allowed-rloc A FAIL             A FAIL  B PASS   allowed-rloc: a register with an allowed RLOC is accepted, one with another RLOC is not
+         lispers.net: allowed: notify True resolves ['10.28.28.1']; other: notify True resolves []
+  .. L2.15.force-ttl on lispers.net
+  .. L2.15.force-ttl on ribbit
+L2.15.force-ttl PARITY             A PASS  B PASS   force-ttl 30: the Map-Reply's record TTL is 30 seconds (seconds encoding), registered and unregistered
+  .. L2.15.not-registered-yet on lispers.net
+  .. L2.15.not-registered-yet on ribbit
+L2.15.not-registered-yet PARITY             A PASS  B PASS   proxy-reply-action not-registered-yet: an unregistered EID gets a negative reply for the EID itself, action 7, TTL 1
+  .. L2.15.echo-nonce on lispers.net
+  .. L2.15.echo-nonce on ribbit
+L2.15.echo-nonce PARITY             A PASS  B PASS   echo-nonce-capable: the Map-Reply has the E bit
+  .. L2.15.drop on lispers.net
+  .. L2.15.drop on ribbit
+L2.15.drop PARITY             A PASS  B PASS   force-proxy-reply no, proxy-reply-action drop: a registered EID is answered with action drop, TTL 1440, its locators
+  .. L2.15.pitr-drop on lispers.net
+  .. L2.15.pitr-drop on ribbit
+L2.15.pitr-drop PARITY             A PASS  B PASS   pitr-proxy-reply-drop: a PITR's Map-Request for a registered EID is answered with action drop, TTL 1440, its locators
+  .. L2.16 on lispers.net
+  .. L2.16 on ribbit
+L2.16  A FAIL             A FAIL  B PASS   multicast (S,G): a Map-Register for (198.29.1.0/24, 224.1.1.1/32) in a site with a group-prefix is accepted; a Map-Request for (S,G) returns its locators
+         lispers.net: notify False; reply {'afi': 16387, 'locs': [], 'records': 1}
+  .. L2.16b on lispers.net
+  .. L2.16b on ribbit
+L2.16b OBSERVATION        A PASS  B PASS   multicast (S,G) in lispers.net's own (non-RFC, padded) layout: what each system does with it
+         lispers.net: register in lispers.net's layout: notified
+         ribbit: register in lispers.net's layout: notified
+  .. L1.14 on lispers.net
+  .. L1.14 on ribbit
+L1.14  PARITY             A PASS  B PASS   a positive proxy Map-Reply carries TTL 1440 (registered with a 3-minute TTL)
+  .. L2.15.force-nat-proxy-reply on lispers.net
+  .. L2.15.force-nat-proxy-reply on ribbit
+L2.15.force-nat-proxy-reply PARITY             A PASS  B PASS   force-nat-proxy-reply (no xTR behind NAT): a registered EID is proxy-replied with its locators, TTL 1440
+  .. L2.17.set-record-ttl on lispers.net
+  .. L2.17.set-record-ttl on ribbit
+L2.17.set-record-ttl PARITY             A PASS  B PASS   policy: a matching Map-Request gets set-record-ttl 10; one no clause matches gets the implied drop (action 4, no locators)
+  .. L2.17.set-action-drop on lispers.net
+  .. L2.17.set-action-drop on ribbit
+L2.17.set-action-drop PARITY             A PASS  B PASS   policy set-action drop: action 4 (policy-denied), no locators
+  .. L2.17.set-rloc-address on lispers.net
+  .. L2.17.set-rloc-address on ribbit
+L2.17.set-rloc-address PARITY             A PASS  B PASS   policy matching the requesting RLOC with set-rloc-address: the reply's locator is the set address
+  .. L2.18.geo on lispers.net
+  .. L2.18.geo on ribbit
+L2.18.geo PARITY             A PASS  B PASS   policy set-rloc-address + set-geo-name: the answer's locator is the AFI-list LCAF lispers.net's encoder builds for that address and object
+  .. L2.18.elp on lispers.net
+  .. L2.18.elp on ribbit
+L2.18.elp PARITY             A PASS  B PASS   policy set-rloc-address + set-elp-name: the answer's locator is the AFI-list LCAF lispers.net's encoder builds for that address and object
+  .. L2.18.rle on lispers.net
+  .. L2.18.rle on ribbit
+L2.18.rle PARITY             A PASS  B PASS   policy set-rloc-address + set-rle-name: the answer's locator is the AFI-list LCAF lispers.net's encoder builds for that address and object
+  .. L2.18.json on lispers.net
+  .. L2.18.json on ribbit
+L2.18.json PARITY             A PASS  B PASS   policy set-rloc-address + set-json-name: the answer's locator is the AFI-list LCAF lispers.net's encoder builds for that address and object
+  .. L2.9b on lispers.net
+  .. L2.9b on ribbit
+L2.9b  OBSERVATION        A PASS  B PASS   merged Map-Notify: a merge register from a second xTR is acknowledged to EVERY registered xTR RLOC with the merged locator set
+         lispers.net: answers to B's register at A's RLOC 10.28.28.1: []
+         ribbit: answers to B's register at A's RLOC 10.28.28.1: [(4, '400000010acc01a872f00256010200206463e3c69e4b2705a7851c67ee1c8d50a18bfc2d9e09c41b09a75c8ec77bfef2000000030118000000000001c61287000164000000050001c63364870123456789abcdef0123456789ab0b0b0000000000000000')]
+  .. L2C.1 on lispers.net
+  .. L2C.1 on ribbit
+L2C.1  PARITY             A PASS  B PASS   causality: registered through one client, resolved at once through another
+  .. L3.8 on lispers.net
+  .. L3.8 on ribbit
+L3.8   OBSERVATION        A PASS  B PASS   replay: the same accepted Map-Register sent again
+         lispers.net: first notified, replay notified
+         ribbit: first notified, replay notified
+  .. L3.9 on lispers.net
+  .. lispers.net stopped serving: restarting lispers.net and Ribbit
+    [19:05:16] starting lispers.net on the agent's machine 10.170.170.1
+      agent: lispers.net: STOP-LISP
+      agent: lispers.net: RUN-LISP 45175 in /opt/lispers.net-0.643/ (python: /opt/python3.12/bin/python)
+      agent: lispers.net: this system's name is 'Debian GNU/Linux' and /bin/sh is dash, so lispers.net's '>&' would not run: it runs with /bin/sh = bash in its own mount namespace
+      agent: lispers.net: RUN-LISP returned; waiting for its Map-Server to answer a register
+      agent: lispers.net: answering Map-Registers on 10.170.170.1:4342 after 6 s
+    [19:05:25] lispers.net is up on 10.170.170.1:4342
+    [19:05:25] starting ribbit on the agent's machine 10.170.170.1
+      agent: ribbit: stopping the front, starting it against the RAM host streamingfrog.com:17283
+      agent: ribbit: the front is serving on 10.170.170.1:14342 after 0.4 s
+    [19:05:26] ribbit is up on 10.170.170.1:14342
+  .. L3.9 on ribbit
+L3.9   A FAIL             A FAIL  B PASS   the authentication matrix: {SHA-1, SHA-256} x {valid, wrong key, auth length wrong}; a valid SHA-256 register after each is accepted
+         lispers.net: SHA-1/valid: no notify THEN STOPPED SERVING -- STOPPED SERVING after this test; evidence: ecode / File "lisp.py", line 6773, in lisp_concat_auth_data / File "lisp.py", line 11592, in byte_swap_64 / TypeError: unsupported operand type(s) for &: 'bytes' and 'int' | [RUN-LISP output] Running pyc files
+  .. L3.10.first.unauthorized on lispers.net
+  .. L3.10.first.unauthorized on ribbit
+L3.10.first.unauthorized KNOWN DIFFERENCE   A FAIL  B PASS   three-record register, the first record unauthorized: nothing applied
+         lispers.net: notify True; valid records applied: [True, True]
+         ribbit: notify False; valid records applied: [False, False]
+  .. L3.10.first.invalid on lispers.net
+  .. lispers.net stopped serving: restarting lispers.net and Ribbit
+    [19:05:43] starting lispers.net on the agent's machine 10.170.170.1
+      agent: lispers.net: STOP-LISP
+      agent: lispers.net: RUN-LISP 45175 in /opt/lispers.net-0.643/ (python: /opt/python3.12/bin/python)
+      agent: lispers.net: this system's name is 'Debian GNU/Linux' and /bin/sh is dash, so lispers.net's '>&' would not run: it runs with /bin/sh = bash in its own mount namespace
+      agent: lispers.net: RUN-LISP returned; waiting for its Map-Server to answer a register
+      agent: lispers.net: answering Map-Registers on 10.170.170.1:4342 after 6 s
+    [19:05:51] lispers.net is up on 10.170.170.1:4342
+    [19:05:51] starting ribbit on the agent's machine 10.170.170.1
+      agent: ribbit: stopping the front, starting it against the RAM host streamingfrog.com:17283
+      agent: ribbit: the front is serving on 10.170.170.1:14342 after 0.4 s
+    [19:05:52] ribbit is up on 10.170.170.1:14342
+  .. L3.10.first.invalid on ribbit
+L3.10.first.invalid A FAIL             A FAIL  B PASS   three-record register, the first record invalid: nothing applied
+         lispers.net: notify False; valid records applied: [False, False] -- STOPPED SERVING after this test; evidence: er / File "lisp.py", line 15174, in add_cache / File "lisp.py", line 11666, in add_cache / File "lisp.py", line 12352, in zero_host_bits / ValueError: negative shift count | [RUN-LISP output] Running py
+  .. L3.10.middle.unauthorized on lispers.net
+  .. L3.10.middle.unauthorized on ribbit
+L3.10.middle.unauthorized KNOWN DIFFERENCE   A FAIL  B PASS   three-record register, the middle record unauthorized: nothing applied
+         lispers.net: notify True; valid records applied: [True, True]
+         ribbit: notify False; valid records applied: [False, False]
+  .. L3.10.middle.invalid on lispers.net
+  .. lispers.net stopped serving: restarting lispers.net and Ribbit
+    [19:06:06] starting lispers.net on the agent's machine 10.170.170.1
+      agent: lispers.net: STOP-LISP
+      agent: lispers.net: RUN-LISP 45175 in /opt/lispers.net-0.643/ (python: /opt/python3.12/bin/python)
+      agent: lispers.net: this system's name is 'Debian GNU/Linux' and /bin/sh is dash, so lispers.net's '>&' would not run: it runs with /bin/sh = bash in its own mount namespace
+      agent: lispers.net: RUN-LISP returned; waiting for its Map-Server to answer a register
+      agent: lispers.net: answering Map-Registers on 10.170.170.1:4342 after 6 s
+    [19:06:15] lispers.net is up on 10.170.170.1:4342
+    [19:06:15] starting ribbit on the agent's machine 10.170.170.1
+      agent: ribbit: stopping the front, starting it against the RAM host streamingfrog.com:17283
+      agent: ribbit: the front is serving on 10.170.170.1:14342 after 0.4 s
+    [19:06:15] ribbit is up on 10.170.170.1:14342
+  .. L3.10.middle.invalid on ribbit
+L3.10.middle.invalid A FAIL             A FAIL  B PASS   three-record register, the middle record invalid: nothing applied
+         lispers.net: notify False; valid records applied: [False, False] -- STOPPED SERVING after this test; evidence: er / File "lisp.py", line 15174, in add_cache / File "lisp.py", line 11666, in add_cache / File "lisp.py", line 12352, in zero_host_bits / ValueError: negative shift count | [RUN-LISP output] Running py
+  .. L3.10.last.unauthorized on lispers.net
+  .. L3.10.last.unauthorized on ribbit
+L3.10.last.unauthorized KNOWN DIFFERENCE   A FAIL  B PASS   three-record register, the last record unauthorized: nothing applied
+         lispers.net: notify True; valid records applied: [True, True]
+         ribbit: notify False; valid records applied: [False, False]
+  .. L3.10.last.invalid on lispers.net
+  .. lispers.net stopped serving: restarting lispers.net and Ribbit
+    [19:06:29] starting lispers.net on the agent's machine 10.170.170.1
+      agent: lispers.net: STOP-LISP
+      agent: lispers.net: RUN-LISP 45175 in /opt/lispers.net-0.643/ (python: /opt/python3.12/bin/python)
+      agent: lispers.net: this system's name is 'Debian GNU/Linux' and /bin/sh is dash, so lispers.net's '>&' would not run: it runs with /bin/sh = bash in its own mount namespace
+      agent: lispers.net: RUN-LISP returned; waiting for its Map-Server to answer a register
+      agent: lispers.net: answering Map-Registers on 10.170.170.1:4342 after 6 s
+    [19:06:37] lispers.net is up on 10.170.170.1:4342
+    [19:06:37] starting ribbit on the agent's machine 10.170.170.1
+      agent: ribbit: stopping the front, starting it against the RAM host streamingfrog.com:17283
+      agent: ribbit: the front is serving on 10.170.170.1:14342 after 0.4 s
+    [19:06:38] ribbit is up on 10.170.170.1:14342
+  .. L3.10.last.invalid on ribbit
+L3.10.last.invalid A FAIL             A FAIL  B PASS   three-record register, the last record invalid: nothing applied
+         lispers.net: notify False; valid records applied: [False, False] -- STOPPED SERVING after this test; evidence: er / File "lisp.py", line 15174, in add_cache / File "lisp.py", line 11666, in add_cache / File "lisp.py", line 12352, in zero_host_bits / ValueError: negative shift count | [RUN-LISP output] Running py
+  .. L4.6a on lispers.net
+  .. L4.6a on ribbit
+L4.6a  PARITY             A PASS  B PASS   a Map-Register with zero records: no Map-Notify; still serving
+  .. L4.6b on lispers.net
+  .. L4.6b on ribbit
+L4.6b  PARITY             A PASS  B PASS   the most records that fit a 1500-byte datagram (40): all applied, one Map-Notify
+  .. L4.6c on lispers.net
+  .. L4.6c on ribbit
+L4.6c  PARITY             A PASS  B PASS   the most locators in one record that fit a 1500-byte datagram (100): all returned
+  .. L4.7 on lispers.net
+  .. L4.7 on ribbit
+L4.7   PARITY             A PASS  B PASS   TTL extreme: 0x7fffffff minutes is accepted and resolves
+  .. L4.10 on lispers.net
+      agent: lispers.net: STOP-LISP
+      agent: lispers.net: RUN-LISP 45175 in /opt/lispers.net-0.643/ (python: /opt/python3.12/bin/python)
+      agent: lispers.net: this system's name is 'Debian GNU/Linux' and /bin/sh is dash, so lispers.net's '>&' would not run: it runs with /bin/sh = bash in its own mount namespace
+      agent: lispers.net: RUN-LISP returned; waiting for its Map-Server to answer a register
+      agent: lispers.net: answering Map-Registers on 10.170.170.1:4342 after 6 s
+      agent: ribbit: stopping the front, starting it against the RAM host streamingfrog.com:17283
+      agent: ribbit: the front is serving on 10.170.170.1:14342 after 0.4 s
+  .. L4.10 on ribbit
+      agent: ribbit: the front is serving on 10.170.170.1:14342 after 0.8 s
+L4.10  OBSERVATION        A PASS  B PASS   restart of the map-server with live registrations: what is retained
+         lispers.net: after restart: not retained ([])
+         ribbit: after restart: retained, resolves to ['10.28.28.1']
+  .. L4.11 on lispers.net
+  .. L4.11 on ribbit
+L4.11  OBSERVATION        A PASS  B PASS   the RAM host is lost mid-run (Ribbit only; lispers.net holds its state in its own process)
+         lispers.net: not applicable
+         ribbit: not applicable
+
+A FAIL 14, KNOWN DIFFERENCE 4, OBSERVATION 7, PARITY 53   (report: acceptance-out/ACCEPTANCE-REPORT.md)
+################################################################################
+##  performance -- perf v2 (package v0.82-front-decides)
+################################################################################
+load generator 10.28.28.1 (up to 4 processes) -> lispers.net 10.170.170.1:4342, Ribbit 10.170.170.1:14342; monitors publishing: control
+  !! no 'ram' monitor is publishing: its numbers will be missing
+== lispers.net: starting fresh
+    [19:07:18] starting lispers.net on the agent's machine 10.170.170.1
+      agent: lispers.net: STOP-LISP
+      agent: lispers.net: RUN-LISP 45175 in /opt/lispers.net-0.643/ (python: /opt/python3.12/bin/python)
+      agent: lispers.net: this system's name is 'Debian GNU/Linux' and /bin/sh is dash, so lispers.net's '>&' would not run: it runs with /bin/sh = bash in its own mount namespace
+      agent: lispers.net: RUN-LISP returned; waiting for its Map-Server to answer a register
+      agent: lispers.net: answering Map-Registers on 10.170.170.1:4342 after 6 s
+    [19:07:27] lispers.net is up on 10.170.170.1:4342
+    [PRELOAD_WITHOUT_ACKS_V1] lispers.net: 1000 registrations in 25 Map-Registers sent in 0.5 s; 3 of 3 sampled resolve, the last 2.38 s after the last register left
+  .. lispers.net reg, 1 clients (5s warmup, 20s measured)
+  lispers.net reg           1 cl   1000 st         8 ops/s  p50 103.98 p95 125.02 p99 242.48 ms  err 0 unans 3 | CPU s/1M: control 7070.1 ram - load 2732.0
+  .. lispers.net reg, 4 clients (5s warmup, 20s measured)
+  lispers.net reg           4 cl   1000 st        30 ops/s  p50 105.82 p95 149.46 p99 218.15 ms  err 0 unans 13 | CPU s/1M: control 6755.4 ram - load 1007.2
+    [STEP_SETTLES_V1] lispers.net idle after 2 s
+  .. lispers.net reg, 16 clients (5s warmup, 20s measured)
+  lispers.net reg          16 cl   1000 st       125 ops/s  p50 107.51 p95 152.25 p99 223.07 ms  err 0 unans 38 | CPU s/1M: control 6354.5 ram - load 364.7
+    [STEP_SETTLES_V1] lispers.net idle after 2 s
+  .. lispers.net reg, 64 clients (5s warmup, 20s measured)
+  lispers.net reg          64 cl   1000 st       186 ops/s  p50 346.19 p95 385.93 p99 409.15 ms  err 0 unans 6 | CPU s/1M: control 6423.8 ram - load 314.5
+  .. lispers.net reg, 256 clients (5s warmup, 20s measured)
+  lispers.net reg         256 cl   1000 st         0 ops/s  p50   0.00 p95   0.00 p99   0.00 ms  err 0 unans 4940 | CPU s/1M: control - ram - load -
+    [STEP_SETTLES_V1] lispers.net idle after 4 s
+  .. lispers.net reg, 1024 clients (5s warmup, 20s measured)
+  lispers.net reg         1024 cl   1000 st         0 ops/s  p50   0.00 p95   0.00 p99   0.00 ms  err 0 unans 19468 | CPU s/1M: control - ram - load -
+    [STEP_SETTLES_V1] lispers.net idle after 5 s
+  .. lispers.net reg, 2048 clients (5s warmup, 20s measured)
+  lispers.net reg         2048 cl   1000 st         0 ops/s  p50   0.00 p95   0.00 p99   0.00 ms  err 0 unans 38766 | CPU s/1M: control - ram - load -
+    [STEP_SETTLES_V1] lispers.net idle after 5 s
+  .. lispers.net req, 1 clients (5s warmup, 20s measured)
+  lispers.net req           1 cl   1000 st         7 ops/s  p50 111.88 p95 168.01 p99 228.11 ms  err 0 unans 4 | CPU s/1M: control 13478.3 ram - load 2873.7
+    [STEP_SETTLES_V1] lispers.net idle after 2 s
+  .. lispers.net req, 4 clients (5s warmup, 20s measured)
+  lispers.net req           4 cl   1000 st        33 ops/s  p50 113.07 p95 147.47 p99 227.95 ms  err 0 unans 3 | CPU s/1M: control 12607.4 ram - load 879.4
+    [STEP_SETTLES_V1] lispers.net idle after 2 s
+  .. lispers.net req, 16 clients (5s warmup, 20s measured)
+  lispers.net req          16 cl   1000 st        86 ops/s  p50 175.85 p95 251.84 p99 321.40 ms  err 0 unans 4 | CPU s/1M: control 12556.9 ram - load 468.9
+    [STEP_SETTLES_V1] lispers.net idle after 2 s
+  .. lispers.net req, 64 clients (5s warmup, 20s measured)
+  lispers.net req          64 cl   1000 st        87 ops/s  p50 702.55 p95 820.78 p99 856.48 ms  err 0 unans 90 | CPU s/1M: control 13087.5 ram - load 475.2
+    [STEP_SETTLES_V1] lispers.net idle after 2 s
+  .. lispers.net req, 256 clients (5s warmup, 20s measured)
+  lispers.net req         256 cl   1000 st         0 ops/s  p50   0.00 p95   0.00 p99   0.00 ms  err 0 unans 4934 | CPU s/1M: control - ram - load -
+    [STEP_SETTLES_V1] lispers.net idle after 7 s
+  .. lispers.net req, 1024 clients (5s warmup, 20s measured)
+  lispers.net req         1024 cl   1000 st         0 ops/s  p50   0.00 p95   0.00 p99   0.00 ms  err 0 unans 19480 | CPU s/1M: control - ram - load -
+    [STEP_SETTLES_V1] lispers.net idle after 8 s
+  .. lispers.net req, 2048 clients (5s warmup, 20s measured)
+  lispers.net req         2048 cl   1000 st         0 ops/s  p50   0.00 p95   0.00 p99   0.00 ms  err 0 unans 38912 | CPU s/1M: control - ram - load -
+    [STEP_SETTLES_V1] lispers.net idle after 9 s
+  .. lispers.net mixed, 1 clients (5s warmup, 20s measured)
+  lispers.net mixed         1 cl   1000 st         6 ops/s  p50 111.41 p95 161.34 p99 274.70 ms  err 0 unans 6 | CPU s/1M: control 13305.1 ram - load 3509.3
+    [STEP_SETTLES_V1] lispers.net idle after 2 s
+  .. lispers.net mixed, 4 clients (5s warmup, 20s measured)
+  lispers.net mixed         4 cl   1000 st        27 ops/s  p50 114.43 p95 201.28 p99 302.27 ms  err 0 unans 11 | CPU s/1M: control 12904.4 ram - load 954.4
+    [STEP_SETTLES_V1] lispers.net idle after 2 s
+  .. lispers.net mixed, 16 clients (5s warmup, 20s measured)
+  lispers.net mixed        16 cl   1000 st        86 ops/s  p50 173.16 p95 229.38 p99 275.47 ms  err 0 unans 17 | CPU s/1M: control 12434.3 ram - load 522.3
+    [STEP_SETTLES_V1] lispers.net idle after 2 s
+  .. lispers.net mixed, 64 clients (5s warmup, 20s measured)
+  lispers.net mixed        64 cl   1000 st        95 ops/s  p50 690.87 p95 716.17 p99 746.68 ms  err 0 unans 7 | CPU s/1M: control 12240.3 ram - load 442.7
+    [STEP_SETTLES_V1] lispers.net idle after 2 s
+  .. lispers.net mixed, 256 clients (5s warmup, 20s measured)
+  lispers.net mixed       256 cl   1000 st         0 ops/s  p50   0.00 p95   0.00 p99   0.00 ms  err 0 unans 4873 | CPU s/1M: control - ram - load -
+    [STEP_SETTLES_V1] lispers.net idle after 8 s
+  .. lispers.net mixed, 1024 clients (5s warmup, 20s measured)
+  lispers.net mixed       1024 cl   1000 st         0 ops/s  p50   0.00 p95   0.00 p99   0.00 ms  err 0 unans 19447 | CPU s/1M: control - ram - load -
+    [STEP_SETTLES_V1] lispers.net idle after 8 s
+  .. lispers.net mixed, 2048 clients (5s warmup, 20s measured)
+  lispers.net mixed       2048 cl   1000 st         0 ops/s  p50   0.00 p95   0.00 p99   0.00 ms  err 0 unans 38914 | CPU s/1M: control - ram - load -
+    [STEP_SETTLES_V1] lispers.net idle after 10 s
+    [19:17:50] starting lispers.net on the agent's machine 10.170.170.1
+      agent: lispers.net: STOP-LISP
+      agent: lispers.net: RUN-LISP 45175 in /opt/lispers.net-0.643/ (python: /opt/python3.12/bin/python)
+      agent: lispers.net: this system's name is 'Debian GNU/Linux' and /bin/sh is dash, so lispers.net's '>&' would not run: it runs with /bin/sh = bash in its own mount namespace
+      agent: lispers.net: RUN-LISP returned; waiting for its Map-Server to answer a register
+      agent: lispers.net: answering Map-Registers on 10.170.170.1:4342 after 6 s
+    [19:18:00] lispers.net is up on 10.170.170.1:4342
+  .. lispers.net scale (host prefixes): started fresh, preloading 1 registrations
+    [PRELOAD_WITHOUT_ACKS_V1] lispers.net: 1 registrations in 1 Map-Registers sent in 0.0 s; 1 of 1 sampled resolve, the last 0.11 s after the last register left
+  lispers.net req-host     16 cl      1 st       140 ops/s  p50 104.83 p95 157.51 p99 235.71 ms  err 0 unans 9 | CPU s/1M: control 3899.6 ram - load 427.5
+    [STEP_SETTLES_V1] lispers.net idle after 2 s
+    [19:18:29] starting lispers.net on the agent's machine 10.170.170.1
+      agent: lispers.net: STOP-LISP
+      agent: lispers.net: RUN-LISP 45175 in /opt/lispers.net-0.643/ (python: /opt/python3.12/bin/python)
+      agent: lispers.net: this system's name is 'Debian GNU/Linux' and /bin/sh is dash, so lispers.net's '>&' would not run: it runs with /bin/sh = bash in its own mount namespace
+      agent: lispers.net: RUN-LISP returned; waiting for its Map-Server to answer a register
+      agent: lispers.net: answering Map-Registers on 10.170.170.1:4342 after 6 s
+    [19:18:38] lispers.net is up on 10.170.170.1:4342
+  .. lispers.net scale (host prefixes): started fresh, preloading 100 registrations
+    [PRELOAD_WITHOUT_ACKS_V1] lispers.net: 100 registrations in 3 Map-Registers sent in 0.0 s; 1 of 1 sampled resolve, the last 0.16 s after the last register left
+  lispers.net req-host     16 cl    100 st       128 ops/s  p50 105.43 p95 146.02 p99 240.02 ms  err 0 unans 35 | CPU s/1M: control 4234.2 ram - load 408.5
+    [STEP_SETTLES_V1] lispers.net idle after 2 s
+    [19:19:07] starting lispers.net on the agent's machine 10.170.170.1
+      agent: lispers.net: STOP-LISP
+      agent: lispers.net: RUN-LISP 45175 in /opt/lispers.net-0.643/ (python: /opt/python3.12/bin/python)
+      agent: lispers.net: this system's name is 'Debian GNU/Linux' and /bin/sh is dash, so lispers.net's '>&' would not run: it runs with /bin/sh = bash in its own mount namespace
+      agent: lispers.net: RUN-LISP returned; waiting for its Map-Server to answer a register
+      agent: lispers.net: answering Map-Registers on 10.170.170.1:4342 after 6 s
+    [19:19:16] lispers.net is up on 10.170.170.1:4342
+  .. lispers.net scale (host prefixes): started fresh, preloading 1000 registrations
+    [PRELOAD_WITHOUT_ACKS_V1] lispers.net: 1000 registrations in 25 Map-Registers sent in 0.5 s; 3 of 3 sampled resolve, the last 2.82 s after the last register left
+  lispers.net req-host     16 cl   1000 st       110 ops/s  p50 117.02 p95 205.35 p99 408.35 ms  err 0 unans 26 | CPU s/1M: control 6997.3 ram - load 437.6
+    [STEP_SETTLES_V1] lispers.net idle after 2 s
+    [19:19:49] starting lispers.net on the agent's machine 10.170.170.1
+      agent: lispers.net: STOP-LISP
+      agent: lispers.net: RUN-LISP 45175 in /opt/lispers.net-0.643/ (python: /opt/python3.12/bin/python)
+      agent: lispers.net: this system's name is 'Debian GNU/Linux' and /bin/sh is dash, so lispers.net's '>&' would not run: it runs with /bin/sh = bash in its own mount namespace
+      agent: lispers.net: RUN-LISP returned; waiting for its Map-Server to answer a register
+      agent: lispers.net: answering Map-Registers on 10.170.170.1:4342 after 6 s
+    [19:19:58] lispers.net is up on 10.170.170.1:4342
+  .. lispers.net scale (host prefixes): started fresh, preloading 10000 registrations
+    [PRELOAD_WITHOUT_ACKS_V1] lispers.net: 10000 registrations in 250 Map-Registers sent in 5.0 s; 19 of 25 sampled resolve, the last 85.51 s after the last register left
+  lispers.net req-host     16 cl  10000 st   FAILED -- 6 of 25 sampled EIDs do not resolve after the preload (first: 198.18.30.20/32, 198.18.31.166/32, 198.18.33.58/32)
+    [19:23:06] starting lispers.net on the agent's machine 10.170.170.1
+      agent: lispers.net: STOP-LISP
+      agent: lispers.net: RUN-LISP 45175 in /opt/lispers.net-0.643/ (python: /opt/python3.12/bin/python)
+      agent: lispers.net: this system's name is 'Debian GNU/Linux' and /bin/sh is dash, so lispers.net's '>&' would not run: it runs with /bin/sh = bash in its own mount namespace
+      agent: lispers.net: RUN-LISP returned; waiting for its Map-Server to answer a register
+      agent: lispers.net: answering Map-Registers on 10.170.170.1:4342 after 6 s
+    [19:23:14] lispers.net is up on 10.170.170.1:4342
+  .. lispers.net scale (nested prefixes): started fresh, preloading 1 registrations
+    [PRELOAD_WITHOUT_ACKS_V1] lispers.net: 1 registrations in 1 Map-Registers sent in 0.0 s; 1 of 1 sampled resolve, the last 0.11 s after the last register left
+  lispers.net req-nested   16 cl      1 st       134 ops/s  p50 104.02 p95 124.85 p99 178.11 ms  err 0 unans 33 | CPU s/1M: control 4072.1 ram - load 390.7
+    [STEP_SETTLES_V1] lispers.net idle after 2 s
+    [19:23:44] starting lispers.net on the agent's machine 10.170.170.1
+      agent: lispers.net: STOP-LISP
+      agent: lispers.net: RUN-LISP 45175 in /opt/lispers.net-0.643/ (python: /opt/python3.12/bin/python)
+      agent: lispers.net: this system's name is 'Debian GNU/Linux' and /bin/sh is dash, so lispers.net's '>&' would not run: it runs with /bin/sh = bash in its own mount namespace
+      agent: lispers.net: RUN-LISP returned; waiting for its Map-Server to answer a register
+      agent: lispers.net: answering Map-Registers on 10.170.170.1:4342 after 6 s
+    [19:23:52] lispers.net is up on 10.170.170.1:4342
+  .. lispers.net scale (nested prefixes): started fresh, preloading 100 registrations
+    [PRELOAD_WITHOUT_ACKS_V1] lispers.net: 100 registrations in 3 Map-Registers sent in 0.0 s; 1 of 1 sampled resolve, the last 0.17 s after the last register left
+  lispers.net req-nested   16 cl    100 st       118 ops/s  p50 111.35 p95 169.07 p99 240.69 ms  err 0 unans 31 | CPU s/1M: control 4318.3 ram - load 485.6
+    [STEP_SETTLES_V1] lispers.net idle after 2 s
+    [19:24:22] starting lispers.net on the agent's machine 10.170.170.1
+      agent: lispers.net: STOP-LISP
+      agent: lispers.net: RUN-LISP 45175 in /opt/lispers.net-0.643/ (python: /opt/python3.12/bin/python)
+      agent: lispers.net: this system's name is 'Debian GNU/Linux' and /bin/sh is dash, so lispers.net's '>&' would not run: it runs with /bin/sh = bash in its own mount namespace
+      agent: lispers.net: RUN-LISP returned; waiting for its Map-Server to answer a register
+      agent: lispers.net: answering Map-Registers on 10.170.170.1:4342 after 6 s
+    [19:24:30] lispers.net is up on 10.170.170.1:4342
+  .. lispers.net scale (nested prefixes): started fresh, preloading 1000 registrations
+    [PRELOAD_WITHOUT_ACKS_V1] lispers.net: 1000 registrations in 25 Map-Registers sent in 0.5 s; 3 of 3 sampled resolve, the last 2.03 s after the last register left
+  lispers.net req-nested   16 cl   1000 st       117 ops/s  p50 111.48 p95 138.14 p99 280.07 ms  err 0 unans 52 | CPU s/1M: control 7325.6 ram - load 450.1
+    [19:25:02] starting lispers.net on the agent's machine 10.170.170.1
+      agent: lispers.net: STOP-LISP
+      agent: lispers.net: RUN-LISP 45175 in /opt/lispers.net-0.643/ (python: /opt/python3.12/bin/python)
+      agent: lispers.net: this system's name is 'Debian GNU/Linux' and /bin/sh is dash, so lispers.net's '>&' would not run: it runs with /bin/sh = bash in its own mount namespace
+      agent: lispers.net: RUN-LISP returned; waiting for its Map-Server to answer a register
+      agent: lispers.net: answering Map-Registers on 10.170.170.1:4342 after 6 s
+    [19:25:11] lispers.net is up on 10.170.170.1:4342
+  .. lispers.net scale (nested prefixes): started fresh, preloading 10000 registrations
+    [PRELOAD_WITHOUT_ACKS_V1] lispers.net: 6877 registrations in 172 Map-Registers sent in 3.4 s; 18 of 18 sampled resolve, the last 60.74 s after the last register left
+  lispers.net req-nested   16 cl   6877 st        46 ops/s  p50 351.61 p95 375.90 p99 457.04 ms  err 0 unans 0 | CPU s/1M: control 23549.8 ram - load 701.7
+== ribbit: starting fresh
+    [19:26:47] starting ribbit on the agent's machine 10.170.170.1
+      agent: ribbit: stopping the front, starting it against the RAM host streamingfrog.com:17283
+      agent: ribbit: the front is serving on 10.170.170.1:14342 after 0.4 s
+    [19:26:48] ribbit is up on 10.170.170.1:14342
+    [PRELOAD_WITHOUT_ACKS_V1] ribbit: 1000 registrations in 25 Map-Registers sent in 0.5 s; 3 of 3 sampled resolve, the last 0.34 s after the last register left
+  .. ribbit reg, 1 clients (5s warmup, 20s measured)
+  ribbit      reg           1 cl   1000 st         9 ops/s  p50 101.62 p95 113.62 p99 217.61 ms  err 0 unans 1 | CPU s/1M: control 1547.0 ram 1215.5 load 2169.4
+  .. ribbit reg, 4 clients (5s warmup, 20s measured)
+  ribbit      reg           4 cl   1000 st        32 ops/s  p50 102.12 p95 143.20 p99 236.10 ms  err 0 unans 12 | CPU s/1M: control 1313.3 ram 886.1 load 1007.5
+  .. ribbit reg, 16 clients (5s warmup, 20s measured)
+  ribbit      reg          16 cl   1000 st       151 ops/s  p50 102.55 p95 111.89 p99 181.65 ms  err 0 unans 3 | CPU s/1M: control 1036.4 ram 662.3 load 336.8
+    [STEP_SETTLES_V1] ribbit idle after 2 s
+  .. ribbit reg, 64 clients (5s warmup, 20s measured)
+  ribbit      reg          64 cl   1000 st       555 ops/s  p50 107.31 p95 142.27 p99 212.90 ms  err 0 unans 47 | CPU s/1M: control 1011.4 ram 554.4 load 332.4
+  .. ribbit reg, 256 clients (5s warmup, 20s measured)
+  ribbit      reg         256 cl   1000 st      1357 ops/s  p50 172.93 p95 230.03 p99 278.13 ms  err 0 unans 243 | CPU s/1M: control 904.8 ram 403.0 load 229.9
+    [STEP_SETTLES_V1] ribbit idle after 2 s
+  .. ribbit reg, 1024 clients (5s warmup, 20s measured)
+  ribbit      reg         1024 cl   1000 st      1474 ops/s  p50 682.04 p95 817.39 p99 845.74 ms  err 0 unans 285 | CPU s/1M: control 885.2 ram 392.4 load 189.6
+  .. ribbit reg, 2048 clients (5s warmup, 20s measured)
+    [19:29:54] [SPACE_SESSION_REOPENED_V1] session to streamingfrog.com:17283 lost (recv: Connection reset by peer): opening a new one and sending the same operation again
+  ribbit      reg         2048 cl   1000 st       184 ops/s  p50 722.93 p95 1053.34 p99 1083.61 ms  err 0 unans 36344 | CPU s/1M: control 4876.3 ram 1775.9 load 1209.7
+  .. ribbit req, 1 clients (5s warmup, 20s measured)
+  ribbit      req           1 cl   1000 st         6 ops/s  p50 102.12 p95 196.72 p99 253.83 ms  err 0 unans 6 | CPU s/1M: control 245.9 ram 491.8 load 3197.4
+  .. ribbit req, 4 clients (5s warmup, 20s measured)
+  ribbit      req           4 cl   1000 st        30 ops/s  p50 102.51 p95 220.72 p99 256.41 ms  err 0 unans 10 | CPU s/1M: control 150.5 ram 83.6 load 967.1
+  .. ribbit req, 16 clients (5s warmup, 20s measured)
+  ribbit      req          16 cl   1000 st       137 ops/s  p50 102.85 p95 116.17 p99 163.33 ms  err 0 unans 35 | CPU s/1M: control 113.2 ram 21.9 load 409.1
+  .. ribbit req, 64 clients (5s warmup, 20s measured)
+  ribbit      req          64 cl   1000 st       497 ops/s  p50 106.04 p95 133.35 p99 223.40 ms  err 0 unans 183 | CPU s/1M: control 95.7 ram 4.0 load 242.1
+  .. ribbit req, 256 clients (5s warmup, 20s measured)
+  ribbit      req         256 cl   1000 st      1402 ops/s  p50 175.06 p95 235.89 p99 354.55 ms  err 0 unans 36 | CPU s/1M: control 88.1 ram 1.8 load 164.0
+    [STEP_SETTLES_V1] ribbit idle after 2 s
+  .. ribbit req, 1024 clients (5s warmup, 20s measured)
+  ribbit      req         1024 cl   1000 st      1468 ops/s  p50 668.86 p95 793.63 p99 827.67 ms  err 0 unans 996 | CPU s/1M: control 88.2 ram 1.4 load 161.0
+  .. ribbit req, 2048 clients (5s warmup, 20s measured)
+  ribbit      req         2048 cl   1000 st       247 ops/s  p50 676.81 p95 1038.36 p99 1068.85 ms  err 0 unans 35861 | CPU s/1M: control 443.4 ram 8.1 load 803.7
+  .. ribbit mixed, 1 clients (5s warmup, 20s measured)
+  ribbit      mixed         1 cl   1000 st         6 ops/s  p50 102.87 p95 193.26 p99 330.31 ms  err 0 unans 5 | CPU s/1M: control 787.4 ram 708.7 load 3322.6
+  .. ribbit mixed, 4 clients (5s warmup, 20s measured)
+  ribbit      mixed         4 cl   1000 st        33 ops/s  p50 101.84 p95 145.18 p99 210.60 ms  err 0 unans 9 | CPU s/1M: control 455.2 ram 242.8 load 725.7
+  .. ribbit mixed, 16 clients (5s warmup, 20s measured)
+  ribbit      mixed        16 cl   1000 st       136 ops/s  p50 103.40 p95 199.42 p99 296.07 ms  err 0 unans 2 | CPU s/1M: control 400.1 ram 194.6 load 312.3
+  .. ribbit mixed, 64 clients (5s warmup, 20s measured)
+  ribbit      mixed        64 cl   1000 st       556 ops/s  p50 106.16 p95 124.61 p99 267.63 ms  err 0 unans 48 | CPU s/1M: control 346.1 ram 168.1 load 250.3
+    [STEP_SETTLES_V1] ribbit idle after 2 s
+  .. ribbit mixed, 256 clients (5s warmup, 20s measured)
+  ribbit      mixed       256 cl   1000 st      1391 ops/s  p50 172.09 p95 248.86 p99 440.21 ms  err 0 unans 22 | CPU s/1M: control 329.2 ram 157.4 load 167.3
+    [STEP_SETTLES_V1] ribbit idle after 2 s
+  .. ribbit mixed, 1024 clients (5s warmup, 20s measured)
+  ribbit      mixed       1024 cl   1000 st      1479 ops/s  p50 668.14 p95 803.89 p99 892.33 ms  err 0 unans 842 | CPU s/1M: control 339.5 ram 155.9 load 191.6
+    [STEP_SETTLES_V1] ribbit idle after 2 s
+  .. ribbit mixed, 2048 clients (5s warmup, 20s measured)
+    [19:35:42] [SPACE_SESSION_REOPENED_V1] session to streamingfrog.com:17283 lost (recv: Connection reset by peer): opening a new one and sending the same operation again
+  ribbit      mixed       2048 cl   1000 st        30 ops/s  p50 1042.01 p95 1080.04 p99 1092.80 ms  err 0 unans 38121 | CPU s/1M: control 10283.8 ram 5559.3 load 7591.0
+    [19:36:05] [SPACE_SESSION_REOPENED_V1] session to streamingfrog.com:17283 lost (recv: Connection reset by peer): opening a new one and sending the same operation again
+    [19:36:07] starting ribbit on the agent's machine 10.170.170.1
+      agent: ribbit: stopping the front, starting it against the RAM host streamingfrog.com:17283
+      agent: ribbit: the front is serving on 10.170.170.1:14342 after 0.9 s
+    [19:36:08] ribbit is up on 10.170.170.1:14342
+  .. ribbit scale (host prefixes): started fresh, preloading 1 registrations
+    [PRELOAD_WITHOUT_ACKS_V1] ribbit: 1 registrations in 1 Map-Registers sent in 0.0 s; 1 of 1 sampled resolve, the last 0.10 s after the last register left
+  ribbit      req-host     16 cl      1 st       138 ops/s  p50 102.48 p95 111.26 p99 192.66 ms  err 0 unans 31 | CPU s/1M: control 105.0 ram 18.1 load 425.0
+    [19:36:33] starting ribbit on the agent's machine 10.170.170.1
+      agent: ribbit: stopping the front, starting it against the RAM host streamingfrog.com:17283
+      agent: ribbit: the front is serving on 10.170.170.1:14342 after 0.8 s
+    [19:36:34] ribbit is up on 10.170.170.1:14342
+  .. ribbit scale (host prefixes): started fresh, preloading 100 registrations
+    [PRELOAD_WITHOUT_ACKS_V1] ribbit: 100 registrations in 3 Map-Registers sent in 0.0 s; 1 of 1 sampled resolve, the last 0.10 s after the last register left
+  ribbit      req-host     16 cl    100 st       136 ops/s  p50 103.19 p95 158.47 p99 337.35 ms  err 0 unans 22 | CPU s/1M: control 121.1 ram 18.3 load 472.5
+    [19:37:00] starting ribbit on the agent's machine 10.170.170.1
+      agent: ribbit: stopping the front, starting it against the RAM host streamingfrog.com:17283
+      agent: ribbit: the front is serving on 10.170.170.1:14342 after 0.8 s
+    [19:37:01] ribbit is up on 10.170.170.1:14342
+  .. ribbit scale (host prefixes): started fresh, preloading 1000 registrations
+    [PRELOAD_WITHOUT_ACKS_V1] ribbit: 1000 registrations in 25 Map-Registers sent in 0.5 s; 3 of 3 sampled resolve, the last 0.30 s after the last register left
+  ribbit      req-host     16 cl   1000 st       149 ops/s  p50 102.65 p95 116.59 p99 239.26 ms  err 0 unans 2 | CPU s/1M: control 110.6 ram 16.8 load 443.9
+    [19:37:28] starting ribbit on the agent's machine 10.170.170.1
+      agent: ribbit: stopping the front, starting it against the RAM host streamingfrog.com:17283
+      agent: ribbit: the front is serving on 10.170.170.1:14342 after 0.8 s
+    [19:37:29] ribbit is up on 10.170.170.1:14342
+  .. ribbit scale (host prefixes): started fresh, preloading 10000 registrations
+    [PRELOAD_WITHOUT_ACKS_V1] ribbit: 10000 registrations in 250 Map-Registers sent in 5.0 s; 25 of 25 sampled resolve, the last 2.88 s after the last register left
+  ribbit      req-host     16 cl  10000 st       128 ops/s  p50 102.48 p95 112.73 p99 237.54 ms  err 0 unans 48 | CPU s/1M: control 124.6 ram 19.5 load 446.6
+    [19:38:07] starting ribbit on the agent's machine 10.170.170.1
+      agent: ribbit: stopping the front, starting it against the RAM host streamingfrog.com:17283
+      agent: ribbit: the front is serving on 10.170.170.1:14342 after 2.1 s
+    [19:38:10] ribbit is up on 10.170.170.1:14342
+  .. ribbit scale (nested prefixes): started fresh, preloading 1 registrations
+    [PRELOAD_WITHOUT_ACKS_V1] ribbit: 1 registrations in 1 Map-Registers sent in 0.0 s; 1 of 1 sampled resolve, the last 0.10 s after the last register left
+  ribbit      req-nested   16 cl      1 st       138 ops/s  p50 102.95 p95 160.74 p99 301.53 ms  err 0 unans 19 | CPU s/1M: control 112.6 ram 18.2 load 512.7
+    [19:38:35] starting ribbit on the agent's machine 10.170.170.1
+      agent: ribbit: stopping the front, starting it against the RAM host streamingfrog.com:17283
+      agent: ribbit: the front is serving on 10.170.170.1:14342 after 1.8 s
+    [19:38:37] ribbit is up on 10.170.170.1:14342
+  .. ribbit scale (nested prefixes): started fresh, preloading 100 registrations
+    [PRELOAD_WITHOUT_ACKS_V1] ribbit: 100 registrations in 3 Map-Registers sent in 0.0 s; 1 of 1 sampled resolve, the last 0.11 s after the last register left
+  ribbit      req-nested   16 cl    100 st       138 ops/s  p50 102.33 p95 110.63 p99 181.90 ms  err 0 unans 32 | CPU s/1M: control 119.4 ram 18.1 load 447.1
+    [19:39:03] starting ribbit on the agent's machine 10.170.170.1
+      agent: ribbit: stopping the front, starting it against the RAM host streamingfrog.com:17283
+      agent: ribbit: the front is serving on 10.170.170.1:14342 after 2.1 s
+    [19:39:05] ribbit is up on 10.170.170.1:14342
+  .. ribbit scale (nested prefixes): started fresh, preloading 1000 registrations
+    [PRELOAD_WITHOUT_ACKS_V1] ribbit: 1000 registrations in 25 Map-Registers sent in 0.5 s; 3 of 3 sampled resolve, the last 0.77 s after the last register left
+  ribbit      req-nested   16 cl   1000 st       125 ops/s  p50 102.56 p95 129.98 p99 317.13 ms  err 0 unans 49 | CPU s/1M: control 127.8 ram 24.0 load 467.7
+    [19:39:33] starting ribbit on the agent's machine 10.170.170.1
+      agent: ribbit: stopping the front, starting it against the RAM host streamingfrog.com:17283
+      agent: ribbit: the front is serving on 10.170.170.1:14342 after 1.8 s
+    [19:39:35] ribbit is up on 10.170.170.1:14342
+  .. ribbit scale (nested prefixes): started fresh, preloading 10000 registrations
+    [PRELOAD_WITHOUT_ACKS_V1] ribbit: 6877 registrations in 172 Map-Registers sent in 3.4 s; 18 of 18 sampled resolve, the last 2.15 s after the last register left
+  ribbit      req-nested   16 cl   6877 st       126 ops/s  p50 102.76 p95 144.61 p99 251.02 ms  err 0 unans 48 | CPU s/1M: control 119.3 ram 23.9 load 414.7
+performance: in acceptance-out/ACCEPTANCE-REPORT.md (numbers: perf.json; timeline: PERF-TIMELINE.html)
+    [19:40:09] [WIRE_WATCH_V1] tracing 4442 unanswered wait(s) through both machines' captures (the run ended)
+    [RETRANSMITS_AS_AN_XTR_V1] 418 copies sent again; 55 waits answered only after one
+    [WIRE_WATCH_V1] unanswered: LATE 913, NEVER CAME BACK 1532, NEVER REACHED 238, NO ANSWER LEFT 1755, not traceable 4   (report: acceptance-out/WIRE-REPORT.md)
+[DIAG-SOCK] session frogram-cpp-76f860365c2668ff to streamingfrog.com:17283 req: rtt_ms=82.0 rttvar_ms=4.7 cwnd=10 retrans=1 lost=0 sndbuf=65536 notsent=0 busy_ms=8220 rwnd_limited_ms=0 sndbuf_limited_ms=0 acked_B=3408 recv_B=0 | ret: rtt_ms=1147.3 rttvar_ms=445.4 cwnd=10 retrans=1 lost=0 sndbuf=87040 notsent=0 busy_ms=1212 rwnd_limited_ms=0 sndbuf_limited_ms=0 acked_B=46 recv_B=7994 | data: rtt_ms=1204.6 rttvar_ms=467.2 cwnd=10 retrans=1 lost=0 sndbuf=65536 notsent=0 busy_ms=1272 rwnd_limited_ms=0 sndbuf_limited_ms=0 acked_B=44 recv_B=13
+[DIAG-SOCK] session frogram-cpp-c8e879f6f7d34a3 to streamingfrog.com:17283 req: rtt_ms=81.7 rttvar_ms=9.2 cwnd=10 retrans=1 lost=0 sndbuf=65536 notsent=0 busy_ms=4636 rwnd_limited_ms=0 sndbuf_limited_ms=0 acked_B=4010 recv_B=0 | ret: rtt_ms=80.2 rttvar_ms=31.2 cwnd=10 retrans=0 lost=0 sndbuf=87040 notsent=0 busy_ms=80 rwnd_limited_ms=0 sndbuf_limited_ms=0 acked_B=45 recv_B=147783 | data: rtt_ms=89.1 rttvar_ms=4.7 cwnd=72 retrans=0 lost=0 sndbuf=65536 notsent=0 busy_ms=408 rwnd_limited_ms=0 sndbuf_limited_ms=0 acked_B=91183 recv_B=13
+[DIAG-SOCK] session frogram-cpp-2c255b1d95ab2825 to streamingfrog.com:17283 req: rtt_ms=78.1 rttvar_ms=1.2 cwnd=3 retrans=40 lost=0 sndbuf=65536 notsent=0 busy_ms=355168 rwnd_limited_ms=0 sndbuf_limited_ms=0 acked_B=35131 recv_B=0 | ret: rtt_ms=80.9 rttvar_ms=31.5 cwnd=10 retrans=0 lost=0 sndbuf=87040 notsent=0 busy_ms=80 rwnd_limited_ms=0 sndbuf_limited_ms=0 acked_B=46 recv_B=425253 | data: rtt_ms=77.5 rttvar_ms=29.5 cwnd=10 retrans=0 lost=0 sndbuf=65536 notsent=0 busy_ms=76 rwnd_limited_ms=0 sndbuf_limited_ms=0 acked_B=44 recv_B=13
+[DIAG-LZ4] size<=: tried won bytes_in bytes_saved
+[DIAG-LZ4]    128: 16 0 1202 0
+[DIAG-LZ4]    256: 1 1 147 5
+[DIAG-LZ4] size<=: tried won bytes_in bytes_saved
+[DIAG-LZ4]    128: 16 0 1848 0
+root@FrogNetHost:/opt/frognet_semantic/ribbit/examples/lispers.net#

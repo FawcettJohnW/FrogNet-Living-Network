@@ -63,6 +63,7 @@ EOF
 
 # ALLOW: "id<TAB>path-glob<TAB>line-regex (ERE; . = any)<TAB>reason"
 ALLOW=$(cat <<'EOF'
+belt	opt/frognet_semantic/ribbit/examples/frogtastic-ram/front/*	.	Meshtastic's own firmware (vendored at the pin in STOCK): its comment, not a FrogNet second mechanism.
 *	usr/local/bin/frognet_prune_removed.sh	.	Names what it removes (its T3 section, with the T4b block at its end, is the installer's upgrade step).
 *	*	ALIVE_ONE_TARGET_V1|RETURN_IP_DEV_ONLY_V1|NEIGHBORS_ONLY_V1|MONITOR_HOSTS_ONE_SOURCE_V1|RESOLV_LOCAL_UPSTREAM_V1|NM_OWNS_THE_LAN_ADDRESS_V1|ONE_DB_UNIT_V1|UNBOUND_ONE_STEP_V1|SERVICES_ON_THE_VENV_V1|ONE_PACKAGE_LIST_V1|SH_FAILURES_SAID_V1|UPLINK_JUDGED_LOCALLY_V1|BOOT_MERGE_IS_THE_HOOK_V1|WG_IMPL_RECORDED_V1|AP_MANAGED_BY_NETSTART_V1|ONE_TUNE_SCRIPT_V1|UPLINK_BY_FUNCTION_V1|PONDS_ARE_THE_OPERATORS_V1|NO_BUILT_IN_AREA_V1|REGION_SWITCH_ONE_FILE_V1|LAN_DEV_ONLY_V1|WG_TEARDOWN_BY_ITS_OWNER_V1|HOOK_ASKS_THE_WATCHER_V1|ONE_MONITOR_TRUTH_V1|NETSTART_OWNS_THE_IDENTITY_V1|WIRED_LAN_IS_NOT_THE_SERVED_LAN_V1|AP_UNMANAGED_PERSISTS_V1|NETSTART_SCOPES_DHCP_V1	A T4b/T4c/T5 tag line: it records what went and that it is gone.
 public-dns	usr/local/bin/frognet_metrics_emit.sh	-4 -j route get 8\.8\.8\.8	A kernel route LOOKUP (which device the default route uses); no packet is sent, nothing is asked of that address.

@@ -142,12 +142,13 @@ int main(int argc, char** argv) {
         // The session: this Engine's Session holds the semantic socket and the high-speed data socket open for as
         // long as the service runs.
         Engine e(host, port, api);
+        e.require_same_build("lisp-service");                 // [MIXED_BUILDS_REFUSED_V1]
         std::string udp_text = "null";
         std::unique_ptr<frognet::LispBoundary> front;
         if (ms || mr) {
             const Json& udp = need(cfg, "udp", "a map-server / map-resolver");
             udp_text = Json::quote(need(udp, "address", "udp").s + ":" + std::to_string(int(need(udp, "port", "udp").n)));
-            front.reset(new frognet::LispBoundary(host, port, int(udp["port"].n), frognet::LispBoundary::REGISTER_WORKERS, api));
+            front.reset(new frognet::LispBoundary(host, port, int(udp["port"].n), 0, api));
             say("LISP control-plane front on UDP " + std::to_string(int(udp["port"].n)));
         }
 
