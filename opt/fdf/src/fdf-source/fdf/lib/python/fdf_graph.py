@@ -23,7 +23,7 @@ import ipaddress
 from collections import deque
 from typing import Dict, List, Optional, Set, Tuple
 
-BUILD_TAG = "fdf-2026-11-09-r53"
+BUILD_TAG = "fdf-2026-11-15-r54"
 
 OVERLAY_SECOND_OCTETS = ("253", "254")      # 10.253/16 region edges, 10.254 the frognet0 pond range: never a served /24
 
@@ -166,10 +166,46 @@ class Graph:
         for child, (parent, my_addr, peer_addr) in self.parent.items():
             self.adj[child].append((parent, my_addr, peer_addr))
             self.adj[parent].append((child, peer_addr, my_addr))
+        # [NO_STRANDED_MEMBER_V1] the forest must not cut a member off. A .1 holder whose only links are to children
+        # that chose other parents keeps no edge, and a tree with no exit and no hub link reaches nothing. Such a tree
+        # is joined to a neighbouring tree over one of its own links (the lowest .1, then the names): a link between
+        # two trees adds no cycle, so every path stays unique. Trees that have a way out are left exactly as chosen.
+        # (topo_asym_three_sites: B_end1 gave B_gw its only lease; B_gw's parent was A_gw; B_end1 had no route.)
+        self.joined: List[Tuple[str, str, str, str]] = []                # (stranded side, other side, its addr, other addr)
+        while True:
+            comp = self._components()
+            out = {c for c, ms in comp.items() if any(m in self.uplink or m in self.hub_link for m in ms)}
+            ofc = {m: c for c, ms in comp.items() for m in ms}
+            best = None
+            for child, parent, child_addr, parent_dot1 in self.links:
+                a, b = ofc[child], ofc[parent]
+                if a == b or (a in out and b in out):
+                    continue
+                k = (tuple(int(x) for x in parent_dot1.split(".")), child, parent)
+                if best is None or k < best[0]:
+                    best = (k, child, parent, child_addr, parent_dot1)
+            if best is None:
+                break
+            _k, child, parent, child_addr, parent_dot1 = best
+            self.adj[child].append((parent, child_addr, parent_dot1))
+            self.adj[parent].append((child, parent_dot1, child_addr))
+            self.joined.append((child, parent, child_addr, parent_dot1))
         self._dist_cache: Dict[str, Dict[str, int]] = {}
         self._first_hop: Dict[str, Dict[str, Tuple[str, str, str]]] = {}
 
     # ------------------------------------------------------------------ paths
+    def _components(self) -> Dict[str, Set[str]]:
+        """The forest's trees: representative (lowest name) -> members."""
+        seen: Set[str] = set()
+        comp: Dict[str, Set[str]] = {}
+        for h in sorted(self.hosts):
+            if h in seen:
+                continue
+            dist, _ = self._walk(self.adj, h)
+            comp[h] = set(dist)
+            seen |= comp[h]
+        return comp
+
     @staticmethod
     def _walk(adj, src):
         dist = {src: 0}

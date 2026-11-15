@@ -189,5 +189,21 @@ if __name__ == "__main__":
   T11c = T1 + [{"name": "n", "alive": True, "facts": {"role": "participant", "name": "n", "guid": "g"}}]
   check("11c control: a reading participant gets no route", [r for r in Graph(T11c).plan("z")["hub_routes"] if r.startswith("10.252")], [])
 
+  # ---------------------------------------------------------------- 12. [NO_STRANDED_MEMBER_V1] (topo_asym_three_sites)
+  #    e gives g its only lease; g also holds a lease from a, whose side has the exit, so g's one upward link is to a.
+  #    e has no other link, no uplink, no hub link: before the fix it had no edge at all and reached nothing.
+  T12 = [HUB,
+         host("a", [uplink("eth0", "192.168.0.5", "eth", 1000), own("eth1", "10.90.2.1", "FrogNetHost.a"), hub("wg0", "10.253.9.1"),
+                    given("eth1", "10.90.2.20", "bb:1", "g")]),
+         host("g", [held("eth1", "10.90.2.20", "bb:1"), own("eth0", "10.91.2.1", "FrogNetHost.g"), held("eth2", "10.91.1.20", "bb:2")]),
+         host("e", [own("eth0", "10.91.1.1", "FrogNetHost.e"), given("eth0", "10.91.1.20", "bb:2", "g")])]
+  g12 = Graph(T12)
+  check("12 g's one upward link is to a (toward the exit)", g12.parent["g"][0], "a")
+  check("12 e is joined over its own lease, not left stranded", g12.joined, [("g", "e", "10.91.1.20", "10.91.1.1")])
+  check("12 e exits through g to a", g12.plan("e")["exit"], "a")
+  check("12 a routes e's /24 via g", ("10.91.1.0/24", "10.90.2.20", "eth1") in g12.plan("a")["routes"], True)
+  check("12 a registers e's /24 at the hub", "10.91.1.0/24" in g12.plan("a")["maps"], True)
+  check("12 control: T1 (no stranded tree) is joined nowhere", Graph(T1).joined, [])
+
   print("\n%s" % ("ALL OK" if not FAIL else "%d FAILED" % FAIL))
   sys.exit(1 if FAIL else 0)

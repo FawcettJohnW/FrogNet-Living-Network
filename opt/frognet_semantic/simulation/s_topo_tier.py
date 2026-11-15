@@ -94,6 +94,7 @@ class Net:
         self.dests = None        # the /24s verified as destinations (default: every served /24)
         self.expect_paths = False    # the generator states every path exactly
         self.down = set()        # members whose session is ended (egress-lost, churn)
+        self.site_of = {}        # baselines that span sites: member -> site ([WAN_IS_THE_HUB_V1])
 
     def node(self, n, served=(), uplink=None, hub=False):
         self.nodes[n] = {"served": list(served), "uplink": uplink, "hub": hub}
@@ -280,6 +281,35 @@ class Net:
             self.parent_of[h] = pick
             adj[h].add(pick)
             adj[pick].add(h)
+        # [NO_STRANDED_MEMBER_V1], as fdf_graph states it: a tree with no exit and no hub link is joined to a
+        # neighbouring tree over its lowest-.1 link (then the names); trees with a way out are left as chosen.
+        self.joined = []
+        while True:
+            comp, seen = {}, set()
+            for h in sorted(adj):
+                if h not in seen:
+                    d, _ = self._bfs(adj, h)
+                    for m in d:
+                        comp[m] = h
+                    seen |= set(d)
+            out = {comp[m] for m in adj if self.nodes[m]["uplink"] or self.nodes[m]["hub"]}
+            best = None
+            for s in self.segs:
+                p = s["parent"]
+                if p in self.down:
+                    continue
+                for child, *_ in s["members"]:
+                    if child in self.down or comp[child] == comp[p] or (comp[child] in out and comp[p] in out):
+                        continue
+                    k = (tuple(int(x) for x in s["dot1"].split(".")), child, p)
+                    if best is None or k < best:
+                        best = k
+            if best is None:
+                break
+            _d, child, p = best
+            adj[child].add(p)
+            adj[p].add(child)
+            self.joined.append((child, p))
         return adj
 
     def expectation(self):
@@ -299,23 +329,70 @@ class Net:
 
 
 # ================================================================== the 20 hardware topologies, as facts
-def from_baseline(key):
+# [WAN_IS_THE_HUB_V1] the sites of the hardware topologies that span the Internet, as each builder's docstring states
+# them. Those were recorded when site gateways tunnelled to each other. In CroakOS, nodes at different sites have no
+# tunnel to each other: each gateway is a region member with an uplink and a link to the region's hub, and traffic
+# between sites goes member -> hub -> member. So a segment between two sites is not a lease here; its endpoints
+# are given the hub link and the uplink, and its /30 is gone. Every pair must still be reached, as on the hardware,
+# and every pair between sites must cross the hub. Topologies not listed have no Internet links and are unchanged.
+SITES = {
+    "topo_asym_chain_wg_star": {"A": ["Ca1", "Ca2", "Ca3"], "B": ["HubB", "Bs1", "Bs2", "Bs3"]},
+    "topo_asym_lan2_wg_lan3": {"A": ["A1", "A2"], "B": ["B1", "B2", "B3"]},
+    "topo_asym_ring_wg_lan": {"A": ["Ra", "Rb", "Rc", "Rd"], "B": ["Lb1", "Lb2", "Lb3"]},
+    "topo_asym_three_sites": {"A": ["A_w1", "A_gw"], "B": ["B_end1", "B_gw", "B_end2"], "C": ["C_hub", "C_s1", "C_s2"]},
+    "topo_dual_wg_transit_bridge": {"G1": ["G1_gw", "G1_w1"], "G2": ["G2_gw", "G2_t"], "BR": ["BR_gw", "BR_w1"],
+                                    "G3": ["G3_hub", "G3_s1", "G3_s2"], "G4": ["G4_gw"]},
+    "topo_multilan_shared_wg_transit": {"A": ["A_gw", "A_w1", "A_w2"], "B": ["B_gw", "B_m", "B_t"],
+                                        "C": ["C_hub", "C_s1", "C_s2", "C_s3"], "D": ["D_gw"]},
+    "topo_pond_full_mesh": {"Seattle": ["Seattle"], "NewYork": ["NewYork"], "Austin": ["Austin"]},
+    "topo_pond_hub_spoke": {"Seattle": ["Seattle"], "NewYork": ["NewYork"], "Austin": ["Austin"]},
+    "topo_pond_with_workers": {"Seattle": ["Seattle", "Seattle-W1"], "NewYork": ["NewYork", "NewYork-W1"],
+                               "Austin": ["Austin", "Austin-W1"]},
+}
+
+
+# [NO_STRANDED_MEMBER_V1] regression: this baseline as it failed before (its site links kept as leases, no hub), where
+# B_end1 gave B_gw its only lease and B_gw's one upward link went to A_gw. Every pair must be reached.
+AS_LEASES = ("topo_asym_three_sites",)
+
+
+def from_baseline(key, as_hub=True):
     """frognet_sim's builder for a hardware-recorded topology, as the facts fdf-facts writes on those machines: on each
     L2 segment the member holding the segment's .1 gives the leases, every other member holds one. A node's served /24
-    is its first interface's (frognet_sim.assign_identities); the destinations verified are those /24s."""
+    is its first interface's (frognet_sim.assign_identities); the destinations verified are those /24s. A segment
+    between two sites ([WAN_IS_THE_HUB_V1]) is the region hub instead."""
     import frognet_sim as H
     topo = getattr(H, key)()
     H.assign_identities(topo)
     net = Net(key)
     notes = []
+    site_of = {m: s for s, ms in SITES.get(key, {}).items() for m in ms} if as_hub else {}
+    if not as_hub:
+        net.name = key + "@as-leases"
+    if site_of and set(site_of) != set(topo.nodes):
+        raise RuntimeError(f"{key}: SITES names {sorted(set(site_of) ^ set(topo.nodes))} that the builder does not match")
+    wan, gws = [], set()
+    for seg in topo.segments:
+        if site_of and len({site_of[n] for n, _i in seg}) > 1:
+            wan.append(seg)
+            gws |= {n for n, _i in seg}
+    wan_ips = {topo.nodes[n].ifaces[i].ip for seg in wan for n, i in seg}
     for n, node in topo.nodes.items():
-        dot1s = [i.ip for i in node.ifaces.values() if i.ip.endswith(".1") and i.ip.startswith("10.")]
-        net.node(n, served=dot1s)
+        dot1s = [i.ip for i in node.ifaces.values() if i.ip.endswith(".1") and i.ip.startswith("10.") and i.ip not in wan_ips]
+        if n in gws:
+            net.node(n, served=dot1s, uplink=("eth", 1000), hub=True)
+        else:
+            net.node(n, served=dot1s)
+    net.site_of = site_of
+    if wan:
+        notes.append(f"{len(wan)} link(s) between sites carried by the region hub; gateways {sorted(gws)}")
     dests = set()
     for n, node in topo.nodes.items():
         if node.frognet_ip and node.frognet_ip.endswith(".1"):
             dests.add(node.frognet_ip.rsplit(".", 1)[0] + ".0/24")
     for seg in topo.segments:
+        if seg in wan:
+            continue
         mem = [(n, i, topo.nodes[n].ifaces[i].ip) for n, i in seg]
         par = [m for m in mem if m[2].endswith(".1")]
         if not par:
@@ -578,7 +655,7 @@ def verify(parts, plans, net, out_tsv, hardware_all_reach=False):
     """Every live node to every served /24. Generated topologies: the path must be exactly the expected one, and a
     pair with no expected path must not be reached. Baselines: every pair reached (hardware did); a path longer than
     the segments allow is counted, not failed."""
-    exp, exits = net.expectation() if net.expect_paths else ({}, {})
+    exp, exits = net.expectation() if (net.expect_paths or net.site_of) else ({}, {})
     bad, rows, longer, unreached_ok = [], 0, 0, 0
     with open(out_tsv, "w") as out:
         out.write("src\tdst\tpath\thops\texpected\tverdict\n")
@@ -596,7 +673,16 @@ def verify(parts, plans, net, out_tsv, hardware_all_reach=False):
                         verdict = "WRONG PATH"
                 elif verdict == "ok":
                     sh = net.shortest_lan_hops(src, owner)
-                    if sh is not None and len(path) - 1 > sh:
+                    if net.site_of:
+                        # [WAN_IS_THE_HUB_V1] between sites the path crosses the hub; inside a site it never does,
+                        # and it is the path the forest calls for, hop for hop
+                        want = exp.get((src, net_)) if exp else None
+                        cross = net.site_of[src] != net.site_of[owner]
+                        if cross != ("hub" in path):
+                            verdict = "CROSSES THE HUB INSIDE A SITE" if not cross else "BETWEEN SITES WITHOUT THE HUB"
+                        elif want is not None and path != want:
+                            verdict = "WRONG PATH"
+                    elif sh is not None and len(path) - 1 > sh:
                         longer += 1
                         verdict = "ok (longer than the segments allow)"
                 rows += 1
@@ -889,15 +975,17 @@ def main():
             key = os.path.basename(f)[:-5]
             if "baselines" in want or key in want:
                 jobs.append(("baseline", key))
+                if key in AS_LEASES:
+                    jobs.append(("baseline-leases", key))
     gens = {"tree": lambda: gen_tree(3, 3, 2), "mesh": gen_mesh, "forest": lambda: gen_forest(4, 6)}
     for g in gens:
         if "generated" in want or g in want:
             jobs.append(("generated", g))
     results, nbad = [], 0
     for kind, key in jobs:
-        if kind == "baseline":
-            net, notes = from_baseline(key)
-            print(f"  {key}: {len(net.nodes)} nodes, {len(net.served_by())} served /24s (hardware: every pair reached)")
+        if kind.startswith("baseline"):
+            net, notes = from_baseline(key, as_hub=(kind == "baseline"))
+            print(f"  {net.name}: {len(net.nodes)} nodes, {len(net.served_by())} served /24s (hardware: every pair reached)")
             for n_ in notes:
                 print(f"    note: {n_}")
             r = run_net(net, [], a, fdf_graph.Graph, a.out, notes)
