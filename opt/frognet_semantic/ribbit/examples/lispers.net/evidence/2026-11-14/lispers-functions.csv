@@ -1,0 +1,1140 @@
+scope,file,function,first,last,nloc,ccn,class,ran,reason
+in,chacha.py,ChaCha.__init__,115,130,4,1,LISP semantics,,reachable from the job's entry points
+in,chacha.py,ChaCha._key_setup,134,177,33,4,LISP semantics,,reachable from the job's entry points
+in,chacha.py,ChaCha.iv_setup,181,205,11,2,LISP semantics,,reachable from the job's entry points
+in,chacha.py,ChaCha.encrypt,210,249,15,5,LISP semantics,,reachable from the job's entry points
+in,chacha.py,ChaCha._chacha_scramble,255,281,19,3,LISP semantics,,reachable from the job's entry points
+in,chacha.py,ChaCha._quarterround,304,327,21,1,LISP semantics,,reachable from the job's entry points
+in,chacha.py,ChaCha._xor,330,334,5,2,LISP semantics,,reachable from the job's entry points
+in,lisp-core.py,lisp_get_info_source,1767,1782,11,7,LISP semantics,,reachable from the job's entry points
+in,lisp-core.py,lisp_core_dispatch_packet,1909,2050,76,26,coordination/state,,reachable from the job's entry points
+in,lisp-core.py,lisp_timeout_info_sources,2180,2214,19,8,LISP semantics,,reachable from the job's entry points
+in,lisp-mr.py,lisp_timeout_referral_entry,406,427,11,3,LISP semantics,,reachable from the job's entry points
+in,lisp-mr.py,lisp_timeout_referral_cache_walk,436,453,7,3,coordination/state,,reachable from the job's entry points
+in,lisp-mr.py,lisp_timeout_referral_cache,462,482,11,2,coordination/state,,reachable from the job's entry points
+in,lisp-mr.py,lisp_mr_startup,491,525,22,3,coordination/state,,reachable from the job's entry points
+in,lisp-mr.py,lisp_mr_parse_packet,549,601,25,7,coordination/state,,reachable from the job's entry points
+in,lisp-ms.py,lisp_site_command,67,259,132,63,configuration,,reachable from the job's entry points
+in,lisp-ms.py,lisp_ms_auth_prefix_command,267,301,22,10,configuration,,reachable from the job's entry points
+in,lisp-ms.py,lisp_ms_map_server_peer_command,309,399,62,28,configuration,,reachable from the job's entry points
+in,lisp-ms.py,lisp_ms_encryption_keys_command,435,445,8,4,configuration,,reachable from the job's entry points
+in,lisp-ms.py,lisp_timeout_site_eid,1161,1193,19,6,LISP semantics,,reachable from the job's entry points
+in,lisp-ms.py,lisp_timeout_individuals,1201,1210,7,4,LISP semantics,,reachable from the job's entry points
+in,lisp-ms.py,lisp_timeout_sites,1219,1268,23,7,LISP semantics,,reachable from the job's entry points
+in,lisp-ms.py,lisp_ms_startup,1439,1475,20,3,coordination/state,,reachable from the job's entry points
+in,lisp.py,lisp_record_traceback,582,598,14,3,LISP semantics,,reachable from the job's entry points
+in,lisp.py,lisp_set_exception,606,619,5,2,LISP semantics,,reachable from the job's entry points
+in,lisp.py,lisp_record_thread_traceback,629,641,12,3,coordination/state,,reachable from the job's entry points
+in,lisp.py,lisp_is_raspbian,649,651,3,2,LISP semantics,,reachable from the job's entry points
+in,lisp.py,lisp_is_macos,704,705,2,1,LISP semantics,,reachable from the job's entry points
+in,lisp.py,lisp_is_x86,722,724,3,1,LISP semantics,,reachable from the job's entry points
+in,lisp.py,lisp_is_apple_m,732,734,3,1,LISP semantics,,reachable from the job's entry points
+in,lisp.py,lisp_process_logfile,809,817,7,2,coordination/state,,reachable from the job's entry points
+in,lisp.py,lisp_i_am,826,847,16,9,LISP semantics,,reachable from the job's entry points
+in,lisp.py,lprint,857,874,14,6,LISP semantics,,reachable from the job's entry points
+in,lisp.py,fprint,883,886,4,1,LISP semantics,,reachable from the job's entry points
+in,lisp.py,lisp_print_banner,945,954,8,2,LISP semantics,,reachable from the job's entry points
+in,lisp.py,green,962,964,3,2,LISP semantics,,reachable from the job's entry points
+in,lisp.py,red,990,992,3,2,LISP semantics,,reachable from the job's entry points
+in,lisp.py,blue,1000,1002,3,2,LISP semantics,,reachable from the job's entry points
+in,lisp.py,bold,1010,1012,3,2,LISP semantics,,reachable from the job's entry points
+in,lisp.py,lisp_print_cour,1082,1084,3,1,LISP semantics,,reachable from the job's entry points
+in,lisp.py,lisp_get_control_nonce,1184,1185,2,1,LISP semantics,,reachable from the job's entry points
+in,lisp.py,lisp_hex_string,1195,1198,4,2,LISP semantics,,reachable from the job's entry points
+in,lisp.py,lisp_get_timestamp,1206,1207,2,1,LISP semantics,,reachable from the job's entry points
+in,lisp.py,lisp_print_elapsed,1225,1229,5,3,LISP semantics,,reachable from the job's entry points
+in,lisp.py,lisp_print_eid_tuple,1256,1269,10,4,LISP semantics,,reachable from the job's entry points
+in,lisp.py,lisp_convert_6to4,1278,1281,4,2,LISP semantics,,reachable from the job's entry points
+in,lisp.py,lisp_convert_4to6,1293,1297,5,2,LISP semantics,,reachable from the job's entry points
+in,lisp.py,lisp_ip_checksum,1362,1390,14,3,LISP semantics,,reachable from the job's entry points
+in,lisp.py,lisp_get_local_addresses,1776,1878,66,30,LISP semantics,,reachable from the job's entry points
+in,lisp.py,lisp_get_all_addresses,1888,1910,17,10,LISP semantics,,reachable from the job's entry points
+in,lisp.py,lisp_keys.__init__,3449,3486,36,5,LISP semantics,,reachable from the job's entry points
+in,lisp.py,lisp_keys.copy_keypair,3489,3492,4,1,LISP semantics,,reachable from the job's entry points
+in,lisp.py,lisp_keys.get_iv,3495,3510,15,4,LISP semantics,,reachable from the job's entry points
+in,lisp.py,lisp_keys.key_length,3513,3515,3,2,LISP semantics,,reachable from the job's entry points
+in,lisp.py,lisp_keys.print_key,3518,3522,5,1,LISP semantics,,reachable from the job's entry points
+in,lisp.py,lisp_keys.normalize_pub_key,3525,3531,6,3,LISP semantics,,reachable from the job's entry points
+in,lisp.py,lisp_keys.print_keys,3534,3549,14,6,LISP semantics,,reachable from the job's entry points
+in,lisp.py,lisp_keys.compare_keys,3552,3556,5,4,LISP semantics,,reachable from the job's entry points
+in,lisp.py,lisp_keys.compute_public_key,3559,3565,6,2,LISP semantics,,reachable from the job's entry points
+in,lisp.py,lisp_keys.compute_shared_key,3568,3602,17,3,LISP semantics,,reachable from the job's entry points
+in,lisp.py,lisp_keys.compute_encrypt_icv_keys,3605,3634,20,5,LISP semantics,,reachable from the job's entry points
+in,lisp.py,lisp_keys.add_key_by_nonce,3657,3661,4,2,LISP semantics,,reachable from the job's entry points
+in,lisp.py,lisp_keys.delete_key_by_nonce,3664,3666,3,2,LISP semantics,,reachable from the job's entry points
+in,lisp.py,lisp_keys.add_key_by_rloc,3669,3683,8,4,LISP semantics,,reachable from the job's entry points
+in,lisp.py,lisp_keys.encode_lcaf,3687,3719,16,4,LISP semantics,,reachable from the job's entry points
+in,lisp.py,lisp_keys.decode_lcaf,3722,3806,45,10,LISP semantics,,reachable from the job's entry points
+in,lisp.py,lisp_control_header.__init__,3859,3869,11,1,LISP semantics,,reachable from the job's entry points
+in,lisp.py,lisp_control_header.decode,3872,3894,18,12,LISP semantics,,reachable from the job's entry points
+in,lisp.py,lisp_control_header.is_info_reply,3901,3902,2,2,LISP semantics,,reachable from the job's entry points
+in,lisp.py,lisp_control_header.is_smr,3909,3910,2,2,LISP semantics,,reachable from the job's entry points
+in,lisp.py,lisp_control_header.is_ddt,3917,3918,2,2,LISP semantics,,reachable from the job's entry points
+in,lisp.py,lisp_control_header.is_to_etr,3921,3922,2,2,LISP semantics,,reachable from the job's entry points
+in,lisp.py,lisp_control_header.is_to_ms,3925,3926,2,2,LISP semantics,,reachable from the job's entry points
+in,lisp.py,lisp_map_register.__init__,3977,3997,21,1,LISP semantics,,reachable from the job's entry points
+in,lisp.py,lisp_map_register.print_map_register,4000,4020,19,12,LISP semantics,,reachable from the job's entry points
+in,lisp.py,lisp_map_register.encode,4023,4057,25,13,LISP semantics,,reachable from the job's entry points
+in,lisp.py,lisp_map_register.zero_auth,4060,4074,13,4,LISP semantics,,reachable from the job's entry points
+in,lisp.py,lisp_map_register.decode,4085,4170,60,22,LISP semantics,,reachable from the job's entry points
+in,lisp.py,lisp_map_register.decode_xtr_id,4183,4193,11,2,LISP semantics,,reachable from the job's entry points
+in,lisp.py,lisp_map_notify.__init__,4228,4245,18,1,LISP semantics,,reachable from the job's entry points
+in,lisp.py,lisp_map_notify.print_notify,4248,4263,15,9,LISP semantics,,reachable from the job's entry points
+in,lisp.py,lisp_map_notify.zero_auth,4266,4275,8,4,LISP semantics,,reachable from the job's entry points
+in,lisp.py,lisp_map_notify.encode,4278,4306,20,3,LISP semantics,,reachable from the job's entry points
+in,lisp.py,lisp_map_notify.decode,4309,4356,35,7,LISP semantics,,reachable from the job's entry points
+in,lisp.py,lisp_map_request.__init__,4408,4433,26,1,LISP semantics,,reachable from the job's entry points
+in,lisp.py,lisp_map_request.print_prefix,4436,4440,4,2,LISP semantics,,reachable from the job's entry points
+in,lisp.py,lisp_map_request.print_map_request,4443,4483,35,20,LISP semantics,,reachable from the job's entry points
+in,lisp.py,lisp_map_request.sign_map_request,4487,4496,10,1,LISP semantics,,reachable from the job's entry points
+in,lisp.py,lisp_map_request.verify_map_request_sig,4499,4531,25,6,LISP semantics,,reachable from the job's entry points
+in,lisp.py,lisp_map_request.encode_json,4534,4543,10,1,LISP semantics,,reachable from the job's entry points
+in,lisp.py,lisp_map_request.encode,4546,4677,88,36,LISP semantics,,reachable from the job's entry points
+in,lisp.py,lisp_map_request.lcaf_decode_json,4680,4760,46,16,LISP semantics,,reachable from the job's entry points
+in,lisp.py,lisp_map_request.decode,4763,4992,153,64,LISP semantics,,reachable from the job's entry points
+in,lisp.py,lisp_map_request.print_eid_tuple,4995,4996,2,1,LISP semantics,,reachable from the job's entry points
+in,lisp.py,lisp_map_request.encode_xtr_id,4999,5005,7,1,LISP semantics,,reachable from the job's entry points
+in,lisp.py,lisp_map_request.decode_xtr_id,5008,5016,9,2,LISP semantics,,reachable from the job's entry points
+in,lisp.py,lisp_map_reply.__init__,5050,5057,8,1,LISP semantics,,reachable from the job's entry points
+in,lisp.py,lisp_map_reply.print_map_reply,5060,5067,8,4,LISP semantics,,reachable from the job's entry points
+in,lisp.py,lisp_map_reply.encode,5070,5079,9,4,LISP semantics,,reachable from the job's entry points
+in,lisp.py,lisp_map_reply.decode,5082,5110,23,7,LISP semantics,,reachable from the job's entry points
+in,lisp.py,lisp_eid_record.__init__,5144,5154,11,1,LISP semantics,,reachable from the job's entry points
+in,lisp.py,lisp_eid_record.print_prefix,5157,5161,4,2,LISP semantics,,reachable from the job's entry points
+in,lisp.py,lisp_eid_record.print_ttl,5164,5173,9,3,LISP semantics,,reachable from the job's entry points
+in,lisp.py,lisp_eid_record.store_ttl,5176,5179,4,2,LISP semantics,,reachable from the job's entry points
+in,lisp.py,lisp_eid_record.print_record,5182,5211,24,9,LISP semantics,,reachable from the job's entry points
+in,lisp.py,lisp_eid_record.encode,5214,5263,25,11,LISP semantics,,reachable from the job's entry points
+in,lisp.py,lisp_eid_record.decode,5266,5298,25,6,LISP semantics,,reachable from the job's entry points
+in,lisp.py,lisp_eid_record.print_eid_tuple,5301,5302,2,1,LISP semantics,,reachable from the job's entry points
+in,lisp.py,lisp_ecm.__init__,5338,5353,16,1,LISP semantics,,reachable from the job's entry points
+in,lisp.py,lisp_ecm.print_ecm,5356,5364,9,5,LISP semantics,,reachable from the job's entry points
+in,lisp.py,lisp_ecm.encode,5367,5412,34,9,LISP semantics,,reachable from the job's entry points
+in,lisp.py,lisp_ecm.decode,5415,5495,56,16,LISP semantics,,reachable from the job's entry points
+in,lisp.py,lisp_rloc_record.__init__,5632,5646,15,1,LISP semantics,,reachable from the job's entry points
+in,lisp.py,lisp_rloc_record.print_rloc_name,5649,5653,5,3,LISP semantics,,reachable from the job's entry points
+in,lisp.py,lisp_rloc_record.print_record,5656,5697,34,13,LISP semantics,,reachable from the job's entry points
+in,lisp.py,lisp_rloc_record.print_flags,5700,5702,3,4,LISP semantics,,reachable from the job's entry points
+in,lisp.py,lisp_rloc_record.store_rloc_entry,5705,5749,34,15,LISP semantics,,reachable from the job's entry points
+in,lisp.py,lisp_rloc_record.encode_json,5752,5779,19,3,LISP semantics,,reachable from the job's entry points
+in,lisp.py,lisp_rloc_record.encode_lcaf,5782,5850,52,15,LISP semantics,,reachable from the job's entry points
+in,lisp.py,lisp_rloc_record.encode,5853,5873,17,11,LISP semantics,,reachable from the job's entry points
+in,lisp.py,lisp_rloc_record.decode_lcaf,5876,6145,159,46,LISP semantics,,reachable from the job's entry points
+in,lisp.py,lisp_rloc_record.decode,6148,6171,20,6,LISP semantics,,reachable from the job's entry points
+in,lisp.py,lisp_rloc_record.end_of_rlocs,6174,6179,5,3,LISP semantics,,reachable from the job's entry points
+in,lisp.py,lisp_map_referral.__init__,6211,6213,3,1,LISP semantics,,reachable from the job's entry points
+in,lisp.py,lisp_map_referral.print_map_referral,6216,6219,4,1,LISP semantics,,reachable from the job's entry points
+in,lisp.py,lisp_map_referral.encode,6222,6226,5,1,LISP semantics,,reachable from the job's entry points
+in,lisp.py,lisp_map_referral.decode,6229,6245,14,3,LISP semantics,,reachable from the job's entry points
+in,lisp.py,lisp_ddt_entry.__init__,6255,6261,7,1,LISP semantics,,reachable from the job's entry points
+in,lisp.py,lisp_ddt_entry.is_auth_prefix,6264,6267,4,3,LISP semantics,,reachable from the job's entry points
+in,lisp.py,lisp_ddt_entry.is_ms_peer_entry,6270,6272,3,2,LISP semantics,,reachable from the job's entry points
+in,lisp.py,lisp_ddt_entry.print_referral_type,6275,6278,4,2,LISP semantics,,reachable from the job's entry points
+in,lisp.py,lisp_ddt_entry.print_eid_tuple,6281,6282,2,1,LISP semantics,,reachable from the job's entry points
+in,lisp.py,lisp_ddt_entry.add_cache,6285,6297,12,4,coordination/state,,reachable from the job's entry points
+in,lisp.py,lisp_ddt_entry.add_source_entry,6301,6303,3,2,LISP semantics,,reachable from the job's entry points
+in,lisp.py,lisp_ddt_entry.lookup_source_cache,6306,6308,3,2,coordination/state,,reachable from the job's entry points
+in,lisp.py,lisp_ddt_entry.is_star_g,6311,6313,3,2,LISP semantics,,reachable from the job's entry points
+in,lisp.py,lisp_ddt_node.__init__,6318,6324,7,1,LISP semantics,,reachable from the job's entry points
+in,lisp.py,lisp_ddt_node.print_node_type,6327,6330,4,4,LISP semantics,,reachable from the job's entry points
+in,lisp.py,lisp_ddt_node.is_ddt_child,6333,6336,4,3,LISP semantics,,reachable from the job's entry points
+in,lisp.py,lisp_ddt_node.is_ms_child,6339,6340,2,1,LISP semantics,,reachable from the job's entry points
+in,lisp.py,lisp_ddt_node.is_ms_peer,6343,6344,2,1,LISP semantics,,reachable from the job's entry points
+in,lisp.py,lisp_ddt_map_request.__init__,6353,6369,17,1,LISP semantics,,reachable from the job's entry points
+in,lisp.py,lisp_ddt_map_request.queue_map_request,6379,6383,5,1,coordination/state,,reachable from the job's entry points
+in,lisp.py,lisp_ddt_map_request.dequeue_map_request,6386,6389,4,2,coordination/state,,reachable from the job's entry points
+in,lisp.py,lisp_ddt_map_request.print_eid_tuple,6393,6394,2,1,LISP semantics,,reachable from the job's entry points
+in,lisp.py,lisp_info.__init__,6488,6497,10,1,LISP semantics,,reachable from the job's entry points
+in,lisp.py,lisp_info.print_info,6500,6520,19,5,LISP semantics,,reachable from the job's entry points
+in,lisp.py,lisp_info.encode,6523,6572,28,6,LISP semantics,,reachable from the job's entry points
+in,lisp.py,lisp_info.decode,6575,6717,86,24,LISP semantics,,reachable from the job's entry points
+in,lisp.py,lisp_info_source.__init__,6736,6742,7,1,LISP semantics,,reachable from the job's entry points
+in,lisp.py,lisp_info_source.cache_address_for_info_source,6745,6747,3,1,coordination/state,,reachable from the job's entry points
+in,lisp.py,lisp_concat_auth_data,6764,6796,27,10,LISP semantics,,reachable from the job's entry points
+in,lisp.py,lisp_open_listen_socket,6807,6826,16,6,coordination/state,,reachable from the job's entry points
+in,lisp.py,lisp_open_send_socket,6834,6848,12,6,coordination/state,,reachable from the job's entry points
+in,lisp.py,lisp_is_running,6868,6869,2,2,LISP semantics,,reachable from the job's entry points
+in,lisp.py,lisp_packet_ipc,6881,6883,3,1,coordination/state,,reachable from the job's entry points
+in,lisp.py,lisp_control_packet_ipc,6894,6896,3,1,coordination/state,,reachable from the job's entry points
+in,lisp.py,lisp_command_ipc,6920,6922,3,1,coordination/state,,reachable from the job's entry points
+in,lisp.py,lisp_ipc,6949,6997,33,7,coordination/state,,reachable from the job's entry points
+in,lisp.py,lisp_format_packet,7006,7016,10,2,LISP semantics,,reachable from the job's entry points
+in,lisp.py,lisp_send,7024,7060,16,7,LISP semantics,,reachable from the job's entry points
+in,lisp.py,lisp_receive_segments,7069,7111,22,6,coordination/state,,reachable from the job's entry points
+in,lisp.py,lisp_bit_stuff,7121,7125,5,2,LISP semantics,,reachable from the job's entry points
+in,lisp.py,lisp_receive,7146,7260,64,20,coordination/state,,reachable from the job's entry points
+in,lisp.py,lisp_parse_packet,7269,7332,44,17,coordination/state,,reachable from the job's entry points
+in,lisp.py,lisp_process_smr,7366,7368,3,1,LISP semantics,,reachable from the job's entry points
+in,lisp.py,lisp_process_smr_invoked_request,7374,7376,3,1,LISP semantics,,reachable from the job's entry points
+in,lisp.py,lisp_build_map_reply,7384,7459,59,17,LISP semantics,,reachable from the job's entry points
+in,lisp.py,lisp_build_map_referral,7467,7536,48,11,LISP semantics,,reachable from the job's entry points
+in,lisp.py,lisp_get_private_rloc_set,7731,7790,35,13,LISP semantics,,reachable from the job's entry points
+in,lisp.py,lisp_get_partial_rloc_set,7800,7874,28,17,LISP semantics,,reachable from the job's entry points
+in,lisp.py,lisp_ms_process_map_request,8004,8326,184,48,LISP semantics,,reachable from the job's entry points
+in,lisp.py,lisp_ddt_process_map_request,8334,8406,50,9,LISP semantics,,reachable from the job's entry points
+in,lisp.py,lisp_find_negative_mask_len,8420,8434,9,4,LISP semantics,,reachable from the job's entry points
+in,lisp.py,lisp_neg_prefix_walk,8445,8463,11,5,LISP semantics,,reachable from the job's entry points
+in,lisp.py,lisp_ddt_compute_neg_prefix,8472,8501,14,2,LISP semantics,,reachable from the job's entry points
+in,lisp.py,lisp_ms_compute_neg_prefix,8510,8579,43,9,LISP semantics,,reachable from the job's entry points
+in,lisp.py,lisp_ms_send_map_referral,8588,8678,54,13,LISP semantics,,reachable from the job's entry points
+in,lisp.py,lisp_send_negative_map_reply,8687,8720,19,5,LISP semantics,,reachable from the job's entry points
+in,lisp.py,lisp_get_referral_node,8786,8807,14,7,LISP semantics,,reachable from the job's entry points
+in,lisp.py,lisp_send_ddt_map_request,8815,8891,48,6,LISP semantics,,reachable from the job's entry points
+in,lisp.py,lisp_mr_process_map_request,8900,8928,22,2,LISP semantics,,reachable from the job's entry points
+in,lisp.py,lisp_process_map_request,8936,9010,36,12,LISP semantics,,reachable from the job's entry points
+in,lisp.py,lisp_hash_me,9411,9426,11,5,LISP semantics,,reachable from the job's entry points
+in,lisp.py,lisp_verify_auth,9435,9448,8,3,LISP semantics,,reachable from the job's entry points
+in,lisp.py,lisp_retransmit_map_notify,9456,9498,27,5,LISP semantics,,reachable from the job's entry points
+in,lisp.py,lisp_send_merged_map_notify,9506,9576,43,4,LISP semantics,,reachable from the job's entry points
+in,lisp.py,lisp_build_map_notify,9584,9658,42,6,LISP semantics,,reachable from the job's entry points
+in,lisp.py,lisp_send_multicast_map_notify,9693,9796,52,10,LISP semantics,,reachable from the job's entry points
+in,lisp.py,lisp_queue_multicast_map_notify,9804,9892,45,20,coordination/state,,reachable from the job's entry points
+in,lisp.py,lisp_get_eid_hash,9938,9970,23,7,LISP semantics,,reachable from the job's entry points
+in,lisp.py,lisp_lookup_public_key,9982,10020,23,7,LISP semantics,,reachable from the job's entry points
+in,lisp.py,lisp_remove_eid_from_map_notify_queue,10134,10169,16,8,coordination/state,,reachable from the job's entry points
+in,lisp.py,lisp_decrypt_map_register,10178,10210,17,3,LISP semantics,,reachable from the job's entry points
+in,lisp.py,lisp_process_map_register,10218,10633,223,60,LISP semantics,,reachable from the job's entry points
+in,lisp.py,lisp_process_map_notify_ack,11019,11102,50,14,LISP semantics,,reachable from the job's entry points
+in,lisp.py,lisp_process_ecm,11359,11389,20,4,LISP semantics,,reachable from the job's entry points
+in,lisp.py,lisp_send_ipc_to_core,11456,11465,8,1,coordination/state,,reachable from the job's entry points
+in,lisp.py,lisp_send_map_reply,11474,11477,4,1,LISP semantics,,reachable from the job's entry points
+in,lisp.py,lisp_send_map_referral,11486,11489,4,1,LISP semantics,,reachable from the job's entry points
+in,lisp.py,lisp_send_map_notify,11498,11501,4,1,LISP semantics,,reachable from the job's entry points
+in,lisp.py,lisp_send_ecm,11509,11543,22,8,LISP semantics,,reachable from the job's entry points
+in,lisp.py,byte_swap_64,11590,11600,11,1,LISP semantics,,reachable from the job's entry points
+in,lisp.py,lisp_cache_entries.__init__,11617,11619,3,1,LISP semantics,,reachable from the job's entry points
+in,lisp.py,lisp_cache.__init__,11624,11627,4,1,LISP semantics,,reachable from the job's entry points
+in,lisp.py,lisp_cache.cache_size,11630,11631,2,1,coordination/state,,reachable from the job's entry points
+in,lisp.py,lisp_cache.build_key,11634,11662,23,6,LISP semantics,,reachable from the job's entry points
+in,lisp.py,lisp_cache.add_cache,11665,11675,9,4,coordination/state,,reachable from the job's entry points
+in,lisp.py,lisp_cache.lookup_cache,11678,11696,14,10,coordination/state,,reachable from the job's entry points
+in,lisp.py,lisp_cache.delete_cache,11699,11704,6,3,coordination/state,,reachable from the job's entry points
+in,lisp.py,lisp_cache.walk_cache,11707,11714,6,4,coordination/state,,reachable from the job's entry points
+in,lisp.py,lisp_cache.sort_in_entry,11717,11736,14,8,LISP semantics,,reachable from the job's entry points
+in,lisp.py,lisp_referral_cache_lookup,11819,11842,11,8,coordination/state,,reachable from the job's entry points
+in,lisp.py,lisp_ddt_cache_lookup,11850,11873,11,6,coordination/state,,reachable from the job's entry points
+in,lisp.py,lisp_site_eid_lookup,11881,11929,16,9,LISP semantics,,reachable from the job's entry points
+in,lisp.py,lisp_address.__init__,11957,11963,7,2,LISP semantics,,reachable from the job's entry points
+in,lisp.py,lisp_address.copy_address,11966,11972,7,2,LISP semantics,,reachable from the job's entry points
+in,lisp.py,lisp_address.make_default_route,11975,11979,5,1,LISP semantics,,reachable from the job's entry points
+in,lisp.py,lisp_address.is_private_address,12003,12012,9,7,LISP semantics,,reachable from the job's entry points
+in,lisp.py,lisp_address.is_multicast_address,12015,12019,5,4,LISP semantics,,reachable from the job's entry points
+in,lisp.py,lisp_address.host_mask_len,12022,12031,9,7,LISP semantics,,reachable from the job's entry points
+in,lisp.py,lisp_address.addr_length,12040,12051,11,9,LISP semantics,,reachable from the job's entry points
+in,lisp.py,lisp_address.packet_format,12060,12071,7,6,LISP semantics,,reachable from the job's entry points
+in,lisp.py,lisp_address.pack_address,12074,12097,23,6,LISP semantics,,reachable from the job's entry points
+in,lisp.py,lisp_address.unpack_address,12100,12142,27,9,LISP semantics,,reachable from the job's entry points
+in,lisp.py,lisp_address.is_ipv4,12145,12146,2,2,LISP semantics,,reachable from the job's entry points
+in,lisp.py,lisp_address.is_ipv4_link_local,12149,12151,3,2,LISP semantics,,reachable from the job's entry points
+in,lisp.py,lisp_address.is_ipv4_loopback,12154,12156,3,2,coordination/state,,reachable from the job's entry points
+in,lisp.py,lisp_address.is_ipv4_multicast,12159,12161,3,2,LISP semantics,,reachable from the job's entry points
+in,lisp.py,lisp_address.is_ipv4_string,12164,12165,2,1,LISP semantics,,reachable from the job's entry points
+in,lisp.py,lisp_address.is_ipv6,12168,12169,2,2,LISP semantics,,reachable from the job's entry points
+in,lisp.py,lisp_address.is_ipv6_string_link_local,12177,12178,2,1,LISP semantics,,reachable from the job's entry points
+in,lisp.py,lisp_address.is_ipv6_loopback,12181,12183,3,2,coordination/state,,reachable from the job's entry points
+in,lisp.py,lisp_address.is_ipv6_multicast,12186,12188,3,2,LISP semantics,,reachable from the job's entry points
+in,lisp.py,lisp_address.is_mac,12195,12196,2,2,LISP semantics,,reachable from the job's entry points
+in,lisp.py,lisp_address.is_mac_multicast,12199,12201,3,2,LISP semantics,,reachable from the job's entry points
+in,lisp.py,lisp_address.is_null,12223,12224,2,2,LISP semantics,,reachable from the job's entry points
+in,lisp.py,lisp_address.is_ultimate_root,12227,12228,2,2,LISP semantics,,reachable from the job's entry points
+in,lisp.py,lisp_address.is_iid_range,12231,12232,2,2,LISP semantics,,reachable from the job's entry points
+in,lisp.py,lisp_address.is_e164,12235,12236,2,2,LISP semantics,,reachable from the job's entry points
+in,lisp.py,lisp_address.is_dist_name,12239,12240,2,2,LISP semantics,,reachable from the job's entry points
+in,lisp.py,lisp_address.is_geo_prefix,12243,12244,2,2,LISP semantics,,reachable from the job's entry points
+in,lisp.py,lisp_address.is_binary,12247,12250,4,3,LISP semantics,,reachable from the job's entry points
+in,lisp.py,lisp_address.store_address,12253,12326,42,13,LISP semantics,,reachable from the job's entry points
+in,lisp.py,lisp_address.store_prefix,12329,12345,15,5,LISP semantics,,reachable from the job's entry points
+in,lisp.py,lisp_address.zero_host_bits,12348,12353,6,2,LISP semantics,,reachable from the job's entry points
+in,lisp.py,lisp_address.is_geo_string,12356,12380,19,12,LISP semantics,,reachable from the job's entry points
+in,lisp.py,lisp_address.string_to_afi,12383,12393,10,7,LISP semantics,,reachable from the job's entry points
+in,lisp.py,lisp_address.print_address,12396,12402,7,2,LISP semantics,,reachable from the job's entry points
+in,lisp.py,lisp_address.print_address_no_iid,12405,12433,28,8,LISP semantics,,reachable from the job's entry points
+in,lisp.py,lisp_address.print_prefix,12436,12453,15,7,LISP semantics,,reachable from the job's entry points
+in,lisp.py,lisp_address.print_sg,12475,12481,7,1,LISP semantics,,reachable from the job's entry points
+in,lisp.py,lisp_address.hash_address,12484,12497,10,5,LISP semantics,,reachable from the job's entry points
+in,lisp.py,lisp_address.is_more_specific,12504,12543,25,12,LISP semantics,,reachable from the job's entry points
+in,lisp.py,lisp_address.mask_address,12546,12549,4,1,LISP semantics,,reachable from the job's entry points
+in,lisp.py,lisp_address.is_exact_match,12552,12556,5,3,LISP semantics,,reachable from the job's entry points
+in,lisp.py,lisp_address.is_local,12559,12572,12,5,LISP semantics,,reachable from the job's entry points
+in,lisp.py,lisp_address.store_iid_range,12575,12581,6,4,LISP semantics,,reachable from the job's entry points
+in,lisp.py,lisp_address.lcaf_length,12584,12599,16,14,LISP semantics,,reachable from the job's entry points
+in,lisp.py,lisp_address.lcaf_encode_iid,12617,12644,22,5,LISP semantics,,reachable from the job's entry points
+in,lisp.py,lisp_address.lcaf_decode_iid,12647,12717,45,15,LISP semantics,,reachable from the job's entry points
+in,lisp.py,lisp_address.lcaf_encode_sg,12739,12750,11,1,LISP semantics,,reachable from the job's entry points
+in,lisp.py,lisp_address.lcaf_decode_sg,12753,12811,40,11,LISP semantics,,reachable from the job's entry points
+in,lisp.py,lisp_address.lcaf_decode_eid,12814,12852,28,8,LISP semantics,,reachable from the job's entry points
+in,lisp.py,lisp_elp_node.__init__,12860,12865,6,1,LISP semantics,,reachable from the job's entry points
+in,lisp.py,lisp_elp.__init__,12880,12884,5,1,LISP semantics,,reachable from the job's entry points
+in,lisp.py,lisp_elp.print_elp,12897,12913,14,9,LISP semantics,,reachable from the job's entry points
+in,lisp.py,lisp_elp.select_elp_node,12916,12955,20,8,coordination/state,,reachable from the job's entry points
+in,lisp.py,lisp_geo.__init__,12960,12969,10,1,LISP semantics,,reachable from the job's entry points
+in,lisp.py,lisp_geo.no_geo_altitude,12985,12986,2,1,LISP semantics,,reachable from the job's entry points
+in,lisp.py,lisp_geo.parse_geo_string,12989,13028,20,7,LISP semantics,,reachable from the job's entry points
+in,lisp.py,lisp_geo.print_geo,13031,13047,10,5,LISP semantics,,reachable from the job's entry points
+in,lisp.py,lisp_geo.encode_geo,13100,13127,22,5,LISP semantics,,reachable from the job's entry points
+in,lisp.py,lisp_geo.decode_geo,13130,13169,29,8,LISP semantics,,reachable from the job's entry points
+in,lisp.py,lisp_rle_node.__init__,13177,13179,3,1,LISP semantics,,reachable from the job's entry points
+in,lisp.py,lisp_rle_node.store_translated_rloc,13188,13189,2,1,LISP semantics,,reachable from the job's entry points
+in,lisp.py,lisp_rle.__init__,13208,13211,4,1,LISP semantics,,reachable from the job's entry points
+in,lisp.py,lisp_rle.print_one_rle,13230,13243,11,5,LISP semantics,,reachable from the job's entry points
+in,lisp.py,lisp_rle.print_rle,13246,13252,6,3,LISP semantics,,reachable from the job's entry points
+in,lisp.py,lisp_rle.build_rle_forwarding_list,13264,13283,16,12,LISP semantics,,reachable from the job's entry points
+in,lisp.py,lisp_json.__init__,13290,13333,24,10,LISP semantics,,reachable from the job's entry points
+in,lisp.py,lisp_json.add,13338,13340,3,1,LISP semantics,,reachable from the job's entry points
+in,lisp.py,lisp_json.delete,13343,13346,4,2,LISP semantics,,reachable from the job's entry points
+in,lisp.py,lisp_json.print_json,13350,13356,7,3,LISP semantics,,reachable from the job's entry points
+in,lisp.py,lisp_json.valid_json,13359,13365,6,2,LISP semantics,,reachable from the job's entry points
+in,lisp.py,lisp_json.encrypt_json,13368,13381,12,3,LISP semantics,,reachable from the job's entry points
+in,lisp.py,lisp_json.decrypt_json,13384,13397,12,3,LISP semantics,,reachable from the job's entry points
+in,lisp.py,lisp_stats.__init__,13406,13412,7,1,LISP semantics,,reachable from the job's entry points
+in,lisp.py,lisp_rloc.__init__,13533,13598,55,9,LISP semantics,,reachable from the job's entry points
+in,lisp.py,lisp_rloc.set_active_rloc_next_hop,13601,13608,7,3,LISP semantics,,reachable from the job's entry points
+in,lisp.py,lisp_rloc.up_state,13626,13627,2,1,LISP semantics,,reachable from the job's entry points
+in,lisp.py,lisp_rloc.store_rloc_from_record,13693,13884,102,33,LISP semantics,,reachable from the job's entry points
+in,lisp.py,lisp_rloc.store_translated_rloc,13887,13892,6,2,LISP semantics,,reachable from the job's entry points
+in,lisp.py,lisp_rloc.is_rloc_translated,13896,13897,2,1,LISP semantics,,reachable from the job's entry points
+in,lisp.py,lisp_rloc.select_rloc_next_hop,14090,14148,37,15,coordination/state,,reachable from the job's entry points
+in,lisp.py,lisp_site.__init__,14902,14913,12,1,LISP semantics,,reachable from the job's entry points
+in,lisp.py,lisp_site_eid.__init__,14918,14954,37,1,LISP semantics,,reachable from the job's entry points
+in,lisp.py,lisp_site_eid.print_eid_tuple,14957,14958,2,1,LISP semantics,,reachable from the job's entry points
+in,lisp.py,lisp_site_eid.copy_state_to_parent,14985,15003,18,2,LISP semantics,,reachable from the job's entry points
+in,lisp.py,lisp_site_eid.build_sort_key,15006,15016,10,2,LISP semantics,,reachable from the job's entry points
+in,lisp.py,lisp_site_eid.merge_in_site_eid,15019,15035,10,3,LISP semantics,,reachable from the job's entry points
+in,lisp.py,lisp_site_eid.copy_rloc_records,15038,15043,5,2,LISP semantics,,reachable from the job's entry points
+in,lisp.py,lisp_site_eid.merge_rlocs_in_site_eid,15046,15080,19,13,LISP semantics,,reachable from the job's entry points
+in,lisp.py,lisp_site_eid.merge_rles_in_site_eid,15083,15169,45,18,LISP semantics,,reachable from the job's entry points
+in,lisp.py,lisp_site_eid.add_cache,15172,15190,13,4,coordination/state,,reachable from the job's entry points
+in,lisp.py,lisp_site_eid.delete_cache,15194,15208,12,6,coordination/state,,reachable from the job's entry points
+in,lisp.py,lisp_site_eid.add_source_entry,15213,15215,3,2,LISP semantics,,reachable from the job's entry points
+in,lisp.py,lisp_site_eid.lookup_source_cache,15218,15220,3,2,coordination/state,,reachable from the job's entry points
+in,lisp.py,lisp_site_eid.is_star_g,15223,15225,3,2,LISP semantics,,reachable from the job's entry points
+in,lisp.py,lisp_site_eid.eid_record_matches,15228,15231,4,3,LISP semantics,,reachable from the job's entry points
+in,lisp.py,lisp_site_eid.inherit_from_ams_parent,15234,15245,12,2,LISP semantics,,reachable from the job's entry points
+in,lisp.py,lisp_site_eid.is_rloc_in_rloc_set,15263,15272,7,6,LISP semantics,,reachable from the job's entry points
+in,lisp.py,lisp_site_eid.do_rloc_sets_match,15275,15282,6,4,LISP semantics,,reachable from the job's entry points
+in,lisp.py,lisp_datetime.__init__,15681,15684,4,1,LISP semantics,,reachable from the job's entry points
+in,lisp.py,lisp_datetime.valid_datetime,15687,15703,14,15,LISP semantics,,reachable from the job's entry points
+in,lisp.py,lisp_datetime.parse_datetime,15706,15710,5,1,LISP semantics,,reachable from the job's entry points
+in,lisp.py,lisp_datetime.now,15713,15716,4,1,LISP semantics,,reachable from the job's entry points
+in,lisp.py,lisp_datetime.future,15723,15724,2,1,LISP semantics,,reachable from the job's entry points
+in,lisp.py,lisp_datetime.past,15727,15728,2,1,LISP semantics,,reachable from the job's entry points
+in,lisp.py,lisp_datetime.now_in_range,15731,15732,2,2,LISP semantics,,reachable from the job's entry points
+in,lisp.py,lisp_policy_match.__init__,15758,15769,12,1,LISP semantics,,reachable from the job's entry points
+in,lisp.py,lisp_policy.__init__,15773,15785,13,1,LISP semantics,,reachable from the job's entry points
+in,lisp.py,lisp_policy.match_policy_map_request,15788,15806,16,14,LISP semantics,,reachable from the job's entry points
+in,lisp.py,lisp_policy.set_policy_map_reply,15809,15854,39,16,LISP semantics,,reachable from the job's entry points
+in,lisp.py,lisp_policy.save_policy,15857,15858,2,1,LISP semantics,,reachable from the job's entry points
+in,lisp.py,lisp_process_info_request,16592,16649,25,7,LISP semantics,,reachable from the job's entry points
+in,lisp.py,lisp_get_any_translated_port,16671,16678,6,4,LISP semantics,,reachable from the job's entry points
+in,lisp.py,lisp_get_translated_port_for_mr,16687,16695,7,4,LISP semantics,,reachable from the job's entry points
+in,lisp.py,lisp_get_all_translated_rlocs,16720,16729,8,4,LISP semantics,,reachable from the job's entry points
+in,lisp.py,lisp_get_nat_info,17238,17264,15,12,LISP semantics,,reachable from the job's entry points
+in,lisp.py,lisp_valid_address_format,17367,17452,45,28,LISP semantics,,reachable from the job's entry points
+in,lisp.py,lisp_is_active_interface,17588,17602,12,6,LISP semantics,,reachable from the job's entry points
+in,lisp.py,lisp_get_interface_instance_id,17974,18012,20,11,LISP semantics,,reachable from the job's entry points
+in,lisp.py,lisp_decode_dist_name,18705,18717,10,3,LISP semantics,,reachable from the job's entry points
+in,lisp.py,lisp_policy_command,18749,18940,133,60,configuration,,reachable from the job's entry points
+in,lisp.py,lisp_get_default_route_next_hops,19368,19401,21,7,LISP semantics,,reachable from the job's entry points
+in,lisp.py,lisp_get_host_route_next_hop,19409,19418,8,4,LISP semantics,,reachable from the job's entry points
+in,lisp.py,lisp_get_host_route_device,19426,19435,8,4,LISP semantics,,reachable from the job's entry points
+in,lisp.py,lisp_install_host_route,19443,19459,8,6,LISP semantics,,reachable from the job's entry points
+in,lisp.py,lisp_uninstall_host_route,19467,19473,5,4,LISP semantics,,reachable from the job's entry points
+in,lisp.py,lisp_check_dp_socket,19581,19588,7,2,coordination/state,,reachable from the job's entry points
+in,lisp.py,lisp_write_to_dp_socket,19596,19606,10,3,coordination/state,,reachable from the job's entry points
+in,lisp.py,lisp_write_ipc_decap_key,19695,19720,15,8,coordination/state,,reachable from the job's entry points
+in,lisp.py,lisp_build_json_keys,19729,19735,6,2,LISP semantics,,reachable from the job's entry points
+in,lisp.py,lisp_parse_auth_key,19811,19828,14,5,LISP semantics,,reachable from the job's entry points
+in,lispconfig.py,lisp_comment,267,268,2,2,LISP semantics,,reachable from the job's entry points
+in,lispconfig.py,lisp_begin_clause,276,277,2,2,LISP semantics,,reachable from the job's entry points
+in,lispconfig.py,lisp_end_clause,284,285,2,2,LISP semantics,,reachable from the job's entry points
+in,lispconfig.py,lisp_write_error,304,306,3,1,LISP semantics,,reachable from the job's entry points
+in,lispconfig.py,lisp_write_line,315,316,2,1,LISP semantics,,reachable from the job's entry points
+in,lispconfig.py,lisp_valid_prefix_format,424,432,7,5,LISP semantics,,reachable from the job's entry points
+in,lispconfig.py,lisp_validate_range,442,460,12,5,LISP semantics,,reachable from the job's entry points
+in,lispconfig.py,lisp_setup_kv_pairs,492,710,160,39,configuration,,reachable from the job's entry points
+in,lispconfig.py,lisp_clause_syntax_error,720,726,6,3,LISP semantics,,reachable from the job's entry points
+in,lispconfig.py,lisp_syntax_check,735,924,111,43,LISP semantics,,reachable from the job's entry points
+in,lispconfig.py,lisp_process_command,935,1013,44,13,configuration,,reachable from the job's entry points
+in,lispconfig.py,lisp_geo_command,3054,3078,9,4,configuration,,reachable from the job's entry points
+in,lispconfig.py,lisp_elp_command,3086,3126,24,12,configuration,,reachable from the job's entry points
+in,lispconfig.py,lisp_rle_command,3134,3176,25,11,configuration,,reachable from the job's entry points
+in,lispconfig.py,lisp_json_command,3184,3195,9,2,configuration,,reachable from the job's entry points
+out,is-lisp-running.py,bold,36,37,2,1,,,not reachable from the job's entry points
+out,liar.py,main,53,109,28,7,,,not reachable from the job's entry points
+out,liar.py,build_map_register,147,228,46,11,,,not reachable from the job's entry points
+out,liar.py,print_packet,236,246,10,2,,,not reachable from the job's entry points
+out,liar.py,validate_eid,255,309,31,11,,,not reachable from the job's entry points
+out,liar.py,validate_rloc,317,347,18,5,,,not reachable from the job's entry points
+out,liar.py,validate_ms,355,362,7,2,,,not reachable from the job's entry points
+out,liar.py,byte_swap_64,370,380,11,1,,,not reachable from the job's entry points
+out,liar.py,bold,388,389,2,1,,,not reachable from the job's entry points
+out,liar.py,green,391,392,2,1,,,not reachable from the job's entry points
+out,liar.py,red,394,395,2,1,,,not reachable from the job's entry points
+out,lisp-core.py,lisp_api_get,98,155,33,16,,,not reachable from the job's entry points
+out,lisp-core.py,lisp_get_api_system,163,178,14,4,,,not reachable from the job's entry points
+out,lisp-core.py,lisp_get_api_data,196,250,37,12,,,not reachable from the job's entry points
+out,lisp-core.py,lisp_api_put_delete,261,321,33,12,,,not reachable from the job's entry points
+out,lisp-core.py,lisp_show_api_doc,328,333,5,3,,,operator show/display: not in the job
+out,lisp-core.py,lisp_show_comamnd_doc,340,342,3,1,,,operator show/display: not in the job
+out,lisp-core.py,lisp_show_lisp_xtr,351,374,15,6,,,operator show/display: not in the job
+out,lisp-core.py,lisp_show_keys,383,399,12,4,,,operator show/display: not in the job
+out,lisp-core.py,lisp_show_geo_map,409,425,14,2,,,operator show/display: not in the job
+out,lisp-core.py,lisp_core_login_page,434,435,2,1,,,web UI: not in the job
+out,lisp-core.py,lisp_core_do_login,445,449,4,2,,,web UI: not in the job
+out,lisp-core.py,lisp_core_landing_page,458,462,4,2,,,web UI: not in the job
+out,lisp-core.py,lisp_core_traceback_page,471,513,26,9,,,not reachable from the job's entry points
+out,lisp-core.py,lisp_core_not_supported,522,526,4,2,,,not reachable from the job's entry points
+out,lisp-core.py,lisp_show_status_command,535,677,107,5,,,operator show/display: not in the job
+out,lisp-core.py,lisp_show_conf_command,686,690,4,2,,,operator show/display: not in the job
+out,lisp-core.py,lisp_show_diff_command,699,704,5,2,,,operator show/display: not in the job
+out,lisp-core.py,lisp_archive_conf_command,713,725,10,2,,,not reachable from the job's entry points
+out,lisp-core.py,lisp_clear_conf_command,734,747,11,2,,,not reachable from the job's entry points
+out,lisp-core.py,lisp_clear_conf_verify_command,756,767,9,2,,,not reachable from the job's entry points
+out,lisp-core.py,lisp_get_port_on_command_line,777,790,11,5,,,not reachable from the job's entry points
+out,lisp-core.py,lisp_restart_command,799,830,14,4,,,not reachable from the job's entry points
+out,lisp-core.py,lisp_restart_lisp,838,839,2,1,,,not reachable from the job's entry points
+out,lisp-core.py,lisp_restart_verify_command,848,859,9,2,,,not reachable from the job's entry points
+out,lisp-core.py,lisp_install_command,868,922,38,9,,,not reachable from the job's entry points
+out,lisp-core.py,lisp_install_get_image,931,944,11,2,,,not reachable from the job's entry points
+out,lisp-core.py,lisp_log_flows_command,954,964,8,2,,,not reachable from the job's entry points
+out,lisp-core.py,lisp_search_log_command,974,1002,20,3,,,not reachable from the job's entry points
+out,lisp-core.py,lisp_search_log_command_input,1011,1017,5,2,,,not reachable from the job's entry points
+out,lisp-core.py,lisp_show_log_name_command,1026,1055,22,4,,,operator show/display: not in the job
+out,lisp-core.py,lisp_debug_menu_command,1064,1125,39,12,,,debug: not in the job
+out,lisp-core.py,lisp_clear_command,1138,1193,37,9,,,not reachable from the job's entry points
+out,lisp-core.py,lisp_show_map_server_command,1202,1208,5,2,,,operator show/display: not in the job
+out,lisp-core.py,lisp_show_database_command,1217,1222,5,2,,,operator show/display: not in the job
+out,lisp-core.py,lisp_show_itr_map_cache_command,1231,1236,5,2,,,operator show/display: not in the job
+out,lisp-core.py,lisp_show_itr_rloc_probing_command,1245,1250,5,2,,,operator show/display: not in the job
+out,lisp-core.py,lisp_show_itr_map_cache_lookup,1259,1273,11,3,,,operator show/display: not in the job
+out,lisp-core.py,lisp_show_rtr_map_cache_command,1283,1293,9,3,,,operator show/display: not in the job
+out,lisp-core.py,lisp_show_rtr_rloc_probing_command,1303,1308,5,2,,,operator show/display: not in the job
+out,lisp-core.py,lisp_show_rtr_map_cache_lookup,1317,1331,11,3,,,operator show/display: not in the job
+out,lisp-core.py,lisp_show_referral_command,1340,1345,5,2,,,operator show/display: not in the job
+out,lisp-core.py,lisp_show_referral_cache_lookup,1354,1367,10,3,,,operator show/display: not in the job
+out,lisp-core.py,lisp_show_delegations_command,1376,1381,5,2,,,operator show/display: not in the job
+out,lisp-core.py,lisp_show_delegations_lookup,1390,1403,10,3,,,operator show/display: not in the job
+out,lisp-core.py,lisp_show_site_command,1415,1425,7,3,,,operator show/display: not in the job
+out,lisp-core.py,lisp_show_itr_dyn_eid_command,1434,1444,7,3,,,operator show/display: not in the job
+out,lisp-core.py,lisp_show_dyn_eid_command,1453,1463,7,3,,,operator show/display: not in the job
+out,lisp-core.py,lisp_show_site_lookup,1472,1485,10,3,,,operator show/display: not in the job
+out,lisp-core.py,lisp_lig_command,1494,1548,34,10,,,lig/rig tools: not in the job
+out,lisp-core.py,lisp_rig_command,1557,1601,25,9,,,lig/rig tools: not in the job
+out,lisp-core.py,lisp_run_geo_lig,1610,1668,39,16,,,not reachable from the job's entry points
+out,lisp-core.py,lisp_geo_command,1677,1757,50,15,,,not reachable from the job's entry points
+out,lisp-core.py,lisp_nat_proxy_map_request,1791,1875,40,8,,,NAT-traversal proxying (RTR): not in the job
+out,lisp-core.py,lisp_nat_proxy_reply,1885,1901,11,2,,,NAT-traversal proxying (RTR): not in the job
+out,lisp-core.py,run,2064,2082,12,3,,,not reachable from the job's entry points
+out,lisp-core.py,lisp_bottle_ipv4_process,2099,2123,13,3,,,web UI: not in the job
+out,lisp-core.py,lisp_bottle_ipv6_process,2132,2135,3,1,,,web UI: not in the job
+out,lisp-core.py,lisp_check_processes,2145,2172,18,6,,,not reachable from the job's entry points
+out,lisp-core.py,lisp_core_control_packet_process,2223,2297,40,10,,,not reachable from the job's entry points
+out,lisp-core.py,lisp_core_cp_lisp_config,2306,2319,12,6,,,not reachable from the job's entry points
+out,lisp-core.py,lisp_core_startup,2328,2448,49,8,,,not reachable from the job's entry points
+out,lisp-core.py,lisp_core_shutdown,2456,2465,6,1,,,not reachable from the job's entry points
+out,lisp-core.py,lisp_check_decent_xtr_multicast,2478,2546,39,22,,,LISP-Decent mapping system: not in the job
+out,lisp-ddt.py,lisp_ddt_auth_prefix_command,44,85,24,12,,,not reachable from the job's entry points
+out,lisp-ddt.py,lisp_ddt_delegation_command,93,198,73,34,,,not reachable from the job's entry points
+out,lisp-ddt.py,lisp_ddt_show_delegations_lookup,207,257,41,4,,,operator show/display: not in the job
+out,lisp-ddt.py,lisp_ddt_display_ddt_cache,265,285,16,4,,,operator show/display: not in the job
+out,lisp-ddt.py,lisp_ddt_walk_ddt_cache,294,311,7,3,,,operator show/display: not in the job
+out,lisp-ddt.py,lisp_ddt_show_delegations_command,319,355,22,2,,,operator show/display: not in the job
+out,lisp-ddt.py,lisp_ddt_startup,364,384,12,2,,,not reachable from the job's entry points
+out,lisp-ddt.py,lisp_ddt_shutdown,392,400,5,1,,,not reachable from the job's entry points
+out,lisp-etr.py,lisp_etr_map_server_command,86,129,18,10,,,other role (ITR/ETR/RTR): not in the job
+out,lisp-etr.py,lisp_etr_timeout_igmp_database,139,148,7,2,,,other role (ITR/ETR/RTR): not in the job
+out,lisp-etr.py,lisp_etr_database_mapping_command,157,209,26,10,,,other role (ITR/ETR/RTR): not in the job
+out,lisp-etr.py,lisp_etr_show_command,218,320,56,17,,,operator show/display: not in the job
+out,lisp-etr.py,lisp_etr_show_keys_command,328,329,2,1,,,operator show/display: not in the job
+out,lisp-etr.py,lisp_group_mapping_command,337,378,30,13,,,not reachable from the job's entry points
+out,lisp-etr.py,lisp_build_map_register_records,386,471,56,14,,,not reachable from the job's entry points
+out,lisp-etr.py,lisp_build_map_register,480,678,100,39,,,not reachable from the job's entry points
+out,lisp-etr.py,lisp_etr_process_info_timer,688,735,24,7,,,other role (ITR/ETR/RTR): not in the job
+out,lisp-etr.py,lisp_process_register_timer,743,782,17,4,,,not reachable from the job's entry points
+out,lisp-etr.py,lisp_send_multicast_map_register,794,1047,137,32,,,not reachable from the job's entry points
+out,lisp-etr.py,lisp_etr_data_plane,1056,1280,107,35,,,other role (ITR/ETR/RTR): not in the job
+out,lisp-etr.py,lisp_etr_nat_data_plane,1292,1451,67,19,,,other role (ITR/ETR/RTR): not in the job
+out,lisp-etr.py,lisp_register_ipv6_group_entries,1460,1470,8,3,,,not reachable from the job's entry points
+out,lisp-etr.py,lisp_etr_join_leave_process,1487,1553,41,10,,,other role (ITR/ETR/RTR): not in the job
+out,lisp-etr.py,lisp_etr_process,1564,1627,34,10,,,other role (ITR/ETR/RTR): not in the job
+out,lisp-etr.py,lisp_etr_startup,1635,1745,40,4,,,other role (ITR/ETR/RTR): not in the job
+out,lisp-etr.py,lisp_etr_shutdown,1753,1771,11,4,,,other role (ITR/ETR/RTR): not in the job
+out,lisp-etr.py,lisp_etr_discover_eid,1783,1882,55,14,,,other role (ITR/ETR/RTR): not in the job
+out,lisp-etr.py,lisp_etr_nat_probe,1896,1935,24,4,,,other role (ITR/ETR/RTR): not in the job
+out,lisp-etr.py,lisp_etr_process_rtr_updown,1947,1964,13,4,,,other role (ITR/ETR/RTR): not in the job
+out,lisp-etr.py,lisp_etr_process_nonce_ipc,1975,1991,14,4,,,other role (ITR/ETR/RTR): not in the job
+out,lisp-itr.py,lisp_itr_show_command,76,77,2,1,,,operator show/display: not in the job
+out,lisp-itr.py,lisp_itr_show_keys_command,85,86,2,1,,,operator show/display: not in the job
+out,lisp-itr.py,lisp_itr_show_rloc_probe_command,95,96,2,1,,,operator show/display: not in the job
+out,lisp-itr.py,lisp_itr_process_timer,107,142,17,4,,,other role (ITR/ETR/RTR): not in the job
+out,lisp-itr.py,lisp_itr_timeout_dynamic_eids,151,202,28,9,,,other role (ITR/ETR/RTR): not in the job
+out,lisp-itr.py,lisp_get_active_interfaces,216,251,19,5,,,not reachable from the job's entry points
+out,lisp-itr.py,lisp_itr_startup,259,358,48,5,,,other role (ITR/ETR/RTR): not in the job
+out,lisp-itr.py,lisp_itr_count_eid_prefixes,367,379,11,7,,,other role (ITR/ETR/RTR): not in the job
+out,lisp-itr.py,lisp_itr_get_local_eid_prefixes,390,431,18,9,,,other role (ITR/ETR/RTR): not in the job
+out,lisp-itr.py,lisp_itr_get_capture_info,440,544,54,13,,,other role (ITR/ETR/RTR): not in the job
+out,lisp-itr.py,lisp_itr_shutdown,552,569,10,2,,,other role (ITR/ETR/RTR): not in the job
+out,lisp-itr.py,lisp_itr_data_plane,577,898,160,68,,,other role (ITR/ETR/RTR): not in the job
+out,lisp-itr.py,lisp_itr_pcap_process_packet,906,956,30,12,,,other role (ITR/ETR/RTR): not in the job
+out,lisp-itr.py,lisp_itr_kernel_filter,994,1088,52,22,,,other role (ITR/ETR/RTR): not in the job
+out,lisp-itr.py,lisp_itr_build_pcap_filter,1096,1174,49,18,,,other role (ITR/ETR/RTR): not in the job
+out,lisp-itr.py,lisp_itr_pcap_thread,1182,1216,23,7,,,other role (ITR/ETR/RTR): not in the job
+out,lisp-itr.py,lisp_itr_process_info_timer,1226,1248,13,1,,,other role (ITR/ETR/RTR): not in the job
+out,lisp-itr.py,lisp_itr_map_resolver_command,1256,1275,13,3,,,other role (ITR/ETR/RTR): not in the job
+out,lisp-itr.py,lisp_itr_database_mapping_command,1284,1286,3,1,,,other role (ITR/ETR/RTR): not in the job
+out,lisp-itr.py,lisp_itr_xtr_command,1295,1346,25,9,,,other role (ITR/ETR/RTR): not in the job
+out,lisp-itr.py,lisp_itr_process_nonce_ipc,1358,1402,32,6,,,other role (ITR/ETR/RTR): not in the job
+out,lisp-lig.py,get_decent_config,64,114,34,12,,,LISP-Decent mapping system: not in the job
+out,lisp-lig.py,get_decent_info,123,128,5,1,,,LISP-Decent mapping system: not in the job
+out,lisp-lig.py,find_lisp_config,137,159,13,6,,,not reachable from the job's entry points
+out,lisp-lig.py,read_sockets,167,184,15,4,,,not reachable from the job's entry points
+out,lisp-lig.py,process_eid_records,192,241,39,13,,,not reachable from the job's entry points
+out,lisp-lig.py,lisp_lig_close_sockets,247,253,6,4,,,lig/rig tools: not in the job
+out,lisp-mc.py,green,44,45,2,1,,,not reachable from the job's entry points
+out,lisp-mc.py,dark_green,48,49,2,1,,,not reachable from the job's entry points
+out,lisp-mc.py,red,52,53,2,1,,,not reachable from the job's entry points
+out,lisp-mc.py,blue,56,57,2,1,,,not reachable from the job's entry points
+out,lisp-mc.py,bold,60,61,2,1,,,not reachable from the job's entry points
+out,lisp-mc.py,format_telemetry,64,73,10,1,,,"xTR role (RLOC probing, telemetry, data-plane crypto): not in the job"
+out,lisp-mc.py,print_stats,76,88,12,6,,,not reachable from the job's entry points
+out,lisp-mr.py,lisp_clear_referral_cache,53,55,3,1,,,map-resolver as DDT client: not in the job
+out,lisp-mr.py,lisp_ddt_root_command,63,122,28,7,,,map-resolver as DDT client: not in the job
+out,lisp-mr.py,lisp_referral_cache_command,130,209,55,26,,,map-resolver as DDT client: not in the job
+out,lisp-mr.py,lisp_display_referral_cache,217,261,33,9,,,operator show/display: not in the job
+out,lisp-mr.py,lisp_walk_referral_cache,270,284,5,3,,,operator show/display: not in the job
+out,lisp-mr.py,lisp_mr_show_referral_cache_lookup,292,316,22,3,,,operator show/display: not in the job
+out,lisp-mr.py,lisp_mr_show_referral_cache_command,324,398,51,9,,,operator show/display: not in the job
+out,lisp-mr.py,lisp_mr_shutdown,533,541,5,1,,,not reachable from the job's entry points
+out,lisp-ms.py,lisp_ms_eid_crypto_hash_command,407,427,13,7,,,crypto-EIDs: not in the job
+out,lisp-ms.py,lisp_ms_show_site_detail_command,453,734,208,65,,,operator show/display: not in the job
+out,lisp-ms.py,lisp_ms_display_ddt_cache,742,762,16,4,,,operator show/display: not in the job
+out,lisp-ms.py,lisp_ms_walk_ddt_cache,771,788,7,3,,,operator show/display: not in the job
+out,lisp-ms.py,lisp_ms_show_ddt_entries,797,807,10,1,,,operator show/display: not in the job
+out,lisp-ms.py,lisp_ms_show_site_lookup,816,885,51,9,,,operator show/display: not in the job
+out,lisp-ms.py,lisp_display_site_eid_entry,893,964,46,18,,,operator show/display: not in the job
+out,lisp-ms.py,lisp_ms_show_site_command,972,1075,60,12,,,operator show/display: not in the job
+out,lisp-ms.py,lisp_ms_scale_inject,1276,1373,55,9,,,not reachable from the job's entry points
+out,lisp-ms.py,lisp_timeout_pubsub,1381,1430,23,6,,,pub-sub (map subscriptions): not in the job
+out,lisp-ms.py,lisp_ms_shutdown,1483,1497,7,1,,,not reachable from the job's entry points
+out,lisp-rig.py,lisp_close_all_sockets,55,64,8,4,,,not reachable from the job's entry points
+out,lisp-rig.py,find_lisp_config,72,94,13,6,,,not reachable from the job's entry points
+out,lisp-rtr.py,lisp_rtr_show_command,79,83,4,1,,,operator show/display: not in the job
+out,lisp-rtr.py,lisp_rtr_show_command_dns,91,95,4,1,,,operator show/display: not in the job
+out,lisp-rtr.py,lisp_rtr_show_keys_command,103,104,2,1,,,operator show/display: not in the job
+out,lisp-rtr.py,lisp_rtr_database_mapping_command,112,113,2,1,,,other role (ITR/ETR/RTR): not in the job
+out,lisp-rtr.py,lisp_rtr_glean_mapping_command,121,202,52,26,,,other role (ITR/ETR/RTR): not in the job
+out,lisp-rtr.py,lisp_rtr_show_rloc_probe_command,210,211,2,1,,,operator show/display: not in the job
+out,lisp-rtr.py,lisp_fix_rloc_encap_state_entry,219,295,39,11,,,not reachable from the job's entry points
+out,lisp-rtr.py,lisp_fix_rloc_encap_state_walk,303,317,5,3,,,not reachable from the job's entry points
+out,lisp-rtr.py,lisp_fix_rloc_encap_state,326,329,4,1,,,not reachable from the job's entry points
+out,lisp-rtr.py,lisp_fast_debug,337,348,11,4,,,not reachable from the job's entry points
+out,lisp-rtr.py,lisp_fast_lookup_debug,357,361,4,3,,,not reachable from the job's entry points
+out,lisp-rtr.py,lisp_fast_address_to_binary,370,373,4,1,,,not reachable from the job's entry points
+out,lisp-rtr.py,fb_py2,382,383,2,1,,,not reachable from the job's entry points
+out,lisp-rtr.py,fb_py3,385,386,2,1,,,not reachable from the job's entry points
+out,lisp-rtr.py,lisp_rtr_fast_data_plane,409,577,95,24,,,other role (ITR/ETR/RTR): not in the job
+out,lisp-rtr.py,lisp_rtr_data_plane,586,997,208,78,,,other role (ITR/ETR/RTR): not in the job
+out,lisp-rtr.py,lisp_rtr_worker_thread,1005,1029,8,2,,,other role (ITR/ETR/RTR): not in the job
+out,lisp-rtr.py,lisp_triage,1038,1040,3,1,,,not reachable from the job's entry points
+out,lisp-rtr.py,lisp_rtr_pcap_process_packet,1049,1078,17,5,,,other role (ITR/ETR/RTR): not in the job
+out,lisp-rtr.py,lisp_rtr_pcap_thread,1087,1159,39,12,,,other role (ITR/ETR/RTR): not in the job
+out,lisp-rtr.py,lisp_encapsulate_igmp_query,1168,1217,31,9,,,not reachable from the job's entry points
+out,lisp-rtr.py,lisp_send_igmp_queries,1243,1281,23,5,,,not reachable from the job's entry points
+out,lisp-rtr.py,lisp_timeout_gleaned_groups,1292,1317,18,5,,,not reachable from the job's entry points
+out,lisp-rtr.py,lisp_rtr_process_timer,1326,1367,15,3,,,other role (ITR/ETR/RTR): not in the job
+out,lisp-rtr.py,lisp_rtr_startup,1375,1504,62,15,,,other role (ITR/ETR/RTR): not in the job
+out,lisp-rtr.py,lisp_rtr_shutdown,1512,1524,9,1,,,other role (ITR/ETR/RTR): not in the job
+out,lisp-rtr.py,lisp_rtr_map_resolver_command,1532,1544,10,3,,,other role (ITR/ETR/RTR): not in the job
+out,lisp-rtr.py,lisp_rtr_xtr_command,1553,1580,13,3,,,other role (ITR/ETR/RTR): not in the job
+out,lisp-rtr.py,lisp_rtr_process_trace_packet,1712,1725,5,2,,,other role (ITR/ETR/RTR): not in the job
+out,lisp-sc.py,green,39,40,2,1,,,not reachable from the job's entry points
+out,lisp-sc.py,dark_green,43,44,2,1,,,not reachable from the job's entry points
+out,lisp-sc.py,red,47,48,2,1,,,not reachable from the job's entry points
+out,lisp-sc.py,blue,51,52,2,1,,,not reachable from the job's entry points
+out,lisp-sc.py,unblue,55,58,4,1,,,not reachable from the job's entry points
+out,lisp-sc.py,bold,61,62,2,1,,,not reachable from the job's entry points
+out,lisp-sc.py,unbold,65,68,4,1,,,not reachable from the job's entry points
+out,lisp-sc.py,uncolor,71,74,4,1,,,not reachable from the job's entry points
+out,lisp-sc.py,timed_out,77,82,6,4,,,not reachable from the job's entry points
+out,lisp-sc.py,color_rles,85,97,12,2,,,not reachable from the job's entry points
+out,lisp.py,lisp_is_ubuntu,659,660,2,1,,,not reachable from the job's entry points
+out,lisp.py,lisp_is_fedora,668,669,2,1,,,not reachable from the job's entry points
+out,lisp.py,lisp_is_centos,677,678,2,1,,,not reachable from the job's entry points
+out,lisp.py,lisp_is_debian,686,687,2,1,,,not reachable from the job's entry points
+out,lisp.py,lisp_is_debian_kali,695,696,2,1,,,not reachable from the job's entry points
+out,lisp.py,lisp_is_alpine,713,714,2,1,,,not reachable from the job's entry points
+out,lisp.py,lisp_is_linux,742,743,2,1,,,not reachable from the job's entry points
+out,lisp.py,lisp_is_python2,751,753,3,1,,,not reachable from the job's entry points
+out,lisp.py,lisp_is_python3,761,763,3,1,,,not reachable from the job's entry points
+out,lisp.py,lisp_on_aws,771,777,6,3,,,not reachable from the job's entry points
+out,lisp.py,lisp_on_gcp,785,791,6,3,,,not reachable from the job's entry points
+out,lisp.py,lisp_on_docker,799,800,2,1,,,not reachable from the job's entry points
+out,lisp.py,dprint,895,897,3,2,,,not reachable from the job's entry points
+out,lisp.py,cprint,905,907,3,1,,,not reachable from the job's entry points
+out,lisp.py,debug,916,928,11,3,,,not reachable from the job's entry points
+out,lisp.py,lisp_print_caller,936,937,2,1,,,not reachable from the job's entry points
+out,lisp.py,green_last_sec,972,973,2,1,,,not reachable from the job's entry points
+out,lisp.py,green_last_min,981,982,2,1,,,not reachable from the job's entry points
+out,lisp.py,convert_font,1020,1044,17,5,,,not reachable from the job's entry points
+out,lisp.py,lisp_space,1052,1055,4,2,,,not reachable from the job's entry points
+out,lisp.py,lisp_button,1063,1074,10,2,,,not reachable from the job's entry points
+out,lisp.py,lisp_print_sans,1092,1094,3,1,,,not reachable from the job's entry points
+out,lisp.py,lisp_span,1102,1104,3,1,,,not reachable from the job's entry points
+out,lisp.py,lisp_eid_help_hover,1112,1125,4,1,,,not reachable from the job's entry points
+out,lisp.py,lisp_geo_help_hover,1133,1146,4,1,,,not reachable from the job's entry points
+out,lisp.py,space,1154,1157,4,2,,,not reachable from the job's entry points
+out,lisp.py,lisp_get_ephemeral_port,1166,1167,2,1,,,not reachable from the job's entry points
+out,lisp.py,lisp_get_data_nonce,1175,1176,2,1,,,not reachable from the job's entry points
+out,lisp.py,lisp_set_timestamp,1216,1217,2,1,,,not reachable from the job's entry points
+out,lisp.py,lisp_print_future,1237,1242,6,3,,,not reachable from the job's entry points
+out,lisp.py,lisp_gethostbyname,1307,1353,29,15,,,not reachable from the job's entry points
+out,lisp.py,lisp_icmp_checksum,1399,1427,14,3,,,not reachable from the job's entry points
+out,lisp.py,lisp_udp_checksum,1463,1503,20,3,,,not reachable from the job's entry points
+out,lisp.py,lisp_igmp_checksum,1512,1535,11,2,,,not reachable from the job's entry points
+out,lisp.py,lisp_get_interface_address,1543,1566,10,4,,,not reachable from the job's entry points
+out,lisp.py,lisp_bind_interface,1576,1592,8,5,,,not reachable from the job's entry points
+out,lisp.py,lisp_unbind_interface,1600,1610,8,5,,,not reachable from the job's entry points
+out,lisp.py,lisp_get_input_interface,1623,1634,10,4,,,not reachable from the job's entry points
+out,lisp.py,lisp_get_local_interfaces,1643,1648,5,2,,,not reachable from the job's entry points
+out,lisp.py,lisp_get_loopback_address,1656,1661,5,3,,,not reachable from the job's entry points
+out,lisp.py,lisp_is_mac_string,1670,1673,4,3,,,not reachable from the job's entry points
+out,lisp.py,lisp_get_local_macs,1682,1717,17,7,,,not reachable from the job's entry points
+out,lisp.py,lisp_get_local_rloc,1726,1764,25,8,,,not reachable from the job's entry points
+out,lisp.py,lisp_get_all_multicast_rles,1919,1931,11,6,,,not reachable from the job's entry points
+out,lisp.py,__init__,1941,1964,24,1,,,not reachable from the job's entry points
+out,lisp.py,encode,1967,2071,52,15,,,not reachable from the job's entry points
+out,lisp.py,cipher_pad,2074,2080,6,2,,,not reachable from the job's entry points
+out,lisp.py,encrypt,2083,2168,52,12,,,not reachable from the job's entry points
+out,lisp.py,decrypt,2171,2289,72,10,,,not reachable from the job's entry points
+out,lisp.py,fragment_outer,2292,2333,22,5,,,not reachable from the job's entry points
+out,lisp.py,send_icmp_too_big,2336,2403,30,3,,,not reachable from the job's entry points
+out,lisp.py,fragment,2405,2527,69,14,,,not reachable from the job's entry points
+out,lisp.py,fix_outer_header,2530,2547,8,4,,,not reachable from the job's entry points
+out,lisp.py,send_packet,2550,2564,11,6,,,not reachable from the job's entry points
+out,lisp.py,send_l2_packet,2569,2592,10,3,,,not reachable from the job's entry points
+out,lisp.py,bridge_l2_packet,2595,2607,12,6,,,not reachable from the job's entry points
+out,lisp.py,is_lisp_packet,2611,2619,8,4,,,not reachable from the job's entry points
+out,lisp.py,decode,2622,2871,172,49,,,not reachable from the job's entry points
+out,lisp.py,swap_mac,2874,2875,2,1,,,not reachable from the job's entry points
+out,lisp.py,strip_outer_headers,2878,2882,5,2,,,not reachable from the job's entry points
+out,lisp.py,hash_ports,2885,2906,18,6,,,not reachable from the job's entry points
+out,lisp.py,hash_packet,2909,2919,10,3,,,not reachable from the job's entry points
+out,lisp.py,print_packet,2922,2977,41,10,,,not reachable from the job's entry points
+out,lisp.py,print_eid_tuple,2980,2981,2,1,,,not reachable from the job's entry points
+out,lisp.py,get_raw_socket,2984,3002,16,6,,,not reachable from the job's entry points
+out,lisp.py,log_flow,3005,3018,11,4,,,not reachable from the job's entry points
+out,lisp.py,print_flow,3021,3089,43,16,,,not reachable from the job's entry points
+out,lisp.py,is_trace,3092,3095,4,2,,,not reachable from the job's entry points
+out,lisp.py,__init__,3121,3124,4,1,,,not reachable from the job's entry points
+out,lisp.py,print_header,3127,3142,15,9,,,not reachable from the job's entry points
+out,lisp.py,encode,3145,3151,6,1,,,not reachable from the job's entry points
+out,lisp.py,decode,3154,3165,10,2,,,not reachable from the job's entry points
+out,lisp.py,key_id,3168,3171,4,1,,,not reachable from the job's entry points
+out,lisp.py,nonce,3174,3176,3,1,,,not reachable from the job's entry points
+out,lisp.py,map_version,3179,3181,3,1,,,not reachable from the job's entry points
+out,lisp.py,instance_id,3184,3188,5,2,,,not reachable from the job's entry points
+out,lisp.py,get_instance_id,3191,3192,2,1,,,not reachable from the job's entry points
+out,lisp.py,locator_status_bits,3195,3198,4,1,,,not reachable from the job's entry points
+out,lisp.py,is_request_nonce,3201,3202,2,1,,,not reachable from the job's entry points
+out,lisp.py,request_nonce,3205,3208,4,1,,,not reachable from the job's entry points
+out,lisp.py,is_e_bit_set,3211,3212,2,1,,,not reachable from the job's entry points
+out,lisp.py,get_nonce,3215,3216,2,1,,,not reachable from the job's entry points
+out,lisp.py,__init__,3221,3235,15,1,,,not reachable from the job's entry points
+out,lisp.py,send_ipc,3238,3242,5,3,,,not reachable from the job's entry points
+out,lisp.py,send_request_ipc,3245,3248,4,1,,,not reachable from the job's entry points
+out,lisp.py,send_echo_ipc,3251,3254,4,1,,,not reachable from the job's entry points
+out,lisp.py,receive_request,3257,3262,6,3,,,not reachable from the job's entry points
+out,lisp.py,receive_echo,3265,3272,7,4,,,not reachable from the job's entry points
+out,lisp.py,get_request_or_echo_nonce,3275,3360,45,13,,,not reachable from the job's entry points
+out,lisp.py,request_nonce_timeout,3363,3369,6,4,,,not reachable from the job's entry points
+out,lisp.py,recently_requested,3372,3377,5,2,,,not reachable from the job's entry points
+out,lisp.py,recently_echoed,3380,3399,10,5,,,not reachable from the job's entry points
+out,lisp.py,change_state,3402,3420,16,5,,,not reachable from the job's entry points
+out,lisp.py,print_echo_nonce,3424,3438,12,1,,,not reachable from the job's entry points
+out,lisp.py,do_icv,3637,3654,16,4,,,not reachable from the job's entry points
+out,lisp.py,lisp_store_byte_py2,3816,3817,2,1,,,not reachable from the job's entry points
+out,lisp.py,lisp_store_byte_py3,3819,3820,2,1,,,not reachable from the job's entry points
+out,lisp.py,__init__,3832,3839,8,1,,,not reachable from the job's entry points
+out,lisp.py,is_info_request,3897,3898,2,2,,,not reachable from the job's entry points
+out,lisp.py,is_rloc_probe,3905,3906,2,2,,,"xTR role (RLOC probing, telemetry, data-plane crypto): not in the job"
+out,lisp.py,is_smr_invoked,3913,3914,2,2,,,not reachable from the job's entry points
+out,lisp.py,encode_auth,4077,4082,6,1,,,not reachable from the job's entry points
+out,lisp.py,encode_xtr_id,4173,4180,8,1,,,not reachable from the job's entry points
+out,lisp.py,print_ddt_map_request,6372,6376,5,2,,,not reachable from the job's entry points
+out,lisp.py,__init__,6722,6726,5,1,,,not reachable from the job's entry points
+out,lisp.py,timed_out,6729,6731,3,1,,,not reachable from the job's entry points
+out,lisp.py,cache_nonce_for_info_source,6750,6752,3,1,,,not reachable from the job's entry points
+out,lisp.py,lisp_close_socket,6856,6859,4,2,,,not reachable from the job's entry points
+out,lisp.py,lisp_data_packet_ipc,6906,6908,3,1,,,not reachable from the job's entry points
+out,lisp.py,lisp_api_ipc,6934,6936,3,1,,,not reachable from the job's entry points
+out,lisp.py,lisp_process_rloc_probe_request,7340,7360,15,3,,,"xTR role (RLOC probing, telemetry, data-plane crypto): not in the job"
+out,lisp.py,lisp_etr_process_map_request,7544,7644,43,15,,,other role (ITR/ETR/RTR): not in the job
+out,lisp.py,lisp_rtr_process_map_request,7652,7720,30,10,,,other role (ITR/ETR/RTR): not in the job
+out,lisp.py,lisp_store_pubsub_state,7885,7888,4,1,,,pub-sub (map subscriptions): not in the job
+out,lisp.py,lisp_convert_reply_to_notify,7904,7925,10,1,,,not reachable from the job's entry points
+out,lisp.py,lisp_notify_subscribers,7934,7965,21,4,,,pub-sub (map subscriptions): not in the job
+out,lisp.py,lisp_process_pubsub,7973,7995,14,1,,,pub-sub (map subscriptions): not in the job
+out,lisp.py,lisp_retransmit_ddt_map_request,8728,8777,27,6,,,map-resolver as DDT client: not in the job
+out,lisp.py,lisp_store_mr_stats,9019,9042,11,5,,,not reachable from the job's entry points
+out,lisp.py,lisp_process_map_reply,9050,9383,155,65,,,xTR role: Map-Reply processing
+out,lisp.py,lisp_compute_auth,9392,9403,7,2,,,not reachable from the job's entry points
+out,lisp.py,lisp_send_map_notify_ack,9667,9684,10,1,,,not reachable from the job's entry points
+out,lisp.py,lisp_find_sig_in_rloc_set,9901,9918,14,5,,,crypto-EID signatures: not in the job
+out,lisp.py,lisp_verify_cga_sig,10029,10123,50,11,,,crypto-EID signatures: not in the job
+out,lisp.py,lisp_process_unicast_map_notify,10642,10790,84,18,,,xTR role: Map-Notify processing
+out,lisp.py,lisp_process_multicast_map_notify,10801,10909,62,22,,,xTR role: multicast Map-Notify processing
+out,lisp.py,lisp_process_map_notify,10918,11010,48,14,,,not reachable from the job's entry points
+out,lisp.py,lisp_map_referral_loop,11111,11137,17,6,,,not reachable from the job's entry points
+out,lisp.py,lisp_process_map_referral,11145,11350,130,35,,,map-resolver as DDT client (following referrals): not in the job
+out,lisp.py,lisp_send_map_register,11400,11447,25,7,,,not reachable from the job's entry points
+out,lisp.py,print_cache,11739,11749,10,4,,,not reachable from the job's entry points
+out,lisp.py,lisp_map_cache_lookup,11770,11811,22,5,,,not reachable from the job's entry points
+out,lisp.py,make_default_multicast_route,11982,11995,12,4,,,not reachable from the job's entry points
+out,lisp.py,not_set,11999,12000,2,1,,,not reachable from the job's entry points
+out,lisp.py,is_iana_eid,12034,12037,4,2,,,not reachable from the job's entry points
+out,lisp.py,afi_to_version,12054,12057,4,3,,,not reachable from the job's entry points
+out,lisp.py,is_ipv6_link_local,12172,12174,3,2,,,not reachable from the job's entry points
+out,lisp.py,is_ipv6_string,12191,12192,2,1,,,not reachable from the job's entry points
+out,lisp.py,is_mac_broadcast,12204,12206,3,2,,,not reachable from the job's entry points
+out,lisp.py,is_mac_string,12209,12210,2,2,,,not reachable from the job's entry points
+out,lisp.py,is_link_local_multicast,12213,12220,6,3,,,not reachable from the job's entry points
+out,lisp.py,print_prefix_no_iid,12456,12460,5,3,,,not reachable from the job's entry points
+out,lisp.py,print_prefix_url,12463,12472,9,4,,,not reachable from the job's entry points
+out,lisp.py,copy_elp_node,12868,12875,8,1,,,not reachable from the job's entry points
+out,lisp.py,copy_elp,12887,12894,7,2,,,not reachable from the job's entry points
+out,lisp.py,copy_geo,12972,12982,11,1,,,not reachable from the job's entry points
+out,lisp.py,geo_url,13050,13058,9,3,,,not reachable from the job's entry points
+out,lisp.py,print_geo_url,13061,13070,9,2,,,not reachable from the job's entry points
+out,lisp.py,dms_to_decimal,13073,13085,12,3,,,not reachable from the job's entry points
+out,lisp.py,get_distance,13088,13092,5,1,,,not reachable from the job's entry points
+out,lisp.py,point_in_circle,13095,13097,3,1,,,not reachable from the job's entry points
+out,lisp.py,copy_rle_node,13182,13185,4,1,,,not reachable from the job's entry points
+out,lisp.py,get_encap_keys,13192,13202,10,4,,,not reachable from the job's entry points
+out,lisp.py,copy_rle,13214,13220,6,2,,,not reachable from the job's entry points
+out,lisp.py,add_one_rle_node,13223,13227,5,1,,,not reachable from the job's entry points
+out,lisp.py,print_api_rle,13255,13261,6,2,,,not reachable from the job's entry points
+out,lisp.py,increment,13415,13418,4,1,,,not reachable from the job's entry points
+out,lisp.py,recent_packet_sec,13421,13424,4,2,,,not reachable from the job's entry points
+out,lisp.py,recent_packet_min,13427,13430,4,2,,,not reachable from the job's entry points
+out,lisp.py,stat_colors,13433,13440,6,3,,,not reachable from the job's entry points
+out,lisp.py,normalize,13443,13458,13,4,,,not reachable from the job's entry points
+out,lisp.py,get_stats,13461,13513,39,7,,,not reachable from the job's entry points
+out,lisp.py,print_rloc_next_hops,13612,13622,10,3,,,not reachable from the job's entry points
+out,lisp.py,unreach_state,13630,13631,2,1,,,not reachable from the job's entry points
+out,lisp.py,no_echoed_nonce_state,13634,13635,2,1,,,not reachable from the job's entry points
+out,lisp.py,down_state,13638,13640,3,1,,,not reachable from the job's entry points
+out,lisp.py,print_state,13643,13656,14,7,,,not reachable from the job's entry points
+out,lisp.py,print_rloc,13659,13663,5,1,,,not reachable from the job's entry points
+out,lisp.py,print_rloc_name,13666,13670,5,3,,,not reachable from the job's entry points
+out,lisp.py,is_decent_nat_port,13673,13677,5,3,,,LISP-Decent mapping system: not in the job
+out,lisp.py,lisp_rloc.store_decent_nat_port,13680,13684,5,2,,,LISP-Decent mapping system: not in the job
+out,lisp.py,lisp_rloc.normalize_decent_nat_rloc_name,13687,13690,4,2,,,LISP-Decent mapping system: not in the job
+out,lisp.py,rloc_exists,13900,13905,5,6,,,not reachable from the job's entry points
+out,lisp.py,lisp_rloc.is_rtr,13908,13910,3,4,,,RTR / NAT-traversal proxying: not in the job
+out,lisp.py,print_state_change,13913,13919,6,3,,,not reachable from the job's entry points
+out,lisp.py,copy_rloc_probe_recents,13922,13932,11,1,,,"xTR role (RLOC probing, telemetry, data-plane crypto): not in the job"
+out,lisp.py,print_rloc_probe_rtt,13935,13937,3,2,,,"xTR role (RLOC probing, telemetry, data-plane crypto): not in the job"
+out,lisp.py,print_recent_rloc_probe_rtts,13940,13943,4,1,,,"xTR role (RLOC probing, telemetry, data-plane crypto): not in the job"
+out,lisp.py,compute_rloc_probe_rtt,13946,13954,9,3,,,"xTR role (RLOC probing, telemetry, data-plane crypto): not in the job"
+out,lisp.py,print_rloc_probe_hops,13957,13958,2,1,,,"xTR role (RLOC probing, telemetry, data-plane crypto): not in the job"
+out,lisp.py,print_recent_rloc_probe_hops,13961,13963,3,1,,,"xTR role (RLOC probing, telemetry, data-plane crypto): not in the job"
+out,lisp.py,store_rloc_probe_hops,13966,13983,15,4,,,"xTR role (RLOC probing, telemetry, data-plane crypto): not in the job"
+out,lisp.py,store_rloc_probe_latencies,13986,14000,12,2,,,"xTR role (RLOC probing, telemetry, data-plane crypto): not in the job"
+out,lisp.py,print_rloc_probe_latency,14003,14004,2,1,,,"xTR role (RLOC probing, telemetry, data-plane crypto): not in the job"
+out,lisp.py,print_recent_rloc_probe_latencies,14007,14009,3,1,,,"xTR role (RLOC probing, telemetry, data-plane crypto): not in the job"
+out,lisp.py,process_rloc_probe_reply,14012,14087,40,11,,,"xTR role (RLOC probing, telemetry, data-plane crypto): not in the job"
+out,lisp.py,add_to_rloc_probe_list,14152,14219,27,14,,,"xTR role (RLOC probing, telemetry, data-plane crypto): not in the job"
+out,lisp.py,delete_from_rloc_probe_list,14222,14244,19,10,,,"xTR role (RLOC probing, telemetry, data-plane crypto): not in the job"
+out,lisp.py,print_rloc_probe_state,14248,14276,23,7,,,"xTR role (RLOC probing, telemetry, data-plane crypto): not in the job"
+out,lisp.py,get_encap_keys,14279,14289,10,4,,,not reachable from the job's entry points
+out,lisp.py,rloc_recent_rekey,14293,14304,11,5,,,not reachable from the job's entry points
+out,lisp.py,refresh_decent_nat_rloc,14308,14318,9,3,,,LISP-Decent mapping system: not in the job
+out,lisp.py,get_rle,14321,14327,6,4,,,not reachable from the job's entry points
+out,lisp.py,__init__,14332,14360,29,3,,,not reachable from the job's entry points
+out,lisp.py,print_mapping,14363,14370,8,3,,,not reachable from the job's entry points
+out,lisp.py,print_eid_tuple,14373,14374,2,1,,,not reachable from the job's entry points
+out,lisp.py,print_ttl,14377,14396,16,6,,,not reachable from the job's entry points
+out,lisp.py,refresh,14399,14401,3,2,,,not reachable from the job's entry points
+out,lisp.py,refresh_unicast,14404,14406,3,3,,,not reachable from the job's entry points
+out,lisp.py,refresh_multicast,14409,14426,8,3,,,not reachable from the job's entry points
+out,lisp.py,has_ttl_elapsed,14429,14440,7,4,,,not reachable from the job's entry points
+out,lisp.py,is_active,14443,14446,4,2,,,not reachable from the job's entry points
+out,lisp.py,match_eid_tuple,14449,14452,4,3,,,not reachable from the job's entry points
+out,lisp.py,sort_rloc_set,14455,14456,2,1,,,not reachable from the job's entry points
+out,lisp.py,delete_rlocs_from_rloc_probe_list,14459,14470,7,5,,,"xTR role (RLOC probing, telemetry, data-plane crypto): not in the job"
+out,lisp.py,build_best_rloc_set,14475,14524,16,11,,,not reachable from the job's entry points
+out,lisp.py,select_rloc,14528,14670,65,32,,,not reachable from the job's entry points
+out,lisp.py,do_rloc_sets_match,14673,14688,9,6,,,not reachable from the job's entry points
+out,lisp.py,get_rloc,14691,14696,5,3,,,not reachable from the job's entry points
+out,lisp.py,get_rloc_by_interface,14699,14703,4,3,,,not reachable from the job's entry points
+out,lisp.py,add_db,14706,14715,9,3,,,not reachable from the job's entry points
+out,lisp.py,add_cache,14719,14734,14,6,,,not reachable from the job's entry points
+out,lisp.py,delete_cache,14737,14756,16,6,,,not reachable from the job's entry points
+out,lisp.py,add_source_entry,14761,14763,3,2,,,not reachable from the job's entry points
+out,lisp.py,lookup_source_cache,14766,14768,3,2,,,not reachable from the job's entry points
+out,lisp.py,dynamic_eid_configured,14771,14772,2,1,,,not reachable from the job's entry points
+out,lisp.py,star_secondary_iid,14775,14778,4,2,,,not reachable from the job's entry points
+out,lisp.py,increment_decap_stats,14781,14795,9,5,,,not reachable from the job's entry points
+out,lisp.py,rtrs_in_rloc_set,14798,14802,4,3,,,RTR / NAT-traversal proxying: not in the job
+out,lisp.py,add_recent_source,14805,14806,2,1,,,not reachable from the job's entry points
+out,lisp.py,find_rtr_rloc,14809,14822,5,5,,,RTR / NAT-traversal proxying: not in the job
+out,lisp.py,__init__,14828,14833,6,1,,,not reachable from the job's entry points
+out,lisp.py,get_timeout,14836,14841,6,2,,,not reachable from the job's entry points
+out,lisp.py,__init__,14847,14852,6,1,,,not reachable from the job's entry points
+out,lisp.py,add_group,14855,14856,2,1,,,not reachable from the job's entry points
+out,lisp.py,lisp_is_group_more_specific,14867,14873,6,3,,,not reachable from the job's entry points
+out,lisp.py,lisp_lookup_group,14881,14888,7,5,,,not reachable from the job's entry points
+out,lisp.py,print_flags,14961,14982,20,12,,,not reachable from the job's entry points
+out,lisp.py,lisp_site_eid.rtrs_in_rloc_set,15248,15252,4,3,,,RTR / NAT-traversal proxying: not in the job
+out,lisp.py,is_rtr_in_rloc_set,15255,15260,5,4,,,RTR / NAT-traversal proxying: not in the job
+out,lisp.py,__init__,15287,15305,18,3,,,not reachable from the job's entry points
+out,lisp.py,resolve_dns_name,15308,15366,36,16,,,not reachable from the job's entry points
+out,lisp.py,insert_mr,15369,15371,3,1,,,not reachable from the job's entry points
+out,lisp.py,delete_mr,15374,15377,4,2,,,not reachable from the job's entry points
+out,lisp.py,__init__,15382,15386,5,1,,,not reachable from the job's entry points
+out,lisp.py,__init__,15391,15400,10,1,,,not reachable from the job's entry points
+out,lisp.py,print_referral,15403,15411,8,2,,,not reachable from the job's entry points
+out,lisp.py,print_referral_type,15415,15426,9,5,,,not reachable from the job's entry points
+out,lisp.py,print_eid_tuple,15429,15430,2,1,,,not reachable from the job's entry points
+out,lisp.py,print_ttl,15433,15442,8,3,,,not reachable from the job's entry points
+out,lisp.py,is_referral_negative,15445,15448,4,1,,,not reachable from the job's entry points
+out,lisp.py,add_cache,15451,15463,12,4,,,not reachable from the job's entry points
+out,lisp.py,delete_cache,15467,15479,11,5,,,not reachable from the job's entry points
+out,lisp.py,add_source_entry,15484,15486,3,2,,,not reachable from the job's entry points
+out,lisp.py,lookup_source_cache,15489,15491,3,2,,,not reachable from the job's entry points
+out,lisp.py,__init__,15496,15503,8,1,,,not reachable from the job's entry points
+out,lisp.py,print_ref_node,15506,15510,5,2,,,not reachable from the job's entry points
+out,lisp.py,__init__,15515,15545,30,4,,,not reachable from the job's entry points
+out,lisp.py,resolve_dns_name,15549,15608,37,16,,,not reachable from the job's entry points
+out,lisp.py,insert_ms,15611,15613,3,1,,,not reachable from the job's entry points
+out,lisp.py,delete_ms,15616,15619,4,2,,,not reachable from the job's entry points
+out,lisp.py,__init__,15624,15633,10,1,,,not reachable from the job's entry points
+out,lisp.py,add_interface,15636,15637,2,1,,,not reachable from the job's entry points
+out,lisp.py,get_instance_id,15640,15641,2,1,,,not reachable from the job's entry points
+out,lisp.py,get_socket,15644,15645,2,1,,,not reachable from the job's entry points
+out,lisp.py,get_bridge_socket,15648,15649,2,1,,,not reachable from the job's entry points
+out,lisp.py,does_dynamic_eid_match,15652,15654,3,2,,,not reachable from the job's entry points
+out,lisp.py,set_socket,15657,15666,9,2,,,not reachable from the job's entry points
+out,lisp.py,set_bridge_socket,15669,15675,7,2,,,not reachable from the job's entry points
+out,lisp.py,print_datetime,15719,15720,2,1,,,not reachable from the job's entry points
+out,lisp.py,this_year,15735,15738,4,1,,,not reachable from the job's entry points
+out,lisp.py,this_month,15741,15744,4,1,,,not reachable from the job's entry points
+out,lisp.py,today,15747,15750,4,1,,,not reachable from the job's entry points
+out,lisp.py,__init__,15863,15871,9,1,,,not reachable from the job's entry points
+out,lisp.py,add,15874,15894,17,3,,,not reachable from the job's entry points
+out,lisp.py,delete,15897,15906,10,3,,,not reachable from the job's entry points
+out,lisp.py,__init__,15930,15935,6,1,,,not reachable from the job's entry points
+out,lisp.py,print_trace,15938,15940,3,1,,,not reachable from the job's entry points
+out,lisp.py,encode,15943,15948,6,1,,,not reachable from the job's entry points
+out,lisp.py,decode,15951,15984,29,7,,,not reachable from the job's entry points
+out,lisp.py,myeid,15987,15988,2,1,,,not reachable from the job's entry points
+out,lisp.py,return_to_sender,15991,16013,20,4,,,not reachable from the job's entry points
+out,lisp.py,packet_length,16017,16019,3,1,,,not reachable from the job's entry points
+out,lisp.py,rtr_cache_nat_trace,16022,16026,5,1,,,RTR / NAT-traversal proxying: not in the job
+out,lisp.py,rtr_cache_nat_trace_find,16029,16033,5,2,,,RTR / NAT-traversal proxying: not in the job
+out,lisp.py,lisp_get_map_server,16045,16049,4,3,,,not reachable from the job's entry points
+out,lisp.py,lisp_get_any_map_server,16057,16059,3,2,,,not reachable from the job's entry points
+out,lisp.py,lisp_get_map_resolver,16070,16101,21,12,,,not reachable from the job's entry points
+out,lisp.py,lisp_get_decent_map_resolver,16110,16122,10,5,,,LISP-Decent mapping system: not in the job
+out,lisp.py,lisp_ipv4_input,16130,16172,26,6,,,not reachable from the job's entry points
+out,lisp.py,lisp_ipv6_input,16180,16208,17,4,,,not reachable from the job's entry points
+out,lisp.py,lisp_mac_input,16217,16218,2,1,,,not reachable from the job's entry points
+out,lisp.py,lisp_rate_limit_map_request,16228,16252,14,4,,,not reachable from the job's entry points
+out,lisp.py,lisp_send_map_request,16260,16511,119,51,,,not reachable from the job's entry points
+out,lisp.py,lisp_send_info_request,16520,16584,26,7,,,not reachable from the job's entry points
+out,lisp.py,lisp_get_signature_eid,16658,16662,4,3,,,crypto-EID signatures: not in the job
+out,lisp.py,lisp_get_any_translated_rloc,16705,16712,6,4,,,not reachable from the job's entry points
+out,lisp.py,lisp_update_default_routes,16738,16817,54,17,,,not reachable from the job's entry points
+out,lisp.py,lisp_process_info_reply,16828,16946,65,27,,,xTR role: Info-Reply processing
+out,lisp.py,lisp_test_mr,16955,16984,17,1,,,not reachable from the job's entry points
+out,lisp.py,lisp_update_local_rloc,16998,17014,12,4,,,not reachable from the job's entry points
+out,lisp.py,lisp_update_encap_port,17023,17037,12,4,,,not reachable from the job's entry points
+out,lisp.py,lisp_timeout_map_cache_entry,17050,17110,25,11,,,not reachable from the job's entry points
+out,lisp.py,lisp_timeout_map_cache_walk,17119,17142,14,5,,,not reachable from the job's entry points
+out,lisp.py,lisp_timeout_map_cache,17150,17166,8,2,,,not reachable from the job's entry points
+out,lisp.py,lisp_store_nat_info,17183,17229,27,8,,,not reachable from the job's entry points
+out,lisp.py,lisp_build_info_requests,17285,17358,41,19,,,not reachable from the job's entry points
+out,lisp.py,lisp_process_api,17467,17510,30,11,,,operator API: not in the job
+out,lisp.py,lisp_process_api_map_cache,17518,17532,5,3,,,not reachable from the job's entry points
+out,lisp.py,lisp_gather_map_cache_data,17540,17578,24,6,,,not reachable from the job's entry points
+out,lisp.py,lisp_fill_rloc_in_json,17610,17692,56,19,,,not reachable from the job's entry points
+out,lisp.py,lisp_process_api_map_cache_entry,17700,17725,15,4,,,not reachable from the job's entry points
+out,lisp.py,lisp_process_api_site_cache_summary,17737,17765,22,8,,,not reachable from the job's entry points
+out,lisp.py,lisp_process_api_site_cache,17773,17787,5,3,,,not reachable from the job's entry points
+out,lisp.py,lisp_process_api_ms_or_mr,17795,17830,27,14,,,not reachable from the job's entry points
+out,lisp.py,lisp_process_api_database_mapping,17839,17877,23,10,,,not reachable from the job's entry points
+out,lisp.py,lisp_gather_site_cache_data,17885,17936,39,15,,,not reachable from the job's entry points
+out,lisp.py,lisp_process_api_site_cache_entry,17944,17966,12,4,,,not reachable from the job's entry points
+out,lisp.py,lisp_allow_dynamic_eid,18022,18030,7,4,,,not reachable from the job's entry points
+out,lisp.py,lisp_start_rloc_probe_timer,18038,18047,8,2,,,"xTR role (RLOC probing, telemetry, data-plane crypto): not in the job"
+out,lisp.py,lisp_show_rloc_probe_list,18055,18066,10,3,,,operator show/display: not in the job
+out,lisp.py,lisp_mark_rlocs_for_other_eids,18076,18114,18,6,,,not reachable from the job's entry points
+out,lisp.py,lisp_process_multicast_rloc,18123,18142,13,4,,,not reachable from the job's entry points
+out,lisp.py,lisp_process_rloc_probe_timer,18154,18435,125,42,,,"xTR role (RLOC probing, telemetry, data-plane crypto): not in the job"
+out,lisp.py,lisp_update_rtr_updown,18444,18476,13,5,,,RTR / NAT-traversal proxying: not in the job
+out,lisp.py,lisp_process_rloc_probe_reply,18484,18639,75,28,,,"xTR role (RLOC probing, telemetry, data-plane crypto): not in the job"
+out,lisp.py,lisp_db_list_length,18648,18654,6,3,,,not reachable from the job's entry points
+out,lisp.py,lisp_is_myeid,18663,18667,4,3,,,not reachable from the job's entry points
+out,lisp.py,lisp_format_macs,18677,18680,4,1,,,not reachable from the job's entry points
+out,lisp.py,lisp_get_echo_nonce,18688,18696,7,4,,,not reachable from the job's entry points
+out,lisp.py,lisp_write_flow_log,18726,18741,13,2,,,not reachable from the job's entry points
+out,lisp.py,lisp_send_to_arista,18977,18992,13,3,,,not reachable from the job's entry points
+out,lisp.py,lisp_arista_is_alive,19000,19014,7,1,,,not reachable from the job's entry points
+out,lisp.py,lisp_program_vxlan_hardware,19059,19178,65,14,,,not reachable from the job's entry points
+out,lisp.py,lisp_clear_hardware_walk,19186,19189,4,1,,,not reachable from the job's entry points
+out,lisp.py,lisp_clear_map_cache,19198,19245,19,2,,,not reachable from the job's entry points
+out,lisp.py,lisp_encap_rloc_probe,19257,19347,48,13,,,"xTR role (RLOC probing, telemetry, data-plane crypto): not in the job"
+out,lisp.py,lisp_checkpoint,19482,19492,9,3,,,not reachable from the job's entry points
+out,lisp.py,lisp_load_checkpoint,19501,19540,31,8,,,not reachable from the job's entry points
+out,lisp.py,lisp_write_checkpoint_entry,19555,19573,13,6,,,not reachable from the job's entry points
+out,lisp.py,lisp_write_ipc_keys,19616,19627,10,5,,,not reachable from the job's entry points
+out,lisp.py,lisp_write_ipc_map_cache,19635,19687,39,17,,,not reachable from the job's entry points
+out,lisp.py,lisp_write_ipc_database_mappings,19743,19770,14,7,,,not reachable from the job's entry points
+out,lisp.py,lisp_write_ipc_interfaces,19778,19796,12,6,,,not reachable from the job's entry points
+out,lisp.py,lisp_reassemble,19845,19954,51,16,,,not reachable from the job's entry points
+out,lisp.py,lisp_get_crypto_decap_lookup_key,19963,19984,14,7,,,"xTR role (RLOC probing, telemetry, data-plane crypto): not in the job"
+out,lisp.py,lisp_build_crypto_decap_lookup_key,19996,20015,10,6,,,"xTR role (RLOC probing, telemetry, data-plane crypto): not in the job"
+out,lisp.py,lisp_is_rloc_probe_request,20023,20025,3,1,,,"xTR role (RLOC probing, telemetry, data-plane crypto): not in the job"
+out,lisp.py,lisp_is_rloc_probe_reply,20033,20035,3,1,,,"xTR role (RLOC probing, telemetry, data-plane crypto): not in the job"
+out,lisp.py,lisp_is_rloc_probe,20055,20120,43,14,,,"xTR role (RLOC probing, telemetry, data-plane crypto): not in the job"
+out,lisp.py,lisp_ipc_write_xtr_parameters,20132,20139,6,2,,,not reachable from the job's entry points
+out,lisp.py,lisp_external_data_plane,20148,20153,5,3,,,not reachable from the job's entry points
+out,lisp.py,lisp_process_data_plane_restart,20168,20179,8,2,,,not reachable from the job's entry points
+out,lisp.py,lisp_process_data_plane_stats,20194,20282,55,18,,,not reachable from the job's entry points
+out,lisp.py,lisp_process_data_plane_decap_stats,20308,20348,22,7,,,not reachable from the job's entry points
+out,lisp.py,lisp_process_punt,20366,20498,72,24,,,not reachable from the job's entry points
+out,lisp.py,lisp_ipc_map_cache_entry,20506,20509,4,1,,,not reachable from the job's entry points
+out,lisp.py,lisp_ipc_walk_map_cache,20518,20532,5,3,,,operator show/display: not in the job
+out,lisp.py,lisp_itr_discover_eid,20540,20573,22,3,,,other role (ITR/ETR/RTR): not in the job
+out,lisp.py,lisp_itr_nat_probe,20583,20592,6,1,,,other role (ITR/ETR/RTR): not in the job
+out,lisp.py,lisp_retry_decap_keys,20606,20646,16,8,,,not reachable from the job's entry points
+out,lisp.py,lisp_decent_pull_xtr_configured,20655,20656,2,2,,,LISP-Decent mapping system: not in the job
+out,lisp.py,lisp_is_decent_dns_suffix,20665,20669,5,2,,,LISP-Decent mapping system: not in the job
+out,lisp.py,lisp_get_decent_eid_string,20680,20705,14,6,,,LISP-Decent mapping system: not in the job
+out,lisp.py,lisp_get_decent_index,20717,20748,18,3,,,LISP-Decent mapping system: not in the job
+out,lisp.py,lisp_get_decent_dns_name,20756,20758,3,1,,,LISP-Decent mapping system: not in the job
+out,lisp.py,lisp_get_decent_dns_name_from_str,20767,20770,4,1,,,LISP-Decent mapping system: not in the job
+out,lisp.py,lisp_trace_append,20781,20981,92,35,,,not reachable from the job's entry points
+out,lisp.py,lisp_allow_gleaning,20992,21018,21,14,,,not reachable from the job's entry points
+out,lisp.py,lisp_build_gleaned_multicast,21026,21106,51,13,,,not reachable from the job's entry points
+out,lisp.py,lisp_remove_gleaned_multicast,21115,21162,25,9,,,not reachable from the job's entry points
+out,lisp.py,lisp_change_gleaned_multicast,21171,21177,6,3,,,not reachable from the job's entry points
+out,lisp.py,lisp_process_igmp_packet,21278,21442,83,23,,,not reachable from the job's entry points
+out,lisp.py,lisp_update_igmp_database,21451,21525,42,9,,,not reachable from the job's entry points
+out,lisp.py,lisp_remove_igmp_database,21534,21570,22,7,,,not reachable from the job's entry points
+out,lisp.py,lisp_timeout_igmp_database,21580,21623,23,12,,,not reachable from the job's entry points
+out,lisp.py,lisp_glean_map_cache,21637,21722,50,12,,,not reachable from the job's entry points
+out,lisp.py,lisp_is_json_telemetry,21735,21748,12,7,,,"xTR role (RLOC probing, telemetry, data-plane crypto): not in the job"
+out,lisp.py,lisp_encode_telemetry,21761,21770,9,6,,,"xTR role (RLOC probing, telemetry, data-plane crypto): not in the job"
+out,lisp.py,lisp_decode_telemetry,21783,21786,4,2,,,"xTR role (RLOC probing, telemetry, data-plane crypto): not in the job"
+out,lisp.py,lisp_telemetry_configured,21796,21802,5,3,,,"xTR role (RLOC probing, telemetry, data-plane crypto): not in the job"
+out,lisp.py,lisp_mr_or_pubsub,21810,21811,2,1,,,not reachable from the job's entry points
+out,lisp.py,lisp_latency_debug,21820,21833,6,3,,,not reachable from the job's entry points
+out,lispapi.py,__init__,84,120,22,5,,,not reachable from the job's entry points
+out,lispapi.py,api_print,124,127,3,1,,,not reachable from the job's entry points
+out,lispapi.py,api_enable_debug,130,132,2,1,,,not reachable from the job's entry points
+out,lispapi.py,api_disable_debug,135,137,2,1,,,not reachable from the job's entry points
+out,lispapi.py,get_enable,140,149,6,3,,,not reachable from the job's entry points
+out,lispapi.py,get_debug,152,159,5,2,,,not reachable from the job's entry points
+out,lispapi.py,get_xtr_parameters,162,169,5,2,,,not reachable from the job's entry points
+out,lispapi.py,is_itr_enabled,172,174,2,2,,,not reachable from the job's entry points
+out,lispapi.py,is_etr_enabled,177,179,2,2,,,not reachable from the job's entry points
+out,lispapi.py,is_rtr_enabled,182,184,2,2,,,RTR / NAT-traversal proxying: not in the job
+out,lispapi.py,is_mr_enabled,187,190,3,2,,,not reachable from the job's entry points
+out,lispapi.py,is_ms_enabled,193,196,3,2,,,not reachable from the job's entry points
+out,lispapi.py,is_ddt_enabled,199,201,2,2,,,not reachable from the job's entry points
+out,lispapi.py,is_itr_debug_enabled,204,206,2,2,,,debug: not in the job
+out,lispapi.py,is_etr_debug_enabled,209,211,2,2,,,debug: not in the job
+out,lispapi.py,is_rtr_debug_enabled,214,216,2,2,,,debug: not in the job
+out,lispapi.py,is_mr_debug_enabled,219,222,3,2,,,debug: not in the job
+out,lispapi.py,is_ms_debug_enabled,225,227,2,2,,,debug: not in the job
+out,lispapi.py,is_ddt_debug_enabled,230,232,2,2,,,debug: not in the job
+out,lispapi.py,enable_itr,235,241,5,2,,,not reachable from the job's entry points
+out,lispapi.py,enable_etr,244,250,5,2,,,not reachable from the job's entry points
+out,lispapi.py,enable_rtr,253,259,5,2,,,RTR / NAT-traversal proxying: not in the job
+out,lispapi.py,enable_mr,262,268,5,2,,,not reachable from the job's entry points
+out,lispapi.py,enable_ms,271,277,5,2,,,not reachable from the job's entry points
+out,lispapi.py,enable_ddt,280,286,5,2,,,not reachable from the job's entry points
+out,lispapi.py,disable_itr,289,295,5,2,,,not reachable from the job's entry points
+out,lispapi.py,disable_etr,298,304,5,2,,,not reachable from the job's entry points
+out,lispapi.py,disable_rtr,307,313,5,2,,,RTR / NAT-traversal proxying: not in the job
+out,lispapi.py,disable_mr,316,322,5,2,,,not reachable from the job's entry points
+out,lispapi.py,disable_ms,325,331,5,2,,,not reachable from the job's entry points
+out,lispapi.py,disable_ddt,334,340,5,2,,,not reachable from the job's entry points
+out,lispapi.py,enable_core_debug,343,349,5,2,,,not reachable from the job's entry points
+out,lispapi.py,enable_itr_debug,352,358,5,2,,,not reachable from the job's entry points
+out,lispapi.py,enable_etr_debug,361,367,5,2,,,not reachable from the job's entry points
+out,lispapi.py,enable_rtr_debug,370,376,5,2,,,RTR / NAT-traversal proxying: not in the job
+out,lispapi.py,enable_mr_debug,379,385,5,2,,,not reachable from the job's entry points
+out,lispapi.py,enable_ms_debug,388,394,5,2,,,not reachable from the job's entry points
+out,lispapi.py,enable_ddt_debug,397,403,5,2,,,not reachable from the job's entry points
+out,lispapi.py,disable_core_debug,406,412,5,2,,,not reachable from the job's entry points
+out,lispapi.py,disable_itr_debug,415,421,5,2,,,not reachable from the job's entry points
+out,lispapi.py,disable_etr_debug,424,430,5,2,,,not reachable from the job's entry points
+out,lispapi.py,disable_rtr_debug,433,439,5,2,,,RTR / NAT-traversal proxying: not in the job
+out,lispapi.py,disable_mr_debug,442,448,5,2,,,not reachable from the job's entry points
+out,lispapi.py,disable_ms_debug,451,457,5,2,,,not reachable from the job's entry points
+out,lispapi.py,disable_ddt_debug,460,466,5,2,,,not reachable from the job's entry points
+out,lispapi.py,add_user_account,469,475,5,2,,,not reachable from the job's entry points
+out,lispapi.py,delete_user_account,478,483,4,2,,,not reachable from the job's entry points
+out,lispapi.py,enable_itr_security,486,493,6,3,,,not reachable from the job's entry points
+out,lispapi.py,disable_itr_security,496,503,6,3,,,not reachable from the job's entry points
+out,lispapi.py,enable_xtr_nat_traversal,506,515,6,3,,,not reachable from the job's entry points
+out,lispapi.py,disable_xtr_nat_traversal,518,525,6,3,,,not reachable from the job's entry points
+out,lispapi.py,enable_xtr_rloc_probing,528,535,6,3,,,not reachable from the job's entry points
+out,lispapi.py,disable_xtr_rloc_probing,538,545,6,3,,,not reachable from the job's entry points
+out,lispapi.py,enable_xtr_nonce_echoing,548,555,6,3,,,not reachable from the job's entry points
+out,lispapi.py,disable_xtr_nonce_echoing,558,565,6,3,,,not reachable from the job's entry points
+out,lispapi.py,enable_xtr_data_plane_logging,568,575,6,3,,,not reachable from the job's entry points
+out,lispapi.py,disable_xtr_data_plane_logging,578,585,6,3,,,not reachable from the job's entry points
+out,lispapi.py,enable_xtr_flow_logging,588,595,6,3,,,not reachable from the job's entry points
+out,lispapi.py,disable_xtr_flow_logging,598,605,6,3,,,not reachable from the job's entry points
+out,lispapi.py,add_mr_ddt_root,608,622,8,5,,,not reachable from the job's entry points
+out,lispapi.py,delete_mr_ddt_root,625,639,8,5,,,not reachable from the job's entry points
+out,lispapi.py,add_mr_referral,642,673,17,10,,,not reachable from the job's entry points
+out,lispapi.py,delete_mr_referral,676,696,11,7,,,not reachable from the job's entry points
+out,lispapi.py,add_ddt_delegation,699,732,18,10,,,not reachable from the job's entry points
+out,lispapi.py,delete_ddt_delegation,735,755,11,7,,,not reachable from the job's entry points
+out,lispapi.py,add_ddt_auth_prefix,758,778,12,7,,,not reachable from the job's entry points
+out,lispapi.py,delete_ddt_auth_prefix,781,800,11,7,,,not reachable from the job's entry points
+out,lispapi.py,add_ms_map_server_peer,803,841,18,10,,,not reachable from the job's entry points
+out,lispapi.py,delete_ms_map_server_peer,844,864,11,7,,,not reachable from the job's entry points
+out,lispapi.py,add_ms_site,867,887,14,6,,,not reachable from the job's entry points
+out,lispapi.py,build_ms_site_allowed_prefix,890,921,18,11,,,not reachable from the job's entry points
+out,lispapi.py,delete_ms_site,924,934,6,4,,,not reachable from the job's entry points
+out,lispapi.py,add_etr_database_mapping,937,979,27,13,,,not reachable from the job's entry points
+out,lispapi.py,delete_etr_database_mapping,982,998,11,7,,,not reachable from the job's entry points
+out,lispapi.py,add_etr_map_server,1001,1027,16,7,,,not reachable from the job's entry points
+out,lispapi.py,get_etr_map_server,1030,1049,11,5,,,not reachable from the job's entry points
+out,lispapi.py,delete_etr_map_server,1052,1072,12,6,,,not reachable from the job's entry points
+out,lispapi.py,add_itr_map_resolver,1075,1095,12,6,,,not reachable from the job's entry points
+out,lispapi.py,get_itr_map_resolver,1098,1117,11,5,,,not reachable from the job's entry points
+out,lispapi.py,delete_itr_map_resolver,1120,1140,12,6,,,not reachable from the job's entry points
+out,lispapi.py,build_rloc_record,1143,1160,12,3,,,not reachable from the job's entry points
+out,lispapi.py,add_itr_map_cache,1163,1194,19,10,,,not reachable from the job's entry points
+out,lispapi.py,delete_itr_map_cache,1197,1212,11,7,,,not reachable from the job's entry points
+out,lispapi.py,get_system,1215,1222,4,2,,,not reachable from the job's entry points
+out,lispapi.py,get_map_cache,1225,1233,4,2,,,not reachable from the job's entry points
+out,lispapi.py,get_map_cache_entry,1236,1254,10,6,,,not reachable from the job's entry points
+out,lispapi.py,get_site_cache,1257,1265,4,2,,,not reachable from the job's entry points
+out,lispapi.py,get_site_cache_entry,1268,1285,10,6,,,not reachable from the job's entry points
+out,lispapi.py,add_policy,1288,1411,83,58,,,not reachable from the job's entry points
+out,lispapi.py,delete_policy,1414,1420,5,3,,,not reachable from the job's entry points
+out,lispapi.py,__get,1426,1440,12,5,,,not reachable from the job's entry points
+out,lispapi.py,__get_data,1443,1464,15,6,,,not reachable from the job's entry points
+out,lispapi.py,__put,1467,1482,13,5,,,not reachable from the job's entry points
+out,lispapi.py,__delete,1485,1500,13,5,,,not reachable from the job's entry points
+out,lispapi.py,__unicode_to_ascii,1503,1531,20,8,,,not reachable from the job's entry points
+out,lispapi.py,__walk_dict_array,1534,1552,9,4,,,operator show/display: not in the job
+out,lispapi.py,__ascii_to_unicode,1556,1585,23,7,,,not reachable from the job's entry points
+out,lispapi.py,__error,1588,1591,4,3,,,not reachable from the job's entry points
+out,lispapi.py,__api_debug,1594,1596,3,2,,,not reachable from the job's entry points
+out,lispapi.py,__check_prefix_syntax,1600,1609,5,3,,,not reachable from the job's entry points
+out,lispapi.py,__check_prefix_list,1612,1623,9,5,,,not reachable from the job's entry points
+out,lispapi.py,__check_address_set_syntax,1626,1639,12,8,,,not reachable from the job's entry points
+out,lispapi.py,__is_dist_name,1642,1647,2,2,,,not reachable from the job's entry points
+out,lispapi.py,__check_address_syntax,1650,1694,26,17,,,not reachable from the job's entry points
+out,lispapi.py,__build_prefix_tuple,1697,1702,6,2,,,not reachable from the job's entry points
+out,lispconfig.py,lisp_banner_top,137,166,26,2,,,not reachable from the job's entry points
+out,lispconfig.py,lisp_banner_bottom,174,190,15,2,,,not reachable from the job's entry points
+out,lispconfig.py,lisp_show_wrapper,198,199,2,1,,,operator show/display: not in the job
+out,lispconfig.py,lisp_table_header,207,220,12,2,,,not reachable from the job's entry points
+out,lispconfig.py,lisp_table_row,228,236,8,2,,,not reachable from the job's entry points
+out,lispconfig.py,lisp_table_footer,244,245,2,1,,,not reachable from the job's entry points
+out,lispconfig.py,lisp_write_last_changed_date,253,258,6,1,,,not reachable from the job's entry points
+out,lispconfig.py,lisp_end_file,294,295,2,3,,,not reachable from the job's entry points
+out,lispconfig.py,lisp_not_supported,324,325,2,1,,,not reachable from the job's entry points
+out,lispconfig.py,lisp_hash_password,334,337,4,1,,,not reachable from the job's entry points
+out,lispconfig.py,lisp_validate_input_address_string,352,389,26,10,,,not reachable from the job's entry points
+out,lispconfig.py,lisp_valid_iid_format,400,414,12,6,,,not reachable from the job's entry points
+out,lispconfig.py,lisp_is_user_superuser,1021,1035,9,4,,,not reachable from the job's entry points
+out,lispconfig.py,lisp_find_user_account,1043,1097,21,9,,,not reachable from the job's entry points
+out,lispconfig.py,lisp_validate_user,1106,1125,12,7,,,not reachable from the job's entry points
+out,lispconfig.py,lisp_get_user,1133,1137,4,2,,,not reachable from the job's entry points
+out,lispconfig.py,lisp_login_page,1145,1156,12,1,,,web UI: not in the job
+out,lispconfig.py,lisp_is_any_xtr_logging_on,1165,1182,12,6,,,not reachable from the job's entry points
+out,lispconfig.py,lisp_landing_page,1191,1528,280,54,,,web UI: not in the job
+out,lispconfig.py,lisp_drain_socket,1537,1558,16,5,,,not reachable from the job's entry points
+out,lispconfig.py,lisp_process_show_command,1567,1615,25,7,,,operator show/display: not in the job
+out,lispconfig.py,lisp_start_stop_process,1623,1663,32,15,,,not reachable from the job's entry points
+out,lispconfig.py,lisp_enable_command,1671,1712,17,6,,,not reachable from the job's entry points
+out,lispconfig.py,lisp_debug_command,1720,1762,23,7,,,debug: not in the job
+out,lispconfig.py,lisp_replace_password_in_clause,1770,1801,13,4,,,not reachable from the job's entry points
+out,lispconfig.py,lisp_user_account_command,1811,1831,9,2,,,not reachable from the job's entry points
+out,lispconfig.py,lisp_rtr_list_command,1839,1875,24,9,,,other role (ITR/ETR/RTR): not in the job
+out,lispconfig.py,lisp_process_command_lines,1884,1983,59,22,,,not reachable from the job's entry points
+out,lispconfig.py,lisp_process_config_file,1991,2078,46,12,,,not reachable from the job's entry points
+out,lispconfig.py,lisp_send_commands,2087,2166,41,16,,,not reachable from the job's entry points
+out,lispconfig.py,lisp_config_process,2175,2194,15,3,,,not reachable from the job's entry points
+out,lispconfig.py,lisp_map_resolver_command,2208,2226,14,9,,,not reachable from the job's entry points
+out,lispconfig.py,lisp_map_cache_command,2234,2359,85,41,,,not reachable from the job's entry points
+out,lispconfig.py,lisp_display_map_cache,2367,2516,97,40,,,operator show/display: not in the job
+out,lispconfig.py,lisp_walk_map_cache,2525,2539,5,3,,,operator show/display: not in the job
+out,lispconfig.py,lisp_show_myrlocs,2547,2571,22,6,,,operator show/display: not in the job
+out,lispconfig.py,lisp_display_nat_info,2579,2623,33,8,,,operator show/display: not in the job
+out,lispconfig.py,lisp_itr_rtr_show_command,2631,2795,82,18,,,operator show/display: not in the job
+out,lispconfig.py,lisp_itr_rtr_show_rloc_probe_command,2803,2899,67,12,,,operator show/display: not in the job
+out,lispconfig.py,lisp_xtr_command,2907,2989,55,29,,,not reachable from the job's entry points
+out,lispconfig.py,lisp_show_json_list,2997,3009,10,2,,,operator show/display: not in the job
+out,lispconfig.py,lisp_show_rle_list,3017,3028,9,2,,,operator show/display: not in the job
+out,lispconfig.py,lisp_show_elp_list,3036,3046,9,2,,,operator show/display: not in the job
+out,lispconfig.py,lisp_get_lookup_string,3208,3247,26,5,,,not reachable from the job's entry points
+out,lispconfig.py,lisp_show_map_cache_lookup,3255,3284,24,7,,,operator show/display: not in the job
+out,lispconfig.py,lisp_get_clause_for_api,3293,3364,48,12,,,not reachable from the job's entry points
+out,lispconfig.py,lisp_duplicate_command_clause,3372,3392,16,8,,,not reachable from the job's entry points
+out,lispconfig.py,lisp_put_clause_for_api,3400,3543,71,30,,,not reachable from the job's entry points
+out,lispconfig.py,lisp_remove_clause_for_api,3552,3666,62,22,,,not reachable from the job's entry points
+out,lispconfig.py,lisp_u2a_walk_dict_array,3676,3687,10,4,,,operator show/display: not in the job
+out,lispconfig.py,lisp_unicode_to_ascii,3695,3720,20,7,,,not reachable from the job's entry points
+out,lispconfig.py,lisp_replace_db_list,3733,3758,16,9,,,not reachable from the job's entry points
+out,lispconfig.py,lisp_map_server_command,3766,3841,55,26,,,not reachable from the job's entry points
+out,lispconfig.py,lisp_database_mapping_command,3850,4126,162,88,,,not reachable from the job's entry points
+out,lispconfig.py,lisp_show_db_list,4135,4240,74,18,,,operator show/display: not in the job
+out,lispconfig.py,lisp_interface_command,4248,4356,64,26,,,not reachable from the job's entry points
+out,lispconfig.py,lisp_parse_eid_in_url,4365,4445,46,11,,,not reachable from the job's entry points
+out,lispconfig.py,lisp_show_dynamic_eid_command,4453,4488,27,7,,,operator show/display: not in the job
+out,lispconfig.py,lisp_clear_decap_stats,4498,4500,3,1,,,not reachable from the job's entry points
+out,lispconfig.py,lisp_show_decap_stats,4508,4527,15,3,,,operator show/display: not in the job
+out,lispconfig.py,lisp_show_crypto_list,4536,4597,50,15,,,operator show/display: not in the job
+out,lispconfig.py,lisp_decent_prefix_command,4608,4685,36,16,,,LISP-Decent mapping system: not in the job
+out,ltr.py,build_packet,165,178,12,1,,,not reachable from the job's entry points
+out,ltr.py,parse_packet,186,225,25,6,,,not reachable from the job's entry points
+out,ltr.py,display_packet,233,271,32,9,,,not reachable from the job's entry points
+out,ltr.py,parse_eid,280,303,13,4,,,not reachable from the job's entry points
+out,ltr.py,do_longest_match,311,332,19,4,,,not reachable from the job's entry points
+out,ltr.py,get_db,343,380,24,14,,,not reachable from the job's entry points
+out,ltr.py,get_rtrs,388,412,19,10,,,RTR / NAT-traversal proxying: not in the job
+out,ltr.py,bold,420,421,2,1,,,not reachable from the job's entry points
+out,ltr.py,green,429,430,2,1,,,not reachable from the job's entry points
+out,ltr.py,blue,438,439,2,1,,,not reachable from the job's entry points
+out,ltr.py,red,447,448,2,1,,,not reachable from the job's entry points
+out,ltr.py,red_bold,456,457,2,1,,,not reachable from the job's entry points
+out,ltr.py,check_multicast,466,474,8,5,,,not reachable from the job's entry points
+out,poly1305.py,_aes_encrypt,58,60,3,1,,,not reachable from the job's entry points
+out,poly1305.py,_aes_encrypt,62,65,4,1,,,not reachable from the job's entry points
+out,poly1305.py,_aes_encrypt,67,70,4,1,,,not reachable from the job's entry points
+out,poly1305.py,_aes_encrypt,74,76,3,1,,,not reachable from the job's entry points
+out,poly1305.py,constant_time_compare,81,82,2,1,,,not reachable from the job's entry points
+out,poly1305.py,constant_time_compare,84,94,11,7,,,not reachable from the job's entry points
+out,poly1305.py,new,111,116,1,1,,,not reachable from the job's entry points
+out,poly1305.py,__init__,141,146,6,1,,,not reachable from the job's entry points
+out,poly1305.py,update,148,158,2,1,,,not reachable from the job's entry points
+out,poly1305.py,digest,160,188,20,4,,,not reachable from the job's entry points
+out,poly1305.py,hexdigest,190,196,2,1,,,not reachable from the job's entry points
+out,poly1305.py,copy,198,211,4,1,,,not reachable from the job's entry points
+out,poly1305.py,poly1305aes,214,234,2,1,,,not reachable from the job's entry points
+out,poly1305.py,str2num_littleend,239,241,3,1,,,not reachable from the job's entry points
+out,poly1305.py,hexify,244,254,11,5,,,not reachable from the job's entry points
+out,poly1305.py,hexify,256,257,2,1,,,not reachable from the job's entry points
+out,pytun.py,__init__,44,63,15,6,,,not reachable from the job's entry points
+out,pytun.py,__del__,65,66,2,1,,,not reachable from the job's entry points
+out,pytun.py,mode_name,69,72,4,3,,,not reachable from the job's entry points
+out,pytun.py,fileno,74,76,2,1,,,not reachable from the job's entry points
+out,pytun.py,open,78,103,21,6,,,not reachable from the job's entry points
+out,pytun.py,close,105,109,5,2,,,not reachable from the job's entry points
+out,pytun.py,write,111,113,2,1,,,not reachable from the job's entry points
+out,pytun.py,read,119,120,2,1,,,not reachable from the job's entry points
+out,pytun.py,__repr__,124,125,2,1,,,not reachable from the job's entry points
+out,pytun.py,__init__,129,130,2,1,,,not reachable from the job's entry points
+out,pytun.py,__init__,134,135,2,1,,,not reachable from the job's entry points
+out,remove-lisp-iptables.py,more_specific,41,52,11,2,,,not reachable from the job's entry points
