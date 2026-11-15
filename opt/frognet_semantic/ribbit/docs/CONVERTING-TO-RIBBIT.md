@@ -1,9 +1,10 @@
 # Converting a system to Ribbit — the reference process
 
-The reference model for every conversion: what you keep, what you replace, and the two phases that get you from an
+The reference model for every conversion: what you keep, what you replace, and the three phases that get you from an
 existing program to one that uses the memory as memory. It sits on top of `PROGRAMMING-RIBBIT-BEST-PRACTICES.md`,
 which says how to write Ribbit; this says how to arrive there from someone else's code. Read both before you write
-a line. Written 2026-10-17 from the MQTT conversion, where the first design got it wrong in the ways listed in §6.
+a line. Written 2026-10-17 from the MQTT conversion, where the first design got it wrong in the ways listed in §7.
+Phase 3 (§5) was added 2026-11-15 from the PyTorch and lispers.net conversions, which both went through it.
 
 ---
 
@@ -119,7 +120,100 @@ and the suite. Lines and complexity of what replaced the incumbent's machinery a
 statements. Qualification (the contract holds) and characterization (what the box sustains) separately. What is not
 claimed, on the same page.
 
-## 5. Checkpoints a next thread can pick up from
+## 5. Phase 3 — make it froggish
+
+Phase 2 gives you the contract on the memory, and usually parity with the incumbent. Phase 3 is where the
+conversion stops imitating the incumbent and starts being what the memory makes possible. PyTorch and lispers.net
+both went through it, by the same steps, and both came out far ahead: meshfeed trained the same model to the same
+loss 329× faster than stock DDP on a five-node Internet mesh, and Ribbit-LISP served 17× the lookups and 7.9× the
+registrations of lispers.net over the Internet on about a hundred-and-fortieth of the CPU per lookup.
+
+**Expect orders of magnitude, and do not stop until you see them.** The incumbent spends most of its time on work
+the memory removes: conversations, copies, waiting on other machines. Parity means that work is still there. It is
+where phase 3 starts, not a result. Both conversions reached parity first, and both kept going because the target
+was never parity; each step below was taken because the number was not yet where it had to be. When the conversion
+can go no further inside the incumbent's arrangement, the target still stands; that is the signal to change the
+arrangement (§5e).
+
+### 5a. Put it where it will live, and measure the whole run
+
+Run it on several machines with the Internet between them, the incumbent beside it in the same session as the
+control, and measure the whole run, not the best step. A single machine hides everything phase 3 is about: there,
+every round trip is free. Over the Internet, each Ribbit-LISP register waited a round trip to the RAM host, and up to
+16 clients lispers.net registered faster; that is what v0.70 to v0.75 removed. PyTorch's backend looked about 60%
+faster than gloo until the control ran in the same session, minutes apart, on the same network.
+
+Build the instruments into the code before the run, so one run answers the next question without another: every
+participant prints its build and refuses a mixed set, sockets report what held them, a slow operation says where its
+time went (`[DIAG-SOCK]`, `[DIAG-REGISTER]`). Use the simulator's slow links (`simulation/slowlink.py`) to get there
+first.
+
+### 5b. Hunt down every conversation that is left
+
+Phase 2 removes the obvious messaging. What it leaves behind is the expensive part. Go through the code looking for
+these, and remove each one:
+
+| what is left | PyTorch | lispers.net |
+|---|---|---|
+| a synchronous call: a participant asks and waits | the caller waited for its collective | each Map-Register was a call to the RAM host (v0.68), then a request with no wait (v0.70) |
+| a copy of someone else's data | a RAM host per machine holding tensors | -- |
+| configuration sent again | -- | pushed to each process on start, each reply awaited; now written into the memory once (v0.71) |
+| a read per thing instead of one held read | one read per peer bag | one read per view; now one held read feeds every view (v0.72) |
+| a poll or a tick | the store's blocking reads were spins | the receive loop ticked; now it blocks (v0.73) |
+| acks, retries, caps | per-write acks and retry loops | -- |
+| bits moved to where the reader is | tensor bytes staged through a host | -- |
+
+Do it as a loop, not a pass. Trace the code that actually runs, remove the next mechanism that exists only because
+the incumbent needed it, run the suite, and look again: a working rewrite still hides messaging, and each removal
+exposes the next. Ribbit-LISP went through five versions of this (v0.70 to v0.75), each one removing a thing the
+previous version had kept. Tune for performance only after the loop runs dry; tuning first optimizes machinery that
+should disappear.
+
+The test is the one-machine question from §1, asked again of the code you now have. For each thing, ask where its
+cost belongs. A decision that needs only what a participant already holds is made there: Ribbit-LISP's front
+decides each Map-Register itself from the keys and sites it holds as views (v0.75), and the RAM host only stores
+what it decided. A read is a reference to where the bits already are: FrogTorch's RAM holds where each rank's memory
+is, and the bytes go once, owner to reader, when the reader needs them.
+
+### 5c. Send adaptively
+
+Whatever a participant writes into the RAM host goes through a window that grows while answers come back on time
+and halves when they slow. "If the system is backing up, back off." Ribbit-LISP's rows go in batches through such a
+window (`[WRITES_BACK_OFF_V1]`); without it, its registers collapsed under load.
+
+### 5d. Fix what the measurement exposes, wherever it is
+
+Phase 3's runs find problems outside the conversion, and they get fixed where they are, not worked around in the
+application. PyTorch's mesh runs found an access point on a single FIFO queue; fq_codel on every interface is now
+part of node setup, and with it gloo and the backend tied. Ribbit-LISP's runs found a load generator whose uplink was
+the limit, and the result says so.
+
+The first conversion is also an investigation. It teaches you what the contract requires, which algorithms perform the actual work, and which mechanisms belong to the incumbent's arrangement. Once you understand those distinctions, you have learned enough to stop converting and write the program.
+
+### 5e. Then rewrite the core algorithms as a multithreaded program
+
+There comes a point where you have learned everything the incumbent's framework and implementation can teach: what
+the contract demands, which algorithms are the real work, and which parts exist only to move data between machines.
+From there, stop converting. Rewrite the core algorithms as what they always were underneath: a multithreaded
+program on one computer, with the shared memory as its RAM and held reads as its scheduler. The threads happen to run
+on different machines; the program does not need to know. That rewrite is where the arrangement changes, inside what
+the contract allows, and it is where the real gains show. Everything before it gets you to parity; the rewrite is
+what took PyTorch from a tie with gloo to 329×.
+
+You are usually there when the conversion reaches the floor that the incumbent's own arrangement sets. DDP's
+arrangement moves a 16.9 MB gradient per machine per step, and no reduction algorithm beats the floor that sets on a
+slow mesh. meshfeed keeps PyTorch and moves the 4 KB
+minibatches to the machine that measures fastest instead: the data comes to the compute, placed by measured
+capability. Ribbit-LISP's first arrangement had the RAM host decide every Map-Register; v0.75 decides at the front
+that received the packet, and the RAM host stores what it decided. Both kept their contracts: the same held-out loss,
+matched to an oracle; the same wire, 78 tests.
+
+Phase 3 is finished when nothing in the code waits on another machine except a held read for data it needs, the
+whole run on real machines is measured against the incumbent in the same session, and the arrangement is the one
+the memory makes best, not the one the incumbent needed.
+
+
+## 6. Checkpoints a next thread can pick up from
 
 Every conversion leaves, in its example directory:
 
@@ -137,7 +231,7 @@ A thread that picks up reads, in order: this file, `PROGRAMMING-RIBBIT-BEST-PRAC
 `DESIGN.md`, `QUESTION-3.md`, then `RESULTS.md`. Before changing anything it re-runs the suite and the bench to
 confirm it is starting where the files say.
 
-## 6. How it goes wrong — the MQTT conversion's first design
+## 7. How it goes wrong — the MQTT conversion's first design
 
 Every one of these was built, measured and then thrown out. Check your design against them.
 
@@ -160,7 +254,7 @@ Every one of these was built, measured and then thrown out. Check your design ag
    were the product. A design that cannot span machines is not the product; measure the shape that ships.
 9. **A naming convention nobody asked for.** The three indices are free; choose them for the reads.
 
-## 6b. Redis: one owner for the keyspace, and no copies
+## 7b. Redis: one owner for the keyspace, and no copies
 
 Redis's state is read-modify-write on keys every client may touch (INCR, LPOP, MULTI/EXEC, a blocked client's place in
 line). The keys have one owner: the Redis region in the memory. A client never writes a key; its request is a cell
@@ -179,7 +273,7 @@ pub/sub class of code, and it is what to look for and remove in any conversion:
 The test: if a design needs any mechanism whose only job is to keep two copies equal, the second copy is the bug.
 A blocked command does not need a thread either: it keeps its call's answer, and the write that readies it wakes it.
 
-## 7. For an AI doing a conversion
+## 8. For an AI doing a conversion
 
 - Read §1 and best practices §13 first, every session. The failures are the default behaviour of a model trained on
   request/response code; they recur unless checked.
