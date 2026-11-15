@@ -47,3 +47,24 @@ What it covers and does not:
   tests in `opt/fdf/src/fdf-source/rinab/tools/` (README.md, "Running the gates").
 
 The simulator's dated build notes from June 2026 are `opt/frognet_semantic/docs/history/SIM_STATUS-2026-06.md`.
+
+## Tier 3, all of it (2026-11-14)
+
+`s_scale_tier.py` (the star: S nodes, E egresses) now runs in the gate at S=200, E=1 5 20. `s_topo_tier.py` is the
+rest of tier 3, every member a real fdf-client on a real fdf-ram, routes followed only in the verification plan:
+
+- the 20 hardware topologies, converted to the facts fdf-facts writes (a segment's .1 holder gives the lease, every
+  other member holds one); the oracle is the hardware's (every pair reached). 17 pass. Three do not, and the reason is
+  in the model, not the harness: `topo_asym_three_sites` (a .1 holder whose only link is to a node that chose another
+  parent is left with no link: [FOREST_V1] keeps one upward link per host), `topo_dual_wg_transit_bridge` and
+  `topo_multilan_shared_wg_transit` (transit segments with no .1 holder: no lease, so no FD&F link).
+- generated topologies with every path stated by the generator, hop for hop (trees, a mesh where the exit is chosen by
+  speed not hops, a mixed forest), and their events: link down, egress lost, egress back, a child moving, churn
+  (three rounds), a member's RAM link cut past its keepalive. All pass.
+- slow links (`slowlink.py`: a user-space shaper, since this kernel has no qdiscs): every member's session over wan,
+  wifi, 4g, geo, halow, with and without loss. The bearer test holds one member per profile for 120 s: every bearer
+  down to geo (256 kb/s) and lossy HaLow holds its session; the jammed bearer (2 kb/s, 2 s outages) does not -- a
+  member's participants read is 31 KB at 52 members.
+
+`lisp_slow_tier.py` runs Ribbit-LISP against lispers.net (both unmodified) over simulated links: central, edge,
+slow-edge. It needs the Ribbit-LISP package built and lispers.net unpacked (LISP_PKG, LISPERS_DIR).
