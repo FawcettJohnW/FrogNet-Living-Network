@@ -2,6 +2,37 @@
 
 A `torch.distributed` backend and a set of DDP communication hooks that run PyTorch distributed training over FrogNet network shared memory instead of message-passing collectives. PyTorch's API is the contract; everything underneath it is rebuilt on the Ribbit model: each rank publishes what it has, and peers read what they need.
 
+## Two implementations, and what each one showed
+
+There are two pieces of work here, measured separately. Keep their results apart.
+
+**1. The backend (September 2026).** `torch_backend.py` and `psychedelic_backend.py` keep DDP's arrangement: every
+rank computes on its own data and the gradients are summed across ranks, through FrogNet shared memory instead of
+gloo's ring. In four September campaigns on a four-rank Seattle–New York mesh it ran 1.03× to 1.95× the speed of
+the same campaign's gloo control (campaign ddp58xx, one of the four, is below). On the five-node mesh of 12–13 November, once Seattle5's access point queue was
+changed to fq_codel, it tied gloo: within 2% at batch 64 and 3% at batch 4096
+(`opt/frognet_semantic/agent_workload/PSYCHEDELIC-MESH-RESULTS-20261113.md`, section 3). Both sit near the floor the
+mesh's links set for any gradient exchange (about 18 s a step for 16.9 MB per gradient).
+
+**2. meshfeed (November 2026).** `usr/local/frognet-ai/meshfeed.py` stops exchanging gradients. Each node keeps its
+minibatches on its own disk and publishes them through the tuple space; the machine that measures fastest pulls them
+and does the arithmetic with ordinary, unmodified PyTorch. Same five nodes, same model, against stock DDP run on the
+same mesh (`PSYCHEDELIC-MESH-RESULTS-20261113.md`, section 9):
+
+| workload | stock DDP, gloo | meshfeed | | same answer |
+|---|---|---|---|---|
+| batch 64, 40 steps | 1,018 s (ddp4430) | 3.09 s (mf500) | 329× | held-out 0.4947 for both; mf500 matches a single-thread oracle to 6.0e-08 |
+| batch 4096, 10 steps | 264 s (mf506) | 48.2 s (mf503) | 5.5× | held-out 0.6916 for both; mf503 matches the oracle exactly |
+
+What the two numbers measure: total time for the stated steps, on the same five-node mesh (Seattle, New York, Wi-Fi,
+WireGuard and home Internet links), training the same model to the same held-out loss. The batch-64 DDP control ran
+in a separate session the same morning; the batch-4096 control ran in the same campaign. Splitting the batch-4096
+compute over two or three machines (mf504, mf505) beat DDP by 2.6× and 2.2× but lost to the single fastest machine,
+because the gradient sum among them cost more than the compute it saved.
+
+The reproduction steps are in section 13 of that report: `sh meshrun.sh $(/usr/local/bin/getEth0Address) <base>` on
+each of the five nodes.
+
 ## Where the code is
 
 This example is not in this directory. It lives at the paths the nodes run it from, so the repo is exactly what produced the results below:
