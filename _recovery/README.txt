@@ -1,1 +1,0 @@
-Reconstructed source overlay, not a byte-identical recovery of the lost archive. Extract into the FrogNet repository root. See opt/frognet_semantic/ribbit/examples/senzmatica/RECOVERY.md and README.md. No binaries or dependencies included. Stage and hashes are in SOURCE-CHECKPOINT.json.

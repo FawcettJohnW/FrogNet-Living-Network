@@ -44,7 +44,6 @@ opt/frognet_semantic/ribbit/examples/mqtt/*	.	MQTT's own word: an MQTT broker is
 opt/frognet_semantic/ribbit/examples/frogtastic-ram/front/*	.	Meshtastic's own firmware (meshtastic/firmware at the pin in STOCK, vendored and modified): its own words (inputBroker, the MQTT broker), not FrogNet's broker.
 opt/frognet_semantic/ribbit/examples/frogtastic-ram/harness/mqtt-edge.sh	.	MQTT's own word: Meshtastic's optional MQTT edge [MT_MQTT_EDGE_V1] is tested against an MQTT broker (amqtt).
 opt/frognet_semantic/ribbit/experiments/obsvis/*	.	MQTT's own word: the observability experiment compares direct TLS against an MQTT broker (its arm B).
-opt/frognet_semantic/ribbit/examples/senzmatica/*	.	MQTT's own word: SenzMatica's remote configuration runs over an MQTT broker (Mosquitto) with the switch OFF, and this example converts it to the shared RAM with the switch ON. Not FrogNet's removed broker.
 opt/fdf/src/fdf-source/rinab/experiments/day-claims/runs/*	no internet, no broker	Recorded run output (the simulator's tier-4 run files): frognet_sim's topology label, carried verbatim.
 EOF
 )
