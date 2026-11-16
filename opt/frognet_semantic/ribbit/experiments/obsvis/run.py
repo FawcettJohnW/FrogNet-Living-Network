@@ -178,7 +178,7 @@ def run(cond, traffic, seed, minutes, stress=None, out=None):
         if cond in ("A", "B", "Bt"): certs(cdir)
         procs.append(start("ctl", [os.path.join(HERE, "build", "chat-ram"), "--listen", bed.CTL + ":8899"], os.path.join(out, "ctl-chat-ram.log"), "answering"))
         for n in AGENTS:
-            procs.append(start(n, ["python3", "-u", os.path.join(HERE, "agent.py"), "--name", n, "--ctl", bed.CTL + ":8899", "--out", out],
+            procs.append(start(n, [sys.executable, "-u", os.path.join(HERE, "agent.py"), "--name", n, "--ctl", bed.CTL + ":8899", "--out", out],
                                os.path.join(out, "agent-%s.log" % n)))
         plan = {"run": rid, "cond": cond, "traffic": traffic, "seed": seed, "dur": dur, "drain": 8, "certs": cdir,
                 "follows": workload.follows(seed), "capture": ["p1", "srv"], "stress_name": stress, "netem": st.get("netem"),

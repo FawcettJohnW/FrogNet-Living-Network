@@ -39,6 +39,9 @@
 # shards. Conditions drift; interleaving spreads that drift across all three
 # arms instead of concentrating it in one.
 set -e
+# [FROGTORCH_VENV_V1] FrogTorch runs on its own venv, never on pip-into-the-system: install.sh makes it
+PY=/usr/local/frognet-ai/venv/bin/python3
+[ -x "$PY" ] || { echo "$PY is missing: run /usr/local/frognet-ai/install.sh first (it makes FrogTorch's venv)"; exit 1; }
 
 ADDR="$1"; BASE="$2"; REPS="${3:-3}"; WORLD="${4:-4}"
 if [ -z "$ADDR" ] || [ -z "$BASE" ]; then
@@ -124,7 +127,7 @@ for _f in repeat.sh netbench1.py gate.py showerr.py; do
     [ -f "$_p" ] && printf "  %-16s %s\n" "$_f" \
         "$(sha256sum "$_p" | cut -c1-12)" || printf "  %-16s MISSING\n" "$_f"
 done
-python3 "$NB" --version --peer-wait "$PEER_WAIT" \
+"$PY" "$NB" --version --peer-wait "$PEER_WAIT" \
     --server-wait "$SERVER_WAIT" --socket-timeout "$SOCKET_TIMEOUT" \
     --socket-margin "$SOCKET_MARGIN" --idle-reap "$IDLE_REAP" \
     --verify "$VERIFY" --pool "$POOL" 2>/dev/null | sed 's/^/  /'
@@ -141,10 +144,10 @@ fi
 gate() {
     if [ "$RANK" = "0" ]; then
         sleep 2
-        python3 "$GATE" --role primary --runid "$1" --arm 0 \
+        "$PY" "$GATE" --role primary --runid "$1" --arm 0 \
             --store "$STORE" --tree "$TREE" || exit 2
     else
-        python3 "$GATE" --role follower --runid "$1" --arm 0 \
+        "$PY" "$GATE" --role follower --runid "$1" --arm 0 \
             --store "$STORE" --tree "$TREE" || exit 2
     fi
 }
@@ -155,7 +158,7 @@ do_arm() {   # id, backend, reduce, label
     echo ">>> $ID  $LABEL"
     gate "$ID"
     printf "    running ... "
-    if python3 "$NB" --rank "$RANK" --world "$WORLD" --backend "$BE" \
+    if "$PY" "$NB" --rank "$RANK" --world "$WORLD" --backend "$BE" \
         ${RED:+--reduce $RED} --runid "$ID" --addr "$ADDR" \
         --master "$MASTER" --store "$STORE" \
         --profile slope --iters "$ITERS" --timeout "$TIMEOUT" --diag \
@@ -167,7 +170,7 @@ do_arm() {   # id, backend, reduce, label
         echo "ok"
     else
         echo "FAILED"
-        python3 "$SHOWERR" "$OUT" "$RANK" "$BE" "$RED" "$ID" | sed 's/^/      /'
+        "$PY" "$SHOWERR" "$OUT" "$RANK" "$BE" "$RED" "$ID" | sed 's/^/      /'
     fi
 }
 

@@ -19,6 +19,7 @@
 set -u; H=$(cd "${1:-$(dirname "$0")/..}" && pwd); FN=${FROGNET_DIR:-$H/../../../../frognet_semantic}
 FN=$(cd $FN && pwd); TOP=$(cd $FN/../.. && pwd)
 T=${T:-/tmp/claude-0/netns-lan-only}; rm -rf $T; mkdir -p $T/a $T/b
+NEEDS="php" . $H/tools/netns-preflight.sh    # [NETNS_PREFLIGHT_V1] what it needs, PATH, the watchdog
 FAILS=0; check() { if [ "$1" = 0 ]; then echo "PASS  $2"; else echo "FAIL  $2"; FAILS=$((FAILS+1)); fi; }
 cleanup() { for n in a b; do ip netns pids $n 2>/dev/null | xargs -r kill 2>/dev/null; done; sleep 0.5
             for n in a b; do for k in $(seq 50); do p=$(ip netns pids $n 2>/dev/null); [ -z "$p" ] && break; echo $p | xargs -r kill -9 2>/dev/null; sleep 0.1; done
@@ -105,4 +106,4 @@ FAIL_DETAIL=${FAIL_DETAIL:-1}
   echo "--- $n daemon.log (last 15)"; tail -15 $T/$n/daemon.log | cut -c1-240 | sed 's/^/    /'
   echo "--- $n merge2.log (reconcile, HOSTS, SERVICE, WALK lines)"; grep -E 'reconcile|HOSTS|SERVICE|ELECT|WALK|PROBE|echo' $T/$n/merge2.log | head -30 | cut -c1-240 | sed 's/^/    /'
 done
-echo "RESULT $([ $FAILS = 0 ] && echo PASS || echo "FAIL: $FAILS")"
+netns_result                 # [NETNS_PREFLIGHT_V1] RESULT, and the exit status that matches it

@@ -57,8 +57,9 @@ def _load_netutil(src, hosts_path, map_path):
     sys.modules["proxy"] = pkg
     sys.modules["proxy.constants"] = c
     src = src.replace('_HOSTS_PATH = "/etc/hosts"', f'_HOSTS_PATH = {hosts_path!r}')
-    src = src.replace('MAP_INTERFACES_PATH = "/usr/local/bin/mapInterfaces"',
-                      f'MAP_INTERFACES_PATH = {map_path!r}')
+    line = 'MAP_INTERFACES_PATH = os.path.join(os.environ.get("FROGNET_BIN_ROOT", "/usr/local/bin"), "mapInterfaces")'
+    assert line in src, "netutil.py's MAP_INTERFACES_PATH line changed; update this oracle"
+    src = src.replace(line, f'MAP_INTERFACES_PATH = {map_path!r}')
     src = src.replace('path = "/usr/local/bin/mapInterfaces"', f'path = {map_path!r}')
     m = types.ModuleType("netutil_probe")
     exec(compile(src, "netutil_probe", "exec"), m.__dict__)

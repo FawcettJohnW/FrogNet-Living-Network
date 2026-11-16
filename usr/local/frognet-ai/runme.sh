@@ -63,6 +63,9 @@
 # costs each arm against what world 3 costs it. One arm alone cannot answer
 # it, and neither can one world size.
 set -e
+# [FROGTORCH_VENV_V1] FrogTorch runs on its own venv, never on pip-into-the-system: install.sh makes it
+PY=/usr/local/frognet-ai/venv/bin/python3
+[ -x "$PY" ] || { echo "$PY is missing: run /usr/local/frognet-ai/install.sh first (it makes FrogTorch's venv)"; exit 1; }
 
 ADDR="$1"
 BASE="$2"
@@ -191,7 +194,7 @@ for _f in runme.sh netbench1.py gate.py showerr.py plot_proof.py \
 done
 echo
 
-python3 "$NB" --version --peer-wait "$PEER_WAIT" \
+"$PY" "$NB" --version --peer-wait "$PEER_WAIT" \
     --server-wait "$SERVER_WAIT" --socket-timeout "$SOCKET_TIMEOUT" \
     --socket-margin "$SOCKET_MARGIN" --idle-reap "$IDLE_REAP" \
     --verify "$VERIFY" --pool "$POOL" | sed 's/^/  /'
@@ -232,11 +235,11 @@ wait_for_go() {
         # Not required -- a late reader still finds the cell -- but it keeps
         # the start times tight.
         sleep 2
-        python3 "$GATE" --role primary --runid "$GID" --arm 0 \
+        "$PY" "$GATE" --role primary --runid "$GID" --arm 0 \
             --tree "$TREE" || exit 2
     else
         echo ">>> waiting for rank 0 to open this arm"
-        python3 "$GATE" --role follower --runid "$GID" --arm 0 \
+        "$PY" "$GATE" --role follower --runid "$GID" --arm 0 \
             --tree "$TREE" || exit 2
     fi
 }
@@ -249,7 +252,7 @@ do_run() {   # id, world, backend, reduce, label
     fi
     wait_for_go "$ID" "$ID  $LABEL"
     echo "--- $ID: world $W, $BE${RED:+/$RED} ..."
-    if python3 "$NB" --rank "$RANK" --world "$W" --backend "$BE" \
+    if "$PY" "$NB" --rank "$RANK" --world "$W" --backend "$BE" \
         ${RED:+--reduce $RED} --runid "$ID" --addr "$ADDR" \
         --store "$STORE" \
         --profile slope --iters "$ITERS" --timeout "$TIMEOUT" --diag \
@@ -265,7 +268,7 @@ do_run() {   # id, world, backend, reduce, label
         # the log's last lines are the banner and the lock release, which is
         # what an earlier version of this printed, and it told nobody
         # anything.
-        python3 "$SHOWERR" "$OUT" "$RANK" "$BE" "$RED" "$ID" | sed 's/^/      /'
+        "$PY" "$SHOWERR" "$OUT" "$RANK" "$BE" "$RED" "$ID" | sed 's/^/      /'
     fi
 }
 

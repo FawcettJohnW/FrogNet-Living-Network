@@ -51,13 +51,17 @@ import os
 import socket
 import subprocess
 import sys
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+import sim_env  # noqa: E402,F401  [SIM_OWNS_ITS_ENV_V1] the simulator's DB credential, scratch blob store
 import tempfile
 import threading
 import types
 from urllib.parse import parse_qs, urlsplit
 
 HERE = os.path.dirname(os.path.abspath(__file__))
-DB_CONFIG = "/opt/frognet_semantic/DB_CONFIG.json"   # core/store.py's own path; the origin's store is its database + "7"
+# [DB_CONFIG_FROM_ONE_PLACE_V1] core/db_credentials' path (FROGNET_DB_CONFIG; a node's is /opt/frognet_semantic/DB_CONFIG.json);
+# the origin's store is its database + "7". setup.sh writes the simulator's own and sets FROGNET_DB_CONFIG.
+DB_CONFIG = os.environ.get("FROGNET_DB_CONFIG", "/opt/frognet_semantic/DB_CONFIG.json")
 
 USERS = {"AlphaAdmin": ("ALPHA", "alpha", True), "BravoAdmin": ("bravo-2026", "bravo", True), "EOCAdmin": ("eoc pw", "eoc", False)}
 DOOR = "dc-door-sim"
@@ -169,6 +173,9 @@ def run_one(root, seq):
                 if self.__class__._pool is None:
                     self.__class__._pool = CS._MySQLPool(dict(cfg, database=cfg["database"] + "7"), getattr(CS, "_POOL_SIZE", 8))
     s7 = OriginStore(); s7.ensure_tables()
+    with CS.TemplateStore._pool_lock:                                            # the asking node's store, on the same
+        if CS.TemplateStore._pool is None:                                       # credential (an older tree's store.py
+            CS.TemplateStore._pool = CS._MySQLPool(cfg, getattr(CS, "_POOL_SIZE", 8))   # reads its node's path itself)
     s5 = TS.get_template_store(); s5.ensure_tables()
 
     def origin_proxy_serves(method, path, body_text, headers):
@@ -262,6 +269,15 @@ def export(rev, into):
     tar = subprocess.Popen(["git", "-C", top, "archive", rev] + ["opt/frognet_semantic/" + p for p in
                            ("proxy", "daemon", "core", "frognet_trace.py", "frognet_log.py", "frognet_route")], stdout=subprocess.PIPE)
     subprocess.check_call(["tar", "x", "--strip-components=2", "-C", into], stdin=tar.stdout); tar.wait()
+    # [MAPINTERFACES_IN_BIN_ROOT_V1] an older tree reads /usr/local/bin/mapInterfaces, a node's path, which a checkout
+    # does not have; it is given this tree's line, so it reads the checkout's (FROGNET_BIN_ROOT). Nothing the tier
+    # tests (the templates, the reply extraction) is in that line.
+    nu = os.path.join(into, "proxy", "netutil.py")
+    src = open(nu).read()
+    old = 'MAP_INTERFACES_PATH = "/usr/local/bin/mapInterfaces"'
+    if old in src:
+        open(nu, "w").write(src.replace(old, 'MAP_INTERFACES_PATH = os.path.join(os.environ.get("FROGNET_BIN_ROOT", '
+                                                 '"/usr/local/bin"), "mapInterfaces")'))
     return into
 
 

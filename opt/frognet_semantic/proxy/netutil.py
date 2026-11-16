@@ -86,7 +86,10 @@ _HOSTS_PATH = "/etc/hosts"
 # INTERFACE ROLE LOADING (mapInterfaces)
 # -------------------------------------------------------------------
 
-MAP_INTERFACES_PATH = "/usr/local/bin/mapInterfaces"
+# [MAPINTERFACES_IN_BIN_ROOT_V1] A node's mapInterfaces is /usr/local/bin/mapInterfaces. FROGNET_BIN_ROOT names a
+# different bin directory for a run from a checkout (the simulator sets it to the checkout's usr/local/bin), so the
+# simulator never needs a file in /usr/local/bin. It is the one file still; nothing else is consulted.
+MAP_INTERFACES_PATH = os.path.join(os.environ.get("FROGNET_BIN_ROOT", "/usr/local/bin"), "mapInterfaces")
 _ROLE_KEYS = ("eth0Name", "wlan0Name", "wlan1Name")
 
 

@@ -11,6 +11,7 @@
 set -u; H=$(cd "${1:-$(dirname "$0")/..}" && pwd); B=$H/build/static; FN=${FROGNET_DIR:-$H/../../../../frognet_semantic}
 PK=${PKG_FDF:-$H/../fdf}; FDFPY=$H/../fdf/lib/python; S=${S:-6}
 T=${T:-/tmp/claude-0/netns-ponds}; rm -rf $T; mkdir -p $T/ha $T/hb $T/a $T/b $T/n $T/bin
+NEEDS="" . $H/tools/netns-preflight.sh    # [NETNS_PREFLIGHT_V1] what it needs, PATH, the watchdog
 export RIBBIT_TEMPLATES=$H/../fdf/templates/fdf.prime FDF_WG_IMPL=wireguard-go FDF_PY=$FDFPY
 export WG_QUICK_USERSPACE_IMPLEMENTATION=wireguard-go WG_I_PREFER_BUGGY_USERSPACE_TO_POLISHED_KMOD=1
 API=/FawcettInnovations.RINA.ram_interface.php; KEYA=keyA; KEYB=keyB; RAMA=198.18.0.1:8840; RAMB=198.18.0.2:8840
@@ -111,7 +112,7 @@ check $(mapped $RAMA pondA && ! mapped $RAMB pondB && echo 0 || echo 1) "n's /24
 check $([ "$(role_in $RAMA)" = node ] && [ "$(role_in $RAMB)" = participant ] && echo 0 || echo 1) "n is a node in A ($(role_in $RAMA)), a participant in B ($(role_in $RAMB))"
 check $(ip netns exec n ping -c2 -W1 -q -I 10.3.3.1 10.7.7.1 >/dev/null 2>&1 && echo 0 || echo 1) "n -> a (10.7.7.1) over hubA"
 echo "=== (2) a notice in pond B"
-T0=$(ms); NSF b $T/bin/fdf-attention "match starting" > /dev/null 2>&1 < /dev/null || ip netns exec b env RINA_RAM=$RAMB FDF_FACTS=$T/b/fs/opt-fdf-var/facts.json $T/bin/fdf-attention "match starting" > /dev/null
+T0=$(ms); NSF b timeout 20 $T/bin/fdf-attention "match starting" > /dev/null 2>&1 < /dev/null || timeout 20 ip netns exec b env RINA_RAM=$RAMB FDF_FACTS=$T/b/fs/opt-fdf-var/facts.json $T/bin/fdf-attention "match starting" > /dev/null
 for j in $(seq 200); do grep -q "ATTENTION pondB: match starting" $T/n/client-B.log && break; sleep 0.01; done
 TA=$(grep -m1 "ATTENTION pondB" $T/n/client-B.log | awk '{print $1}')
 check $([ -n "$TA" ] && echo 0 || echo 1) "n's fdf-client@pondB said it ($(( ${TA:-0} - T0 )) ms after fdf-attention started); file: $(cat $T/n/fs/opt-fdf-var/attention/pondB.json 2>/dev/null)"
@@ -150,4 +151,4 @@ check $(for j in $(seq 200); do peer $LH && ! peer $OH && { echo 0; exit; }; sle
 check $(grep -q '"pubkey"' $F/facts.json && grep -q '"guid"' $F/facts.json && echo 0 || echo 1) "facts.json still carries n's identity (name, guid, pubkey) after every writer"
 NOWPID=$(ip netns pids n | while read p; do tr '\0' ' ' < /proc/$p/cmdline | grep -q "internet_tunnels_v3" && echo $p; done | head -1)
 check $([ "$NOWPID" = "$DPID" ] && echo 0 || echo 1) "still the same daemon"
-echo "RESULT $([ $FAILS = 0 ] && echo PASS || echo "FAIL: $FAILS") ($T)"
+netns_result "$T"           # [NETNS_PREFLIGHT_V1] RESULT, and the exit status that matches it

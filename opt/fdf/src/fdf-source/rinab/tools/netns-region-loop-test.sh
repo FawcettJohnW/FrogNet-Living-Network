@@ -27,6 +27,7 @@
 set -u; H=$(cd "${1:-$(dirname "$0")/..}" && pwd); B=$H/build/static; FN=${FROGNET_DIR:-$H/../../../../frognet_semantic}
 PK=${PKG_FDF:-$H/../fdf}; FDFPY=$H/../fdf/lib/python; N=${N:-6}
 T=${T:-/tmp/claude-0/netns-region}; rm -rf $T; mkdir -p $T/hub/admitted $T/z $T/a $T/y $T/bin
+NEEDS="wg-quick iptables" . $H/tools/netns-preflight.sh    # [NETNS_PREFLIGHT_V1] what it needs, PATH, the watchdog
 export RIBBIT_TEMPLATES=$H/../fdf/templates/fdf.prime FDF_WG_IMPL=wireguard-go FDF_PY=$FDFPY
 export WG_QUICK_USERSPACE_IMPLEMENTATION=wireguard-go WG_I_PREFER_BUGGY_USERSPACE_TO_POLISHED_KMOD=1
 API=/FawcettInnovations.RINA.ram_interface.php; SITE=frognet.test; KEY=s3cret; HA=10.253.253.254; RAM=$HA:8840; PUB=198.18.0.1; U="http://$RAM$API?op=rina"
@@ -295,5 +296,5 @@ kill $YPID; sleep 1
 P=$(NS hub curl -s -X POST -d '{"op":"participants"}' "$U")
 check $(echo "$P" | python3 -c 'import sys,json; ps=json.load(sys.stdin)["participants"]; sys.exit(0 if not [p for p in ps if p.get("name")=="y"] and all(p.get("alive") for p in ps) else 1)' && echo 0 || echo 1) \
       "y's session ended: its announcement is gone, and no dead row is listed ($(echo "$P" | python3 -c 'import sys,json; print([(p["name"],p["alive"]) for p in json.load(sys.stdin)["participants"]])'))"
-echo "RESULT $([ $FAILS = 0 ] && echo PASS || echo "FAIL: $FAILS")"
 [ -n "${PAUSE:-}" ] && { echo "PAUSE: holding the namespaces ${PAUSE}s (T=$T)"; sleep $PAUSE; }
+netns_result                 # [NETNS_PREFLIGHT_V1] RESULT, and the exit status that matches it

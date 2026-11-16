@@ -17,14 +17,14 @@ M=${1:-30}
 fail=0
 for s in 1 2 3 4 5 6 7 8 9 10; do for t in chat telemetry; do for c in A B Bt C D Dall; do
   [ -f results/$c-$t-s$s/controller.json ] && grep -q '"ok": true' results/$c-$t-s$s/controller.json && continue
-  python3 run.py $c $t $s --minutes $M || fail=$((fail+1))
+  build/venv/bin/python run.py $c $t $s --minutes $M || fail=$((fail+1))
 done; done; done
 for st in netem-delay netem-loss server move revoke; do for s in 7 8 9 10; do
   cs="B C D Dall"; [ $st = revoke ] && cs="C D Dall"      # revocation is the server's WireGuard dropping a peer: B has none
   for c in $cs; do
   [ -f results/$c-chat-s$s-$st/controller.json ] && grep -q '"ok": true' results/$c-chat-s$s-$st/controller.json && continue
-  python3 run.py $c chat $s --minutes $M --stress $st || fail=$((fail+1))
+  build/venv/bin/python run.py $c chat $s --minutes $M --stress $st || fail=$((fail+1))
 done; done; done
-python3 analyze.py results --json results/analysis.json
-python3 report.py results --out results/REPORT.md
+build/venv/bin/python analyze.py results --json results/analysis.json
+build/venv/bin/python report.py results --out results/REPORT.md
 echo "matrix.sh: $fail run(s) failed"

@@ -20,7 +20,7 @@
 #
 #   bash opt/frognet_semantic/simulation/quickstart.sh          (from the checkout's root, or from anywhere)
 #
-# It builds the CroakOS binaries the first time (g++, liblz4-dev, libssl-dev), then runs real CroakOS processes, one per
+# Run setup.sh once first. It builds the CroakOS binaries the first time, then runs real CroakOS processes, one per
 # simulated machine, and says in plain words what happened: machines at three sites becoming one network that reaches
 # between sites only through the region hub; then a network losing a link, losing an exit to the Internet, getting it
 # back, machines moving, leaving and rejoining, and one machine's link going dark and coming back. After every one of
@@ -29,6 +29,9 @@
 set -e -o pipefail
 HERE="$(cd "$(dirname "$0")" && pwd)"; FS="$(dirname "$HERE")"; ROOT="$(cd "$FS/../.." && pwd)"
 RINAB="$FS/../fdf/src/fdf-source/rinab"; BIN="$RINAB/build/static"
+# [SIM_SETUP_V1] the simulator's Python and the build's libraries come from setup.sh, which asks first
+PY=${FROGSIM_HOME:-$HOME/.frogsim}/venv/bin/python3
+[ -x "$PY" ] || { echo "This machine is not set up yet: run   bash $HERE/setup.sh   first (it says what it will install and asks)."; exit 1; }
 if ! [ -x "$BIN/fdf-ram" ] || ! [ -x "$BIN/fdf-client" ] || ! [ -x "$BIN/fdf-events" ]; then
     echo "== Building the CroakOS binaries once (a few minutes) =="
     (cd "$RINAB" && bash tools/build.sh && bash tools/build_static_host.sh && bash tools/build_static_clients.sh)
@@ -39,9 +42,9 @@ echo
 echo "== 1. Three sites become one network =="
 echo "   Site A is a small LAN, site B a chain of three machines, site C a star. Each site has a gateway with an"
 echo "   Internet link. CroakOS joins all of them into one network; between sites, traffic goes through the region hub."
-python3 "$HERE/s_topo_tier.py" --bin "$BIN" --links lan --out "$OUT" --work "$OUT" --only topo_asym_three_sites \
+"$PY" "$HERE/s_topo_tier.py" --bin "$BIN" --links lan --out "$OUT" --work "$OUT" --only topo_asym_three_sites \
     | awk '/\[(PASS|FAIL)\]/ && !n {print; n=1}'
-python3 - "$OUT" <<'PY'
+"$PY" - "$OUT" <<'PY'
 import csv, sys
 rows = list(csv.DictReader(open(sys.argv[1] + "/verify-topo_asym_three_sites-cold.tsv"), delimiter="\t"))
 ok = sum(r["verdict"].startswith("ok") for r in rows)
@@ -55,7 +58,7 @@ echo "== 2. A network that changes under you =="
 echo "   Eleven machines, two exits to the Internet (one fast, one slow). Then: a link goes down, the fast exit is"
 echo "   lost and comes back, a machine moves, machines leave and rejoin, and one machine's link goes dark. After each"
 echo "   change every path is checked against the one the network should now use."
-python3 "$HERE/s_topo_tier.py" --bin "$BIN" --links lan --out "$OUT" --work "$OUT" --only mesh \
+"$PY" "$HERE/s_topo_tier.py" --bin "$BIN" --links lan --out "$OUT" --work "$OUT" --only mesh \
     | grep -E '^\s+\[(PASS|FAIL)\]|^\s+\.\. |^S TOPO'
 echo
-echo "Every path, step by step: $OUT/verify-*.tsv   The whole gate: python3 simulation/run_all.py (SIM_STATUS.md)"
+echo "Every path, step by step: $OUT/verify-*.tsv   The whole gate: $PY $HERE/run_all.py (SIM_STATUS.md)"

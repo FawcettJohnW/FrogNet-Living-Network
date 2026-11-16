@@ -25,6 +25,9 @@
 #
 # Logs in /tmp/nb3/mf<id>.rank<R>.log; the summary at the end is every arm's result line.
 set -e
+# [FROGTORCH_VENV_V1] FrogTorch runs on its own venv, never on pip-into-the-system: install.sh makes it
+PY=/usr/local/frognet-ai/venv/bin/python3
+[ -x "$PY" ] || { echo "$PY is missing: run /usr/local/frognet-ai/install.sh first (it makes FrogTorch's venv)"; exit 1; }
 ADDR="$1"; BASE="$2"; FIRST="${3:-0}"
 if [ -z "$ADDR" ] || [ -z "$BASE" ]; then
     sed -n '10,26p' "$0"; exit 2
@@ -64,7 +67,7 @@ mf() {   # arm, label, meshfeed arguments...
     _ID="mf$((BASE + _N))"
     echo ">>> $_ID  $_LABEL"
     if [ "$_N" -lt "$FIRST" ]; then echo "    skipped"; return 0; fi
-    python3 "$MF" --rank "$RANK" --world "$WORLD" --runid "$_ID" --addr "$ADDR" --tree "$TREE" \
+    "$PY" "$MF" --rank "$RANK" --world "$WORLD" --runid "$_ID" --addr "$ADDR" --tree "$TREE" \
         --hidden "$HIDDEN" "$@" 2>&1 | tee "$OUT/$_ID.rank$RANK.log" | \
         grep -E "^    \[|meshfeed    |Traceback|Error|refusing" || true
     echo
@@ -75,10 +78,10 @@ db() {   # arm, label, backend, ddpbench arguments...
     _ID="mf$((BASE + _N))"
     echo ">>> $_ID  $_LABEL"
     if [ "$_N" -lt "$FIRST" ]; then echo "    skipped"; return 0; fi
-    python3 "$GATE" --role barrier --runid "$_ID" --arm 0 --rank "$RANK" --world "$WORLD" \
+    "$PY" "$GATE" --role barrier --runid "$_ID" --arm 0 --rank "$RANK" --world "$WORLD" \
         --wait 3600 --tree "$TREE" || exit 2
     _RED=""; [ "$_BE" = psychedelic ] && _RED="--reduce shard"
-    python3 "$DB" --rank "$RANK" --world "$WORLD" --backend "$_BE" $_RED --bucket-view 0 \
+    "$PY" "$DB" --rank "$RANK" --world "$WORLD" --backend "$_BE" $_RED --bucket-view 0 \
         --addr "$ADDR" --store "$STORE" --runid "$_ID" --tree "$TREE" --hidden "$HIDDEN" \
         --timeout 1800 --peer-wait 600 --out "$OUT" "$@" 2>&1 | tee "$OUT/$_ID.rank$RANK.log" | \
         grep -E "^    \[|ms/step|FAILED" || true

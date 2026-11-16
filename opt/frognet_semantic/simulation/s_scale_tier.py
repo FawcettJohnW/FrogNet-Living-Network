@@ -51,6 +51,8 @@ import socket
 import statistics as st
 import subprocess
 import sys
+sys.path.insert(0, __import__('os').path.dirname(__import__('os').path.abspath(__file__)))
+import sim_env  # noqa: E402,F401  [SIM_OWNS_ITS_ENV_V1] the checkout's paths, a scratch blob store
 import tempfile
 import threading
 import time

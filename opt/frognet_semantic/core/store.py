@@ -185,7 +185,8 @@ class TemplateStore:
     def __init__(self):
         with self._pool_lock:
             if self.__class__._pool is None:
-                cfg = json.load(open("/opt/frognet_semantic/DB_CONFIG.json"))
+                from . import db_credentials                  # [DB_CONFIG_FROM_ONE_PLACE_V1] its path, FROGNET_DB_CONFIG
+                cfg = json.load(open(db_credentials.DB_CONFIG_PATH))
                 self.__class__._pool = _MySQLPool(cfg, _POOL_SIZE)
 
     # -------------------------

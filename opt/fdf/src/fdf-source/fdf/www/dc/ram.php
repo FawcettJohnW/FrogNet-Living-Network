@@ -49,12 +49,14 @@
 // the network, typed by nobody. A device this node gave no lease has none here, and is told so.
 header('Content-Type: application/json');
 // [DOOR_SAYS_ITS_BUILD_V1] every answer says which door answered: the header, and "door" in the admin and roles answers
-const DOOR_BUILD = 'dc-door-2026-11-10-roleadmin1';   // [ROLE_ADMIN_V1]   // [COMMAND_CENTER_V1] the EOC is the Command Center in what it says   // [ROLES_ON_API_V1] [EOC_LEADS_V1] [TEAM_ON_SYSTEMRAM_V1]
+const DOOR_BUILD = 'dc-door-2026-11-15-sensorshosts1';   // [ROLE_ADMIN_V1]   // [COMMAND_CENTER_V1] the EOC is the Command Center in what it says   // [ROLES_ON_API_V1] [EOC_LEADS_V1] [TEAM_ON_SYSTEMRAM_V1]
 // [SENSORS_BY_THE_DOOR_V1] the sensor store (api.php on databasehost.frognet) by the address this node's /etc/hosts gives
 // it: an app through the tunnel has no .frognet names (the phone's DNS is its carrier's), the address routes
+// [DOOR_SENSORS_FROM_HOSTS_V1] host_ip() reads the election's hosts file (FDF_HOSTS), the one source; the resolver is not
+// consulted beside it (static-no-fallback: dbhost-resolver). No SystemRam named yet: no sensors entry.
 function door_sensors() {
-    $a = gethostbyname('databasehost.frognet');
-    return $a !== 'databasehost.frognet' ? ['sensors' => 'http://' . $a . '/api.php'] : [];
+    $a = host_ip('databasehost.frognet');
+    return $a !== '' ? ['sensors' => 'http://' . $a . '/api.php'] : [];
 }
 header('X-FDF-Door: ' . DOOR_BUILD);
 set_time_limit(0);

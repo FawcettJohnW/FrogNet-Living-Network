@@ -46,6 +46,7 @@ import argparse
 import json
 import os
 import random
+import shutil
 import socket
 import struct
 import subprocess
@@ -81,6 +82,47 @@ def resolved(rep):
     return bool(rep) and any(r.get("locs") for r in rep.get("records") or [])
 
 
+# [LISP_TIER_SAYS_WHAT_IS_MISSING_V1] The tier needs things this tree cannot carry. It checks each one first and names
+# every one that is missing, instead of failing deep inside lispers.net's startup.
+LISP_MODULES = ("bottle", "cheroot", "netifaces", "OpenSSL", "Crypto", "curve25519", "requests", "geopy", "ecdsa",
+                "future", "distro")
+
+
+def lisp_python_bin():
+    """The bin directory of the Python 3.12 that runs lispers.net (its .pyc files are 3.12's): LISP_PYTHON_BIN, or the
+    venv setup.sh --lisp makes."""
+    return os.environ.get("LISP_PYTHON_BIN", os.path.expanduser("~/.frogsim/lisp-py312/bin"))
+
+
+def prerequisites(pkg, lispers, pybin):
+    miss = []
+    for b in ("ribbit_cpp/lisper-ram", "ribbit_cpp/ribbit-lisp", "tools/lisp-boundary", "tools/tuple-write"):
+        if not os.access(os.path.join(pkg, b), os.X_OK):
+            miss.append(f"the Ribbit-LISP package, built: {os.path.join(pkg, b)} (make front ram in {pkg})")
+            break
+    if not os.path.isfile(os.path.join(lispers, "lisp-core.pyc")):
+        miss.append(f"lispers.net 0.643, unpacked: {lispers}/lisp-core.pyc (LISPERS_DIR names another place)")
+    if not shutil.which("tcsh"):
+        miss.append("tcsh (lispers.net's scripts are tcsh)")
+    py = os.path.join(pybin, "python")
+    if not os.access(py, os.X_OK):
+        miss.append(f"a Python 3.12 for lispers.net: {py} (LISP_PYTHON_BIN names another bin directory)")
+    else:
+        chk = subprocess.run([py, "-c", "import sys,importlib.util as u; m=[x for x in sys.argv[1:] if not u.find_spec(x)];"
+                              "print('%d.%d' % sys.version_info[:2], ' '.join(m))", *LISP_MODULES],
+                             capture_output=True, text=True)
+        ver, _, mods = chk.stdout.strip().partition(" ")
+        if ver != "3.12":
+            miss.append(f"{py} is Python {ver or '?'}; lispers.net 0.643's .pyc files need 3.12")
+        if mods:
+            miss.append(f"{py} lacks lispers.net's modules: {mods}")
+        v6 = subprocess.run([py, "-c", "import socket; socket.socket(socket.AF_INET6, socket.SOCK_DGRAM).close()"],
+                            capture_output=True, text=True)
+        if v6.returncode:
+            miss.append("IPv6 (lispers.net listens on ::); this machine's kernel has it disabled")
+    return miss
+
+
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--pkg", required=True)
@@ -93,13 +135,21 @@ def main():
     ap.add_argument("--ram-port", type=int, default=17991)
     a0 = ap.parse_args()
     pkg = os.path.abspath(a0.pkg)
+    pybin = lisp_python_bin()
+    missing = prerequisites(pkg, a0.lispers, pybin)
+    if missing:
+        print("LISP SLOW TIER - FAIL before any run. Missing:")
+        for m in missing:
+            print("  - " + m)
+        print("  bash opt/frognet_semantic/simulation/setup.sh --lisp sets up what it can; lispers.net itself is "
+              "Dino Farinacci's and is not in this tree.")
+        sys.exit(1)
     sys.path.insert(0, os.path.join(pkg, "tools"))
     os.chdir(pkg)                              # STOP-LISP kills "lisp-": the harness runs from the package, by a relative path
     import acceptance as A
     A.LOCAL_IP = "127.0.0.1"                  # the fixture's LOCAL_IP (the harness sets it from --local-ip)
     os.makedirs(a0.out, exist_ok=True)
-    env_path = "/opt/python3.12/bin:" + os.environ.get("PATH", "")
-    os.environ["PATH"] = env_path
+    os.environ["PATH"] = pybin + os.pathsep + os.environ.get("PATH", "")   # lispers.net runs the `python` it finds
     rows, probes, ok = [], [], True
     print(f"LISP SLOW TIER - lispers.net {open(os.path.join(a0.lispers, 'lisp-version.txt')).read().strip()} and Ribbit-LISP "
           f"{A.Ribbit.__init__.__code__ and open(os.path.join(pkg, 'ribbit_cpp', 'version.hpp')).read().split('RIBBIT_LISP_VERSION')[1].split()[0]}"

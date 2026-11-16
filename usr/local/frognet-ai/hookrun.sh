@@ -61,6 +61,9 @@
 # compute the same sum, and if their held-out losses differ, something is
 # wrong that speed does not excuse.
 set -e
+# [FROGTORCH_VENV_V1] FrogTorch runs on its own venv, never on pip-into-the-system: install.sh makes it
+PY=/usr/local/frognet-ai/venv/bin/python3
+[ -x "$PY" ] || { echo "$PY is missing: run /usr/local/frognet-ai/install.sh first (it makes FrogTorch's venv)"; exit 1; }
 
 ADDR="$1"; BASE="$2"; FIRST="${3:-0}"
 if [ -z "$ADDR" ] || [ -z "$BASE" ]; then
@@ -176,7 +179,7 @@ fi
 # Every rank publishes its arrival and waits for all of them. If one is
 # missing, the others are still here saying which.
 gate() {
-    python3 "$GATE" --role barrier --runid "$1" --arm 0 \
+    "$PY" "$GATE" --role barrier --runid "$1" --arm 0 \
         --rank "$RANK" --world "$WORLD" --wait "$GATE_WAIT" \
         --tree "$TREE" || exit 2
 }
@@ -204,7 +207,7 @@ run_one() {   # arm index, id, backend, hook, bucket_view, label
     printf "    "
     _RED=""
     [ "$_BE" = psychedelic ] && _RED="--reduce shard"
-    python3 "$DB" --rank "$RANK" --world "$WORLD" --backend "$_BE" \
+    "$PY" "$DB" --rank "$RANK" --world "$WORLD" --backend "$_BE" \
         $_RED ${_HOOK:+--hook $_HOOK} --bucket-view "$_BV" \
         --addr "$ADDR" --store "$STORE" --runid "$_ID" \
         --tree "$TREE" --steps "$STEPS" --warmup "$WARMUP" \

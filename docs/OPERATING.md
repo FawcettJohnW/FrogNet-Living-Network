@@ -5,8 +5,8 @@ is running, and what the logs say when something is wrong. Every command here na
 that start with `usr/`, `opt/` or `docs/` are in the repository checkout; paths that start with `/` are on the machine.
 
 Build ids at the time of writing (each program logs its own; see "What is running"):
-installer `frognet-install-2026-10-12-r20`, tunnel daemon `frognet-tunnel-2026-10-12-r20`, FrogNet base and FD&F
-`fdf-2026-10-12-r20`.
+installer `frognet-install-2026-10-14-r28`, tunnel daemon `frognet-tunnel-2026-10-12-r20`, FrogNet base and FD&F
+`fdf-2026-11-15-r54`.
 
 ## 1. What FrogNet is
 
@@ -114,7 +114,7 @@ the LAN comes up on the served interface. Look at:
     /usr/local/bin/frognet_monitor --once
     systemctl --failed
 
-The daemon says `Starting frognet-tunnel-daemon v3.0.0 build ... (mode lan-only) base fdf-2026-10-12-r20` and
+The daemon says `Starting frognet-tunnel-daemon v3.0.0 build ... (mode lan-only) base fdf-2026-11-15-r54` and
 `LAN-only loop started`. The snapshot says `"mode": "lan-only"`, lists the node itself among `members`, and names the
 database host under `elections`. `systemctl --failed` lists no unit.
 
@@ -363,16 +363,16 @@ node's identity, reset with `--keep-identity` first, from the checkout's root:
 
 | component | build line | log |
 |---|---|---|
-| installer | `frognet_install.sh build frognet-install-2026-10-12-r20 starting on ...` | `/var/log/frognet_install.log` |
+| installer | `frognet_install.sh build frognet-install-2026-10-14-r28 starting on ...` | `/var/log/frognet_install.log` |
 | reset / uninstall | `FrogNet reset (build frognet-reset-2026-10-12-t4a) on ...` | `/var/tmp/frognet_reset.log` |
-| FrogNet base | `/opt/frognet_semantic/BUILD` (`build=fdf-2026-10-12-r20`, `installed=...`); F6 prints it | — |
-| tunnel daemon | `Starting frognet-tunnel-daemon v3.0.0 build frognet-tunnel-2026-10-12-r20 (mode lan-only\|region) base fdf-2026-10-12-r20` | `journalctl -u frognet-tunnel-daemon-v3` |
-| proxy | `[Proxy] build fdf-2026-10-12-r20 listening ...` | `journalctl -u frognet-proxy` |
-| data daemon | `[Daemon] build fdf-2026-10-12-r20 ...` | `journalctl -u frognet-daemon` |
+| FrogNet base | `/opt/frognet_semantic/BUILD` (`build=fdf-2026-11-15-r54`, `installed=...`); F6 prints it | — |
+| tunnel daemon | `Starting frognet-tunnel-daemon v3.0.0 build frognet-tunnel-2026-10-12-r20 (mode lan-only\|region) base fdf-2026-11-15-r54` | `journalctl -u frognet-tunnel-daemon-v3` |
+| proxy | `[Proxy] build fdf-2026-11-15-r54 listening ...` | `journalctl -u frognet-proxy` |
+| data daemon | `[Daemon] build fdf-2026-11-15-r54 ...` | `journalctl -u frognet-daemon` |
 | merge | `runMerge INFO ... invoked_by who=watcher:poke ...` per merge | `/var/log/frognet-merge-watcher.log`; the last merge's trace `/run/frognet/debug/latest/trace.log` |
-| FD&F on a node | `/opt/fdf/BUILD` (`build=fdf-2026-10-12-r20`); the `.run`, `fdf-region-join` and `fdf-leave` print it | `journalctl -u fdf-client -u fdf-facts` |
-| RAM manager | `{"ok":true,"server":"fdf-2026-10-12-r20"}` (its `version` answer; `fdf-region-create` prints it) | `journalctl -u fdf-ram-<AREA>` |
-| hub | `start (adopt) ... build=fdf-2026-10-12-r20` | `journalctl -u fdf-hub` |
+| FD&F on a node | `/opt/fdf/BUILD` (`build=fdf-2026-11-15-r54`); the `.run`, `fdf-region-join` and `fdf-leave` print it | `journalctl -u fdf-client -u fdf-facts` |
+| RAM manager | `{"ok":true,"server":"fdf-2026-11-15-r54"}` (its `version` answer; `fdf-region-create` prints it) | `journalctl -u fdf-ram-<AREA>` |
+| hub | `start (adopt) ... build=fdf-2026-11-15-r54` | `journalctl -u fdf-hub` |
 | Windows bridge | `BUILD.txt`; every line it prints | its terminal |
 | Android app | the first line of its screen, `FrogNet member <build>`; "Copy log" / "Share log" | the app |
 

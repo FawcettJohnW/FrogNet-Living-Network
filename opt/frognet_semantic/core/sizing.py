@@ -45,7 +45,7 @@ import sys
 import mysql.connector
 
 
-_DB_CONFIG_PATH = "/opt/frognet_semantic/DB_CONFIG.json"
+_DB_CONFIG_PATH = os.environ.get("FROGNET_DB_CONFIG", "/opt/frognet_semantic/DB_CONFIG.json")   # as core/db_credentials
 
 
 def _probe_max_connections() -> int | None:

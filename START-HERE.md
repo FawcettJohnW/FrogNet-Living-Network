@@ -55,11 +55,12 @@ The same idea runs serious software, each piece checked against the original's o
 ```
 git clone https://github.com/FawcettJohnW/FrogNet-Living-Network
 cd FrogNet-Living-Network
+bash opt/frognet_semantic/simulation/setup.sh
 bash opt/frognet_semantic/simulation/quickstart.sh
 ```
 
-It builds the CroakOS programs the first time (you need g++, liblz4-dev and libssl-dev). Then it runs real CroakOS
-processes, one for each simulated machine, and tells you in plain words what happened:
+`setup.sh` says what your machine is missing, asks once, and installs and builds it. Nothing goes into `/usr/local`
+or `/opt`. `quickstart.sh` then runs real CroakOS processes, one for each simulated machine, and tells you in plain words what happened:
 
 - three sites become one network, reaching each other through the region hub;
 - a network loses a link, loses its exit to the Internet and gets it back;

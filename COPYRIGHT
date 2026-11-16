@@ -30,15 +30,37 @@ version 3. The distinction is deliberate and load-bearing:
     that is one party.
 
 Any file, notice, or published statement describing this work as GPLv3, or as
-"or later", is incorrect and superseded by this file.
+"or later", is incorrect and superseded by this file. The one exception is code
+built inside a third-party GPL-3.0 work, which carries that work's licence: the
+FrogTastic-RAM files in opt/frognet_semantic/ribbit/examples/frogtastic-ram/front/
+(Meshtastic's firmware, and the RibbitTransport, RibbitFacts and shim written into
+it) are GPL-3.0-only. They are a separate program and are not linked with the
+GPL-2.0-only Ribbit platform; a separate bridge process carries their calls.
 
 
 --- Third-party components ---------------------------------------------------
 
-This distribution includes software that is not ours and is not GPL:
+This distribution includes software that is not ours. Each keeps its own licence
+and its own notices; see the LICENSE or headers in each directory.
 
-  usr/local/lib/python3.11/dist-packages/xlsxwriter/     BSD-2-Clause
-      Copyright the XlsxWriter authors. See the files' own headers.
+  opt/frognet_semantic/ribbit/examples/frogtastic-ram/front/   GPL-3.0-only
+      Meshtastic firmware 2.8.2, Copyright the Meshtastic developers.
+  opt/frognet_semantic/ribbit/examples/mqtt/stock/ and .../mqtt/front/
+                                                          EPL-2.0 or EDL-1.0
+      Eclipse Mosquitto 2.1.2 (stock, and the front built from it),
+      Copyright the Mosquitto contributors.
+  opt/fdf/src/frognet-android/tun/third_party/wireguard-go/  MIT
+      Copyright Jason A. Donenfeld and the WireGuard authors.
+  opt/fdf/src/frognet-android/tun/third_party/wintun/ and tun/wintun/wintun.dll
+      Wintun, Copyright WireGuard LLC. The DLL is the unmodified prebuilt
+      binary, redistributed under its own licence (wintun.net).
+  opt/fdf/src/openeoc-app/ui/leaflet/                      BSD-2-Clause
+      Leaflet, Copyright Volodymyr Agafonkin and the Leaflet contributors.
+  opt/fdf/src/rlite-6ac276b.tgz                            the archive's own terms
+      rlite (RINA), Copyright Vincenzo Maffione and contributors.
+  lispers.net 0.643 is NOT in this tree. Tests that use it (the Ribbit-LISP
+      tier, rinab/lisp-mapping) take it from where the user unpacked it.
+      lispers.net is Copyright Dino Farinacci.
 
 Their licences are unaffected by the licence above.
 

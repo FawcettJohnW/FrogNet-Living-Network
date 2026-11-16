@@ -1,5 +1,27 @@
 # Simulator status (last full run 2026-11-15)
 
+## From a clean machine, 2026-11-15: `setup.sh`, then the gate
+
+A fresh Ubuntu 24.04 (debootstrap minbase; nothing of FrogNet's in `/opt` or `/usr/local`), the tree at d0a298ad with
+the clean-machine fixes. `setup.sh --yes --lisp --netns` installed and built everything; `quickstart.sh` passed both
+scenes. `run_all.py`: every tier passes except Ribbit-LISP, which stops before it starts and names what is missing
+there (lispers.net 0.643 is not in the tree; that kernel has IPv6 disabled). The netns tests: region-loop, NOKEY=a
+region-loop and lan-only `RESULT PASS`, exit 0. ponds-daemon fails: it predates invitations ([ADMITTED_BY_INVITE_V1]),
+and the daemon's forward-pond switch takes its hub channel from the one invitation (`hub.json`), so a second pond has
+no hub channel of its own. It now ends at `TEST_LIMIT` instead of hanging.
+
+What made the clean machine work ([SIM_OWNS_ITS_ENV_V1], [SIM_SETUP_V1]):
+- `sim_env.py`, imported first by `run_all.py` and the standalone tiers: the checkout's `usr/local/bin`
+  (`FROGNET_BIN_ROOT`, which `proxy/netutil.py` now reads `mapInterfaces` from: [MAPINTERFACES_IN_BIN_ROOT_V1]), a
+  scratch blob store (`FROGNET_BLOB_ROOT`), and the simulator's own database credential (`FROGNET_DB_CONFIG`,
+  `~/.frogsim/DB_CONFIG.json`; `core/store.py` and `core/sizing.py` now read that path as `core/db_credentials.py` does).
+- `setup.sh`: apt packages, the simulator's venv from `/usr/bin/python3`, MariaDB with FrogUser, FrogNet and FrogNet7,
+  the CroakOS binaries; `--lisp` a Python 3.12 venv for lispers.net and the Ribbit-LISP package; `--netns` wireguard-go.
+- The Ribbit-LISP tier checks its prerequisites first ([LISP_TIER_SAYS_WHAT_IS_MISSING_V1]); its Python is
+  `LISP_PYTHON_BIN` (default `~/.frogsim/lisp-py312/bin`), no longer a fixed directory under /opt.
+- The netns tests source `tools/netns-preflight.sh` ([NETNS_PREFLIGHT_V1]): what they need, a PATH without
+  `/usr/local/bin`, a watchdog, and an exit status that matches RESULT.
+
 ## The run of 2026-11-15: `GATE: PASS`
 
 Every in-container tier passes (`run_all.py`, integration branch merge-20261115; tier 4's execute and tier 5's
@@ -27,8 +49,8 @@ What changed to get there:
 The simulator runs the real planner, committer, proxy and daemon over modelled or namespaced environments. Run it from
 the checkout's root:
 
-    cd opt/frognet_semantic
-    PYTHONPATH=$PWD PYTHONUTF8=1 FROGNET_PROXY_ROOT=$PWD FROGNET_BIN_ROOT=$PWD/../../usr/local/bin python3 simulation/run_all.py
+    bash opt/frognet_semantic/simulation/setup.sh          # once
+    ~/.frogsim/venv/bin/python3 opt/frognet_semantic/simulation/run_all.py
 
 Its last run (`docs/cleanup-2026-10/t6a-logs/runall.txt` in the repository; the same result at T4b, T4c and T5):
 

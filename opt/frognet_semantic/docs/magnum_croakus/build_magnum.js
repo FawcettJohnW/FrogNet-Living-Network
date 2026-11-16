@@ -2808,7 +2808,7 @@ const doc = new Document({
         "Comcast Redirector    examined               --                               set aside",
       ]),
       P([ t("Comcast\u2019s Redirector was examined and set aside: too simple to prove anything. A conversion is worth doing when the original is real, mature and somebody else\u2019s.") ]),
-      P([ t("Three results from the record, in a sentence each. Redis passes its own suite with about a tenth of the server code, and a four-primary resharding that moves 24,936 keys in 23.3 s on stock moves none on the Ribbit front. Mosquitto at QoS 1 carried 101,483 messages a second against stock\u2019s 27,485. Sourri\u2019s developer built and ran the converted version without help.") ]),
+      P([ t("Three results from the record, in a sentence each. Redis passes its own suite with about a tenth of the server code, and a four-primary resharding that moves keys between primaries on stock moves none on the Ribbit front. Mosquitto at QoS 1 carried 101,483 messages a second against stock\u2019s 27,485. Sourri\u2019s developer built and ran the converted version without help.") ]),
 
       H1("58d.  lispers.net: Ribbit-LISP"),
       P([ t("Dino Farinacci\u2019s lispers.net is the reference implementation of the LISP map-server and map-resolver. Ribbit-LISP does the same job against the same wire: the registrations, sites, keys and policies live in shared memory on a RAM host, and the front that receives LISP packets keeps no private copy of them and takes no locks. In v0.75 the front decides each Map-Register where it arrives and sends the Map-Notify without waiting on the RAM host; the rows it decides go to the RAM host in batches, through a window that backs off when the RAM host slows.") ]),

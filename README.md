@@ -27,19 +27,30 @@ whose policy rules out the GPL.*
 **New here? Read [START-HERE.md](START-HERE.md)** first: what this is in plain words, what it feels like to use, and
 one command that shows it working.
 
-**Watch it run, on one machine.** `bash opt/frognet_semantic/simulation/quickstart.sh` builds what it needs and
-shows CroakOS at work in plain words. The full gate runs the production code (the
-discovery, the route planner, the CroakOS binaries) across simulated networks:
-200 members, the hardware topologies, slow links, splits and merges, and
-lispers.net under Ribbit-LISP. On Linux, from the root of the checkout:
+**Watch it run, on one machine.** On Linux (Ubuntu 24.04 is what it is run on), from the root of the checkout:
 
 ```
-cd opt/fdf/src/fdf-source/rinab && bash tools/build.sh && bash tools/build_static_host.sh && bash tools/build_static_clients.sh
-cd ../../../../frognet_semantic
-PYTHONPATH=$PWD FROGNET_PROXY_ROOT=$PWD FROGNET_BIN_ROOT=$PWD/../../usr/local/bin python3 simulation/run_all.py
+bash opt/frognet_semantic/simulation/setup.sh
+bash opt/frognet_semantic/simulation/quickstart.sh
 ```
 
-`simulation/SIM_STATUS.md` says what each tier exercises and what the last run showed.
+`setup.sh` says what the machine is missing and asks once, then installs and builds it: the build's libraries, MariaDB
+with the simulator's own database user, and the simulator's Python in `~/.frogsim`. Nothing goes into `/usr/local` or
+`/opt`, and nothing is pip-installed into the system Python. `quickstart.sh` then shows CroakOS at work in plain words,
+in about a minute.
+
+The full gate runs the production code (the discovery, the route planner, the CroakOS binaries) across simulated
+networks: 200 members, the hardware topologies, slow links, splits and merges, and lispers.net under Ribbit-LISP.
+It takes about nine minutes:
+
+```
+~/.frogsim/venv/bin/python3 opt/frognet_semantic/simulation/run_all.py
+```
+
+The Ribbit-LISP tier also needs lispers.net 0.643, which is Dino Farinacci's and is not in this tree: unpack it in
+`/opt/lispers.net-0.643` (or set `LISPERS_DIR`), run `setup.sh --lisp`, and use a machine with IPv6. Without them the
+tier fails and names each thing missing. `simulation/SIM_STATUS.md` says what each tier exercises and what the last
+run showed.
 
 **Install it on your own machines.** [docs/OPERATING.md](docs/OPERATING.md):
 one LAN, then a region across sites.
@@ -59,7 +70,7 @@ john@fawcettinnovations.com, or see
 The whole of it, in one tree: the node software (installed onto ordinary Linux
 machines), the Ribbit platform and its examples, CroakOS (the FD&F region software), the
 Android app and the Windows bridge sources, the simulator and the tests, the
-book, and the website.
+book. The website is not in this tree.
 
 The repository is laid out as a filesystem. `opt/frognet_semantic/core/` here is
 `/opt/frognet_semantic/core/` on a node, and the installer copies the node's
@@ -82,8 +93,8 @@ with shared memory: determine your truth, write your truth, read the other
 truths, go. A participant writes the facts it owns; others read them, query
 them, or hold a read until they change. Ribbit does not route packets and does
 not decide how its memory is reached. Its platform, default API, documents and
-examples (chat, the Communicator, lispers.net as Ribbit-LISP, Redis, MQTT, PyTorch, OpenEOC, FrogTastic-RAM
-for Meshtastic nodes) are in
+examples (chat, the Communicator, lispers.net as Ribbit-LISP, Redis, MQTT, PyTorch, OpenEOC, and FrogTastic-RAM
+for Meshtastic nodes, a work in progress not yet ready for others to test) are in
 `opt/frognet_semantic/ribbit/`.
 
 **FrogNet is a transport and operating environment.** Nodes on connected LANs
@@ -153,15 +164,13 @@ What lands on a node is the node file set (`frognet_node_files` in
 
 ## Running the gates
 
-The checks, from the checkout's root. `opt/frognet_semantic` is the Python root. All pass
-(run of 2026-11-15; `opt/frognet_semantic/simulation/SIM_STATUS.md` has the simulator's tiers and what a full run
-needs: the CroakOS binaries, the Ribbit-LISP package with lispers.net, and MariaDB for the door tier).
+The checks, from the checkout's root, after `setup.sh`. `opt/frognet_semantic` is the Python root.
 
 ```
 cd opt/frognet_semantic
-PYTHONPATH=$PWD PYTHONUTF8=1 python3 -m discovery selfcheck
-PYTHONPATH=$PWD PYTHONUTF8=1 python3 discovery/run_discovery_oracles.py
-PYTHONPATH=$PWD PYTHONUTF8=1 FROGNET_PROXY_ROOT=$PWD FROGNET_BIN_ROOT=$PWD/../../usr/local/bin python3 simulation/run_all.py
+PYTHONPATH=$PWD PYTHONUTF8=1 ~/.frogsim/venv/bin/python3 -m discovery selfcheck
+PYTHONPATH=$PWD PYTHONUTF8=1 ~/.frogsim/venv/bin/python3 discovery/run_discovery_oracles.py
+~/.frogsim/venv/bin/python3 simulation/run_all.py
 cd ../..
 bash docs/cleanup-2026-10/static-no-broker.sh
 bash docs/cleanup-2026-10/static-no-fallback.sh
@@ -169,9 +178,12 @@ bash docs/cleanup-2026-10/check-docs.sh
 ```
 
 The network-namespace tests run as root on Linux, from `opt/fdf/src/fdf-source/rinab`, against the built
-binaries in `rinab/build` (not tracked in git; `opt/fdf/src/fdf-source/fdf/README.md`, "Build from source", says how it is built):
+binaries in `rinab/build`. `setup.sh --netns` builds wireguard-go for them. Each test checks what it needs before it
+starts, ends itself after `TEST_LIMIT` seconds (900 by default) if something never comes, and exits 0 only when it
+printed `RESULT PASS`:
 
 ```
+bash opt/frognet_semantic/simulation/setup.sh --netns
 cd opt/fdf/src/fdf-source/rinab
 bash tools/netns-region-loop-test.sh
 NOKEY=a bash tools/netns-region-loop-test.sh
@@ -216,7 +228,9 @@ carries the GPL too.
 
 ## Status
 
-Experimental. One author wrote all of it, and nobody outside has reproduced it.
+The current build is fdf-2026-11-15-r54. Every result is listed with its report in
+[`CLAIMS.md`](CLAIMS.md), and the simulator's last run is in
+[`SIM_STATUS.md`](opt/frognet_semantic/simulation/SIM_STATUS.md).
 
 Fawcett Innovations LLC · CAGE 1A5Y5 · Burien, Washington ·
 john@fawcettinnovations.com

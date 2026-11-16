@@ -41,6 +41,7 @@ Feedback: TIER 4/5 emit measured RTTs and any failures; capture them to
 calibrate frognet_sim.EDGE_RTT_BY_KIND and to add real failure scenarios, so the
 offline model converges toward hardware behavior over time.
 """
+import sim_env  # noqa: F401  [SIM_OWNS_ITS_ENV_V1] first: the checkout's paths, a scratch blob store
 import io
 import os
 import sys
@@ -457,7 +458,8 @@ def main():
                              ["simulation/s_topo_tier.py", "--bin", _sbin or "(fdf-ram/fdf-client/fdf-events not found)",
                               "--links", "mixed", "--out", _tout, "--work", _tout], retry=False))
     # [LISP_SLOW_TIER_V1] Ribbit-LISP against lispers.net over simulated links (central, edge, slow-edge). Needs the
-    # Ribbit-LISP package built (make front ram) and lispers.net unpacked: LISP_PKG, LISPERS_DIR. Without them it FAILS.
+    # Ribbit-LISP package built (make front ram), lispers.net unpacked (LISP_PKG, LISPERS_DIR), tcsh, a Python 3.12 with
+    # lispers.net's modules (LISP_PYTHON_BIN; setup.sh --lisp) and IPv6. Without them it FAILS, naming each one missing.
     _lpkg = os.environ.get("LISP_PKG", os.path.join(_PARENT, "ribbit/examples/lispers.net"))
     _ldir = os.environ.get("LISPERS_DIR", "/opt/lispers.net-0.643")
     _lout = _tmpf.mkdtemp(prefix="frogsim_lisp_")

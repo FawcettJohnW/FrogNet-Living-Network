@@ -246,7 +246,16 @@ echo
 # (PyPI's wheel drags in the CUDA libraries, on aarch64 as well). --no-cache-dir: a
 # 2 GB Pi was OOM-killed buffering the wheel (2026-09-14); with less than 3 GB of memory and swap, it offers a 2 GB
 # swap file first.
-if ! python3 -c "import torch" 2>/dev/null; then
+# [FROGTORCH_VENV_V1] FrogTorch's runs use their own venv, $BENCH/venv. It sees the system's packages
+# (--system-site-packages), so a torch already installed system-wide keeps working; anything this installs goes into
+# the venv, never pip into the system Python.
+PY="$BENCH/venv/bin/python3"
+if [ ! -x "$PY" ]; then
+    python3 -m venv --help >/dev/null 2>&1 || { fail "python3-venv is not installed (apt-get install python3-venv)"; exit 1; }
+    python3 -m venv --system-site-packages "$BENCH/venv" || { fail "could not make $BENCH/venv"; exit 1; }
+    say "FrogTorch's venv: $BENCH/venv"
+fi
+if ! "$PY" -c "import torch" 2>/dev/null; then
     echo
     echo "  PyTorch is not installed. FrogTorch's runs need it (the FrogTorch RAM and AIConnect do not)."
     printf "  Install the CPU build of PyTorch now? [y/N] "
@@ -268,10 +277,8 @@ if ! python3 -c "import torch" 2>/dev/null; then
         # PyTorch's CPU index, on every architecture: PyPI's torch (x86-64 and, since 2.15, aarch64 too) pulls in
         # the CUDA libraries -- several GB a Pi can never use.
         IDX="--index-url https://download.pytorch.org/whl/cpu"
-        PIPX=""
-        python3 -m pip install --help 2>/dev/null | grep -q -- "--break-system-packages" && PIPX="--break-system-packages"
-        if python3 -m pip install $PIPX --no-cache-dir $IDX torch; then
-            say "torch $(python3 -c 'import torch;print(torch.__version__)') installed"
+        if "$PY" -m pip install --no-cache-dir $IDX torch; then
+            say "torch $("$PY" -c 'import torch;print(torch.__version__)') installed in $BENCH/venv"
         else
             fail "pip could not install torch (its output is above)"
         fi ;;
@@ -282,7 +289,7 @@ fi
 echo "verifying:"
 PYP=""
 [ -d /etc/frognet_bundles/communicator ] && PYP=/etc/frognet_bundles/communicator
-if PYTHONPATH="${PYP:+$PYP:}$TREE" python3 - <<'PY'
+if PYTHONPATH="${PYP:+$PYP:}$TREE" "$PY" - <<'PY'
 import sys
 bad = []
 for m in ("core.frognet_tuples",
@@ -309,8 +316,8 @@ else
     fail "the installed tree does not import"
 fi
 
-if python3 -c "import torch, torch.distributed as d; assert d.is_gloo_available()" 2>/dev/null; then
-    say "torch $(python3 -c 'import torch;print(torch.__version__)') with gloo"
+if "$PY" -c "import torch, torch.distributed as d; assert d.is_gloo_available()" 2>/dev/null; then
+    say "torch $("$PY" -c 'import torch;print(torch.__version__)') with gloo"
 else
     fail "torch missing or built without gloo -- there is no control arm"
 fi
@@ -318,7 +325,7 @@ fi
 echo
 if [ "$RC" = "0" ]; then
     echo "READY.  Run a benchmark with:"
-    echo "  cd $BENCH && python3 netbench1.py --version"
+    echo "  cd $BENCH && venv/bin/python3 netbench1.py --version"
 else
     echo "NOT READY -- see FAIL above"
 fi

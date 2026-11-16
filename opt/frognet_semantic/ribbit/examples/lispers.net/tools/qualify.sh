@@ -264,3 +264,6 @@ fi
 pkill -x ribbit-lisp 2>/dev/null
 [ "${RIBBIT_RAM_EXTERNAL:-0}" = "1" ] || pkill -x "$(basename "$RAM_SERVER")" 2>/dev/null
 note "results: $OUT"
+# [QUALIFY_EXIT_IS_THE_VERDICT_V1] the exit status says what the summary says: any FAIL line in it, exit 1
+if grep -qE '(^|[[:space:]])(FAIL|FAILED)([[:space:]:]|$)' "$SUMMARY"; then note "QUALIFY: FAIL"; exit 1; fi
+note "QUALIFY: PASS"; exit 0

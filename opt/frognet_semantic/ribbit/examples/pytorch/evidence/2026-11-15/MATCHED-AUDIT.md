@@ -48,14 +48,19 @@ counts decisions in both languages and is the more direct comparison.
 | Ribbit backend + platform | 9 | 332 | 4,117 | 1,356 | 10 |
 | stock DDP: DDP + the stock backend | 115 | 1,203 | 14,360 | 2,920 | 9 |
 | meshfeed | 1 | 7 | 323 | 111 | 1 |
-| meshfeed + platform | 3 | 57 | 819 | 328 | 3 |
-| (platform alone) | 2 | 50 | 496 | 217 | 2 |
+| meshfeed + platform + tensor_plane | 4 | 143 | 2,381 | 785 | 7 |
+| (platform alone: frogtorch_ram, frogtorch_ram_client) | 2 | 50 | 496 | 217 | 2 |
+| (tensor_plane.py, which meshfeed imports for its tensor server and streaming reads) | 1 | 86 | 1,562 | 457 | 4 |
 
 **The backend, which keeps the collective contract:** 66% less code and 47% less complexity than gloo's stack. With
 the platform included, that is 61% less code and 36% less complexity.
 
-**meshfeed, the rewrite:** 98% less code and 96% less complexity than DDP over gloo. With the platform included,
-that is 94% less code and 89% less complexity.
+**meshfeed, the rewrite:** 98% less code and 96% less complexity than DDP over gloo, meshfeed alone. With everything
+it runs on included (the platform and tensor_plane.py, which it imports for its tensor server and streaming reads),
+83% less code and 73% less complexity. [MESHFEED_COUNT_DEPENDENCY_COMPLETE_V1] An earlier version of this table left
+tensor_plane.py out of that total (819 NLOC, "94% less code"); an outside review found the omission on 15 November.
+A compute set of more than one machine also loads the Ribbit backend for its all-reduce; the headline runs, on the
+fastest single machine, do not.
 
 The backend and meshfeed do different jobs. The backend keeps every collective exact, so DDP runs over it unchanged.
 meshfeed changes the arrangement: the data comes to the compute, and no collective is left to implement.

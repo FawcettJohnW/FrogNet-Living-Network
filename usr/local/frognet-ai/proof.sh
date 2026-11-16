@@ -48,6 +48,9 @@
 #                       enough to make this non-negotiable.
 #   arm order rotated   whichever arm runs first pays the warm-up.
 set -e
+# [FROGTORCH_VENV_V1] FrogTorch runs on its own venv, never on pip-into-the-system: install.sh makes it
+PY=/usr/local/frognet-ai/venv/bin/python3
+[ -x "$PY" ] || { echo "$PY is missing: run /usr/local/frognet-ai/install.sh first (it makes FrogTorch's venv)"; exit 1; }
 
 RANK=""; ADDR=""; MASTER=""; STORE=""; TAG=""
 REPS=3; ITERS=9; TIMEOUT=300; OUT=/tmp/proof; NB=./netbench1.py
@@ -76,7 +79,7 @@ done
 
 mkdir -p "$OUT"
 echo "proof: rank $RANK at $ADDR, tag $TAG, worlds [$WORLDS], $REPS reps"
-python3 "$NB" --version | sed 's/^/  /'
+"$PY" "$NB" --version | sed 's/^/  /'
 echo
 
 run_arm() {          # world, backend, reduce, rep
@@ -89,7 +92,7 @@ run_arm() {          # world, backend, reduce, rep
     D="$OUT/$ID"
     mkdir -p "$D"
     printf "  w%s %-18s rep%s ... " "$W" "$BE${RED:+/$RED}" "$REP"
-    if python3 "$NB" --rank "$RANK" --world "$W" --backend "$BE" \
+    if "$PY" "$NB" --rank "$RANK" --world "$W" --backend "$BE" \
         ${RED:+--reduce $RED} --runid "$ID" --addr "$ADDR" \
         --master "$MASTER" --store "$STORE" \
         --profile slope --iters "$ITERS" --timeout "$TIMEOUT" \
