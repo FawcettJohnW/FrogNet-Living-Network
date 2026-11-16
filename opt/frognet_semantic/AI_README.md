@@ -24,6 +24,10 @@ repository's `README.md` and `AI_READ_FIRST.md` (the architecture), `DOCTRINE.tx
 
 ## Traps
 
+- **This is FrogNet, the LAN transport and operating environment, and the semantic path.** CroakOS, the
+  implementation of FD&F that carries the machine across the Internet, is in `opt/fdf/` (its own `AI_README.md`);
+  Ribbit, the programming surface, is in `ribbit/` (likewise). They are three parts of one machine: read the
+  holistic invariant in `AI_READ_FIRST.md` before treating any of them alone.
 - **`docs/history/` holds dated notes** (`FROGNET_NOW.md`,
   `FROGNET_NOW_guid_identity.md`, `FROGNET_PRIMER_load_me_first.md`). They
   record what was true on their date; their deploy steps are not current. The

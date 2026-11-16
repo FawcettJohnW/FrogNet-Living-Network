@@ -5,6 +5,9 @@
 > to find things, draft things, and check things. Do not use it as a source.
 > Everything below is here because something in it has already been got wrong.
 
+**Read `AI_READ_FIRST.md` at the repository root first.** It owns the model (the holistic invariant, the checksum,
+and what to do before reporting a defect); this file lists only the hazards in this directory.
+
 ## What is here
 
 The simulator. It runs the **real** planner, committer, proxy and daemon over
@@ -23,6 +26,17 @@ Read `SIM_STATUS.md` before claiming anything about coverage.
 
 ## Traps
 
+- **The simulator runs from a checkout, not from a node.** `sim_env.py` is imported first ([SIM_OWNS_ITS_ENV_V1]):
+  the checkout's `usr/local/bin`, a scratch blob store, and `~/.frogsim/DB_CONFIG.json`. A tier that opens a path
+  under /opt/frognet_semantic or /usr/local/bin passes on a machine with a node installed and fails on a clean one;
+  that is how the clean-machine run of 2026-11-15 failed. `setup.sh` makes the machine ready; test there.
+- **Read a result as the whole machine's.** Tier 3 (`s_scale_tier.py`, `s_topo_tier.py`) runs real fdf-ram and
+  fdf-client processes: members write their facts, every member derives the graph, and every path is walked in the
+  route tables the planner wrote. A pass there is formation, discovery, routing, selection and recovery together.
+- **Expectations are not adjusted to make a tier pass.** When a hardware baseline fails, compare expected and actual
+  against the intended CroakOS behaviour, then fix the implementation or convert the baseline faithfully. The hardware
+  topologies that span sites run through the region hub (`SITES`, `[WAN_IS_THE_HUB_V1]`); the case that exposed the
+  stranded member stays as a regression (`AS_LEASES`, `[NO_STRANDED_MEMBER_V1]`).
 - **Agreement is not prediction.** All 20 topologies have hardware-recorded
   baselines and the offline engine reproduces them byte for byte. No run has yet
   predicted something a real box then confirmed. State the first, never the

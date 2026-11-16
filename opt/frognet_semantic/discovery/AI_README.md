@@ -5,6 +5,9 @@
 > to find things, draft things, and check things. Do not use it as a source.
 > Everything below is here because something in it has already been got wrong.
 
+**Read `AI_READ_FIRST.md` at the repository root first.** It owns the model (the holistic invariant, the checksum,
+and what to do before reporting a defect); this file lists only the hazards in this directory.
+
 ## What is here
 
 144 Python files. Roughly a third is the engine and two thirds are oracles and their scenarios.

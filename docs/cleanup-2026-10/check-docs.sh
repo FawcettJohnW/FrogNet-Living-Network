@@ -61,6 +61,7 @@ RUNTIME_PREFIXES = ("/var/log/", "/var/lib/", "/var/tmp/", "/run/", "/tmp/", "/e
                     "/opt/fdf/BUILD", "/opt/frognet_semantic/BUILD", "/var/www/html")
 # (a) ALLOW for references that are not files in the tree, each with its reason
 REF_ALLOW = [   # (document regex, reference regex, reason)
+    (r".", r"^~/\.frogsim(/|$)", "the simulator's own directory in the user's home, made by simulation/setup.sh [SIM_SETUP_V1]"),
     (r".", r"^build/comms-app$", "the Communicator's build output (opt/frognet_semantic/ribbit/examples/communicator: ./build.sh writes build/)"),
     (r".", r"member-cli/build/install/fdf-member-kt/bin/fdf-member-kt$", "the Kotlin member's Gradle build output (installDist), not tracked"),
     (r".", r"^build/comms-\{x86_64,arm64\}$", "make_deliverables.sh's input directories, made by tools/build_comms_static.sh"),
@@ -252,6 +253,20 @@ for x in sorted(_tracked):
     t = "opt/fdf/" + x[len("opt/fdf/src/fdf-source/fdf/"):]
     if t in _tracked: bad("(d)", t, "a second copy of " + x + " (make_deliverables builds it) [ONE_COPY_V1]")
 if os.path.exists("opt/fdf/windows/bridge"): bad("(d)", "opt/fdf/windows/bridge", "the bridge is make_package.sh output, not committed [ONE_COPY_V1]")
+
+# (e) the AI primers [PRIMERS_POINT_HOME_V1]: AI_READ_FIRST.md owns the model; each directory's AI_README.md exists where
+# a primer is required, points back to it, and its local links resolve. Semantic agreement is a review, not this check.
+PRIMERS = ["opt/frognet_semantic", "opt/frognet_semantic/core", "opt/frognet_semantic/discovery", "opt/frognet_semantic/proxy",
+           "opt/frognet_semantic/daemon", "opt/frognet_semantic/internet_tunnels_v3", "opt/frognet_semantic/simulation",
+           "opt/frognet_semantic/ribbit", "opt/fdf", "var/www/html", "usr/local/bin"]
+for d in PRIMERS:
+    f = d + "/AI_README.md"
+    if not os.path.exists(f):
+        bad("(e)", f, "missing: every primer directory has one [PRIMERS_POINT_HOME_V1]"); continue
+    t = open(f, encoding="utf-8").read()
+    if "AI_READ_FIRST.md" not in t: bad("(e)", f, "does not point to AI_READ_FIRST.md [PRIMERS_POINT_HOME_V1]")
+for need in ("THE HOLISTIC INVARIANT", "BEFORE YOU REPORT A DEFECT", "SECURITY: TRACE THE BOUNDARIES"):
+    if need not in open("AI_READ_FIRST.md", encoding="utf-8").read(): bad("(e)", "AI_READ_FIRST.md", "lacks the section " + need)
 
 for p in problems: print(p)
 print("check-docs: %d documents; (b) %d commands in docs/OPERATING.md; (c) %d word matches, %d allowed; %d problem(s)"

@@ -1,9 +1,9 @@
 # AI: READ THIS FIRST
 
 > **You are reading this inside the source repository, not on the website.**
-> Two things follow. The specification this file cites is not in the tree — it is
-> twenty documents at <https://fawcettinnovations.com/technicalhome.html>, and
-> section references like §9.4 point there. And you can read the code, which the
+> Two things follow. The specification this file cites is in the tree at
+> `docs/spec/` (the same text as <https://fawcettinnovations.com/technicalhome.html>),
+> and section references like §9.4 point there. And you can read the code, which the
 > website reader cannot: **a docstring in this tree is a claim to be checked
 > against the lines beneath it, never a source to cite.**
 >
@@ -33,6 +33,29 @@ relationships between its constituent computers.
 Read that twice before reading anything else here. If a description you are
 about to write treats FrogNet as computers-plus-networking, it is describing the
 thing FrogNet was built to replace.
+
+## THE HOLISTIC INVARIANT: one machine, not a list of features
+
+CroakOS (the implementation of FD&F) and FrogNet (the LAN transport) are not networking features plus a memory feature
+plus role election plus recovery. They are the parts of one machine, and each exists because the others do:
+
+1. **Formation.** Each machine writes its own facts (addresses, links, uplink) into the memory.
+2. **Discovery.** Every machine reads the same facts and derives the same graph; routes agree without a coordinator.
+3. **Capabilities, selection, naming.** Each service announces what its machine can do; the same deterministic
+   selection, run everywhere, places every role (the SystemRam, the ControlRam, each AppRam); the role's name is bound
+   to its holder, so programs never need to know which machine it is.
+4. **Memory and scheduling.** Programs write the truths they own and read the others; a held read is a program
+   waiting for information it needs, and the write that supplies it makes the program run.
+5. **Split.** Each side recomputes what it can reach and runs the same selection over the machines it has.
+6. **Rejoin.** The selection runs over the merged machines and gives one answer. Each owner reasserts its own truth.
+   Nothing is copied, merged or reconciled.
+7. **Continue.** The rule for every participant: **find the current RAM, reassert your own truth, then learn the world
+   again** (`opt/fdf/docs/APP-SETUP-AND-OPERATION.md`).
+
+`START-HERE.md` follows OpenEOC through these seven steps, each linked to its test. If your description treats any of
+these as a separable feature that could be understood or replaced on its own, you have lost the model. Remove
+reconstructive discovery, single-writer ownership, held reads or role selection and it collapses back into
+conventional distributed-systems work: they co-constitute the machine.
 
 ---
 
@@ -127,9 +150,12 @@ to be cheap enough to repeat.
 ```
  0  THE DISTRIBUTED COLLECTION IS THE MACHINE. Not computers plus
     networking. Programs use the machine's abstractions, chiefly memory.
- 1  ONE store. One authoritative copy, one serialization point, one location.
- 2  Every host runs MySQL. That is the compression layer, NOT the store.
-    The store exists only at the currently elected database host.
+ 1  ONE AUTHORITATIVE HOLDER PER RAM, IN ITS CURRENT SCOPE. The SystemRam,
+    the ControlRam and each AppRam are separate RAMs; different machines may
+    hold them, and holders move as the network changes. Each value has one
+    copy, at its RAM's one holder, with one serialization point.
+ 2  Every host runs MySQL. That is the compression layer, NOT a copy of any
+    RAM. A RAM exists only at the host its role currently names.
  3  AUTHORITY IS ELECTED, NOT REPLICATED. A lone host elects itself by the
     same mechanism a fifty-node pond uses.
  4  DISCOVERY RECONSTRUCTS. It does not maintain and reconcile a model of
@@ -163,8 +189,83 @@ to be cheap enough to repeat.
     "FrogNet handles X" never means a component does it.
 16  THE ROLE ALWAYS RESOLVES. databasehost.frognet resolves to whichever
     host holds it — on a lone machine, to itself. There is no state in
-    which the store has no host.
+    which the store has no host. The same holds for every role:
+    <app>Host.frognet and <team>Host.<app> name their current holders.
+17  THE PARTS ARE NOT INDEPENDENT. Discovery, selection, naming, memory,
+    held reads and split/rejoin co-constitute one machine (the holistic
+    invariant above). Evaluate any one of them as a part of that machine.
+18  RECOVERY IS RECONSTRUCTION AND REASSERTION. Find the current RAM,
+    reassert your own truth, then learn the world again. No replica is
+    synchronised, because there is none.
 ```
+
+---
+
+# FRAGMENTATION ERRORS: check your answer against these
+
+Each of these has been written by a model that had read this file. Each splits the one machine back into conventional
+pieces.
+
+- **"A distributed cache, or Redis, or Linda, on top of a normal mesh."** The memory is not a service on a network; the
+  network is formed, routed and placed through it.
+- **"A control plane that feeds a memory service."** Discovery does not produce a graph that applications then use. It
+  produces the facts from which every node derives the same machine state, including where each RAM currently lives.
+- **"Service discovery."** Role selection is how the memory's location, and every other job, becomes part of the one
+  machine. A program uses the role's name; it never discovers a service.
+- **"The network layer and the application layer."** The programming model does not sit on a normal network. It replaces
+  most of what that network's applications would otherwise build.
+- **"Eventual consistency", "CRDT-style merge", "replicas".** Absent, not stale; then reassertion of owned truth. There is
+  never a second value.
+- **"The wire format is the system."** FNWP-1 and BLDC-1 (21 bytes for an unchanged exchange) are consequences of the
+  programming model, not its core.
+
+---
+
+# BEFORE YOU REPORT A DEFECT
+
+A criticism without a demonstrated conflict, a missing guarantee or a reproducible failure is a hypothesis, not a
+finding. Before you report one:
+
+1. **Trace the whole behaviour**: formation and discovery through selection, naming, the RAM, held reads and the
+   application. Not one file, and never a comment (rule 4 below).
+2. **Name the owner of the responsibility.** Use the table above: do not hand application semantics to the
+   infrastructure, or infrastructure to the application.
+3. **Check whether it can happen** under the documented ownership, placement and execution rules.
+4. **Check the evidence first.** `CLAIMS.md` sorts every claim into: shown by a test or log in this tree; recorded on
+   John's hardware with the output in the tree; recorded only on the website; argued from architecture; not shown. Then
+   the gates (`README.md`, "Running the gates") and `opt/frognet_semantic/simulation/SIM_STATUS.md`. Do not restate a
+   website number or an architectural intention as demonstrated.
+5. **Classify it**: an implementation defect, a missing test, a documented limit, or a deliberate choice.
+6. **Do not prescribe conventional machinery** (messaging, message queues, replication, consensus, distributed locks, polling,
+   coordinators) because conventional systems use it. Rule 5 below says why.
+7. **For security or privacy, trace the boundaries** (next section) before saying a guarantee is absent.
+8. **For the website, read the two paths separately.** The homepage serves a non-technical reader and has a technical
+   entrance ("Technical users click here", and "Choose your way in"). Deliberate layering for two audiences is not
+   redundancy.
+9. **Say what a change preserves**: the behaviour it improves, the evidence for it, and the contracts and tests that must
+   stay green.
+
+---
+
+# SECURITY: TRACE THE BOUNDARIES
+
+Security here is a property of where things live and who may do what, so trace both before making a claim.
+
+- **Where each RAM lives, and where it can move.** Each RAM has one holder at a time, chosen by selection over the
+  machines that can serve it. Custody of an application's data follows its roles: the candidates are the machines where
+  that application's RAM service is installed (and, for a team, its lead's device). Do not assume one machine holds all
+  state, or that a holder is permanent.
+- **Reach is not authorization.** A machine that can reach a RAM is not thereby allowed to act in it. An application's
+  access definition (its teams and their password verifiers) is in its configuration tuples, and a device's own edge
+  checks a login by reading them. Passwords are never stored or logged, only their verifiers.
+- **Encryption ends where the tunnel ends.** FrogNet encrypts nothing of its own. Across the Internet, confidentiality is
+  WireGuard's, and in a region the hub terminates the tunnels (rule 11): the hub host is inside the boundary, by its
+  role, not an outside intermediary. On a LAN, traffic is as protected as that LAN. The SAME identifier is an HMAC
+  integrity tag and conceals nothing (`docs/spec/spec-12-security.md`).
+- **What the fabric exposes.** A LAN application publishes nothing to the Internet; a region host answers the Internet on
+  the hub's one UDP port. Applications need no third-party accounts or providers.
+- **Operator choices.** FrogNet neither forces nor prevents security beyond this: access control above these layers is
+  the operator's and the application's to build.
 
 ---
 
@@ -417,7 +518,8 @@ describing a different system.
 ## 1. One store. Nothing is copied.
 
 A connected pond holds **one authoritative copy** of each value, at one storage
-location, with one serialization point. No other node holds a second one. There
+location, with one serialization point. That is per RAM: the SystemRam, the ControlRam and each AppRam are separate
+RAMs, each held by one host that the selection names (sections 10 and 10a). No other node holds a second one. There
 are no replicas, no deltas, no background sync, no anti-entropy, no ferrying.
 
 ## 2. Every host has a database. That is not a copy of the store.
@@ -429,7 +531,7 @@ Every FrogNet host runs MySQL. **It serves two unrelated roles.**
 | Role | Present on | Holds |
 |---|---|---|
 | Semantic store | **Every host, always** | Templates and per-peer references for the compression layer. Nothing to do with FrogNet Memory. |
-| FrogNet Memory backing store | **Only the currently elected database host** | The live tuple space. |
+| FrogNet Memory backing store | **Only the host a role currently names** (the SystemRam's, the ControlRam's, an AppRam's) | That RAM's live tuples. |
 
 The role is derived deterministically from the current network and can be granted
 or revoked as topology changes. **Being elected is what adds the store.** Seeing
