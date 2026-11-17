@@ -143,6 +143,15 @@ the counter against the clock, so his figures stand), and `cp_node.cc`'s crash h
 counter. Found on the first node build (a Pi); checked by cross-compiling all three tools for aarch64 and by
 running the whole gate on x86 with the clock change. His calls, his workloads and his reporting are not touched.
 
+The first two-machine run (two Pis, 17 Nov) sent one request and stopped. The request and its reply both crossed
+(the debug lines show the row written, received, answered and the answer received, 3 ms end to end); his client
+never sent a second. With no `--gbps` his client computes a rate of 0, draws an interval of infinity and adds it
+to a `uint64_t` (`cp_node.cc`, `next_start += interval_dist(rand_gen)*cycles_per_second`). That conversion is
+undefined: x86 gives 0, so the next start is always in the past and it sends at once; ARM gives the largest
+number, so it waits forever. Reproduced with his arithmetic alone, compiled for both (x86: 0; aarch64 under
+emulation: 18446744073709551615). Off x86 `try.sh client` therefore gives his client `--gbps 1000000` through his
+own option, which keeps the next start in the past; his source is not changed for it.
+
 ## 6. What is expected, and how it is judged
 
 - Against Homa as shipped at defaults over a long round trip: on the simulator it completed 0 of 40 RPCs at 120 ms

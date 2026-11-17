@@ -73,10 +73,18 @@ client)
     built; RAM=${2:-}; SRV=${3:-}; [ -n "$RAM" ] && [ -n "$SRV" ] || die "usage: $0 client RAM-ADDRESS SERVER-ADDRESS [WORKLOAD] [OUTSTANDING]"
     IP=$(me "$RAM") || exit 1
     echo "his cp_node client on soft Homa at $IP, server $SRV, workload ${4:-100}, ${5:-8} outstanding. One line a second; Ctrl-C ends it."
+    # With no --gbps his client computes a rate of 0, an interval of infinity, and adds it to a uint64_t (cp_node.cc
+    # "next_start += interval_dist(rand_gen)*cycles_per_second"). That conversion is undefined: x86 gives 0, so it
+    # sends at once, which is the mode everyone runs; ARM gives the largest number, so it sends ONE request and waits
+    # forever. Off x86 it is therefore given a rate nothing reaches, through his own option, and his source is left
+    # alone: the next start is always in the past, as on x86.
+    GBPS=""
+    case "$(uname -m)" in x86_64|i?86) ;; *) GBPS="--gbps 1000000"
+        echo "try.sh: $(uname -m): his client is given --gbps 1000000 (send at once; without it his client sends one request and stops on this machine, see the comment in $0)" ;; esac
     echo
     exec env LD_PRELOAD="$HERE/build/libsofthoma.so" SOFTHOMA_RAM="$RAM:$PORT" SOFTHOMA_IP="$IP" SOFTHOMA_NODE1="$SRV" \
         "$HOMA/util/cp_node" client --protocol homa --workload "${4:-100}" --client-max "${5:-8}" --ports 1 \
-        --first-port 4000 --first-server 1 --server-nodes 1
+        --first-port 4000 --first-server 1 --server-nodes 1 $GBPS
     ;;
 *)  sed -n '5,14p' "$0" | sed 's/^# \{0,1\}//'; exit 1 ;;
 esac
