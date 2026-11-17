@@ -128,6 +128,15 @@ Not done: one process holding both kernel Homa and soft Homa at once (a node wit
 soft-only peers reaches them on TCP today); which memory soft Homa's space lives in on the nodes (`SOFTHOMA_RAM`
 is given by hand; by `[WHICH_RAM_V1]` it is the SystemRam); none of this has run on a node.
 
+## 5a. Trying it on machines
+
+`tools/try.sh` runs his `cp_node`, unchanged, on soft Homa across machines: `try.sh build` on each, `try.sh ram` on
+the one that holds the memory (it prints the commands for the others with its address filled in), `try.sh server
+RAM-ADDRESS` and `try.sh client RAM-ADDRESS SERVER-ADDRESS [WORKLOAD] [OUTSTANDING]`. A machine's own address is
+FrogNet's `getEth0Address` where there is one. His `cp_node` looks its servers up as `node1`, `node2`, ...; the shim
+answers those names from `SOFTHOMA_NODE<N>` and `/etc/hosts` is not written (FrogNet watches that file). As of
+17 Nov this has run on one machine only.
+
 ## 6. What is expected, and how it is judged
 
 - Against Homa as shipped at defaults over a long round trip: on the simulator it completed 0 of 40 RPCs at 120 ms

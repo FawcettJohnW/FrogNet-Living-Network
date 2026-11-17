@@ -9,6 +9,8 @@
 //
 //   SOFTHOMA_RAM=HOST:PORT   the memory (a RAM host that serves the "homa" space; softhoma-ram is one)
 //   SOFTHOMA_IP=a.b.c.d      this machine's address, as its peers name it (default 127.0.0.1, said in the log)
+//   SOFTHOMA_NODE<N>=a.b.c.d the address of the machine his cp_node calls node<N> (it looks its servers up by that
+//                            name). Without it the name is looked up as usual. /etc/hosts is not written.
 //
 // MEMORY, NOT MESSAGES (John, 2026-11-16). Each socket is a writer and a consumer on ribbit::Space ([SPACE_V1]):
 //
@@ -52,6 +54,7 @@
 #include <map>
 #include <mutex>
 #include <netinet/in.h>
+#include <netdb.h>
 #include <set>
 #include <sys/eventfd.h>
 #include <sys/ioctl.h>
@@ -62,7 +65,7 @@
 #include "homa.h"
 
 namespace {
-const char* BUILD = "softhoma-v4-20261117f";
+const char* BUILD = "softhoma-v5-20261117g";
 const size_t PIECE = 48000;        // one field of a cell: at most 65,535 bytes on the wire (semcodec TYPE_STR), in base64
 size_t RECORD = 240000;            // one cell: bulk goes in large records (PERFORMANCE-LESSONS.md section 2), and a
                                    // frame to the memory is at most 1 MiB (ram_host.cpp MAX_FRAME; over it the memory
@@ -422,6 +425,17 @@ int close(int fd) {
     is_homa[fd].store(false, std::memory_order_release);
     { std::lock_guard<std::mutex> g(G); socks.erase(fd); }   // the Sock stays: its standing read may still be handing it rows
     return libc().close(fd);
+}
+
+// His cp_node finds its servers by the names node1, node2, ...: his testbed's /etc/hosts has them. Where
+// SOFTHOMA_NODE<N> is set, that is node<N>'s address; any other name, and node<N> without it, is libc's to answer.
+int getaddrinfo(const char* node, const char* service, const struct addrinfo* hints, struct addrinfo** res) {
+    static const auto real = reinterpret_cast<int (*)(const char*, const char*, const struct addrinfo*, struct addrinfo**)>(dlsym(RTLD_NEXT, "getaddrinfo"));
+    if (node && !strncmp(node, "node", 4) && node[4] >= '0' && node[4] <= '9' && strspn(node + 4, "0123456789") == strlen(node + 4)) {
+        const std::string var = "SOFTHOMA_NODE" + std::string(node + 4);
+        if (const char* ip = getenv(var.c_str())) { fprintf(stderr, "[SOFTHOMA] %s is %s (%s)\n", node, ip, var.c_str()); return real(ip, service, hints, res); }
+    }
+    return real(node, service, hints, res);
 }
 
 // read() and write() are not Homa calls: the module answers EINVAL, and the descriptor here must not be read by them

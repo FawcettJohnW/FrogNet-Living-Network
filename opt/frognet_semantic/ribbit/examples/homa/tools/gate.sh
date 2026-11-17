@@ -7,7 +7,7 @@ HOMA="${1:?usage: tools/gate.sh /path/to/HomaModule}"
 HERE="$(cd "$(dirname "$0")/.." && pwd)"; cd "$HERE" || exit 1
 make HOMA="$HOMA" -j8 >/dev/null || { echo "  [FAIL] build"; exit 1; }
 ( cd "$HOMA/util" && make server homa_test cp_node >/dev/null 2>&1 ) || { echo "  [FAIL] his tools did not build"; exit 1; }
-grep -q "[[:space:]]node1\b" /etc/hosts || echo "127.0.0.1 node1" >> /etc/hosts     # cp_node names its servers node<N>
+export SOFTHOMA_NODE1=127.0.0.1                # cp_node names its servers node<N>; /etc/hosts is not written
 RAMPORT=${SOFTHOMA_GATE_PORT:-9111}; OUT=$(mktemp -d); fails=0
 export SOFTHOMA_RAM=127.0.0.1:$RAMPORT
 soft() { env LD_PRELOAD="$HERE/build/libsofthoma.so" "$@"; }   # in the background, exec so that $! is the program
