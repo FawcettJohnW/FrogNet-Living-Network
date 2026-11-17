@@ -129,13 +129,10 @@ def main() -> None:
         raise SystemExit(1) from e
 
     resolver = DestinationResolver()
-    # [HOMA_TRANSPORT_V1] the one seam: configured (core/homa_transport.py), never probed, never reconsidered
-    from core.homa_transport import on_homa_driver
-    if on_homa_driver():
-        from daemon.engine.server_homa import MsgDaemonServer
-        server = MsgDaemonServer(host=host, port=port, resolver=resolver)
-    else:
-        server = DaemonServer(host=host, port=port, resolver=resolver)
+    # [HOMA_TRANSPORT_V1] [CARRIER_PER_HOP_V1] the one seam: a listener on every carrier this end has
+    # (core/homa_transport.py). With TCP only, this is DaemonServer and nothing else.
+    from core.homa_transport import daemon_server
+    server = daemon_server(host, port, resolver, DaemonServer)
     from core.build_id import base_build              # [BASE_BUILD_V1]
     print(f"[Daemon] build {base_build()} listening on {host}:{port}", flush=True)
 

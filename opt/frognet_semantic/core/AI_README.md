@@ -87,5 +87,10 @@ The parts every node runs. 38 Python files, no subdirectories.
   - **Not covered:** a peer process killed without stopping, on a machine that stays, and not started again.
   Gates: `test_homa_liveness_oracle.py` (the rule, on a stand-in store) and `test_homa_liveness_ram_oracle.py`
   (the same rule on the real api.php, `frognet_held` and MariaDB; it needs root, php and port 80, and skips without).
-- **`homa_transport.py` is configuration, not detection.** It does not look at whether Homa is loaded. A node
-  configured `homa` without the module stops with `HomaUnavailable`.
+- **`homa_transport.py` chooses the carrier per hop** (`[CARRIER_PER_HOP_V1]`; read its docstring). With `auto`
+  (the default) kernel Homa is detected by opening an `IPPROTO_HOMA` socket, each end says what it has in its
+  capability tuple in the ControlRam, a daemon listens on every carrier it has, and a proxy opens each session on
+  the carrier with the lowest measured round trip among those both ends have
+  (`docs/spec/spec-05-routing.md` 4.1). Nothing is preferred by kind. A node with no Homa is exactly as it was.
+  Detection is not a fallback: a session whose carrier fails ends. A node told `homa` without the module stops with
+  `HomaUnavailable`. Gate: `test_homa_carrier_oracle.py`.

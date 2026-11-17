@@ -231,8 +231,9 @@ class MsgDaemonServer:
     def _peer_liveness(self):
         """This process's liveness: the daemon end. A test replaces this method; nothing in the tree does."""
         from core.homa_liveness import PeerLiveness
+        from core.homa_transport import carriers_here
         return PeerLiveness("daemon", self.port, self._peer_gone, "daemon semantic wire",
-                            on_network_event=self._network_event)
+                            on_network_event=self._network_event, carriers=carriers_here())
 
     def _writer_gone(self, ip: str) -> None:
         """[WRITER_GONE_V1] the TCP driver's own call, made when a machine's last socket closes. A test replaces this

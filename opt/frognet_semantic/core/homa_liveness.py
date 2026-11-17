@@ -64,7 +64,7 @@ from typing import Callable, Dict, Optional, Set, Tuple
 SERVICE, VAR = "homa", "can"
 ROLES = ("proxy", "daemon")
 HOLD_S = 300.0                    # the caller's bound on one hold; at the bound it simply holds again
-BUILD = "homa-liveness-v4-20261116k"
+BUILD = "homa-liveness-v5-20261116k"
 # [CAPABILITY_IN_THE_CONTROL_RAM_V1] John, 2026-11-16: "Highest static ip is control ram, where the capability tuples
 # live. Reach it over whatever transport is loaded." The ControlRam's address is arithmetic (the highest .1), so it is
 # known before anything is selected, and it is where the role selection already reads capability
@@ -109,6 +109,7 @@ class _Ram:
     def ends(self, rows) -> Dict[Tuple[str, str], str]:
         """(ip, role) -> inst, for every end whose tuple is in the memory and not marked stopped."""
         out: Dict[Tuple[str, str], str] = {}
+        self._carriers: Dict[Tuple[str, str], Tuple[str, ...]] = {}
         prefix = self._t.var_name(VAR, "")
         for r in rows:
             name = str(r.get("SensorName") or "")
@@ -119,6 +120,8 @@ class _Ram:
             if role not in ROLES or not ip or not isinstance(v, dict) or v.get("stopped"):
                 continue
             out[(ip, role)] = str(v.get("inst") or "")
+            c = v.get("carriers")                  # an end that does not say is one told Homa only
+            self._carriers[(ip, role)] = tuple(str(x) for x in c) if isinstance(c, list) and c else ("homa",)
         return out
 
     def live_block(self) -> Set[str]:
@@ -147,13 +150,16 @@ class PeerLiveness:
     the peer's machine left the network (the hosts block), False when only that end of it stopped."""
 
     def __init__(self, role: str, port: int, on_gone: Callable[[str, str, bool], None], who: str,
-                 on_network_event: Optional[Callable[[], None]] = None, dbhost: str = CONTROL_RAM):
+                 on_network_event: Optional[Callable[[], None]] = None, dbhost: str = CONTROL_RAM,
+                 carriers: Tuple[str, ...] = ("homa",)):
         if role not in ROLES:
             raise ValueError("homa liveness: role is one of %r, not %r" % (ROLES, role))
         self.ram = _ram(dbhost)
         self.role, self.other = role, ROLES[1 - ROLES.index(role)]
         self.me, self.port, self.on_gone, self.who = self.ram.my_ip(), int(port), on_gone, who
         self.inst = os.urandom(6).hex()
+        self.carriers = tuple(carriers)           # what this end carries the wire on ([CARRIER_PER_HOP_V1])
+        self.peer_carriers: Dict[str, Tuple[str, ...]] = {}   # peer ip -> what its other end says it carries it on
         self.on_network_event = on_network_event
         self._lock = threading.Lock()
         self.seen: Dict[str, str] = {}            # peer ip -> the inst of its other-end tuple, as last read
@@ -175,7 +181,8 @@ class PeerLiveness:
         return "%s:%s" % (self.me, self.role)
 
     def _announce(self, why: str, stopped: bool = False) -> None:
-        v = {"ip": self.me, "role": self.role, "port": self.port, "inst": self.inst, "build": BUILD, "who": self.who}
+        v = {"ip": self.me, "role": self.role, "port": self.port, "inst": self.inst, "build": BUILD, "who": self.who,
+             "carriers": list(self.carriers)}
         if stopped:
             v["stopped"] = True
         kept = self.ram.put(self._scope(), v)
@@ -206,6 +213,11 @@ class PeerLiveness:
         with self._lock:
             self._watched.add(node_of(ip))
 
+    def carriers_of(self, ip: str) -> Optional[Tuple[str, ...]]:
+        """What the other end at `ip` says it carries the wire on, or None if its tuple has not been read."""
+        with self._lock:
+            return self.peer_carriers.get(node_of(ip))
+
     # -- the one thread
     def _gone(self, ip: str, why: str, machine_left: bool) -> None:
         self.n_gone += 1
@@ -220,8 +232,10 @@ class PeerLiveness:
         self.n_events += 1
         ends = self.ram.ends(rows)
         peers = {ip: inst for (ip, role), inst in ends.items() if role == self.other and ip != self.me}
+        car = getattr(self.ram, "_carriers", {})
         gone = []
         with self._lock:
+            self.peer_carriers = {ip: car.get((ip, self.other), ("homa",)) for ip in peers if ip not in self.left}
             # A machine that left the network is not there, whatever the memory still holds under its name (the RAM
             # host's daemon removes it; until that has happened, or if it could not, it is still stored).
             peers = {ip: inst for ip, inst in peers.items() if ip not in self.left}

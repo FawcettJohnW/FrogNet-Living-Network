@@ -127,5 +127,7 @@ across the Internet share one memory.
 
 ## 7. State
 
-Built and passing: the driver, the simulator, liveness (sections 1 and 3.4). Not built: the per-pair carrier
-choice of section 5; soft Homa in C++ on `ribbit/cpp` (section 4); the kernel module has not run on any node.
+Built and passing: the driver, the simulator, liveness (sections 1 and 3.4), and the per-hop carrier choice of
+section 5 (`core/homa_transport.py`, gate `core/test_homa_carrier_oracle.py`; the two carriers it chooses between
+today are kernel Homa and TCP). Not built: soft Homa in C++ on `ribbit/cpp` (section 4). The kernel module has not
+run on any node, so the choice has only been exercised with the detection stood in.

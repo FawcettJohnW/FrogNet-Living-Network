@@ -2199,7 +2199,7 @@ def _is_frognet_ip(ip: str) -> bool:
 # [RETURN_ONLY_V1] _ensure_proxy_listener removed - proxy no longer accepts daemon callbacks.
 
 
-from core.homa_transport import on_homa_driver   # [HOMA_TRANSPORT_V1]
+from core.homa_transport import carrier_for, worker_idle   # [HOMA_TRANSPORT_V1] [CARRIER_PER_HOP_V1]
 
 
 def _get_worker(host: str, port: int, set_id: int = 0) -> _DaemonWorker:
@@ -2248,10 +2248,18 @@ def _get_worker(host: str, port: int, set_id: int = 0) -> _DaemonWorker:
                   f"registered - replacing", flush=True)
             _WORKERS.pop(key, None)
             w = None
+        # [HOMA_TRANSPORT_V1] [CARRIER_PER_HOP_V1] the one seam: which carrier's worker stands under the engine for
+        # this peer (core/homa_transport.py). The engine's calls on it are the same. A session is never moved: one
+        # whose carrier is no longer the choice is retired when a request finds it with nothing outstanding.
+        kind = carrier_for(host)
+        if w is not None and getattr(w, "carrier", "tcp") != kind and worker_idle(w):
+            print(f"[SEM-TRANSPORT] [CARRIER_PER_HOP_V1] {host}:{port} set={set_id}: its session on "
+                  f"{getattr(w, 'carrier', 'tcp')} has nothing outstanding and the choice is {kind}: retired", flush=True)
+            w.stop()
+            _WORKERS.pop(key, None)
+            w = None
         if w is None:
-            # [HOMA_TRANSPORT_V1] the one seam: which transport object stands under the engine is configured
-            # (core/homa_transport.py), never probed, and never reconsidered. The engine's calls on it are the same.
-            if on_homa_driver():
+            if kind == "homa":
                 from proxy.transport_homa import _MsgWorker
                 w = _MsgWorker(host, port, set_id)
             else:

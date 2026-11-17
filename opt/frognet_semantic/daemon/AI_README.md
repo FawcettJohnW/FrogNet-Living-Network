@@ -34,8 +34,12 @@ The daemon: reads FNWP-1 frames, executes against the origin, replies.
 
 ## The semantic wire on Homa (`[HOMA_TRANSPORT_V1]`, 2026-11-16)
 
-With `homa` in `/etc/frognet/semantic_transport` (`core/homa_transport.py`), `daemon_main` starts
-`engine/server_homa.MsgDaemonServer` instead of `DaemonServer`. Read the section of the same name in
+`daemon_main` asks `core/homa_transport.daemon_server` for its listener: one per carrier this end has
+(`[CARRIER_PER_HOP_V1]`). With TCP only (no `IPPROTO_HOMA` socket opens, or the word is `tcp`) that is `DaemonServer`
+itself and nothing else runs. Where kernel Homa opens it is `DaemonServer` and `engine/server_homa.MsgDaemonServer`
+side by side on the same port number, and the daemon's capability tuple in the ControlRam says `carriers: [homa,
+tcp]`; with the word `homa` it is `MsgDaemonServer` alone. The Homa listener ending does not touch the TCP one: they
+are two carriers, and neither stands in for the other. Read the section of the same name in
 `proxy/AI_README.md` first: it has the bus contract and the rule that the driver, not the engine, keeps wire order.
 The hazards on this side:
 

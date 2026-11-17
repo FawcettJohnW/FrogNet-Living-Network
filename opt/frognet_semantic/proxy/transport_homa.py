@@ -60,6 +60,7 @@ from typing import Any, Dict, Optional, Tuple
 
 from core import homa_socket
 from core.homa_liveness import node_of
+from core.homa_transport import note_rtt
 from core.semcache_wire import wrap_hello, try_parse, OP_HELLO
 from proxy import transport_semantic as TS
 
@@ -78,7 +79,9 @@ class PeerGone(ConnectionError):
 def _peer_liveness(on_gone, on_network_event):
     """This process's liveness: the proxy end. A test replaces this function; nothing in the tree does."""
     from core.homa_liveness import PeerLiveness
-    return PeerLiveness("proxy", 0, on_gone, "proxy semantic wire", on_network_event=on_network_event)
+    from core.homa_transport import carriers_here
+    return PeerLiveness("proxy", 0, on_gone, "proxy semantic wire", on_network_event=on_network_event,
+                        carriers=carriers_here())
 
 
 class _ClientMux:
@@ -177,6 +180,7 @@ class _ClientMux:
                 sent = rpc.sent_at.get(m.cookie)
                 if sent is not None:
                     worker._peer_latency.observe(time.time() - sent)
+                    note_rtt(worker.node, "homa", time.time() - sent)      # [CARRIER_PER_HOP_V1]
                 worker._arrived(rpc, m.payload)
         except homa_socket.CarrierClosed:
             why = "socket closed"
@@ -216,6 +220,7 @@ class _MsgWorker:
     #: [DRIVER_KEEPS_WIRE_ORDER_V1] True is the driver. The ordering oracle sets it False, on both ends, to show what
     #: the engine does on a wire that is not kept in order.
     KEEP_ORDER = True
+    carrier = "homa"
 
     def __init__(self, host: str, port: int, set_id: int = 0):
         self.host, self.port, self._set_id = host, int(port), set_id

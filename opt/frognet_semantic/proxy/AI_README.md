@@ -38,9 +38,25 @@ The proxy: intercepts HTTP, speaks FNWP-1 to the daemon, holds the caches.
 
 ## The semantic wire on Homa (`[HOMA_TRANSPORT_V1]`, 2026-11-16)
 
-`core/homa_transport.py` says which transport the FNW1 wire runs on: `tcp` (the default, everything above) or `homa`,
-one word in `/etc/frognet/semantic_transport`. It is configured, never probed, and there is no fallback from one to
-the other. With `homa`, `_get_worker` hands the engine `transport_homa._MsgWorker` instead of `_DaemonWorker`.
+`core/homa_transport.py` says which carrier each hop of the FNW1 wire runs on (`[CARRIER_PER_HOP_V1]`; the design is
+`ribbit/examples/homa/DESIGN.md`). One word in `/etc/frognet/semantic_transport`: `auto` (the default), `tcp`,
+`homa`, `homasim`. With `auto` a node detects kernel Homa by opening an `IPPROTO_HOMA` socket; a node where none
+opens is exactly as it was (everything above), and nothing of the Homa driver is even imported. Where one opens,
+`_get_worker` asks `carrier_for(host)` and hands the engine `transport_homa._MsgWorker` or `_DaemonWorker`:
+a carrier both ends have, the lowest measured round trip among them, an unmeasured one first. Hazards:
+
+- **A peer whose capability tuple has not been read has TCP and nothing more.** First contact is TCP. This is the
+  intersection with the reference bearer, not a fallback.
+- **A session is never moved to another carrier.** When the choice changes, the session is retired the first time
+  `_get_worker` finds it with nothing outstanding (`worker_idle`), and the next one opens on the choice. Do not
+  stop a session that has requests outstanding to change its carrier.
+- **Each carrier is used once to be measured.** A node with both carriers opens on TCP (tuple unread), then Homa
+  (unmeasured), then TCP again if TCP has no measurement, and settles on the lower. That is two retirements per
+  peer at start, by the rule.
+- **TCP's measurement is read from `proxy_metrics`** (`link_baseline.intercept_us`, the connect ladder's unloaded
+  round trip). It is read, never written, and `_DaemonWorker` is not changed.
+- **No fallback, still.** A session whose carrier fails ends with the reason.
+- `core/test_homa_carrier_oracle.py` is the gate for the choice.
 
 **The transport is the transport.** Homa owns the wire and how it works. `transport_homa.py` (with
 `daemon/engine/server_homa.py`) is a driver: it gives the engine the bus the engine was written against and the
