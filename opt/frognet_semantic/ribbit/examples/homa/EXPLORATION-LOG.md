@@ -118,6 +118,9 @@ Each is John's, quoted where the words matter. They are the constraints everythi
 37. (13:24, unprompted, while the restart battery was being built) "The simple statement is that the programming
     model changes from lock-ordered sequential messaging to event driven."
 
+38. (14:08) "Perf". Answered with the two measured tables in section 6.
+39. (14:09) "The simulator should be able to run it across the entire range of topologies."
+
 ## 2a. The stages, and each time the work went back a stage
 
 John, 17 Nov: "The record should also show the progression through the stages, and the times we had to roll back.
@@ -170,6 +173,8 @@ the work went back. "Withdrawn" means the thing was proposed or begun and droppe
 | 17 Nov 13:35 | safe (a memory that moves) | work (a memory that dies where it is) | the restart battery: both other machines' PROXIES ended ("terminate called after throwing frogram::Unreachable") | The library kept the Space of a dead memory and let a C++ exception out through a call made from Python. It now lets go of a dead memory and no call lets an exception out (`[THE_MEMORY_CAN_COME_BACK_WHERE_IT_WAS_V1]`). |
 | 17 Nov 13:50 | the restart battery as I wrote it | the battery as a network does it | four runs chasing one listener that would not come back, then reading John's ruling 36 again | My battery kept every hosts file naming the dead machine as the SystemRam. A network's merge takes it out of the block and gives the role to a machine that is there. Rewritten that way; passes. The three guesses I made on the way are in section 3. |
 | 17 Nov 14:00 | work (`auto`) | work | the first run of `auto` between machines: no Homa listener anywhere | `auto` decided what a node has by opening a socket at start, before any role is named, so on soft Homa it was always tcp. Soft Homa is now had when its library is told (`[SOFT_HOMA_IS_HAD_WHEN_ITS_LIBRARY_IS_V1]`). |
+
+| 17 Nov 14:20 | work on one topology I had drawn | work on the simulator's own range | John, ruling 39 | Nothing undone. The tier's network was one flat segment for three machines. It now builds any of the simulator's 20 topologies with a hardware baseline: their devices, segments and recorded routes. |
 
 ### What the rollbacks have in common
 
@@ -655,6 +660,75 @@ was arranging the order in which things start (who writes first, who is up befor
 model. The event-driven statement of the same thing is short: a listener that is down waits for an event; every
 event it can see wakes it; it says which one.
 
+### 17 Nov 14:09 to 15:35: the driver across the simulator's whole range of topologies
+
+John: "The simulator should be able to run it across the entire range of topologies." Until then the tier had one
+topology, `trial3`, which I had drawn: three machines on one L2 segment. The simulator's range is the 20
+topologies with a baseline recorded on hardware (`simulation/baselines/topo_*.json`), each built by its builder in
+`simulation/frognet_sim.py`. `--topology` now takes any of them, or `all` (`[THE_WHOLE_RANGE_OF_TOPOLOGIES_V1]`).
+
+For a topology the tier now builds exactly what the simulator describes: a namespace for every node that serves a
+/24, every device the builder gives it with its name and address, a bridge for each L2 segment, and the routes
+the baseline recorded on hardware (`committed_routes`). A request from one machine to another crosses the machines
+between them, as it did on the hardware. The proxy's session is still to the target's .1; what changes is the IP
+path under it. Up to 11 machines and 110 pairs.
+
+What had to be found to make a recorded topology carry packets, in the order it was found:
+
+1. *A recorded route names a next hop that is not on the link*: `10.3.3.0/24 via 10.3.3.1 dev wg0`, where wg0 is a
+   /30. WireGuard hands that to the peer whoever holds the address. On an ordinary link the kernel needs `onlink`,
+   and the peer must answer for an address it routes onward (proxy ARP). A tunnel device is an ordinary link in
+   this tier: WireGuard is not what it tests.
+2. *Two hops did not answer.* A sent from its transit address, which only its neighbour knows. A node's installed
+   route carries its identity as `src` (`discovery.Discovery.dev_src`, stamped by `promote()`); the baseline's lines
+   do not print it. The tier adds it, as the node does.
+3. *"Too many connections".* Every machine's database is on the simulator's one database server, whose default
+   (151 connections) is for one node. From five machines up, most pairs failed on TCP (6 of the first 10 topologies). The tier tells the
+   simulator's own server how many machines it stands for. Nothing of the system under test changed.
+4. *My check was wrong for more than three machines*: it read the first 10 rows on the target and looked for each
+   writer's last value among them. Other machines' rows filled the 10.
+5. *One ping is not reachability* across several machines whose neighbours are not yet resolved. Three are sent.
+
+Each of these showed first on the TCP control, which is why the control is run first.
+
+**Result** (battery (a): 180 reads and 90 writes, concurrent, from every machine to every other; then what carried
+it, from each proxy's own log):
+
+| Setting | Topologies passed | Pairs | Checkpoints | Mean of pair medians |
+|---|---|---|---|---|
+| `tcp` (the control) | 20 of 20 | 500 | 730 | 22.8 ms |
+| `softhoma` | 20 of 20 | 500 | 750 | 23.7 ms |
+| `auto` | 19 of 20 | 500 | 749 | 23.9 ms |
+
+The 503 REQ_MISS of the semantic engine was seen in 7 of the 20 topologies on TCP and 6 on soft Homa (counted, not
+judged, as before).
+
+`auto` across the range: 19 of 20. The one failure, and then the TCP control itself on a later run, is a fault of
+the existing TCP driver, found here and not changed:
+
+**The TCP driver refuses requests while its own session is being set up.** A TCP session is two connections: the
+proxy's send socket, then the return connection. Between "send_sock connected" and "recv_sock registered" there
+are about 0.4 s in this tier (15:30:16.095 to 16.566 on `auto`; 15:33:42.567 to 42.948 on `tcp` only). A request
+that reaches the worker in that window is refused: `_submit_checked` raises "reader dead" when
+`not self._reader_alive and self._send_sock_at > 0`, and its own trace says `sock_age_s=0 ever_had_reader=False`
+(`proxy/transport_semantic.py`, `reader_dead_refuse`). The request that opens the session is not refused, because
+it is enqueued before the socket exists; the ones behind it are. The caller gets 503 "RAW RPC failed: peer X:
+reader dead" until the return connection registers. Seen: `auto` on `topo_pond_with_workers` 5 of 8 runs (in
+`auto` the first contact with a peer is on TCP, and the ControlRam's `held_fire.php` calls open that session just
+before the battery); `tcp` on `topo_pair` 2 of 5 runs (the capability writes at the merge open it). Never on
+`softhoma` (12 runs on three topologies), whose driver has one socket and no such window. Kept:
+`logs/sim3/kept_auto_reader_dead/Seattle_proxy.log`. The tier fails the pair for it, on TCP too. Whether the 0.4 s
+is this sandbox or is there on nodes I have not measured. This needs John: it is his working TCP driver.
+
+The first full TCP run passed 20 of 20 because the tier's links then answered ARP for onward addresses after the
+kernel's default delay (up to 0.8 s), which happened to keep the battery's first request out of the window. A
+tunnel has no such delay, so I removed it, and the window showed.
+
+Not yet across the range: battery (b), a machine leaving. On a multi-hop topology the routes without the machine
+are the merge's to compute, and this tier writes the merge's result; it does not run the merge. It runs on
+`trial3` only, and the tier says "NOT RUN" for it elsewhere. Workers (nodes that serve no /24) are left out and
+named. Links are unshaped.
+
 ## 4. The interventions: what was said, why it was noticed, what had not been considered
 
 John, 17 Nov, of the first version of this file: "It is not just the order. It is what I asked and why I asked it.
@@ -1010,6 +1084,9 @@ Nothing here may be reported as working.
    TCP (2 of 13 runs) and on soft Homa (4 of 15), always in the first burst from the first machine to its second
    target. It is in the semantic engine above both drivers. What the logs show and what is missing to settle it
    are in section 3, 13:14 to 14:05. Not instrumented and not changed. The tier counts it and does not judge it.
+0c. **The TCP driver refuses requests during its own session setup** ("reader dead", `ever_had_reader=False`), for
+   about 0.4 s after a new session's send socket connects. It fails `auto` (whose first contact is TCP) and
+   sometimes the TCP control. Section 3, 14:09 to 15:35. Not changed; John's call.
 0b. **Two named RAMs with different words on one machine**: that session is not opened. See section 3, the same
    entry. John has not ruled on it.
 1. **The simulator, by ruling 32.** The driver activated between machines on the topology, the full battery over it.
@@ -1189,3 +1266,4 @@ here; where this work did one late or wrong, it says so.
 | `d19c9396` | 17 Nov 13:00 | The Homa driver passes the first battery between machines |
 | `1c67a529` | 17 Nov 13:05 | The stages and the rollbacks |
 | (this commit) | 17 Nov 14:05 | A word per RAM connection; a machine leaving and returning; the library cannot end its proxy; `auto` |
+| (this commit) | 17 Nov 15:45 | The driver between machines across all 20 hardware topologies; the TCP driver's setup window |

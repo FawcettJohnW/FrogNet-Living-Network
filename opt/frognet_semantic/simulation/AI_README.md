@@ -75,3 +75,11 @@ every other on the transport given. Run it with `--transport tcp` first: that is
 - Batteries so far: (a) concurrent reads and writes from every machine to every other; (b) the SystemRam's machine
   leaves, the role moves, the machine returns. Still to do for John's definition of passing: the door scenarios,
   large frames, the 20 hardware topologies, shaped links.
+
+- `--topology` takes `trial3`, any topology with a hardware baseline (`simulation/baselines/topo_*.json`), or `all`.
+  A simulator topology is built from the simulator's own description: `frognet_sim.py`'s builder for the devices
+  and segments, the baseline's `committed_routes` for the routes (with `onlink`, the node's identity as `src`, and
+  the peer answering for addresses it routes onward, which is what a tunnel does). Do not draw a topology by hand.
+- The simulator's one database server stands for every machine: the tier raises its `max_connections`.
+- Known and not excused: the TCP driver refuses requests for about 0.4 s while a new session's return connection
+  is being set up ("reader dead"). It fails `auto` and sometimes `tcp`. See the Homa record, section 7, item 0c.

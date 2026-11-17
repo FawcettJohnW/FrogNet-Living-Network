@@ -81,6 +81,55 @@ TOPOLOGIES = {
 SYSTEM_RAM, CONTROL_RAM = "databasehost.frognet", "databasehost_control.frognet"
 
 
+def simulator_topologies():
+    """[THE_WHOLE_RANGE_OF_TOPOLOGIES_V1] John, 2026-11-17: "The simulator should be able to run it across the entire
+    range of topologies". The range is the simulator's own: every topology with a baseline recorded on hardware
+    (simulation/baselines/topo_*.json), built by its builder in frognet_sim.py."""
+    d = os.path.join(HERE, "baselines")
+    return sorted(f[:-5] for f in os.listdir(d) if f.startswith("topo_") and f.endswith(".json"))
+
+
+def net_of(key):
+    """A topology as this tier builds it: {"machines": [(name, its .1, roles, [(device, address/prefix)])],
+    "segments": [[(name, device)]], "routes": {name: [route lines]}, "left_out": [names], "says": text}.
+
+    trial3 is one L2 segment. A simulator topology is exactly the simulator's: its nodes' devices and addresses
+    (frognet_sim's builder), its L2 segments, and the routes the baseline recorded on hardware for it
+    (committed_routes), so a request between two machines crosses the machines between them as it did there. A
+    tunnel device (wg0) is an ordinary link here: what the semantic wire rides is an IP path, and WireGuard is not
+    part of what this tier tests. A node that serves no /24 (a worker holding a lease on another's) runs no proxy
+    or daemon and is left out, and said."""
+    if key in TOPOLOGIES:
+        t = TOPOLOGIES[key]
+        return {"machines": [(n, ip, tuple(r), [("eth0", ip + "/8")]) for n, ip, r in t],
+                "segments": [[(n, "eth0") for n, _ip, _r in t]], "routes": {}, "left_out": [], "says": "one L2 segment"}
+    import frognet_sim as H
+    topo = getattr(H, key)()
+    H.assign_identities(topo)
+    base = json.load(open(os.path.join(HERE, "baselines", key + ".json")))
+    serves = [n for n, x in topo.nodes.items() if x.frognet_ip and x.frognet_ip.endswith(".1") and x.frognet_ip.startswith("10.")]
+    machines = [(n, topo.nodes[n].frognet_ip, (), [(i.name, i.addr_cidr) for i in topo.nodes[n].ifaces.values()]) for n in serves]
+    segments = [[(n, i) for n, i in seg if n in serves] for seg in topo.segments]
+    return {"machines": machines, "segments": [g for g in segments if len(g) > 1],
+            "routes": {n: base["committed_routes"].get(n, []) for n in serves},
+            "left_out": [n for n in topo.nodes if n not in serves],
+            "says": "%s; baseline recorded on %s: %d of %d pairs reachable" % (
+                topo.label, base.get("source"), base["reachability"]["pairs_ok"], base["reachability"]["pairs_total"])}
+
+
+def place_roles(machines):
+    """The roles, as this tier writes the merge's result. The ControlRam by the elector's own rule (the highest .1).
+    The SystemRam is the election's choice among capabilities, which this tier does not run: where the topology's
+    table names one it is that machine, else the first machine that is not the ControlRam's (so that the two RAMs
+    are on different machines wherever there are two machines)."""
+    ctl = control_holder(machines)
+    if not any("databasehost" in m.roles for m in machines):
+        first = [m for m in machines if m is not ctl] or [ctl]
+        first[0].roles = tuple(first[0].roles) + ("databasehost",)
+    ctl.roles = tuple(ctl.roles) + ("databasehost_control",)
+    return [m for m in machines if "databasehost" in m.roles][0]
+
+
 def control_holder(machines):
     """The elector's rule, its own expression: the highest .1."""
     return max(machines, key=lambda m: tuple(int(x) for x in m.ip.split(".")))
@@ -107,8 +156,9 @@ def sh(cmd, inp=None, check=False):
 
 
 class Machine:
-    def __init__(self, n, name, ip, roles, tmp):
+    def __init__(self, n, name, ip, roles, tmp, ifaces=None):
         self.n, self.name, self.ip, self.roles = n, name, ip, roles
+        self.ifaces = ifaces or [("eth0", ip + "/8")]
         self.ns = "fnw%d" % n
         self.db = "FrogNetWire%d" % n
         self.dir = os.path.join(tmp, name)
@@ -301,17 +351,28 @@ def tear_down(machines):
         if pids:
             sh(["kill", "-9"] + pids)
         sh(["ip", "netns", "del", m.ns])
-        sh(["ip", "link", "del", "fnwh%d" % m.n])            # its end of the link, if the namespace's going left it
         shutil.rmtree("/etc/netns/%s" % m.ns, ignore_errors=True)
         sh(["mariadb", "-uroot", "-e", "DROP DATABASE IF EXISTS %s" % m.db])
-    sh(["ip", "link", "del", BRIDGE])
+    for l in sh(["ip", "-o", "link"]).stdout.splitlines():   # this tier's links and segments on this side, whatever a run left
+        dev = l.split(":")[1].strip().split("@")[0]
+        if dev.startswith(("fnwh", "fnws")):
+            sh(["ip", "link", "del", dev])
 
 
-def bring_up(machines, dbc):
+def bring_up(machines, dbc, net):
     """The network, each machine's database, its relay to the database server, and its api.php."""
-    sh(["ip", "link", "add", BRIDGE, "type", "bridge"], check=True)
-    sh(["ip", "link", "set", BRIDGE, "up"], check=True)
+    seg_of = {}
+    for k, seg in enumerate(net["segments"]):                # an L2 segment is a bridge on this side
+        sh(["ip", "link", "add", "fnws%d" % k, "type", "bridge"], check=True)
+        sh(["ip", "link", "set", "fnws%d" % k, "up"], check=True)
+        for name, dev in seg:
+            seg_of[(name, dev)] = "fnws%d" % k
     sock = sh(["mariadb", "-uroot", "-N", "-e", "SELECT @@socket"]).stdout.strip()
+    # Every machine's database is on the simulator's one database server. A node's daemon, proxy and api.php hold
+    # their own connections, and the server's default (151) is for one node: with five machines or more the
+    # machines were answered "Too many connections" (found on the first run across the topologies, 17 Nov). The
+    # simulator's own server is told how many machines it is standing for.
+    sh(["mariadb", "-uroot", "-e", "SET GLOBAL max_connections = %d" % max(151, 400 * len(machines))], check=True)
     users = sh(["mariadb", "-uroot", "-N", "-e",
                 "SELECT CONCAT(\"'\",user,\"'@'\",host,\"'\") FROM mysql.user WHERE user='%s'" % dbc["user"]]).stdout.split()
     for m in machines:
@@ -319,11 +380,23 @@ def bring_up(machines, dbc):
         os.makedirs("/etc/netns/%s" % m.ns, exist_ok=True)
         write_hosts(m, hosts_text(machines, roles=False))    # booted; the merge has not run: no role is named yet
         sh(["ip", "netns", "add", m.ns], check=True)
-        host_if, ns_if = "fnwh%d" % m.n, "eth0"
-        sh(["ip", "link", "add", host_if, "type", "veth", "peer", "name", ns_if, "netns", m.ns], check=True)
-        sh(["ip", "link", "set", host_if, "master", BRIDGE, "up"], check=True)
-        for c in (["ip", "link", "set", "lo", "up"], ["ip", "addr", "add", m.ip + "/8", "dev", ns_if],
-                  ["ip", "link", "set", ns_if, "up"]):
+        cmds = [["ip", "link", "set", "lo", "up"], ["sysctl", "-qw", "net.ipv4.ip_forward=1"],
+                ["sysctl", "-qw", "net.ipv4.conf.all.rp_filter=0"], ["sysctl", "-qw", "net.ipv4.conf.default.rp_filter=0"]]
+        for j, (dev, cidr) in enumerate(m.ifaces):           # each device the topology gives this machine, by its name
+            host_if = "fnwh%d_%d" % (m.n, j)
+            sh(["ip", "link", "add", host_if, "type", "veth", "peer", "name", dev, "netns", m.ns], check=True)
+            if (m.name, dev) in seg_of:
+                sh(["ip", "link", "set", host_if, "master", seg_of[(m.name, dev)]], check=True)
+            sh(["ip", "link", "set", host_if, "up"], check=True)   # a device on no segment (a served LAN with no one on it) is up, alone
+            cmds += [["ip", "addr", "add", cidr, "dev", dev], ["ip", "link", "set", dev, "up"],
+                     ["sysctl", "-qw", "net.ipv4.conf.%s.rp_filter=0" % dev],
+                     # a recorded route says "via <the far machine's .1> dev wgN": WireGuard hands that to the peer on
+                     # the link whoever holds the address. On an ordinary link the peer answers for an address it
+                     # routes onward, which is proxy ARP.
+                     ["sysctl", "-qw", "net.ipv4.conf.%s.proxy_arp=1" % dev],
+                     # and at once: the kernel delays such an answer by up to 0.8 s by default, which a tunnel does not
+                     ["sysctl", "-qw", "net.ipv4.neigh.%s.proxy_delay=0" % dev]]
+        for c in cmds:
             r = m.exec(c)
             if r.returncode != 0:
                 raise RuntimeError("%s in %s: %s" % (" ".join(c), m.ns, r.stderr.strip()))
@@ -364,6 +437,21 @@ def bring_up(machines, dbc):
             r = m.exec(["iptables", "-t", "nat"] + rule)
             if r.returncode != 0:
                 raise RuntimeError("iptables %s in %s: %s" % (" ".join(rule), m.ns, r.stderr.strip()))
+    # the routes the baseline recorded on hardware for this topology, now that every device exists. "via X dev wgN"
+    # names a next hop that is not on the link's own /30 (WireGuard needs no neighbour); on an ordinary link the
+    # kernel is told the same thing with onlink, and the next machine answers for the address it holds.
+    for m in machines:
+        for line in net["routes"].get(m.name, []):
+            w = line.split()
+            if "via" not in w:
+                continue                                     # a connected route: the address put it there
+            # src: a node's installed route carries its identity (discovery.Discovery.dev_src gives the node's .1 for
+            # every device, and promote() stamps it), so what it sends to another machine's /24 comes from its .1 and
+            # can be answered. The baseline's lines do not print it; a transit /30 is known only to its two ends.
+            r = m.exec(["ip", "route", "add", w[0], "via", w[w.index("via") + 1], "dev", w[w.index("dev") + 1], "onlink",
+                        "metric", w[w.index("metric") + 1], "src", m.ip])
+            if r.returncode != 0 and "File exists" not in r.stderr:
+                raise RuntimeError("route %r on %s: %s" % (line, m.name, r.stderr.strip()))
 
 
 RPATH = "/api.php?entity=sensors&action=values&SensorType=%s&limit=%d&order=SensorID&parse=1"
@@ -419,7 +507,7 @@ def battery_fanout(machines, check, pairs=None, tag=""):
                     bad.append(("write", g["body"][:120]))
             ms = sorted(g["ms"] for g in got if g["status"] == 200)
             # the same read through the wire and from the target's own api.php
-            path = RPATH % ("WW", 10)
+            path = RPATH % ("WW", 1000)                   # every writer's row on the target, however many machines wrote to it
             wire, own = a.ask("req", target=b.ip, method="GET", path=path), b.ask("local", method="GET", path=path)
             same = wire.get("status") == 200 and own.get("status") == 200 and json.loads(wire["body"]) == json.loads(own["body"])
             last = {r["SensorName"]: (r.get("data") or r.get("jsonData") or {}).get("v") for r in json.loads(own["body"]).get("rows", [])} if own.get("status") == 200 else {}
@@ -558,6 +646,29 @@ def battery_carried(machines, word, check):
     return good
 
 
+def every_topology(setting):
+    """Each of the simulator's topologies in a run of its own (a process of its own: nothing of one is left for the
+    next), and one line for each at the end."""
+    rows, t_all = [], time.time()
+    for key in simulator_topologies():
+        t0 = time.time()
+        r = subprocess.run([PY, os.path.abspath(__file__), "--transport", setting, "--topology", key], capture_output=True, text=True)
+        out = r.stdout
+        res = ([l for l in out.splitlines() if l.startswith("RESULT")] or ["RESULT FAIL (no result: %s)" % (r.stderr.strip()[-200:] or out[-200:])])[-1]
+        meds = [float(x) for x in re.findall(r"\(median ([\d.]+) ms\)", out) if float(x) >= 0]
+        rows.append((key, res, out.count("[PASS]"), out.count("[FAIL]"), len(re.findall(r"concurrent reads", out)),
+                     sum(meds) / len(meds) if meds else -1, len(re.findall(r"^NOT JUDGED", out, re.M)), time.time() - t0))
+        print("%-34s %s  pass %d fail %d  pairs %d  mean of pair medians %.1f ms  %s%.0fs" % (
+            key, res, rows[-1][2], rows[-1][3], rows[-1][4], rows[-1][5], "engine REQ_MISS seen  " if rows[-1][6] else "", rows[-1][7]), flush=True)
+        for l in out.splitlines():
+            if "[FAIL]" in l:
+                print("      " + l.strip()[:400], flush=True)
+    good = sum(1 for r in rows if r[1] == "RESULT PASS")
+    print("TOPOLOGIES %d of %d PASS on %s (%.0fs)" % (good, len(rows), setting, time.time() - t_all))
+    print("RESULT", "PASS" if good == len(rows) else "FAIL")
+    return 0 if good == len(rows) else 1
+
+
 def main():
     if "--agent" in sys.argv:
         return agent()
@@ -565,9 +676,13 @@ def main():
     ap.add_argument("--transport", default="tcp",
                     help="every machine's transport setting, as /etc/frognet/semantic_transport holds it, lines joined by "
                          "commas: tcp | softhoma | auto | 'softhoma,databasehost_control.frognet tcp' ...")
-    ap.add_argument("--topology", default="trial3", choices=sorted(TOPOLOGIES))
+    ap.add_argument("--topology", default="trial3", choices=sorted(TOPOLOGIES) + simulator_topologies() + ["all"],
+                    help="trial3, one of the simulator's topologies with a hardware baseline, or all (every one of them, each "
+                         "in a run of its own)")
     ap.add_argument("--keep", action="store_true", help="leave the namespaces and their files up at the end")
     a = ap.parse_args()
+    if a.topology == "all":
+        return every_topology(a.transport)
     ok = True
 
     def check(cond, msg):
@@ -583,18 +698,23 @@ def main():
         return 1
     dbc = json.load(open(os.environ["FROGNET_DB_CONFIG"]))
     tmp = tempfile.mkdtemp(prefix="wire-machines-")
-    machines = [Machine(i, name, ip, roles, tmp) for i, (name, ip, roles) in enumerate(TOPOLOGIES[a.topology])]
-    control_holder(machines).roles = tuple(control_holder(machines).roles) + ("databasehost_control",)
-    system = [m for m in machines if "databasehost" in m.roles][0]
+    net = net_of(a.topology)
+    machines = [Machine(i, name, ip, roles, tmp, ifaces) for i, (name, ip, roles, ifaces) in enumerate(net["machines"])]
+    system = place_roles(machines)
     tear_down(machines)                                   # what an earlier run that was killed left behind
     print("== %s, transport %s: %s" % (a.topology, a.transport, ", ".join("%s %s" % (m.name, m.ip) for m in machines)), flush=True)
     try:
-        bring_up(machines, dbc)
+        print("   %s%s. SystemRam %s, ControlRam %s (the highest .1)" % (
+            net["says"], "; left out (they serve no /24 and run no proxy or daemon): %s" % ", ".join(net["left_out"]) if net["left_out"] else "",
+            system.name, control_holder(machines).name), flush=True)
+        bring_up(machines, dbc, net)
         time.sleep(1.5)
         # ---- 0. the machines are machines
         for m in machines:
             others = [o for o in machines if o is not m]
-            pings = [m.exec(["ping", "-c", "1", "-W", "2", o.ip]).returncode == 0 for o in others]
+            # three, and one answer is reachable: the first packet across several machines waits on each link's
+            # neighbour being found (a peer answering for an address it routes onward answers after a delay)
+            pings = [m.exec(["ping", "-c", "3", "-i", "0.3", "-W", "2", o.ip]).returncode == 0 for o in others]
             me = m.exec([PY, "-c", "import sys; sys.path.insert(0, %r); from core import frognet_tuples as T; print(T.my_ip())" % SEM],
                         env=m.env).stdout.strip().split("\n")[-1]
             role = m.exec(["getent", "hosts", "databasehost_control.frognet"]).stdout.split()[:1]
@@ -636,7 +756,11 @@ def main():
 
         ok = battery_fanout(machines, check) and ok
         ok = battery_carried(machines, a.transport, check) and ok
-        ok = battery_restart(machines, system, a.transport, check) and ok
+        if a.topology in TOPOLOGIES and len(machines) > 2:
+            ok = battery_restart(machines, system, a.transport, check) and ok
+        else:
+            print("  [NOT RUN] (b) a machine leaving: on this topology the routes without the machine are the merge's to "
+                  "compute, and this tier writes the merge's result, it does not run the merge", flush=True)
     finally:
         if a.keep:
             print("kept: %s; namespaces %s" % (tmp, ", ".join(m.ns for m in machines)))

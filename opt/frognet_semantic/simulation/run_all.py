@@ -563,6 +563,15 @@ def main():
                              ["core/test_homa_liveness_oracle.py"], retry=False))
     results.append(_run_proc("Homa simulator: Homa's own packets, loss and recovery",
                              ["core/test_homa_sim_oracle.py"], retry=False))
+    # [THE_WHOLE_RANGE_OF_TOPOLOGIES_V1] John 2026-11-17: "The Homa tests in the simulator need to activate the driver
+    # between machines on the topology and use that as the transport for a full battery of tests. That is passing";
+    # "The simulator should be able to run it across the entire range of topologies." Every topology with a hardware
+    # baseline, each machine a namespace built as a node (its api.php, the real proxy_main and daemon_main, the node's
+    # port-80 rule), the topology's own devices, segments and recorded routes, the Homa driver on soft Homa as the
+    # wire between them. About 19 minutes. Needs root, network namespaces, php, socat and soft Homa built; without
+    # them it FAILS and says which. The TCP control is the same command with --transport tcp.
+    results.append(_run_proc("Homa driver between machines, every hardware topology (wire_between_machines_tier --topology all)",
+                             ["simulation/wire_between_machines_tier.py", "--transport", "softhoma", "--topology", "all"], retry=False))
     results.append(_run_proc("transport factory self-test (sim+loopback+netem, 12)",
                              ["simulation/transport_factories.py"]))
     # [AICONNECT_RAMP_IS_GATED_V1] The AIConnect workload had no tier at all --
