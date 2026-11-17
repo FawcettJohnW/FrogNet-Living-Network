@@ -351,6 +351,35 @@ sockets for the TCP control. The machines can be namespaces on one bridge (every
 overlay gives on nodes) with the shaping per machine taken from the topology, which follows no route and spoofs no
 routing. If that reading of the rule is wrong, the tier's networking is the part to change.
 
+### 17 Nov 13:00: the tier's first step runs: three machines that are machines
+
+`simulation/wire_between_machines_tier.py`, step 0. Found while building it, each of which shaped the design:
+
+- The real daemon decides whether a request is for this machine with `local_ips()` (its real interfaces) and
+  resolves the destination from the hosts file only (`daemon/engine/resolver.py`). `frognet_tuples.my_ip()`
+  enumerates interfaces and has no setting. So a machine has to BE one to the kernel: a namespace with its own
+  10.x.y.1. Processes on aliases of `lo` would need those calls replaced, which is the stand-in ruling 32 excludes.
+- `ip netns exec` puts `/etc/netns/<ns>/hosts` at `/etc/hosts` for what runs in the namespace. That one file is
+  the machine's hosts file for the system resolver AND `FROGNET_HOSTS`, the file the watcher watches and the
+  role's address is read from. It must be rewritten IN PLACE (the namespace sees the file by inode; a rename would
+  not be seen). The watcher's mask includes CLOSE_WRITE, so an in-place write is an event.
+- A node's database is at 127.0.0.1. In a namespace that is the namespace's own loopback. A `socat` relay in each
+  namespace, from 127.0.0.1:3306 to the database server's socket (a file, so visible from every namespace), gives
+  each machine "its own database at 127.0.0.1" with no change to the server; each machine has its own database
+  (`FrogNetWire<n>`).
+- Each machine runs the tree's own `api.php` on its port 80 (`php -S`), which is the origin a request ends at and,
+  on the machine holding the roles, the ControlRam and SystemRam.
+- **This sandbox's kernel has no `netem`** ("Specified qdisc kind is unknown"). Links cannot be shaped in the
+  kernel here. The simulator's own user-space shaper (`slowlink.py`, which tier 3 puts under each member's session
+  to the RAM host) is the way; not built into this tier yet, so its links are unshaped for now.
+- The proxy's HTTP front door (`proxy_main` with the node's port-80 redirect) is not run in this tier: requests are
+  handed to the proxy's engine with their target, as `door_semantic_tier` does. Recorded in the tier's docstring as
+  the one part of a node's proxy not exercised.
+
+Result of step 0 (`trial3`: Seattle5 10.250.250.1 with both roles, Seattle3B 10.251.251.1, New-York-1
+10.123.123.1): each machine reaches the others, FrogNet's own call gives its own address, its hosts file names the
+ControlRam, and its own `api.php` answers. Next: each machine's real daemon and proxy engine, and the battery on TCP.
+
 ## 4. The interventions: what was said, why it was noticed, what had not been considered
 
 John, 17 Nov, of the first version of this file: "It is not just the order. It is what I asked and why I asked it.
