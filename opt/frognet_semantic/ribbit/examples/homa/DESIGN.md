@@ -132,13 +132,14 @@ section 5 (`core/homa_transport.py`, gate `core/test_homa_carrier_oracle.py`; th
 today are kernel Homa and TCP). The kernel module has not run on any node, so the choice has only been exercised
 with the detection stood in.
 
-**Soft Homa, first stage (make it work): built.** `src/softhoma.cpp` is section 4 on `ribbit::Space`
+**Soft Homa, first and second stages (make it work, make it safe): built.** `src/softhoma.cpp` is section 4 on `ribbit::Space`
 (`[SPACE_V1]`), as a library loaded ahead of libc; `src/softhoma_ram.cpp` holds the memory; `make HOMA=...` builds
 both incrementally. `tools/gate.sh /path/to/HomaModule` holds it to his tools, unchanged, on one machine:
-`util/homa_test` (invoke, poll, shutdown, rtt) against his `util/server`, and `util/cp_node` as server and client
-on fixed 100-byte messages, his w2 and w4 distributions, and 500,000 and 1,000,000-byte messages; then his server is
-killed with requests outstanding and the client is told within about 70 ms, by the server's capability cell leaving
-the memory, with no timer. His `homa_test close` ends in `std::terminate` by its own construction (a joinable
+`util/homa_test` (invoke, poll, shutdown, rtt, ioctl, read, private, set_buf, stream, wmem) against his
+`util/server`, and `util/cp_node` as server and client on fixed 100-byte messages, his w2 and w4 distributions, and
+500,000 and 1,000,000-byte messages; two `cp_node` clients at once on one server; then his server is killed with
+requests outstanding and the client is told within tens of milliseconds, by the server's capability cell leaving
+the memory, with no timer. 17 of 17. His `homa_test close` ends in `std::terminate` by its own construction (a joinable
 thread is destroyed) and is not in the gate.
 
 Measured on one machine, through the memory as a separate process (this shows the contract is kept; a comparison
@@ -160,7 +161,17 @@ Found, and what follows from each:
    this, a vendor's own records on the session's sockets past the engine (`[VENDOR_STREAM_V1]`,
    `ribbit/cpp/README.md`), and using it is the first step of "make it fast". Structured contents stay in the bag,
    where the engine does its work.
-3. **A client's port is a random number** above 32768 and is not yet claimed in the memory ("make it safe").
-4. **IPv4 only.**
+3. **Made safe (second stage).** A client socket's name is its address and a nonce, and its RPC ids start at a
+   random even number, so two clients that pick the same port cannot take each other's answers. A request in flight
+   has a slot from its sender's own free list; its cells and its reply's cells are named by the slot, so a cell is
+   written over only after what it held was consumed, the memory holds as many cells as there are requests in
+   flight, and nothing bounds how many that is (the first stage's ring of 4,096 and its EAGAIN are gone). `read()`
+   and an unknown `ioctl` are answered EINVAL as the module answers them; a socket shut down gives nothing more.
+4. **Two binds of one port at the same instant can both succeed**: the memory has no compare-and-set. A bind
+   refuses (EADDRINUSE) a port whose capability cell is already there.
+5. **IPv4 only.**
+6. **The sandbox has two cores.** Two `cp_node` clients at once each see a round trip of almost exactly 8 ms (one
+   client alone: 0.5 ms), which is the scheduler's time slice with more runnable threads than cores, not the
+   memory. Timing with more than one client needs the nodes.
 
 Not built: the kernel module on the nodes; drivers for FrogTorch's three wires; the passthrough handler; the matrix.
