@@ -5,7 +5,7 @@
 # try.sh -- soft Homa on real machines with John Ousterhout's own load generator (HomaModule util/cp_node), unchanged.
 # Everything prints to this terminal. Nothing is installed outside this directory tree and /etc/hosts is not written.
 #
-#   try.sh build                                    build the shim, the memory and his tools (incremental)
+#   try.sh build                                    build the RAM manager, the memory and his tools (incremental)
 #   try.sh ram [this-machine's-address]             run the memory here; it prints the commands for the other machines
 #   try.sh server RAM-ADDRESS                       his cp_node as a server, on soft Homa
 #   try.sh client RAM-ADDRESS SERVER-ADDRESS [WORKLOAD] [OUTSTANDING]
@@ -39,7 +39,7 @@ case "${1:-}" in
 build)
     [ -f "$HOMA/homa.h" ] || die "HomaModule is not at $HOMA (set HOMA=/path/to/HomaModule)"
     if [ -f "$HERE/../../cpp/ensure_build_deps.sh" ]; then . "$HERE/../../cpp/ensure_build_deps.sh"; ribbit_ensure_build_deps; fi
-    make -C "$HERE" HOMA="$HOMA" -j"$(nproc)" || die "the shim did not build"
+    make -C "$HERE" HOMA="$HOMA" -j"$(nproc)" || die "the RAM manager did not build"
     # His tools are written for x86: the cycle counter is the RDTSC instruction and the crash handler prints the x86
     # program counter. On any other machine those two places are changed in THIS copy of his source, and it is said
     # here. Nothing else of his is touched; on x86 nothing is.
@@ -107,7 +107,7 @@ tcpclient)
     GBPS=""
     case "$(uname -m)" in x86_64|i?86) ;; *) GBPS="--gbps 1000000"; echo "try.sh: $(uname -m): his client is given --gbps 1000000, as for soft Homa" ;; esac
     echo
-    # the shim is loaded only to answer his name for the server (node1); a TCP socket is not its business
+    # the RAM manager is loaded only to answer his name for the server (node1); a TCP socket is not its business
     exec env LD_PRELOAD="$HERE/build/libsofthoma.so" SOFTHOMA_NODE1="$SRV" \
         "$HOMA/util/cp_node" client --protocol tcp --workload "${3:-100}" --client-max "${4:-8}" --ports 1 \
         --first-port 4000 --first-server 1 --server-nodes 1 $GBPS

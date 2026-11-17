@@ -133,7 +133,7 @@ is given by hand; by `[WHICH_RAM_V1]` it is the SystemRam); none of this has run
 `tools/try.sh` runs his `cp_node`, unchanged, on soft Homa across machines: `try.sh build` on each, `try.sh ram` on
 the one that holds the memory (it prints the commands for the others with its address filled in), `try.sh server
 RAM-ADDRESS` and `try.sh client RAM-ADDRESS SERVER-ADDRESS [WORKLOAD] [OUTSTANDING]`. A machine's own address is
-FrogNet's `getEth0Address` where there is one. His `cp_node` looks its servers up as `node1`, `node2`, ...; the shim
+FrogNet's `getEth0Address` where there is one. His `cp_node` looks its servers up as `node1`, `node2`, ...; the RAM manager
 answers those names from `SOFTHOMA_NODE<N>` and `/etc/hosts` is not written (FrogNet watches that file). As of
 17 Nov this has run on one machine only.
 
@@ -153,7 +153,7 @@ emulation: 18446744073709551615). Off x86 `try.sh client` therefore gives his cl
 own option, which keeps the next start in the past; his source is not changed for it.
 
 **First figures on two machines** (two Pis, 10.250.250.1 holding the memory and his server, 10.251.251.1 his
-client; 100-byte messages, 8 outstanding; 17 Nov, shim v6): 3.3 to 3.7 thousand round trips a second, round trip
+client; 100-byte messages, 8 outstanding; 17 Nov, RAM manager v6): 3.3 to 3.7 thousand round trips a second, round trip
 P50 2.1 ms, P99 4.2 ms, P99.9 19 ms. In the server's own log the time from a request's row arriving to its reply
 being written is P50 0.10 ms, P99 0.32 ms (1,939 requests), so about 2.0 of the 2.1 ms is outside his server: the
 two crossings of the link and the memory. No control was run in that session, so these say nothing yet about TCP
@@ -164,7 +164,7 @@ which is the case this is not built for.
 **The control, same two Pis, 16 minutes later** (not the same session, so the link may have differed; one ping
 between them read 1.78 ms):
 
-| 100 bytes, 8 outstanding | soft Homa (shim v6) | his cp_node on TCP |
+| 100 bytes, 8 outstanding | soft Homa (RAM manager v6) | his cp_node on TCP |
 |---|---|---|
 | round trips a second | 3.3 to 3.7 thousand (two seconds at 2.6 and 2.8) | 3.7 to 4.0 thousand |
 | round trip P50 | 2.05 to 2.13 ms | 1.94 to 1.95 ms |
@@ -176,7 +176,7 @@ round trip is about 1.8 ms, and by more in the tail. The memory was on the serve
 crossed the link once each way; with the memory on a third machine soft Homa crosses two links each way and this
 figure does not cover that.
 
-**240,000-byte messages, one outstanding, same two Pis, the two runs a minute apart** (shim v7; the soft Homa
+**240,000-byte messages, one outstanding, same two Pis, the two runs a minute apart** (RAM manager v7; the soft Homa
 server was printing a debug line per request):
 
 | 240,000 bytes, 1 outstanding | soft Homa | his cp_node on TCP |
@@ -208,7 +208,7 @@ The two runs were about a minute apart. Same reason as on the near pair: TCP car
 link each round trip, and soft Homa carries what changed, which for his constant payload is almost nothing, so its
 round trip is about the link's own.
 
-**The same-session tables (17 Nov, shim v7), near pair and far pair, six sizes, are in
+**The same-session tables (17 Nov, RAM manager v7), near pair and far pair, six sizes, are in
 `REPORT-soft-homa-against-tcp-20261117.md`**, which stands on its own. In short: the same as TCP at 100 and 1,000
 bytes on both links; 2.5 to 2.7 times faster from 10,000 to 240,000 bytes on the near pair and 1.3 to 2.5 times
 from 100,000 to 240,000 on the far pair, on his constant payload; and at 1,000,000 bytes 10 times slower near
@@ -311,7 +311,7 @@ Found, and what follows from each:
      1,000,000-byte round trip goes from 750 ms to 74 ms (30 ms with the change above). This is the sandbox, not
      the design; large messages have to be timed on the nodes.
 
-   What was the shim's own is fixed (`[SOFT_HOMA_FAST_V1]`): its base64 wrote a byte at a time and copied each piece
+   What was the RAM manager's own is fixed (`[SOFT_HOMA_FAST_V1]`): its base64 wrote a byte at a time and copied each piece
    twice; it now encodes and decodes in place. Payloads stay base64 fields in the cell's bag, on the semantic wire.
 3. **Made safe (second stage).** A client socket's name is its address and a nonce, and its RPC ids start at a
    random even number, so two clients that pick the same port cannot take each other's answers. A request in flight
