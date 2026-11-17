@@ -123,3 +123,18 @@ The parts every node runs. 38 Python files, no subdirectories.
 - **`[THE_WIRE_MANAGER_SENDS_V1]` only the wire manager calls the carrier's send.** A thread that has a frame makes
   the wire bytes and queues them (`_ClientMux.send`, the daemon session's writer); `WireManager`'s one thread per
   end sends, whole messages ahead of waiting pieces. Do not send from the thread that has the frame.
+
+## The semantic wire's transport is a setting per RAM connection (17 Nov 2026)
+
+John: "It is a Setting per ram connection, which may be on different machines." `/etc/frognet/semantic_transport`:
+the first line is the node's word (`auto`, `tcp`, `homa`, `softhoma`); each line after it is a RAM's role name and
+the word for this node's connection to that RAM, for example `databasehost_control.frognet tcp`. A RAM is named by
+its role, never by an address. `core/homa_transport.py` `[A_WORD_PER_RAM_CONNECTION_V1]`. Rules that came with it:
+
+- No call a driver makes into a library may let an exception out; a library must not be able to end a proxy or a
+  daemon (`[THE_MEMORY_CAN_COME_BACK_WHERE_IT_WAS_V1]`).
+- A listener that is down waits for an event, every event it can see wakes it, and it says in its log which one.
+  Do not arrange the order things start in. John: "the programming model changes from lock-ordered sequential
+  messaging to event driven."
+- A held read returns when what it holds changes. Writing the same tuple again wakes nobody.
+- Before changing what handles an event, log which event it was.

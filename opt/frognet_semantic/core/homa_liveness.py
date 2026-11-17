@@ -161,6 +161,7 @@ class PeerLiveness:
         self.carriers = tuple(carriers)           # what this end carries the wire on ([CARRIER_PER_HOP_V1])
         self.peer_carriers: Dict[str, Tuple[str, ...]] = {}   # peer ip -> what its other end says it carries it on
         self.on_network_event = on_network_event
+        self.on_read: Optional[Callable[[], None]] = None      # [A_RETURN_OF_THE_HOLD_IS_AN_EVENT_V1]
         # [THE_MEMORY_IS_WHERE_THE_ROLE_IS_V1] called on the watcher's thread each time the hosts file is rewritten:
         # the driver asks then where soft Homa's memory and this node are now. Set by the driver's end; None otherwise.
         self.on_hosts_change: Optional[Callable[[], None]] = None
@@ -186,6 +187,10 @@ class PeerLiveness:
     def _announce(self, why: str, stopped: bool = False) -> None:
         v = {"ip": self.me, "role": self.role, "port": self.port, "inst": self.inst, "build": BUILD, "who": self.who,
              "carriers": list(self.carriers)}
+        # [A_RETURN_OF_THE_HOLD_IS_AN_EVENT_V1] a held read returns when what it holds CHANGES. Saying the same tuple
+        # again changed nothing and woke nobody (found between machines, 17 Nov), so each saying is numbered.
+        self._said = getattr(self, "_said", 0) + 1
+        v["said"] = self._said
         if stopped:
             v["stopped"] = True
         kept = self.ram.put(self._scope(), v)
@@ -240,6 +245,8 @@ class PeerLiveness:
         self.n_events += 1
         ends = self.ram.ends(rows)
         peers = {ip: inst for (ip, role), inst in ends.items() if role == self.other and ip != self.me}
+        print("[HOMA-LIVENESS] %s: the hold on (%s, %s) returned (%d): %s" % (self.who, SERVICE, VAR, self.n_events,
+              ", ".join("%s:%s=%s" % (ip, role, inst) for (ip, role), inst in sorted(ends.items())) or "no tuples"), flush=True)
         car = getattr(self.ram, "_carriers", {})
         gone = []
         with self._lock:
@@ -277,6 +284,21 @@ class PeerLiveness:
                     print("[HOMA-LIVENESS] %s: the network event handler raised %r" % (self.who, e), flush=True)
         for ip, why, machine_left in gone:
             self._gone(ip, why, machine_left)
+        if self.on_read is not None:
+            # [A_RETURN_OF_THE_HOLD_IS_AN_EVENT_V1] every return of the held read is something on the network having
+            # changed (an end started, stopped, or said again what it is). The driver is told; what it does is its own.
+            try:
+                self.on_read()
+            except Exception as e:
+                print("[HOMA-LIVENESS] %s: the handler for a return of the hold raised %r" % (self.who, e), flush=True)
+
+    def reassert(self, why: str) -> None:
+        """[A_RETURN_OF_THE_HOLD_IS_AN_EVENT_V1] Write this end's own tuple again, so that every end holding a read on
+        (homa, can) sees an event now. The driver's call, when what this end can do has changed (its listener opened)."""
+        try:
+            self._announce(why)
+        except Exception as e:
+            print("[HOMA-LIVENESS] %s: could not write its own tuple again (%s): %r" % (self.who, why, e), flush=True)
 
     def _block_now(self) -> Optional[Set[str]]:
         try:

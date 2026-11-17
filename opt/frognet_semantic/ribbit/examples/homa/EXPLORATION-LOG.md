@@ -110,6 +110,14 @@ Each is John's, quoted where the words matter. They are the constraints everythi
 34. Names: `libsofthoma.so` is "the Homa API interface" (not "the shim", and not "the RAM manager", which was a
     wrong guess at what he meant). `softhoma-ram` is the RAM host its cells live in.
 
+35. (13:14, to my question whether a network told `softhoma` only is a mode to support or a test's word) "Both. It
+    is a Setting per ram connection, which may be on different machines."
+36. (13:14, to my point that a listener stays down if the memory's machine restarts with the hosts file unchanged)
+    "That is a possible case, but not realistic, is it? If the system restarted that is a network event that
+    everything else on the network will see."
+37. (13:24, unprompted, while the restart battery was being built) "The simple statement is that the programming
+    model changes from lock-ordered sequential messaging to event driven."
+
 ## 2a. The stages, and each time the work went back a stage
 
 John, 17 Nov: "The record should also show the progression through the stages, and the times we had to roll back.
@@ -156,6 +164,12 @@ the work went back. "Withdrawn" means the thing was proposed or begun and droppe
 | 17 Nov 12:41 | the record | the record, with how each fault was found | John | Section 4 rewritten as cases (`b5567ade`). |
 | 17 Nov 12:48 | the tier driving the proxy's engine through a pipe | the real proxy process | half the pairs failed on TCP: a node has api.php on 8080 and its proxy on 80 | The agent that called the engine, built and replaced within the hour by `proxy_main` and the node's nat rule (`f09498a9`). |
 | 17 Nov 12:52 | work in one process | work between machines | 5 of 6 pairs failed on soft Homa | Nothing was undone; three things were missing (`d19c9396`). This is the stage the driver is at now. |
+
+| 17 Nov 13:20 | work between machines (one word for a node) | work, with the setting where John put it | John, ruling 35 | Nothing undone. The word became a line per RAM connection (`[A_WORD_PER_RAM_CONNECTION_V1]`); the daemon listens on every carrier its setting names. |
+| 17 Nov 13:22 | the tier's topology | the topology a network of those machines has | reading the elector for ruling 35 | The table had put the ControlRam on Seattle5 beside the SystemRam. The elector's rule is the highest .1, which is Seattle3B. The tier now computes it. |
+| 17 Nov 13:35 | safe (a memory that moves) | work (a memory that dies where it is) | the restart battery: both other machines' PROXIES ended ("terminate called after throwing frogram::Unreachable") | The library kept the Space of a dead memory and let a C++ exception out through a call made from Python. It now lets go of a dead memory and no call lets an exception out (`[THE_MEMORY_CAN_COME_BACK_WHERE_IT_WAS_V1]`). |
+| 17 Nov 13:50 | the restart battery as I wrote it | the battery as a network does it | four runs chasing one listener that would not come back, then reading John's ruling 36 again | My battery kept every hosts file naming the dead machine as the SystemRam. A network's merge takes it out of the block and gives the role to a machine that is there. Rewritten that way; passes. The three guesses I made on the way are in section 3. |
+| 17 Nov 14:00 | work (`auto`) | work | the first run of `auto` between machines: no Homa listener anywhere | `auto` decided what a node has by opening a socket at start, before any role is named, so on soft Homa it was always tcp. Soft Homa is now had when its library is told (`[SOFT_HOMA_IS_HAD_WHEN_ITS_LIBRARY_IS_V1]`). |
 
 ### What the rollbacks have in common
 
@@ -542,7 +556,7 @@ unshaped. Not yet: the door scenarios, large frames with changing contents, a sh
 daemon stopping and a machine leaving, the role moving between machines, `auto` with a TCP-only machine, the 20
 hardware topologies, and shaped links (this sandbox has no `netem`; `slowlink.py` is the way).
 
-**Open design points for John** (not decided by me):
+**Open design points for John** (both answered at 13:14, rulings 35 and 36; see the entry for 13:14 to 14:05):
 - A node told `softhoma` ONLY can bring its wire up only because of change 3 and the order the merge writes the
   hosts files. A network is expected to run `auto`, where TCP is always there to reach the ControlRam. Whether
   `softhoma`-only is a mode to support, or a test word, is his call.
@@ -550,6 +564,96 @@ hardware topologies, and shaped links (this sandbox has no `netem`; `slowlink.py
   sockets go down, and their listeners open again only at a network event. Change 3 makes "a server arrived" such an
   event for the liveness hold; it is not yet used to reopen a LISTENER whose memory went away and came back. Not
   built, not tested.
+
+### 17 Nov 13:14 to 14:05: John's two rulings; a word per RAM connection; a machine leaving; `auto`
+
+Times here are from the sandbox's clock and the tier's own logs (`/home/claude/logs/sim2/`).
+
+**Ruling 35, a setting per RAM connection.** `core/homa_transport.py` read one word for the node. It now reads the
+node's word and, after it, a line per RAM: the role's name and the word for this node's connection to it
+(`[A_WORD_PER_RAM_CONNECTION_V1]`). A RAM is named by its role, never an address; where it is comes from the hosts
+file each time a session is opened (the rule of ruling 33), so the word follows the RAM when the role moves. A
+session is to a machine, so two named RAMs on one machine with different words cannot both be had: that session is
+not opened and the error names both. I did not pick one. This is the one consequence John has not seen: it happens
+at run time if the election puts two RAMs with different words on one machine. Making it two sessions needs the
+proxy's request path (`_handle_semantic_request`) to say which RAM a request is for, and that is his working code.
+The daemon listens on every carrier any word of its setting names. 12 new checkpoints in
+`core/test_homa_carrier_oracle.py` (45 in all).
+
+**The tier's topology was wrong.** Reading the elector for this ruling
+(`usr/local/bin/frognet_dbhost_elector.py`: "Control = highest .1") showed the tier's table had the ControlRam on
+Seattle5, beside the SystemRam. Of 10.250.250.1, 10.251.251.1 and 10.123.123.1 the highest is Seattle3B. The tier
+now applies the elector's expression and the two RAMs are on different machines, which is the case John named.
+Between machines, with `softhoma` and `databasehost_control.frognet tcp`: each proxy has its ControlRam session on
+the TCP driver and every other session on the Homa driver, in one process, and the battery passes.
+
+**The 503 again, and on Homa.** With the new topology the first three soft Homa runs failed on one read answered
+503 "REQ_MISS from daemon; exhausted retries", the fault I had recorded on TCP and not looked at. Then eight runs
+passed (four each), then TCP failed the same way. Every time: one read, in the first burst, Seattle5 to
+New-York-1 (the first machine's second target). In all today: TCP 2 of 13 runs, soft Homa 4 of 15. What the logs
+show (kept: `logs/sim2/kept_reqmiss_softhoma`): the proxy sends REQ_DIFF and REQ_REPEAT for the instance
+`SensorType='WA'`; New-York-1's daemon answers "no reference, REQ_MISS" (`daemon/engine/execution.py`
+`[INSTANCE_REFERENCES_V1]`), then "reference cleared" (`[REF_INCOMPLETE_IS_A_REQ_MISS_V1]`); the proxy's lines say
+"cleared seen, retrying as REQ_RAW" some twenty times across the streams, and one request has two misses in a row
+and its attempts run out. No driver event (session opened, ended, reopened) is near it on either driver. What I
+have: it is in the semantic engine above both drivers, it needs concurrent streams and a cold peer, and it is the
+same on TCP. What I do not have: why the proxy believes the peer holds the reference. Settling it needs the
+sequence number logged at the proxy's send and at the daemon's dispatch for the instance. Not instrumented, not
+changed: it is his working code. The tier counts such a read on its own line ("NOT JUDGED") and in its result and
+fails the pair for anything else (`[THE_ENGINE_S_MISS_IS_NOT_THE_WIRE_S_V1]`). That is a judgement call of mine and
+John may reverse it.
+
+**Ruling 36, tested.** I built battery (b) as "the SystemRam's machine is killed and comes back", with every hosts
+file still naming it, then rewritten with the same lines. TCP passed. Soft Homa:
+
+1. *Both other machines' proxies ended.* "terminate called after throwing an instance of 'frogram::Unreachable'".
+   The library still held the Space of the memory that had died, opened the proxy's next socket on it, and the
+   platform's exception came out through a call made from Python, which ends the process. A library the driver
+   loads must never be able to end a proxy. Fixed in `src/softhoma.cpp` (v10): when this process's session with a
+   memory ends, the memory is let go of; every call the driver makes catches and returns ENETDOWN; it connects
+   again when the driver says a network event happened, never on a timer. This was the real find of the battery.
+2. *New-York-1's listener did not come back*, Seattle3B's did. I then guessed three times, and each guess was a
+   change: a return of the hold on the ControlRam wakes a waiting listener (`on_read`); a daemon writes its tuple
+   again when its listener opens (`reassert`); each saying of the tuple is numbered so that it is a change and the
+   hold returns. Each is right by itself and is kept. None fixed it. Only then did I add what should have been
+   first: a log line saying which event woke the listener, and one for each return of the hold. They showed
+   New-York-1 never saw Seattle5's tuple at all. The ControlRam tells a holder through the wire, Seattle3B's word
+   for New-York-1 was `softhoma`, and New-York-1's listener was the thing that was down. And its own hosts file had
+   been rewritten before Seattle5's memory was up.
+3. *The battery was wrong, not the driver.* John had answered this at 13:14: a restart is a network event. What
+   the network does at that event is the merge: the machine is out of the block and the election gives its role
+   to a machine that is there. Every node runs `softhoma-ram` from its start, so the heir's memory is already up
+   when the role arrives. I had kept the dead machine as the SystemRam in every file, the case he had called not
+   realistic. Rewritten: the machine is killed; the merge takes it out and moves the role; the survivors listen
+   again in the memory where the role is and carry the battery; the machine returns, the merge puts it back, and
+   it carries the battery. Passes on every setting.
+
+What is left of the case John called not realistic: with every connection forced to `softhoma`, a node whose
+listener is down can be told nothing except through its own hosts file. With `auto` the others reach it on TCP
+until it is back in the memory.
+
+**`auto` had never run between machines.** Its first run had no Homa listener on any machine: `auto` decided what
+a node has by opening a socket at start, before the merge names the SystemRam, so on soft Homa it was tcp for the
+life of every process. Fixed: soft Homa is had when the node was told of its library
+(`[SOFT_HOMA_IS_HAD_WHEN_ITS_LIBRARY_IS_V1]`). With that, each proxy has sessions on both drivers and chooses for
+each peer by measured round trip.
+
+**Between machines, both batteries, after the fixes** (`trial3`, unshaped links):
+
+| Setting | Runs | Passed |
+|---|---|---|
+| `tcp` (the control) | 4 | 4 |
+| `softhoma` | 4 | 4 |
+| `softhoma` + `databasehost_control.frognet tcp` | 3 | 3 |
+| `auto` | 1 | 1 |
+
+One TCP run had the 503 above, counted and not judged. All driver gates pass, and soft Homa's own gate with his
+unchanged `cp_node` passes on library v10 (18 checkpoints).
+
+**Ruling 37.** John's sentence came while I was on the second guess above. It is what the three guesses lacked: I
+was arranging the order in which things start (who writes first, who is up before whom), which is the sequential
+model. The event-driven statement of the same thing is short: a listener that is down waits for an event; every
+event it can see wakes it; it says which one.
 
 ## 4. The interventions: what was said, why it was noticed, what had not been considered
 
@@ -768,6 +872,38 @@ a summary of it and say so.
 - For the Torch runs I proposed choosing wires by hand, and then a socket interposer. John: "The transport should
   be transparent. If it is not, the job is not done."
 
+**18. "Is `softhoma`-only a mode to support, or a test word?"** (13:14)
+
+- *What I said*: that a node told `softhoma` only reaches the ControlRam over the wire it is bringing up, and I
+  asked John to choose between two things: support the mode, or call it a test's word and run networks on `auto`.
+- *What John answered*: "Both. It is a Setting per ram connection, which may be on different machines."
+- *Why it was a tell*: I had offered a choice between two settings for a node. The unit was wrong. The thing that
+  has a transport is a connection to a RAM.
+- *Not considered or recalled, and why*: ruling 15 already said the ControlRam is reached "over whatever transport
+  is loaded", and carriers were already per hop. I had the word per process because that is where I read it from.
+  And my tier had both RAMs on one machine, against the elector's rule, so the case where they differ could not
+  show itself.
+
+**19. "The listeners stay down if the memory's machine restarts and the hosts file does not change"** (13:14)
+
+- *What I said*: that I had not built anything for that case, as an open design point.
+- *What John answered*: "That is a possible case, but not realistic, is it? If the system restarted that is a
+  network event that everything else on the network will see."
+- *Why it was a tell*: I had described a failure by a condition ("the hosts file unchanged") that the network does
+  not produce. A machine going is the largest event a network has.
+- *Not considered or recalled, and why*: I knew the merge runs when a machine leaves and that the election moves
+  roles; the `softmoved` test exists for it. I then built the unrealistic case anyway as a battery, spent four
+  runs and three guesses on it, and went back to his sentence only when the instrumentation showed the node could
+  not have been told. I had read his answer as "do not build for it" and not as "here is what happens".
+
+**20. Three guesses before one log line** (13:40)
+
+- *What I did*: New-York-1's listener would not come back. I changed the code three times on three theories.
+- *Who caught it*: the fourth run. John's standing rule is to instrument before theorizing; the lines that settled
+  it (which event woke the listener; each return of the hold) took five minutes.
+- *Not considered or recalled, and why*: each theory was plausible and cheap to try, so trying felt faster than
+  logging. It cost four runs. The three changes stay because each is right; none was the cause.
+
 ### What the cases have in common
 
 - **The fault was in a sentence I offered as plain description or as a reason.** "Listens", "because", "setting",
@@ -807,6 +943,13 @@ a summary of it and say so.
 | Presented one proxy and one daemon in one process as "the simulator" | John (ruling 32) | Passing is the driver between machines on the topology, full battery. |
 | Two new files without the license header | the simulator's license check | Every source file carries it; run the simulator before saying a change is clean. |
 | Spent an hour on a note's wording while saying the Torch work was under way | John: "Where is the torch work" | Say "not started" when it is not started. |
+
+| Asked John to choose between two node-wide settings | John (ruling 35) | The transport is a setting per RAM connection. |
+| Tier had both RAMs on one machine | reading the elector | Place roles by the node's own rule, not by hand. |
+| Built a battery for a case John had called not realistic | the instrumentation, then his ruling 36 | A machine leaving is a merge: it is out of the block and its role moves. Model what the network does. |
+| Three code changes on three guesses | the fourth failing run | Log which event it was before changing what handles it. |
+| The library could end the proxy that loaded it | the restart battery | No exception leaves a call the driver makes; a dead memory is let go of. |
+| `auto` had never been run between machines | its first run | Run every word the setting accepts, between machines. |
 
 ## 5. What Homa's mechanisms became
 
@@ -859,12 +1002,16 @@ Raspberry Pi 5s. Ping 1.9 ms within Seattle, 91.6 ms to New York. 17 Nov, Homa A
 
 Nothing here may be reported as working.
 
-0. **Boot order and the memory restarting** (found between machines, 17 Nov). Fixed for a boot: the daemon waits
-   for its memory process, has its watcher before its first open, and a server arriving in the memory is an event.
-   NOT fixed: a listener whose memory goes away and comes back with the hosts file unchanged. And whether a network
-   told `softhoma` only is a supported mode is John's call. See section 3, 12:45 to 13:00.
-0a. **On TCP, 1 request in about 1,600 between machines was answered 503 "REQ_MISS from daemon; exhausted
-   retries"** (the existing system; found by the new tier; not looked into, not changed).
+0. **A node whose every connection is forced to `softhoma`, while its listener is down**, can be told nothing
+   except through its own hosts file (the ControlRam tells a holder through the wire). John's ruling 36: not a
+   realistic case, because a machine going is a merge. With `auto`, or with the ControlRam's connection on tcp in
+   BOTH directions, it does not arise. Recorded, not built for.
+0a. **One read in a few thousand between machines is answered 503 "REQ_MISS from daemon; exhausted retries"**, on
+   TCP (2 of 13 runs) and on soft Homa (4 of 15), always in the first burst from the first machine to its second
+   target. It is in the semantic engine above both drivers. What the logs show and what is missing to settle it
+   are in section 3, 13:14 to 14:05. Not instrumented and not changed. The tier counts it and does not judge it.
+0b. **Two named RAMs with different words on one machine**: that session is not opened. See section 3, the same
+   entry. John has not ruled on it.
 1. **The simulator, by ruling 32.** The driver activated between machines on the topology, the full battery over it.
 2. **Any of the driver on a node.** Pieces, spares, the wire manager, the library opened by the driver, the memory
    following the role, `softhoma-ram` started by the daemon: none has run outside the sandbox. Only his `cp_node`
@@ -903,7 +1050,10 @@ Nothing here may be reported as working.
   `[SOFT_HOMA_FAST_V1]`, `[FIELD_ORDER_WITHOUT_LEAF_TYPES_V1]`, `[FRAMES_GO_IN_PIECES_V1]`,
   `[THE_RPCS_ARE_ALREADY_OPEN_V1]`, `[THE_WIRE_MANAGER_SENDS_V1]`, `[THE_DRIVER_LOADS_ITS_OWN_HOMA_V1]`,
   `[THE_MEMORY_IS_WHERE_THE_ROLE_IS_V1]`, `[A_PEER_IS_THERE_WHEN_ITS_CELL_IS_V1]`, `[ONE_INPUT_ONE_RULE_V1]`,
-  `[HOMA_DRIVER_TIERS_V1]`, `[THE_SOCKET_HOP_CAN_BE_A_REAL_DRIVER_V1]`.
+  `[HOMA_DRIVER_TIERS_V1]`, `[THE_SOCKET_HOP_CAN_BE_A_REAL_DRIVER_V1]`, `[WIRE_BETWEEN_MACHINES_V1]`,
+  `[THE_MEMORY_SAYS_WHEN_IT_IS_THERE_V1]`, `[A_SERVER_ARRIVING_IS_AN_EVENT_V1]`, `[A_WORD_PER_RAM_CONNECTION_V1]`,
+  `[THE_MEMORY_CAN_COME_BACK_WHERE_IT_WAS_V1]`, `[A_RETURN_OF_THE_HOLD_IS_AN_EVENT_V1]`,
+  `[SOFT_HOMA_IS_HAD_WHEN_ITS_LIBRARY_IS_V1]`, `[THE_ENGINE_S_MISS_IS_NOT_THE_WIRE_S_V1]`.
 
 ## 9. Bringing up a new transport: what this work teaches
 
@@ -1034,3 +1184,8 @@ here; where this work did one late or wrong, it says so.
 | `54f4c3bb` | 17 Nov 10:51 | The driver opens soft Homa itself; nothing preloaded |
 | `9fe9591d` | 17 Nov 11:28 | Soft Homa's memory is where the role is, and the driver follows it |
 | `8ffbddc3` | 17 Nov 12:28 | The role's address by one rule; simulator tiers; license headers |
+| `76250814`, `e63158bb`, `b5567ade` | 17 Nov 12:40 to 12:45 | The record; the simulator's findings and plan; interventions as cases |
+| `acefa90d`, `f09498a9`, `b0a7216a` | 17 Nov 12:45 to 12:53 | The between-machines tier: machines as nodes; TCP passes; Homa fails 5 of 6 |
+| `d19c9396` | 17 Nov 13:00 | The Homa driver passes the first battery between machines |
+| `1c67a529` | 17 Nov 13:05 | The stages and the rollbacks |
+| (this commit) | 17 Nov 14:05 | A word per RAM connection; a machine leaving and returning; the library cannot end its proxy; `auto` |

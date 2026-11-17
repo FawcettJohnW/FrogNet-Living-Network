@@ -331,6 +331,27 @@ His `cp_node` server does not stop on a failed `recvmsg`: when the memory ends i
 printing each time (30 GB of log in a few minutes here). `SOFTHOMA_EXIT_WHEN_MEMORY_GONE=1`, which `try.sh` and the
 gate set, ends the process there with one line instead.
 
+
+### A word per RAM connection (17 Nov 2026)
+
+John: "It is a Setting per ram connection, which may be on different machines." The setting's first line is the
+node's word. Each line after it names a RAM by its role and gives the word for this node's connection to it:
+
+    auto
+    databasehost_control.frognet tcp
+
+Where a RAM is comes from the hosts file when a session is opened, so the word follows the RAM when the role
+moves. A daemon listens on every carrier its setting names. Two named RAMs with different words on one machine
+cannot share that machine's session: it is not opened, and the error names both.
+
+In `auto`, soft Homa is something a node has when it was told of the library, not when a socket opens at start: a
+node starts before the merge has named the SystemRam.
+
+When a machine leaves, the merge takes it out of the block and moves its roles. Every node runs soft Homa's memory
+process from its start, so the memory is there when the role arrives. A library whose memory dies lets go of it,
+fails the driver's calls with ENETDOWN, and connects again at the driver's next network event. It cannot end the
+process that loaded it.
+
 ## 6. What is expected, and how it is judged
 
 - Against Homa as shipped at defaults over a long round trip: on the simulator it completed 0 of 40 RPCs at 120 ms

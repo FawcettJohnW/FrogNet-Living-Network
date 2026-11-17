@@ -304,13 +304,14 @@ class MsgDaemonServer:
         self._wire = WireManager("daemon-homa-wire", self._put_reply)     # [THE_WIRE_MANAGER_SENDS_V1]
         self.liveness = None
         self.n_peers_gone = self.n_network_events = 0
+        self._opened_before = False
 
     def _peer_liveness(self):
         """This process's liveness: the daemon end. A test replaces this method; nothing in the tree does."""
         from core.homa_liveness import PeerLiveness
-        from core.homa_transport import carriers_here
+        from core.homa_transport import carriers_listened
         return PeerLiveness("daemon", self.port, self._peer_gone, "daemon semantic wire",
-                            on_network_event=self._network_event, carriers=carriers_here())
+                            on_network_event=self._network_event, carriers=carriers_listened())
 
     def _writer_gone(self, ip: str) -> None:
         """[WRITER_GONE_V1] the TCP driver's own call, made when a machine's last socket closes. A test replaces this
@@ -346,6 +347,10 @@ class MsgDaemonServer:
         self.n_network_events += 1
         print("[DAEMON-HOMA] network event: the ControlRam was rebuilt and this end wrote its own tuple again; sessions "
               "from peers that are still there carry on", flush=True)
+        # John 2026-11-17: a system restarting "is a network event that everything else on the network will see". A
+        # listener that is down is waiting for exactly this, so it is told (run() opens it again if the memory is there).
+        if getattr(self, "_changed", None) is not None:
+            self._wake("the ControlRam was rebuilt")
 
     def _put_reply(self, s: "_MsgSession", dest: Tuple[str, int], rid: int, msg: bytes) -> None:
         """The wire manager's thread: one reply message onto the carrier."""
@@ -420,9 +425,14 @@ class MsgDaemonServer:
         """The liveness watcher's thread, each time the hosts file is rewritten."""
         try:
             self._memory_child()
-            homa_socket.soft_memory_tell("the hosts file changed")
+            homa_socket.soft_memory_tell("the hosts file changed", event=True)
         except Exception as e:
             print("[DAEMON-HOMA] at the hosts change: %s: %s" % (type(e).__name__, e), flush=True)
+        self._wake("this node's hosts file was rewritten")
+
+    def _wake(self, why: str) -> None:
+        """An event. A listener that is waiting to open tries again, and says which event it was."""
+        self._woke_by = why
         self._changed.set()
 
     def run(self) -> None:
@@ -435,6 +445,12 @@ class MsgDaemonServer:
         if self.liveness is None:
             self.liveness = self._peer_liveness()
             self.liveness.on_hosts_change = self._hosts_changed
+            # [A_RETURN_OF_THE_HOLD_IS_AN_EVENT_V1] found between machines, 17 Nov (the SystemRam's machine restarted):
+            # a listener that is down has let go of soft Homa's memory, so nothing can reach it THROUGH that memory.
+            # The events it can still see are its hosts file and its held read on the ControlRam. A machine coming
+            # back writes its tuple there when its own listener opens (below), and every return of that read wakes a
+            # listener that is waiting.
+            self.liveness.on_read = lambda: self._wake("the held read on the ControlRam returned")
             if hasattr(self.liveness, "wake"):
                 homa_socket.soft_on_servers_change(self.liveness.wake, "daemon semantic wire")   # [A_SERVER_ARRIVING_IS_AN_EVENT_V1]
         while not self._stopping:
@@ -449,6 +465,7 @@ class MsgDaemonServer:
                     raise
                 print("[DAEMON-HOMA] the Homa listener is NOT listening (%s). It opens at the next network event." % why, flush=True)
                 self._changed.wait()
+                print("[DAEMON-HOMA] the listener that was not listening tries again: %s" % getattr(self, "_woke_by", "an event"), flush=True)
                 continue
             if homa_socket.soft_homa_library() is None or self._stopping:
                 return
@@ -472,6 +489,11 @@ class MsgDaemonServer:
         print("[DAEMON-HOMA] [HOMA_TRANSPORT_V1] semantic wire on Homa at %s:%d. [LIVENESS_IS_A_HELD_READ_V1] a peer "
               "leaving is learned from the held read on (homa, can) and the hosts block; when a machine leaves, "
               "[WRITER_GONE_V1] is told as on TCP." % (self.host, self.port), flush=True)
+        if self.liveness is not None and hasattr(self.liveness, "reassert"):
+            # [A_RETURN_OF_THE_HOLD_IS_AN_EVENT_V1] said each time the listener opens, the first time too: this
+            # process wrote its tuple when it started, which can be before its memory was there to listen in.
+            self.liveness.reassert("its Homa listener is open%s" % (" again" if self._opened_before else ""))
+        self._opened_before = True
         try:
             semcache_db.ensure_table()                    # as SemanticSession.run does before its first frame
         except Exception as e:

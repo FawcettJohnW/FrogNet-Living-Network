@@ -45,6 +45,27 @@ stops: the word for that is "softhoma".
 
 Any other word stops the process with the word in the message.
 
+[A_WORD_PER_RAM_CONNECTION_V1] John, 2026-11-17, asked whether "softhoma" only is a mode to support or a test's word:
+"Both. It is a Setting per ram connection, which may be on different machines". So the first line is this node's
+word, and each line after it is a RAM's role name and the word for this node's connection to that RAM:
+
+    auto
+    databasehost.frognet softhoma
+    databasehost_control.frognet tcp
+
+(FROGNET_SEM_TRANSPORT holds the same lines with commas between them.) A RAM is named by its role, never by an
+address: where it is NOW is the one address this node's hosts file gives that name (the rule of
+core/homa_socket.soft_memory_now, [ONE_INPUT_ONE_RULE_V1]), read each time a session is opened, so the word follows
+the RAM when the role moves. A session is to a machine. Its word is the word of the RAM that is on that machine, and
+this node's word when no named RAM is there. Two named RAMs on one machine with different words: that machine's
+session cannot have both, so it is not opened and the reason is the error (nothing is preferred).
+
+A daemon listens on every carrier any word of its setting names (carriers_listened()), and says so in its capability
+tuple: a node that reaches a RAM on a carrier is a node a RAM can be reached at on that carrier when the role comes
+to it, and every node has the same setting. So "softhoma" with "databasehost_control.frognet tcp" is: this node
+opens soft Homa sessions to every machine but the ControlRam's, a TCP session to the ControlRam's, and its daemon
+listens on both. A RAM's word is auto, tcp, homa or softhoma (homasim is a harness's word for a whole process).
+
 [NO_FALLBACK_V1] Choosing a carrier at the start of a session from what both ends have is not a fallback. A session
 whose carrier fails ends with the reason; nothing carries on underneath it. A node told "homa" whose Homa socket will
 not open stops with the kernel's reason (core/homa_socket.HomaUnavailable).
@@ -58,9 +79,10 @@ from typing import Dict, Optional, Tuple
 TRANSPORT_FILE = os.environ.get("FROGNET_SEM_TRANSPORT_FILE", "/etc/frognet/semantic_transport")
 VALID = ("auto", "tcp", "homa", "softhoma", "homasim")
 WALK = ("homa", "softhoma", "tcp")    # the walk's order: equal or unmeasured carriers are taken in this order
-BUILD = "homa-carrier-v2-20261117d"
+BUILD = "homa-carrier-v4-20261117u"
 _chosen = None
-_here: Optional[Tuple[str, ...]] = None
+_ram_words: Dict[str, str] = {}              # [A_WORD_PER_RAM_CONNECTION_V1] RAM's role name -> the word for this node's connection to it
+_here: Dict[str, Tuple[str, ...]] = {}       # word -> what this end carries the wire on under that word
 _lock = threading.Lock()
 _rtt: Dict[Tuple[str, str], float] = {}      # (peer's .1, carrier) -> the least round trip measured to it, seconds
 _picked: Dict[str, str] = {}                  # peer's .1 -> the carrier last chosen for it (for the log, said on change)
@@ -70,19 +92,66 @@ def semantic_transport() -> str:
     global _chosen
     if _chosen is not None:
         return _chosen
-    word, src = os.environ.get("FROGNET_SEM_TRANSPORT", "").strip().lower(), "FROGNET_SEM_TRANSPORT"
-    if not word:
+    text, src = os.environ.get("FROGNET_SEM_TRANSPORT", "").strip().lower().replace(",", "\n"), "FROGNET_SEM_TRANSPORT"
+    if not text:
         try:
             with open(TRANSPORT_FILE) as f:
-                word, src = f.read().strip().lower(), TRANSPORT_FILE
+                text, src = f.read().strip().lower(), TRANSPORT_FILE
         except FileNotFoundError:
-            word, src = "auto", "no %s (the default)" % TRANSPORT_FILE
+            text, src = "auto", "no %s (the default)" % TRANSPORT_FILE
+    lines = [l.split() for l in text.splitlines() if l.strip()]
+    word = lines[0][0] if lines and len(lines[0]) == 1 else " ".join(lines[0]) if lines else ""
     if word not in VALID:
         raise SystemExit("[SEM-TRANSPORT] %s says %r; the semantic wire's transport is one of %s"
                          % (src, word, ", ".join(VALID)))
+    rams: Dict[str, str] = {}
+    for l in lines[1:]:                      # [A_WORD_PER_RAM_CONNECTION_V1]
+        if len(l) != 2 or l[1] not in VALID or l[1] == "homasim" or l[0] in rams:
+            raise SystemExit("[SEM-TRANSPORT] %s says %r after its first line; each line there is a RAM's role name and "
+                             "one of %s, and a RAM is named once" % (src, " ".join(l), ", ".join(VALID)))
+        rams[l[0]] = l[1]
+    _ram_words.clear()
+    _ram_words.update(rams)
     _chosen = word
-    print("[SEM-TRANSPORT] [HOMA_TRANSPORT_V1] %s semantic wire transport=%s (from %s)" % (BUILD, word, src), flush=True)
+    print("[SEM-TRANSPORT] [HOMA_TRANSPORT_V1] %s semantic wire transport=%s (from %s)%s"
+          % (BUILD, word, src, "".join("; [A_WORD_PER_RAM_CONNECTION_V1] the connection to %s: %s" % kv
+                                       for kv in sorted(rams.items()))), flush=True)
+    for w in sorted(set(rams.values())):
+        carriers_here(w)                     # a RAM's word this process cannot keep stops it here, at the start
     return _chosen
+
+
+def _rams_at(host: str) -> Tuple[str, ...]:
+    """The named RAMs (roles with a word of their own) that this node's hosts file puts at `host` NOW. A test replaces
+    this function."""
+    if not _ram_words:
+        return ()
+    import sys
+    from core import frognet_tuples
+    d = os.path.dirname(os.path.abspath(frognet_tuples.__file__))       # [CORE_ON_THE_PATH_V1] as homa_liveness does
+    if d not in sys.path:
+        sys.path.append(d)
+    import frognet_held
+    at: Dict[str, set] = {}
+    with open(frognet_held.HOSTS) as f:
+        for line in f:
+            p = line.split("#", 1)[0].split()
+            for name in p[1:]:
+                if name.lower() in _ram_words:
+                    at.setdefault(name.lower(), set()).add(p[0])
+    return tuple(sorted(n for n, a in at.items() if a == {host}))        # a role with two addresses is at neither
+
+
+def word_for(host: str) -> str:
+    """[A_WORD_PER_RAM_CONNECTION_V1] The word for a session to `host`: the word of the named RAM that is there now,
+    else this node's word."""
+    mode = semantic_transport()
+    rams = _rams_at(host)
+    words = sorted(set(_ram_words[r] for r in rams))
+    if len(words) > 1:
+        raise ConnectionError("the RAMs %s are both at %s and this node's connections to them are set to %s: one "
+                              "session to that machine cannot be both" % (", ".join(rams), host, " and ".join(words)))
+    return words[0] if words else mode
 
 
 def on_homa_driver() -> bool:
@@ -111,16 +180,17 @@ def _kernel_homa_opens() -> Tuple[bool, str]:
         return False, "%s: %s" % (type(e).__name__, e)
 
 
-def carriers_here() -> Tuple[str, ...]:
-    """What this end can carry the wire on, decided once at start and said in the log."""
-    global _here
+def carriers_here(mode: Optional[str] = None) -> Tuple[str, ...]:
+    """What this end can carry the wire on under `mode` (this node's word when not given), decided once at start and
+    said in the log."""
+    if mode is None:
+        mode = semantic_transport()
     with _lock:
-        if _here is None:
-            mode = semantic_transport()
+        if mode not in _here:
             if mode == "tcp":
-                _here = ("tcp",)
+                _here[mode] = ("tcp",)
             elif mode == "homasim":
-                _here = ("homa",)
+                _here[mode] = ("homa",)
             elif mode in ("homa", "softhoma"):
                 soft = _soft_homa_loaded()
                 if mode == "homa" and soft:
@@ -131,14 +201,27 @@ def carriers_here() -> Tuple[str, ...]:
                     raise SystemExit("[SEM-TRANSPORT] this node was told softhoma, and it was not told where the soft Homa "
                                      "library is (FROGNET_SOFTHOMA_LIB, or the one line of %s, names libsofthoma.so; "
                                      "SOFTHOMA_RAM names its memory)." % homa_socket.SOFTHOMA_LIB_FILE)
-                _here = (mode,)
+                _here[mode] = (mode,)
             else:
-                ok, why = _kernel_homa_opens()
                 soft = _soft_homa_loaded()
-                _here = (homa_name(), "tcp") if ok else ("tcp",)
+                # [SOFT_HOMA_IS_HAD_WHEN_ITS_LIBRARY_IS_V1] found between machines, 17 Nov: "auto" decided what this end
+                # has by opening a socket at start. A node starts before the merge has named the SystemRam, so soft
+                # Homa's memory cannot be named yet, the socket did not open, and "auto" was tcp for the life of the
+                # process on every node. Soft Homa is had when this node was told of its library; where its memory is
+                # comes and goes with the role, and the listener follows it. Kernel Homa is still had when its socket opens.
+                ok, why = (True, "this node was told of the soft Homa library") if soft else _kernel_homa_opens()
+                _here[mode] = (homa_name(), "tcp") if ok else ("tcp",)
                 print("[SEM-TRANSPORT] [CARRIER_PER_HOP_V1] carriers here: %s (%s: %s)"
-                      % (", ".join(_here), "soft Homa %s" % soft if soft else "kernel Homa", why), flush=True)
-        return _here
+                      % (", ".join(_here[mode]), "soft Homa %s" % soft if soft else "kernel Homa", why), flush=True)
+        return _here[mode]
+
+
+def carriers_listened() -> Tuple[str, ...]:
+    """[A_WORD_PER_RAM_CONNECTION_V1] What this node's daemon listens on: every carrier any word of its setting names
+    (the node's word and each RAM's), in the walk's order."""
+    words = [semantic_transport()] + sorted(set(_ram_words.values()))
+    have = set(c for w in words for c in carriers_here(w))
+    return tuple(c for c in WALK if c in have)
 
 
 def note_rtt(node: str, carrier: str, seconds: float) -> None:
@@ -180,13 +263,13 @@ def _peer_in_soft_memory(host: str) -> bool:
 def carrier_for(host: str) -> str:
     """The driver a NEW session to `host` opens on: "homa" (the Homa driver, on kernel Homa or soft Homa, whichever
     this process has) or "tcp". See the module docstring for the rule."""
-    mode = semantic_transport()
+    mode = word_for(host)                   # [A_WORD_PER_RAM_CONNECTION_V1] the RAM's word if a named RAM is there now
     if mode == "tcp":
         return "tcp"
     if mode in ("homa", "softhoma", "homasim"):
-        carriers_here()                     # a word this process cannot keep stops it here
+        carriers_here(mode)                 # a word this process cannot keep stops it here
         return "homa"                       # (told softhoma only: a peer not in the memory is the session's to say, transport_homa._MsgWorker)
-    mine = carriers_here()
+    mine = carriers_here(mode)
     if mine == ("tcp",):
         return "tcp"
     from core.homa_liveness import node_of
@@ -230,7 +313,7 @@ def worker_idle(w) -> bool:
 
 def daemon_server(host: str, port: int, resolver, tcp_server_class):
     """The daemon's listener: one per carrier this end has. Same run() as DaemonServer."""
-    mine = carriers_here()
+    mine = carriers_listened()
     if mine == ("tcp",):
         return tcp_server_class(host=host, port=port, resolver=resolver)
     from daemon.engine.server_homa import MsgDaemonServer

@@ -234,7 +234,7 @@ class _ClientMux:
 
     def _hosts_changed(self) -> None:
         try:
-            homa_socket.soft_memory_tell("the hosts file changed")
+            homa_socket.soft_memory_tell("the hosts file changed", event=True)
         except homa_socket.HomaUnavailable as e:
             print("[SEM-HOMA] %s" % e, flush=True)
 

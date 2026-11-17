@@ -33,7 +33,7 @@ def check(cond, msg):
 
 
 def fresh(word=None):
-    HT._chosen = HT._here = None
+    HT._chosen = None; HT._here.clear(); HT._ram_words.clear()
     HT._rtt.clear(); HT._picked.clear()
     if word is None:
         os.environ.pop("FROGNET_SEM_TRANSPORT", None)
@@ -169,6 +169,59 @@ def main():
     except SystemExit as e:
         stopped = "not told where the soft Homa library is" in str(e)
     check(stopped, "told softhoma without it: the process stops and says so; nothing else is opened")
+    # [A_WORD_PER_RAM_CONNECTION_V1] John 2026-11-17: "It is a Setting per ram connection, which may be on different machines"
+    SYS, CTL = "databasehost.frognet", "databasehost_control.frognet"
+    where = {SYS: "10.2.2.1", CTL: "10.3.3.1"}
+    real_at = HT._rams_at
+    HT._rams_at = lambda host: tuple(sorted(n for n in HT._ram_words if where.get(n) == host))
+    HT._soft_homa_loaded = lambda: "softhoma-test"
+    fresh("tcp,%s softhoma" % SYS)
+    check(HT.semantic_transport() == "tcp" and HT._ram_words == {SYS: "softhoma"}, "the first line is the node's word; each line after it is a RAM's role name and the word for the connection to it")
+    check(HT.carrier_for("10.2.2.1") == "homa" and HT.carrier_for("10.3.3.1") == "tcp" and HT.carrier_for("10.4.4.1") == "tcp",
+          "node's word tcp, the SystemRam's softhoma: the session to the SystemRam's machine is on soft Homa, every other machine's on tcp")
+    where[SYS] = "10.4.4.1"
+    check(HT.carrier_for("10.4.4.1") == "homa" and HT.carrier_for("10.2.2.1") == "tcp", "the role moves: the word follows the RAM to its new machine, and the old machine is the node's word again")
+    fresh("softhoma,%s tcp" % CTL)
+    check(HT.carrier_for("10.3.3.1") == "tcp" and HT.carrier_for("10.4.4.1") == "homa", "node's word softhoma, the ControlRam's tcp: the ControlRam is reached on tcp and everything else on soft Homa")
+    check(HT.carriers_listened() == ("softhoma", "tcp") and type(HT.daemon_server("h", 1, None, Tcp).tcp) is Tcp,
+          "and its daemon listens on every carrier its setting names: soft Homa and tcp")
+    fresh("tcp,%s softhoma,%s tcp" % (SYS, CTL))
+    where[CTL] = "10.4.4.1"
+    try:
+        HT.carrier_for("10.4.4.1"); refused = False
+    except ConnectionError as e:
+        refused = SYS in str(e) and CTL in str(e) and "softhoma and tcp" in str(e)
+    check(refused, "two named RAMs on one machine with different words: that session is not opened and the error names both; nothing is preferred")
+    fresh("tcp,%s softhoma,%s softhoma" % (SYS, CTL))
+    check(HT.carrier_for("10.4.4.1") == "homa", "two named RAMs on one machine with the same word: that word")
+    for bad, what in (("tcp,%s bogus" % SYS, "a RAM's word that is not a transport"), ("tcp,%s tcp,%s homa" % (SYS, SYS), "a RAM named twice"), ("tcp,%s" % SYS, "a RAM with no word"), ("tcp,%s homasim" % SYS, "a RAM told the harness's word homasim")):
+        fresh(bad)
+        try:
+            HT.semantic_transport(); stopped = False
+        except SystemExit as e:
+            stopped = "after its first line" in str(e)
+        check(stopped, "%s stops the process with the line in the message" % what)
+    HT._soft_homa_loaded = lambda: None
+    fresh("tcp,%s softhoma" % SYS)
+    try:
+        HT.semantic_transport(); stopped = False
+    except SystemExit as e:
+        stopped = "not told where the soft Homa library is" in str(e)
+    check(stopped, "a RAM's word this process cannot keep (softhoma, no library) stops it at the start, not at the first session")
+    HT._rams_at = real_at
+    import tempfile, frognet_held
+    hf = tempfile.NamedTemporaryFile("w", suffix=".hosts", delete=False)
+    hf.write("127.0.0.1 localhost\n10.2.2.1 a.frognet %s # merge\n10.3.3.1 %s\n" % (SYS, CTL)); hf.close()
+    real_hosts = frognet_held.HOSTS; frognet_held.HOSTS = hf.name
+    HT._soft_homa_loaded = lambda: "softhoma-test"
+    fresh("tcp,%s softhoma" % SYS)
+    HT.semantic_transport()
+    check(HT._rams_at("10.2.2.1") == (SYS,) and HT._rams_at("10.3.3.1") == (), "where a RAM is comes from this node's hosts file, by the role's name")
+    open(hf.name, "w").write("10.2.2.1 a.frognet\n10.3.3.1 %s %s\n" % (CTL, SYS))
+    check(HT._rams_at("10.2.2.1") == () and HT._rams_at("10.3.3.1") == (SYS,), "and is read each time: the file changes and the answer changes with it")
+    open(hf.name, "w").write("10.2.2.1 %s\n10.3.3.1 %s\n" % (SYS, SYS))
+    check(HT._rams_at("10.2.2.1") == () and HT._rams_at("10.3.3.1") == (), "a role the file gives two addresses is at neither")
+    frognet_held.HOSTS = real_hosts; os.unlink(hf.name)
     HT._soft_homa_loaded = real_soft
     HT._kernel_homa_opens = real
     print()

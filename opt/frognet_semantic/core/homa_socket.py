@@ -235,7 +235,7 @@ def soft_memory_now() -> Tuple[str, str]:
     return "%s:%d" % (found[0], SOFTHOMA_PORT), frognet_tuples.my_ip()
 
 
-def soft_memory_tell(why: str) -> bool:
+def soft_memory_tell(why: str, event: bool = False) -> bool:
     """Ask where the memory and this node are now and, if either changed, tell the library. True when it was told.
     Raises HomaUnavailable when it cannot be said where they are: nothing is guessed and nothing kept from before."""
     global _soft_told
@@ -249,6 +249,10 @@ def soft_memory_tell(why: str) -> bool:
                               "(%s: %s); no address from before is used" % (SOFTHOMA_ROLE, type(e).__name__, e)) from e
     with _soft_lib_lock:
         if now == _soft_told:
+            if event:
+                # [THE_MEMORY_CAN_COME_BACK_WHERE_IT_WAS_V1] nothing moved, and it is a network event: a library whose
+                # memory went (its machine restarted where it was) connects again at its next socket. Said by the library.
+                lib.softhoma_memory(now[0].encode(), now[1].encode())
             return False
         was, _soft_told = _soft_told, now
     down = lib.softhoma_memory(now[0].encode(), now[1].encode())
@@ -342,7 +346,7 @@ class HomaSocket:
         # descriptor so that no call on it can go anywhere else.
         soft = soft_homa_library()
         if soft is not None:
-            soft_memory_tell("a Homa socket is being opened")
+            soft_memory_tell("a Homa socket is being opened", event=True)   # the driver opens one only at an event
         self._libc = soft if soft is not None else ctypes.CDLL(None, use_errno=True)
         self._fd = self._libc.socket(socket.AF_INET, socket.SOCK_DGRAM, IPPROTO_HOMA)
         if self._fd < 0:
