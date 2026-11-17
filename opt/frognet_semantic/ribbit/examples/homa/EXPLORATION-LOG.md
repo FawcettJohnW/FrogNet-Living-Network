@@ -351,7 +351,241 @@ sockets for the TCP control. The machines can be namespaces on one bridge (every
 overlay gives on nodes) with the shaping per machine taken from the topology, which follows no route and spoofs no
 routing. If that reading of the rule is wrong, the tier's networking is the part to change.
 
-## 4. Mistakes, who caught them, and the rule that came out
+## 4. The interventions: what was said, why it was noticed, what had not been considered
+
+John, 17 Nov, of the first version of this file: "It is not just the order. It is what I asked and why I asked it.
+You said something that caused me to take notice. What was it and why did I notice? What thing had not been
+considered or recalled and why."
+
+A list of rulings records the outcome. It does not record how the fault was FOUND, and that is the part that
+teaches. In every case below the fault was visible in one sentence I wrote, usually offered as a plain description
+or as a reason, and John's question was aimed at that sentence. Each entry has four parts:
+
+- **What I said**: the sentence, as written.
+- **What John asked**: his words.
+- **Why it was a tell**: what in the sentence showed the fault to someone who knows the architecture.
+- **What had not been considered or recalled, and why**: the thing I already had and did not use, and what I was
+  doing instead.
+
+The entries are in order. Those from 17 Nov after 09:00 are from the conversation itself. The earlier ones are from
+a summary of it and say so.
+
+### 4.1 The cases
+
+**1. A rank that listens** (17 Nov 09:00)
+
+- *What I said*: that each rank keeps its tensors and "listens on a TCP port", and a reader connects to the owner.
+  I said it as a description of what the code does.
+- *What John asked*: "That is completely wrong. The tensor should not be listening at all -- it should be using held
+  reads, and when another node needs a tensor it does not ask the other node for it. It gets it from tuple space."
+- *Why it was a tell*: "listens" and "connects to the owner" are a server and a client. One node asking another for
+  data is a message, whatever it is called. Under memory-not-messages a description with a listener in it is wrong
+  before any detail is looked at.
+- *Not considered or recalled, and why*: three things I had. On 12 Nov John had asked "why is there machine to
+  machine traffic?" about this same code. He had ruled that day that tensor bytes travel on FrogNet's own fabric,
+  and it was recorded as "not built". And the 11 Nov code (`[ALL_IN_THE_REGION_V1]`) already did it right. I had
+  built the listener on 12 Nov to reconcile two of his statements that seemed to conflict ("one RAM host" and "you
+  do not copy bits from one machine to another") by choosing an architecture between them. I did not ask whether
+  they conflicted. They do not, once "where the bits are" is the RAM host.
+
+**2. "In the memory of the node whose rank wrote it"** (09:02)
+
+- *What I said*: "'the bits stay where they were' means the tuple lives in the memory of the node whose rank wrote
+  it, and a held read from another node is carried there by FrogNet."
+- *What John asked*: "No, the bits stay where they are means that the bits are in tuple space and it is not copied
+  between nodes. If node B needs a tensor from node A, it uses a reference to say this data is Here instead of
+  copying it."
+- *Why it was a tell*: I was still locating data by NODE. In tuple space a thing is located by its name. "Carried
+  there" is a message again.
+- *Not considered, and why*: that "where they were" could mean a place that is not a node at all. I read every
+  statement about location as being about machines, because that is the message model's only kind of place.
+
+**3. "Not into a RAM host"** (09:03)
+
+- *What I said*: "Nothing copies it: not to another node, not into a RAM host, not into a second tuple."
+- *What John asked*: "Tuple space IS the RAM host."
+- *Why it was a tell*: I had made tuple space a third thing, neither node nor RAM host, to keep my earlier reading
+  alive.
+- *Not recalled, and why*: his statement of 4 Nov, which was in front of me in my own standing notes: the SystemRam
+  IS the RAM host. I did not connect a rule filed under "roles" to a question about tensors.
+
+**4. "One RAM for all PyTorch work"** (09:04)
+
+- *What I said*: "the 12 November ruling of one RAM for all PyTorch work".
+- *What John asked*: "There is not necessarily one RAM for all PyTorch work, if it doesn't make sense."
+- *Why it was a tell*: I had turned a decision made for one situation into a law.
+- *Not recalled*: his 11 Nov words, quoted in the header of `frogtorch_ram.py`: "using whatever ram regions make
+  sense". The placement by capability tuple that implements it was in the code I had deleted.
+
+**5. "The shim"** (09:20)
+
+- *What I said*: "the shim", for `libsofthoma.so`, many times. Then, corrected, I renamed it "the RAM manager"
+  everywhere and committed that.
+- *What John asked*: "Stop calling it the shim. It is the RAM manager." Then: "Oh, that. That's not the RAM manager.
+  That's the API interface. Shim is a bad word, though."
+- *Why it was a tell*: "shim" names a thing by its trick, not by what it is. And his correction named a different
+  component from the one I meant.
+- *Not considered, and why*: that he and I were pointing at different things. I applied the new name without
+  checking what it referred to, because acting on a correction quickly felt like the right response to it.
+
+**6. "It takes one extra round trip, because..."** (09:47)
+
+- *What I said*: "a reply with more pieces than its request takes one extra round trip, because the proxy only
+  learns the count from the first piece."
+- *What John asked*: "Why does that require an extra trip? Allocate max size before, take all that come, and if the
+  max was reached, then look for the flag."
+- *Why it was a tell*: the word "because". I gave a cost of MY design as if it were a fact of the problem.
+- *Not recalled, and why*: ruling 4 of the day before, about this very protocol: a request left waiting is a held
+  read. Requests can be open before they are needed. I had designed the pieces as a conversation (learn the count,
+  then ask), which is how a message protocol does it.
+
+**7. "No default that turns it on"** (10:02)
+
+- *What I said*: of his TCP hijacking, "It is a switch, and I see no default that turns it on."
+- *What John asked*: "You mean he has the hijack there, but it's not used anywhere?" and then "Look at the
+  makefiles."
+- *Why it was a tell*: nobody writes, tests and documents a mechanism and then never uses it. A claim that implies
+  that is a claim about my search, not about his code.
+- *Not considered, and why*: how code is USED is in its build files, install notes and deployment scripts. I had
+  searched the C source for a default value and stopped. The makefiles showed two builds, and that the version
+  upstreamed to the kernel has neither hijacking nor grants, which changed what could be said to him.
+
+**8. "Soft Homa has no grants"** (10:09)
+
+- *What I said*: that soft Homa has "no grants, no shortest-first scheduling", listed as what it lacks.
+- *What John asked*: "Grants became reads, didn't they?"
+- *Why it was a tell*: I had compared lists of mechanisms. The question is whether the FUNCTION is there.
+- *Not recalled, and why*: `DESIGN.md` section 3, "The read is the grant", which I had written the day before. I
+  was answering a question about size ("how much code") and slid from "this code is absent" to "this capability
+  is absent".
+
+**9. "The bytes would move on the read that takes that message"** (10:10)
+
+- *What I said*: that to match the document, the standing read should carry only a message's length and the bytes
+  should come on a second read.
+- *What John asked*: "The reader does not see the held read until the message is ready. This point is moot."
+- *Why it was a tell*: a second read is a request and a reply. I was putting a round trip back to imitate what
+  Homa does with packets.
+- *Not considered, and why*: what the held read already guarantees (it fires on a whole message), and what my fix
+  would cost. I had found a difference between a document and the code and assumed the code was the one to change.
+
+**10. "The driver hands all the pieces to the socket at once"** (10:12)
+
+- *What I said*: that within one sender a short frame goes out behind every remaining piece, because the thread
+  that has a frame sends it.
+- *What John asked*: "The driver is the thing that decides what goes on the wire. The transport just places it
+  there ... The drivers should stick the wire bytes on a queue that the wire manager reads off."
+- *Why it was a tell*: if the calling thread writes to the socket, nothing decides order. There was no place in my
+  driver where a decision about the wire could be made.
+- *Not considered, and why*: the separation of deciding from placing. I had copied the TCP driver's shape (the
+  caller sends), in which the kernel's stream does the ordering.
+
+**11. "That replaces running services"** (10:35)
+
+- *What I said*: "Running it for real means putting this branch's proxy and daemon on your nodes with soft Homa
+  under them. That replaces running services ... so I'm not handing you that as a first run."
+- *What John asked*: "The driver should be independent and able to run alongside the existing drivers. There should
+  be no risk to existing systems at all."
+- *Why it was a tell*: a driver that cannot be installed without risk to the others is not a driver. My caution was
+  a symptom; I treated it as prudence.
+- *Not considered, and why*: that my own unease was information about the design. I responded to the risk by
+  building a way round it (a separate test tool) when the thing to do was remove it.
+
+**12. "For every socket in the process, the TCP driver's included"** (10:40)
+
+- *What I said*: that with `LD_PRELOAD` the Homa API interface "sits in front of eleven system calls ... for every
+  socket in the process, the TCP driver's included."
+- *What John asked*: "WHAT??? Tell me what the driver is and means."
+- *Why it was a tell*: a driver does not intercept other code's system calls. He asked me to DEFINE the driver
+  because the sentence showed I had no clear line between two things: the driver (our code, carrying the wire) and
+  the Homa API interface (a library, put under a program that cannot be changed).
+- *Not considered, and why*: that the driver is our code and can simply open the library. The preload was how I got
+  `cp_node` running, it was there, and I used it again in the driver's tests. A test convenience had become the
+  design without my deciding it.
+
+**13. "The driver will read them from settings"** (11:07)
+
+- *What I said*: "The library still reads the RAM host's address and the node's own address from the process
+  environment ... The driver will read them from settings beside the library's, so no unit is touched."
+- *What John asked*: "Really? You know it can change address during a run. Right?"
+- *Why it was a tell*: "address" and "setting" in one sentence. In this network an address is the current answer
+  to a question, and it changes.
+- *Not recalled, and why*: that roles are elected and float on splits and merges, which is in `AI_READ_FIRST.md`,
+  and that my own liveness code, in the same driver, already reached its RAM by role name with a watcher on the
+  hosts file. I was solving a narrow problem ("do not edit the unit file") and moved the value without asking what
+  the value was.
+
+**14. "Well?"** (11:11)
+
+- *What I said*: "I'll read how the SystemRam is started on a node and put the space there." Then I ended my turn.
+- *What John asked*: "Well?"
+- *Why it was a tell*: I had announced work and stopped. The same thing an hour earlier: "Where is the torch work",
+  after I had written "Starting on it now" three times while working on something else.
+- *Not considered*: that a statement of intent at the end of a reply is read as a commitment in progress.
+
+**15. "The real simulator"** (12:24)
+
+- *What I said*: that I had added the Homa driver "to the simulator as tiers of its own", the main one being the
+  door tier with its socket hop replaced by the driver.
+- *What John asked*: "The Homa tests in the simulator need to activate the driver between machines on the topology
+  and use that as the transport for a full battery of tests. That is passing. Understand?"
+- *Why it was a tell*: one proxy and one daemon in one process is not machines on a topology. I had used the
+  simulator's name for a unit test that lives in its directory.
+- *Not considered, and why*: what the simulator is FOR: the real code on many machines in a topology. Asked to run
+  it "through the real simulator", I looked for the cheapest existing tier with a hop I could substitute, and found
+  one. I did not first ask what passing would have to mean.
+
+**16. "Coming from the simulated network"** (12:27)
+
+- *What I said*: that in the simulator "the role, the hosts file and the capability tuples" would come from the
+  simulated network, not from stand-ins.
+- *What John asked*: "You need to have the selection criteria set so that the calculation of the ram host ip address
+  is deterministic. One option is to just set it to databasehost.frognet."
+- *Why it was a tell*: with many machines, "comes from the network" is only true if every machine calculates the
+  same answer from its own inputs. He saw the next failure before I had built anything.
+- *Not considered, and why*: that my code asked the system resolver, which is one answer per host and can come from
+  a cache, when the input is each machine's own hosts file. On one machine the two are the same thing, and one
+  machine is all I had tested on.
+
+**17. The first version of this record** (12:41)
+
+- *What I said*: "Yes ... every ruling you gave, every design I tried and why it was wrong", and then I wrote the
+  rulings in order and a table of mistakes with a rule beside each.
+- *What John asked*: the question at the head of this section.
+- *Why it was a tell*: I had recorded conclusions. A rule without the sentence that broke it, and without what was
+  overlooked, can be read and agreed with by someone who will then make the same mistake.
+- *Not considered, and why*: that "why" in "what I am asking for and why" applied to each of his questions, not
+  only to the request for a record. I answered the request at the level it was easiest to satisfy.
+
+**From before 09:00 on 17 Nov** (from the summary of the conversation; my sentences are not available verbatim)
+
+- I diagnosed where large payloads spend their time by reading the code, twice, and was wrong twice. Measuring it
+  (callgrind, strace) found the platform's `field_order()` and a socket buffer smaller than loopback's segment.
+- I said the 1,000,000-byte slowness was only an effect of running on one machine. The Pis showed 649 ms and
+  2,091 ms.
+- I said kernel Homa "needs x86". John asked whether it was router-specific; it is kernel-version specific and has
+  an ARM64 path.
+- For the Torch runs I proposed choosing wires by hand, and then a socket interposer. John: "The transport should
+  be transparent. If it is not, the job is not done."
+
+### What the cases have in common
+
+- **The fault was in a sentence I offered as plain description or as a reason.** "Listens", "because", "setting",
+  "for every socket", "replaces running services". The moment to stop is when such a word appears in my own
+  account of a design for a memory system.
+- **Each time, the thing I had not used was already written down**: in `AI_READ_FIRST.md`, in `DESIGN.md`, in a
+  header comment, in a ruling from a day or an hour before, or in my own code elsewhere in the same driver. None of
+  these was missing knowledge. Each was knowledge filed under a different heading from the problem in hand.
+- **Each time I was solving a narrower problem than the one in front of me**: get this test to run, avoid editing
+  a unit file, make the document match, answer "how much code". The narrow fix was correct for the narrow problem.
+- **The message model is the default I fall back to.** A server that listens, a conversation to learn a count, a
+  second read to fetch bytes, an address to connect to: every one is how messages do it. Under memory the question
+  to ask first is "what is the name of the thing, and who holds a read on it".
+- **John's questions were short and aimed at one word.** He did not explain the fault. He asked the question that
+  would make me state the thing I had skipped: "Why does that require an extra trip?", "You know it can change
+  address during a run. Right?", "Tell me what the driver is and means."
+
+### 4.2 Index: every mistake, who caught it, the rule
 
 | What I did | Caught by | The rule |
 |---|---|---|
