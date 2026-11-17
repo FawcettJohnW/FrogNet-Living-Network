@@ -380,6 +380,60 @@ Result of step 0 (`trial3`: Seattle5 10.250.250.1 with both roles, Seattle3B 10.
 10.123.123.1): each machine reaches the others, FrogNet's own call gives its own address, its hosts file names the
 ControlRam, and its own `api.php` answers. Next: each machine's real daemon and proxy engine, and the battery on TCP.
 
+### 17 Nov 13:10 to 13:55: machines as nodes; the TCP control passes; the Homa driver's first run between machines FAILS
+
+`wire_between_machines_tier.py` (`f09498a9`). What a machine had to become, each found by a failure:
+
+- **A node has api.php on port 8080 and its proxy on port 80.** With api.php on port 80 only, three of six pairs
+  failed: the daemon runs a request for its own machine at port 8080 (`daemon/engine/resolver.py`,
+  `upstream_port=8080`), and a bootstrap (RAW) is replayed to port 80, the node's proxy. A machine with one of the
+  two answers RAW and fails everything once templates are learned. So each machine runs `php -S` on 8080 and the
+  REAL `proxy.proxy_main` on 80.
+- **A node hands port 80 to its proxy by a nat rule** (`etc/setup_iptables`: mark 1 returns, 127.0.0.1 accepted,
+  10/8 port 80 redirected to 80). The same three rules are put in each namespace. A client on a machine then asks
+  for `http://<another machine>/api.php...` and the machine's own rule gives it to its proxy. The earlier plan to
+  drive the proxy's engine through a pipe was dropped: nothing of a node's proxy is bypassed now.
+- **A node's tools are at `/usr/local/bin`.** `getEth0Address` sources `/usr/local/bin/mapInterfaces` by that path,
+  so without it each end named itself 0.0.0.0 in its HELLO. `ip netns exec` gives a process a mount namespace of its
+  own; the tier binds the checkout's `usr/local/bin` there for the machine's processes. The node's own scripts then
+  find the machine's LAN device (`eth0`) and address. Nothing is installed on the machine running the simulator.
+- The real `upsert_by_name` needs `SensorAddress` (the oracle's stand-in origin did not).
+
+**Result on TCP** (`trial3`: Seattle5, Seattle3B, New-York-1; links unshaped): all six ordered pairs pass battery
+(a): 180 concurrent reads and 90 writes each, every read its own rows, every write acknowledged, the target holds
+each writer's last value, a read through the wire equals the target's own api.php; median 25 to 39 ms a request;
+every session on the TCP driver; each end named in its HELLO by the node's own `getEth0Address`.
+
+**Result on soft Homa** (`--transport softhoma`, same machines, same battery): **one pair of six passes**
+(Seattle3B to New-York-1). This is the first time the Homa driver has run between machines, and it found what one
+process could not:
+
+1. **The memory is not up when the listener first opens, and nothing ever says it has come up.** Seattle5's daemon
+   starts its `softhoma-ram` child and opens its socket at once: "connect failed", the child was not listening yet.
+   Seattle3B's daemon, started at the same moment, connects to Seattle5's memory before it is up: the same. Each then
+   logs "It opens at the next network event" and no network event comes, because the hosts file does not change.
+   New-York-1 started a moment later and was fine. So after a boot, or after the role's host restarts its memory
+   with the hosts file unchanged, a daemon's Homa listener stays down for good. **What event tells a node that soft
+   Homa's memory has come up is not designed.** The driver's proxy end is driven by requests (it opens a socket when
+   it has something to send); the daemon end has nothing driving it.
+2. **Told `softhoma` only, a node reaches the ControlRam over the wire it is trying to bring up.** New-York-1's
+   daemon listened, but its capability tuple could not be written and its hold on `(homa, can)` was not taken
+   (HTTP 503 from its own proxy: no Homa listener at the ControlRam's machine). On TCP that path always exists
+   ("TCP is the reference bearer and every daemon has it"). On `auto` it would here too. So a network told
+   `softhoma` only has no channel but the memory itself until every daemon is listening.
+3. Not the Homa driver's: a proxy accepts requests on port 80 before it has made its template tables (a first
+   request gets "Table '...frognet_request_templates' doesn't exist"), and each daemon's first capability write to
+   the ControlRam fails the same way at start. Seen on TCP as well, where the tier happened to wait longer. The
+   tier must wait for a machine to answer through its own proxy before using it.
+
+What follows for the design, not yet decided: (i) the daemon on the machine that serves the memory can wait for its
+own child to say it is listening (a pipe: an event, not a timer); (ii) for the other machines the event has to come
+from somewhere a node can hold a read: on `auto` the ControlRam is reachable over TCP, so the memory's host can say
+"the memory is here" in its capability tuple and every end's existing hold on `(homa, can)` fires; (iii) on a real
+network the role's address is written to the hosts files by a merge AFTER the machines are up, which is itself the
+event, and the tier should bring a network up in that order instead of starting everything at once with the roles
+already written.
+
 ## 4. The interventions: what was said, why it was noticed, what had not been considered
 
 John, 17 Nov, of the first version of this file: "It is not just the order. It is what I asked and why I asked it.
@@ -688,6 +742,9 @@ Raspberry Pi 5s. Ping 1.9 ms within Seattle, 91.6 ms to New York. 17 Nov, Homa A
 
 Nothing here may be reported as working.
 
+0. **What tells a node that soft Homa's memory has come up** (found 17 Nov 13:55, between machines): after a boot
+   or a restart of the memory with the hosts file unchanged, a daemon's Homa listener stays down. And told
+   `softhoma` only, the ControlRam is reached over the wire being brought up. See section 3, 13:10 to 13:55.
 1. **The simulator, by ruling 32.** The driver activated between machines on the topology, the full battery over it.
 2. **Any of the driver on a node.** Pieces, spares, the wire manager, the library opened by the driver, the memory
    following the role, `softhoma-ram` started by the daemon: none has run outside the sandbox. Only his `cp_node`
