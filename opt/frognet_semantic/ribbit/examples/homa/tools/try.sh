@@ -14,6 +14,11 @@
 #   try.sh tcpserver                                the control: his cp_node as a server on TCP, no soft Homa, no memory
 #   try.sh tcpclient SERVER-ADDRESS [WORKLOAD] [OUTSTANDING]
 #                                                   his cp_node as a client on TCP, straight to the server
+#   try.sh servers RAM-ADDRESS                      both of his servers at once, soft Homa and TCP, for compare
+#   try.sh compare RAM-ADDRESS SERVER-ADDRESS [SECONDS]
+#                                                   on the client: soft Homa and TCP in turn in one session, at each
+#                                                   message size, SECONDS each (default 8); prints a table and keeps
+#                                                   it and every run's output under results/
 # The memory's port is SOFTHOMA_TRY_PORT (default 9131).
 set -u
 HERE=$(cd "$(dirname "$(readlink -f "$0")")/.." && pwd)
@@ -107,5 +112,56 @@ tcpclient)
         "$HOMA/util/cp_node" client --protocol tcp --workload "${3:-100}" --client-max "${4:-8}" --ports 1 \
         --first-port 4000 --first-server 1 --server-nodes 1 $GBPS
     ;;
-*)  sed -n '5,17p' "$0" | sed 's/^# \{0,1\}//'; exit 1 ;;
+servers)
+    built; RAM=${2:-}; [ -n "$RAM" ] || die "usage: $0 servers RAM-ADDRESS"
+    IP=$(me "$RAM") || exit 1
+    echo "his cp_node servers at $IP: one on soft Homa (memory at $RAM:$PORT), one on TCP. Ctrl-C ends both."
+    echo "On the client machine:   $0 compare $RAM $IP"
+    echo
+    "$HOMA/util/cp_node" server --protocol tcp --first-port 4000 --port-threads 2 & TCPSRV=$!
+    trap 'kill $TCPSRV 2>/dev/null' EXIT
+    env LD_PRELOAD="$HERE/build/libsofthoma.so" SOFTHOMA_RAM="$RAM:$PORT" SOFTHOMA_IP="$IP" SOFTHOMA_EXIT_WHEN_MEMORY_GONE=1 \
+        "$HOMA/util/cp_node" server --protocol homa --first-port 4000 --port-threads 2
+    ;;
+compare)
+    built; RAM=${2:-}; SRV=${3:-}; SECS=${4:-8}; [ -n "$RAM" ] && [ -n "$SRV" ] || die "usage: $0 compare RAM-ADDRESS SERVER-ADDRESS [SECONDS]"
+    IP=$(me "$RAM") || exit 1
+    OUT="$HERE/results/compare-$(date +%Y%m%d-%H%M%S)"; mkdir -p "$OUT" || die "cannot make $OUT"
+    T="$OUT/TABLE.txt"
+    GBPS=""; case "$(uname -m)" in x86_64|i?86) ;; *) GBPS="--gbps 1000000" ;; esac
+    say() { echo "$*" | tee -a "$T"; }
+    say "soft Homa against TCP, his cp_node unchanged, one session. $(date '+%Y-%m-%d %H:%M:%S %Z')"
+    say "client $IP ($(uname -srm)), server $SRV, memory $RAM:$PORT, $SECS s a run, his client ${GBPS:-with no --gbps}"
+    say "$(strings "$HERE/build/libsofthoma.so" | grep -m1 -o 'softhoma-v[0-9]*-[0-9a-z]*'), HomaModule $(cut -c1-8 "$HOMA/COMMIT" 2>/dev/null)"
+    say "link before: $(ping -c 5 -i 0.2 -q "$SRV" 2>&1 | tail -1)"
+    say ""
+    say "$(printf '%-9s %-4s %-9s %10s %10s %10s %10s' size out carrier 'Kops/s' 'P50 ms' 'P99 ms' 'P99.9 ms')"
+    one() {   # carrier size outstanding round
+        local f="$OUT/$1-$2-o$3-r$4.txt"
+        if [ "$1" = soft ]; then
+            env LD_PRELOAD="$HERE/build/libsofthoma.so" SOFTHOMA_RAM="$RAM:$PORT" SOFTHOMA_IP="$IP" SOFTHOMA_NODE1="$SRV" SOFTHOMA_EXIT_WHEN_MEMORY_GONE=1 \
+                timeout "$SECS" "$HOMA/util/cp_node" client --protocol homa --workload "$2" --client-max "$3" --ports 1 --first-port 4000 --first-server 1 --server-nodes 1 $GBPS >"$f" 2>&1
+        else
+            env LD_PRELOAD="$HERE/build/libsofthoma.so" SOFTHOMA_NODE1="$SRV" \
+                timeout "$SECS" "$HOMA/util/cp_node" client --protocol tcp --workload "$2" --client-max "$3" --ports 1 --first-port 4000 --first-server 1 --server-nodes 1 $GBPS >"$f" 2>&1
+        fi
+        # throughput: the median of his per-second lines (after the first two when there are more than three); round trips: his last line (they are
+        # over the whole run)
+        local kops last
+        kops=$(grep "clients:" "$f" | awk '{l[NR]=$0} END{s=(NR>3)?3:1; for(i=s;i<=NR;i++) print l[i]}' | sed 's/.*clients: \([0-9.]*\) Kops.*/\1/' | sort -n | awk '{a[NR]=$1} END{if(NR) print a[int((NR+1)/2)]; else print "none"}')
+        last=$(grep "clients:" "$f" | tail -1)
+        if [ -z "$last" ] || grep -q "FATAL\|NOT THERE\|MEMORY IS GONE" "$f"; then
+            say "$(printf '%-9s %-4s %-9s %s' "$2" "$3" "$1" "FAILED: $(grep -m1 'FATAL\|NOT THERE\|MEMORY IS GONE\|rror' "$f" | cut -c1-110) (see $f)")"; return
+        fi
+        say "$(echo "$last" | sed 's/.*P50 \([0-9.]*\) P99 \([0-9.]*\) P99.9 \([0-9.]*\).*/\1 \2 \3/' | awk -v s="$2" -v o="$3" -v c="$1" -v k="$kops" '{printf "%-9s %-4s %-9s %10s %10.2f %10.2f %10.2f", s, o, c, k, $1/1000, $2/1000, $3/1000}')"
+    }
+    for spec in ${SOFTHOMA_TRY_SPECS:-100:8 1000:8 10000:8 100000:1 240000:1 1000000:1}; do
+        size=${spec%%:*}; o=${spec##*:}
+        one soft "$size" "$o" 1; one tcp "$size" "$o" 1; one tcp "$size" "$o" 2; one soft "$size" "$o" 2    # each carrier once first, once second
+    done
+    say ""
+    say "link after:  $(ping -c 5 -i 0.2 -q "$SRV" 2>&1 | tail -1)"
+    echo; echo "the table is in $T ; every run's own output is beside it"
+    ;;
+*)  sed -n '5,22p' "$0" | sed 's/^# \{0,1\}//'; exit 1 ;;
 esac

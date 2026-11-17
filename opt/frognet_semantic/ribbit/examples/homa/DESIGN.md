@@ -195,6 +195,18 @@ reply written is P50 2.1 ms at this size, over 2,957 requests). This is the engi
 different every time has to cross, a third larger for the base64, and has not been measured; his tool cannot send
 one.
 
+`try.sh servers RAM` (both of his servers at once) and `try.sh compare RAM SERVER` (the client alternates soft
+Homa and TCP at each of six sizes, each carrier once first and once second, a ping before and after, a table at the
+end kept under `results/`) put the two in one session. It is run by hand from two terminals; it is not yet the
+harness in which the participants announce themselves in the memory and the controller's tuple gives the test.
+
+**Kernel Homa on the Pis (17 Nov, compiled only).** The nodes are Pi 5s on Linux 6.12.87; his module has no branch
+for 6.12. His `linux_6.13.9` branch, cross-compiled for arm64 against the Raspberry Pi 6.12 kernel source
+(`rpi-6.12.y`, 6.12.118, `bcm2712_defconfig`), compiles every file once it is given the ARM64 clock frequency
+(`arch_timer_get_cntfrq()`, as his main branch does; that branch reads x86's `cpu_khz` and `tsc_khz`, 30 errors,
+nothing else). It was not linked against the Pi kernel's own symbols, loaded or run. Its `homa.h` has the same
+layouts as the one this work is pinned to. That branch is 424 commits behind his main.
+
 Not yet measured on machines: payloads that change, his workloads w1 to w5, more than one client, the memory on a
 third machine.
 
