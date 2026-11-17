@@ -129,5 +129,38 @@ across the Internet share one memory.
 
 Built and passing: the driver, the simulator, liveness (sections 1 and 3.4), and the per-hop carrier choice of
 section 5 (`core/homa_transport.py`, gate `core/test_homa_carrier_oracle.py`; the two carriers it chooses between
-today are kernel Homa and TCP). Not built: soft Homa in C++ on `ribbit/cpp` (section 4). The kernel module has not
-run on any node, so the choice has only been exercised with the detection stood in.
+today are kernel Homa and TCP). The kernel module has not run on any node, so the choice has only been exercised
+with the detection stood in.
+
+**Soft Homa, first stage (make it work): built.** `src/softhoma.cpp` is section 4 on `ribbit::Space`
+(`[SPACE_V1]`), as a library loaded ahead of libc; `src/softhoma_ram.cpp` holds the memory; `make HOMA=...` builds
+both incrementally. `tools/gate.sh /path/to/HomaModule` holds it to his tools, unchanged, on one machine:
+`util/homa_test` (invoke, poll, shutdown, rtt) against his `util/server`, and `util/cp_node` as server and client
+on fixed 100-byte messages, his w2 and w4 distributions, and 500,000 and 1,000,000-byte messages; then his server is
+killed with requests outstanding and the client is told within about 70 ms, by the server's capability cell leaving
+the memory, with no timer. His `homa_test close` ends in `std::terminate` by its own construction (a joinable
+thread is destroyed) and is not in the gate.
+
+Measured on one machine, through the memory as a separate process (this shows the contract is kept; a comparison
+is multi-machine): one request at a time, 100 bytes, round trip P50 about 330 microseconds; `cp_node` 100 bytes with
+8 outstanding, about 9 to 13 thousand a second; with 1 outstanding, 500,000 bytes about 380 ms a round trip and
+1,000,000 bytes about 880 ms (finding 2 below is why).
+
+Found, and what follows from each:
+
+1. **A frame to the memory over 1 MiB ends the session, and the memory says nothing**
+   (`ribbit/cpp/src/ram_host.cpp`, `MAX_FRAME`, `recv_frame`). Soft Homa keeps every cell under it (a message over
+   240,000 bytes is several cells) and says so loudly if its session ever ends. The platform's silence is John's to
+   rule on; it is not changed here.
+2. **Opaque bytes must go past the semantic engine.** Payloads travel as base64 fields in a cell's bag. With several
+   large messages outstanding, each 240,000-byte cell takes about 175 ms to reach the reader (measured), because
+   the memory differences each row against the last one it gave that reader, and two unrelated payloads of the same
+   shape are the worst case for a difference. One cell of 667,000 bytes is not differenced and arrives in
+   milliseconds. `cp_node`'s payload is filler; nothing can be learned from it. The platform has the facility for
+   this, a vendor's own records on the session's sockets past the engine (`[VENDOR_STREAM_V1]`,
+   `ribbit/cpp/README.md`), and using it is the first step of "make it fast". Structured contents stay in the bag,
+   where the engine does its work.
+3. **A client's port is a random number** above 32768 and is not yet claimed in the memory ("make it safe").
+4. **IPv4 only.**
+
+Not built: the kernel module on the nodes; drivers for FrogTorch's three wires; the passthrough handler; the matrix.
