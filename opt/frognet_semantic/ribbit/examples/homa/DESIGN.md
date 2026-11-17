@@ -174,8 +174,29 @@ between them read 1.78 ms):
 Predicted before it was run: TCP ahead at this size. It is, by about 0.15 ms at the median (7%) on a link whose own
 round trip is about 1.8 ms, and by more in the tail. The memory was on the server's machine, so both carriers
 crossed the link once each way; with the memory on a third machine soft Homa crosses two links each way and this
-figure does not cover that. Not yet measured on machines: messages of other sizes, his workloads w1 to w5, more
-than one client.
+figure does not cover that.
+
+**240,000-byte messages, one outstanding, same two Pis, the two runs a minute apart** (shim v7; the soft Homa
+server was printing a debug line per request):
+
+| 240,000 bytes, 1 outstanding | soft Homa | his cp_node on TCP |
+|---|---|---|
+| round trips a second | 150 to 180 | 50 to 60 |
+| round trip P50 | 6.2 ms | 16.3 ms |
+| round trip P99 | 8.7 to 9.8 ms | 20 to 22 ms |
+| his own "Gbps out" | 0.30 to 0.34 | 0.11 to 0.12 |
+
+Predicted before it was run: TCP ahead several times over. Wrong: soft Homa is ahead 2.6 times. The prediction
+counted the encoding and forgot what the memory does with contents. His `cp_node` sends the same payload every
+time, the cell it lands in holds the last one, and the engine sends what changed: measured on one machine, tens of
+bytes cross to and from the memory per round trip where TCP carries 480,000. TCP's 16 ms is the link carrying
+those bytes; soft Homa's 6.2 ms is the link's round trip plus processor time (in his server, request row in to
+reply written is P50 2.1 ms at this size, over 2,957 requests). This is the engine's best case. A payload that is
+different every time has to cross, a third larger for the base64, and has not been measured; his tool cannot send
+one.
+
+Not yet measured on machines: payloads that change, his workloads w1 to w5, more than one client, the memory on a
+third machine.
 
 His `cp_node` server does not stop on a failed `recvmsg`: when the memory ends it calls it again at once, for ever,
 printing each time (30 GB of log in a few minutes here). `SOFTHOMA_EXIT_WHEN_MEMORY_GONE=1`, which `try.sh` and the
