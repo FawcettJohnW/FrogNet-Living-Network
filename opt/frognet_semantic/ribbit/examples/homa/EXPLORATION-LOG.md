@@ -294,6 +294,63 @@ Checked in his repository, because each was about to be stated to him:
   give every machine the same answer. It now reads the line for that name from the hosts file the election writes
   and the watcher watches (`frognet_held.HOSTS`). No line, or two addresses, is said and no memory is used.
 
+### 17 Nov 12:40: what the simulator has, and lacks, for ruling 32 (read from its code)
+
+Before building anything for "the driver activated between machines on the topology", what is there:
+
+- **No tier runs the proxy and the daemon between several machines.** Every tier that runs the semantic wire runs
+  ONE proxy against ONE daemon: `transport_sim_tier.py` (the full production TCP transport, two sockets per peer,
+  HELLO and RETURN, through a `WireMedium` with latency, jitter, bandwidth and outage; 24 checks), `transport_tier.py`,
+  `transport_factories.py`, `db_conn_lifetime_tier.py`, `sotf_media_tier.py`, `door_semantic_tier.py` (the socket hop
+  substituted), `proxy_dataplane.py` (decision logic, the wire stubbed). So "the wire between machines on a topology"
+  is new to the simulator for TCP as well as for Homa.
+- **The topology tiers do not run the wire.** Tiers 1 and 2 run the planner and committer on a model
+  (`live_engine.py`). Tier 3 (`s_scale_tier.py`, `s_topo_tier.py`) runs real `fdf-ram` and `fdf-client` processes:
+  members write their facts, each derives the graph, and routes are followed only in the verification plan. Each
+  member's session to the RAM host runs over a shaped link (`slowlink.py`: lan, wifi, 4g, geo, halow, jammed, lossy).
+  20 topologies have baselines recorded on hardware.
+- **Tier 4** (`netns_backend.py`) makes one network namespace per node with veth and WireGuard, and in the container
+  it is a dry run that records the commands. The namespace tests that do run (`rinab/tools/netns-*-test.sh`) are
+  FD&F's C binaries, not the Python proxy and daemon. John's rule for the tiers (23 Oct): complex topologies run at
+  tier 3; tier 4, the real kernel, is for what is properly done with hardware and validates tier 3's inputs.
+- **The sandbox can make namespaces** (root; `ip netns add` works; `wg` is installed).
+- **There is already a pattern for nodes with a real ControlRam**: `core/test_homa_liveness_ram_oracle.py` stands up
+  the tree's own `api.php` (php, MariaDB, port 80) as the RAM and three nodes as child processes at 10.61.61.1,
+  10.62.62.1 and 10.63.63.1. It replaces `frognet_tuples.my_ip` in each child, because without namespaces every
+  process sees the same interfaces.
+- `frognet_tuples.my_ip()` has no setting; it enumerates the machine's interfaces. In a namespace per machine it
+  needs no replacing.
+
+**The plan that follows from that** (mine; not yet reviewed by John):
+
+A new tier, `simulation/wire_between_machines_tier.py`. For a topology:
+
+1. One namespace per machine, with the machine's own 10.x.y.1 address, so `my_ip()` is real. Its own hosts file
+   (`FROGNET_HOSTS`), written with the role lines as the election would write them for that topology. Links shaped
+   with the profile the topology gives that machine.
+2. On the machine the topology makes the SystemRam and ControlRam: the tree's `api.php` (the capability tuples) and,
+   for soft Homa, the memory process the daemon's Homa listener starts itself.
+3. On every machine: the real daemon (`daemon_main`'s listener, through the seam) and the real proxy engine, with the
+   transport word given to the tier (`tcp`, `softhoma`, `homasim`, `auto`). Nothing stood in for: liveness, where
+   the memory is, and each machine's address all come from that machine's own view.
+4. **The battery**, run from every machine's proxy to every other machine's daemon:
+   a. the fan-out workload (concurrent reads and writes, every answer exact, frames in order);
+   b. the door scenarios (`door_semantic_tier`'s four), each node on its own template store;
+   c. large frames each way with contents that change (pieces, spares);
+   d. a short frame while a long one is in flight;
+   e. a machine's daemon stops; a machine leaves the hosts block; each peer is told once, nothing is sent again;
+   f. the role moves, the hosts files changing machine by machine at different times;
+   g. mixed carriers on `auto`: one machine with TCP only, sessions to it on TCP, to the others on Homa.
+5. The tier is run with `tcp` first. The TCP driver must pass the battery before anything is concluded about Homa;
+   that run is also the control for the timing table, in the same session.
+6. First on three machines shaped like the hardware trial (Seattle5, Seattle3B, New-York-1), then on the 20
+   topologies with hardware baselines.
+
+Open point: by John's tier rule a complex topology belongs at tier 3, without a real kernel. This tier needs real
+sockets for the TCP control. The machines can be namespaces on one bridge (every .1 reaches every .1, as the
+overlay gives on nodes) with the shaping per machine taken from the topology, which follows no route and spoofs no
+routing. If that reading of the rule is wrong, the tier's networking is the part to change.
+
 ## 4. Mistakes, who caught them, and the rule that came out
 
 | What I did | Caught by | The rule |
