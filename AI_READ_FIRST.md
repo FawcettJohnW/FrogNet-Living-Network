@@ -679,11 +679,19 @@ group's service writes its capability tuple, held by its session, and registers 
 with a router (a node, its own .1) it is in the election's pool and gets `<team>Host.<app>`; on a phone (no .1) the
 members' apps hold a read on the group's capability tuple, select its host, and connect or fail.
 Where things live (the doc "FrogNet SystemRam, FrogNetHost Admin and App Services — Design", 2026-11-04, sections 5, 7
-and 9): **databasehost-control** (`databasehost_control.frognet`, the highest .1) holds configuration tuples only --
-one per service, owned by the Admin for its scope, read by every installed machine, never copied by them; when it
-moves, **the merge** writes them into the new one. **The SystemRam** (`databasehost.frognet`: that host's api.php on
-port 80, see "Roles are hosts on api.php" below) holds the capability tuples, each written by its service and removed
-with its writer (a dead machine is not a candidate), and each machine's answers (`fdf-app applied`, `frognethost state`); every election reads capability there. App data is in the
+and 9), and the rule for which RAM a tuple belongs in (`[WHICH_RAM_V1]`, decided 2026-11-16): **if a node needs it
+before it can reach or select anything else, it is in the ControlRam; everything else is in the SystemRam.** The
+ControlRam's address is arithmetic (the highest .1), so it is known before any selection has run.
+**databasehost-control** (`databasehost_control.frognet`, the highest .1) holds: the configuration tuples -- one per
+service, owned by the Admin for its scope, read by every installed machine, never copied by them; when it moves,
+**the merge** writes them into the new one; the role selection's capability rows (`<role>/capability`, written by
+`core/unrest_handler.py` and read by `core/frognet_role_elect.gather_candidates`: the SystemRam itself is selected
+from them, so they cannot live in it); and each end's carrier capability for the semantic wire (`(homa, can, ...)`,
+`core/homa_liveness.py`: what a node can be reached over is needed to reach the SystemRam). **The SystemRam**
+(`databasehost.frognet`: that host's api.php on port 80, see "Roles are hosts on api.php" below) holds the capability
+tuples of what runs on a formed network -- the app services (`fdf-app`, FrogTorch's `can`), each written by its
+service and removed with its writer (a dead machine is not a candidate) -- and each machine's answers
+(`fdf-app applied`, `frognethost state`); every app-host selection reads capability there. App data is in the
 AppRams. Every app carries its own PHP door alongside `api.php`. Every instance holds a read on its capability family:
 an install, a capability change or a configuration change is an event, and the selection runs again.
 Built (r47: fdf-app r13, door r13, `core/app_hosts.py`; roles on api.php 2026-11-07): the first install writes the one
