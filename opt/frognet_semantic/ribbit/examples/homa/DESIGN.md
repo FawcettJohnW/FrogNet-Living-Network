@@ -56,8 +56,13 @@ scheduling shortest first.
 
 Three consequences that Homa cannot have:
 
-- **The read is the grant.** Everything addressed to a consumer is already in memory with its length. The consumer
-  reads what it wants first; the bytes of a large value move when it is read. There is no GRANT, no priority field
+- **The read is the grant.** Everything addressed to a consumer is already in memory with its length. The consumer's
+  one standing read fires for a message only when the whole message is there, so a reader never waits on part of
+  one, and the consumer takes the shortest first from what has arrived (`Sock::inbox`). (As built, a message's bytes
+  come with the read that announces it, not on a second read: a second read would cost a round trip per message.
+  What is left of Homa's reason for holding a long message back is that a short one can be behind at most one
+  240,000-byte piece in transit to the reader: by the two-machine tables in section 5a that is about 4 ms within
+  Seattle and 8 ms to New York, inferred from them, not measured directly.) There is no GRANT, no priority field
   and no cutoffs to keep in step, and the first form of "credit as state" (a sender asking how far the receiver has
   got, `rinab/STEP1-DATA-PLANE.md`) is not used either: the standing read is the receiver saying what it will take
   ("There is no ready flag. The presence of the data is the flag", `ribbit/docs/PERFORMANCE-LESSONS.md` 1.1).
