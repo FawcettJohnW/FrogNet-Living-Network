@@ -1,3 +1,6 @@
+// Copyright (C) 2016-2026 Fawcett Innovations LLC
+// SPDX-License-Identifier: GPL-2.0-only
+//
 // field_order_check.cpp -- [FIELD_ORDER_WITHOUT_LEAF_TYPES_V1] (ribbit/cpp/include/cellwire.hpp)
 // Compares the field order a cell write computes today (infer_schema, leaves classified) with shape_only's, over
 // generated bags: nested objects, lists of scalars / objects / lists / mixed, empty lists and objects, unsafe keys,

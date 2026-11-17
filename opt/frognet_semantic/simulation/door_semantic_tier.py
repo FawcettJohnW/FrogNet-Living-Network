@@ -72,6 +72,13 @@ CONFIG0 = {"app": "openeoc", "rams": ["general", "alpha", "bravo"], "partition":
 SERVED = {"alpha": "10.170.170.1:23011", "bravo": "10.170.170.1:26240", "general": "10.170.170.1:23827"}
 CONFIG = copy.deepcopy(CONFIG0)
 RECEIVED = []          # what the door was given by the phone's path: (op, user, password) as it arrived
+# [THE_SOCKET_HOP_CAN_BE_A_REAL_DRIVER_V1] The one thing this tier substitutes is the socket hop between the proxy and
+# the daemon. A tier that puts a real driver there sets this (simulation/homa_door_tier.py: the Homa driver on soft
+# Homa). It is called once per scenario as SOCKET_HOP(TS, origin, origin_store) with the proxy's module, the origin's
+# HTTP client and the origin node's template store, must leave TS._get_worker the tree's own, and returns what ends it.
+SOCKET_HOP = None
+TARGET_IP = "127.0.0.1"   # the origin node, as the proxy is told it. The tree's own _get_worker takes only a FrogNet
+                          # 10/8 address, so a tier that sets SOCKET_HOP sets this to one.
 
 
 def door(method, path, body):
@@ -227,7 +234,11 @@ def run_one(root, seq):
             rpc.reply = reply; return rpc
         def wait(self, rpc): return rpc.reply
         def call(self, wire_req): return self.wait(self.submit(wire_req))
-    TS._get_worker = lambda host, port, set_id=0: W()
+    end_hop = None
+    if SOCKET_HOP is None:
+        TS._get_worker = lambda host, port, set_id=0: W()
+    else:
+        end_hop = SOCKET_HOP(TS, Origin(), s7)
 
     fails, sent = [], []
     for i, c in enumerate(seq(), 1):
@@ -244,7 +255,7 @@ def run_one(root, seq):
         want_st, want = door(method, path, raw.decode())
         if body is not None: sent.append((q.split("&")[0][3:], body["user"], body["password"]))
         h = Handler()
-        TS.handle_request(h, {"headers": hdrs, "semantic_path": canonical_semantic_key(method, path, raw)}, target_ip="127.0.0.1",
+        TS.handle_request(h, {"headers": hdrs, "semantic_path": canonical_semantic_key(method, path, raw)}, target_ip=TARGET_IP,
                           method=method, path=path, headers=hdrs, body=raw)
         got = h.wfile.getvalue().decode(errors="replace")
         cache = dict(h.hdrs).get("X-FrogNet-Cache", "")
@@ -258,6 +269,8 @@ def run_one(root, seq):
         bad = [(s, r) for s, r in zip(sent, RECEIVED) if s != r] or [(sent, RECEIVED)]
         fails.append("the door was not given what the app sent: first (sent, given) %s" % (bad[0],))
         print("   the door was not given what the app sent: (sent, given) %s" % bad[:3])
+    if end_hop is not None:
+        end_hop()
     sys.path.remove(root)
     return fails
 

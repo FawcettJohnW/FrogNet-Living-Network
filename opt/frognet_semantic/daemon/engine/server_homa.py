@@ -300,6 +300,7 @@ class MsgDaemonServer:
         self._ended: Dict[Tuple[str, bytes], str] = {}   # sessions that ended -> why (the last 4096 of them)
         self._lock = threading.Lock()
         self._carrier = None
+        self._stopping = False
         self._wire = WireManager("daemon-homa-wire", self._put_reply)     # [THE_WIRE_MANAGER_SENDS_V1]
         self.liveness = None
         self.n_peers_gone = self.n_network_events = 0
@@ -410,7 +411,7 @@ class MsgDaemonServer:
         down when its memory goes or moves: the listener then opens again where the memory is, at once if it is
         there, else at the next network event (never on a timer)."""
         self._changed = threading.Event()
-        while True:
+        while not self._stopping:
             self._changed.clear()
             try:
                 self._memory_child()
@@ -423,10 +424,19 @@ class MsgDaemonServer:
                 print("[DAEMON-HOMA] the Homa listener is NOT listening (%s). It opens at the next network event." % why, flush=True)
                 self._changed.wait()
                 continue
-            if homa_socket.soft_homa_library() is None:
+            if homa_socket.soft_homa_library() is None or self._stopping:
                 return
             print("[DAEMON-HOMA] [THE_MEMORY_IS_WHERE_THE_ROLE_IS_V1] the Homa listener ended (%s); opening it again where "
                   "soft Homa's memory is now" % why, flush=True)
+
+    def stop(self) -> None:
+        """End the listener for good: its socket closes, run() returns, and it is not opened again."""
+        self._stopping = True
+        c = self._carrier
+        if c is not None:
+            c.close()
+        if getattr(self, "_changed", None) is not None:
+            self._changed.set()
 
     def _listen(self) -> None:
         self._carrier = self._server_carrier()

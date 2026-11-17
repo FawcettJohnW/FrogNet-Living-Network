@@ -41,6 +41,7 @@ import mmap
 import os
 import socket
 import struct
+import sys
 import threading
 from typing import List, NamedTuple, Optional, Tuple
 
@@ -206,9 +207,29 @@ _soft_told: Optional[Tuple[str, str]] = None
 
 
 def soft_memory_now() -> Tuple[str, str]:
-    """(HOST:PORT of soft Homa's memory, this node's own address), both as they are NOW. A test replaces this function."""
+    """(HOST:PORT of soft Homa's memory, this node's own address), both as they are NOW. A test replaces this function.
+
+    [ONE_INPUT_ONE_RULE_V1] John 2026-11-17: "the calculation of the ram host ip address is deterministic. One option is
+    to just set it to databasehost.frognet". The address is the one the hosts file gives that name: the file the merge's
+    election writes and the drivers' watcher watches (frognet_held.HOSTS), read here, not asked of a resolver, which
+    could answer from somewhere else or from before. Every node applies the same rule to its own copy of that file, so
+    two nodes whose files agree get the same address, and a node whose file has not changed yet is the case
+    [A_PEER_IS_THERE_WHEN_ITS_CELL_IS_V1] covers. No line for the name: there is no memory to name, and it is said."""
     from core import frognet_tuples
-    return "%s:%d" % (socket.gethostbyname(SOFTHOMA_ROLE), SOFTHOMA_PORT), frognet_tuples.my_ip()
+    d = os.path.dirname(os.path.abspath(frognet_tuples.__file__))       # [CORE_ON_THE_PATH_V1] as homa_liveness does
+    if d not in sys.path:
+        sys.path.append(d)
+    import frognet_held
+    found = []
+    with open(frognet_held.HOSTS) as f:
+        for line in f:
+            p = line.split("#", 1)[0].split()
+            if len(p) >= 2 and SOFTHOMA_ROLE in p[1:]:
+                found.append(p[0])
+    if len(set(found)) != 1:
+        raise LookupError("%s has %s for %s; the role must be named by exactly one address"
+                          % (frognet_held.HOSTS, "no line" if not found else "the addresses %s" % ", ".join(sorted(set(found))), SOFTHOMA_ROLE))
+    return "%s:%d" % (found[0], SOFTHOMA_PORT), frognet_tuples.my_ip()
 
 
 def soft_memory_tell(why: str) -> bool:

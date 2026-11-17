@@ -544,6 +544,25 @@ def main():
     # it fail. Needs MariaDB with /opt/frognet_semantic/DB_CONFIG.json's database and that name + "7"; without them it FAILS.
     results.append(_run_proc("a door through the semantic path, two template stores (door_semantic_tier)",
                              ["simulation/door_semantic_tier.py"], retry=False))
+    # [HOMA_DRIVER_TIERS_V1] John 2026-11-17: "Be sure to run this through the real simulator. It should work properly."
+    # The Homa driver for the semantic wire (proxy/transport_homa.py, daemon/engine/server_homa.py, core/homa_*.py).
+    #   1. The door tier above with its one substitution, the socket hop, replaced by the real Homa driver on soft
+    #      Homa: every answer must still equal the door's, and every scenario must have run on soft Homa with no TCP
+    #      worker. Needs soft Homa built (make -C ribbit/examples/homa HOMA=<HomaModule checkout>); without it it FAILS
+    #      and says so.
+    #   2. The driver's own oracles on the real engine at both ends: the bus contract on a carrier that reorders, on
+    #      pieces, on the Homa simulator with loss, and on soft Homa, including soft Homa's memory moving in the middle
+    #      of a run (the role moves); carrier per hop; liveness from the capability tuple.
+    results.append(_run_proc("the door through the Homa driver on soft Homa (homa_door_tier)",
+                             ["simulation/homa_door_tier.py"], retry=False))
+    results.append(_run_proc("Homa driver: the bus contract, pieces, the simulator, soft Homa, its memory moving (8 modes)",
+                             ["proxy/test_homa_ordering_oracle.py"], retry=False))
+    results.append(_run_proc("Homa driver: carrier per hop (auto, tcp, homa, softhoma)",
+                             ["core/test_homa_carrier_oracle.py"], retry=False))
+    results.append(_run_proc("Homa driver: a peer leaving is learned from its capability tuple and the hosts block",
+                             ["core/test_homa_liveness_oracle.py"], retry=False))
+    results.append(_run_proc("Homa simulator: Homa's own packets, loss and recovery",
+                             ["core/test_homa_sim_oracle.py"], retry=False))
     results.append(_run_proc("transport factory self-test (sim+loopback+netem, 12)",
                              ["simulation/transport_factories.py"]))
     # [AICONNECT_RAMP_IS_GATED_V1] The AIConnect workload had no tier at all --

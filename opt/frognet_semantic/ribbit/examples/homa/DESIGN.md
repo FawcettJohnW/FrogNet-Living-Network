@@ -143,7 +143,10 @@ elected and moves when the network splits or merges, and a node's own address ca
 address anywhere:
 
 - The memory is on the machine `databasehost.frognet` names, on soft Homa's own port (`FROGNET_SOFTHOMA_PORT`,
-  9131). Every node with the Homa driver on soft Homa runs the memory process itself (`softhoma-ram`, a child of the
+  9131). The address is calculated one way (`[ONE_INPUT_ONE_RULE_V1]`; John: "the calculation of the ram host ip
+  address is deterministic. One option is to just set it to databasehost.frognet"): it is the address the hosts file
+  gives that name, read from the file the election writes and the drivers' watcher watches (`frognet_held.HOSTS`),
+  never asked of a resolver. No line, or two addresses, is said and no memory is used. Every node with the Homa driver on soft Homa runs the memory process itself (`softhoma-ram`, a child of the
   daemon's Homa listener, at the node's address as it is now; no unit file); the one on the node that holds the role
   is the one used. (`[ROLES_ON_API_V1]`: a role is a host, a service keeps its own port.)
 - Where the memory is and what this node is called are asked when a socket is opened and again at every hosts

@@ -1,4 +1,7 @@
 #!/bin/bash
+# Copyright (C) 2016-2026 Fawcett Innovations LLC
+# SPDX-License-Identifier: GPL-2.0-only
+#
 # gate.sh -- soft Homa held to Homa's own tools, UNCHANGED (his util/server, util/homa_test and util/cp_node).
 #   tools/gate.sh /path/to/HomaModule
 # Builds what changed, starts the memory, runs his tools with libsofthoma.so ahead of libc, and says PASS or FAIL

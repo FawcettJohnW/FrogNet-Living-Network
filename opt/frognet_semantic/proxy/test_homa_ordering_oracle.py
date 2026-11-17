@@ -566,6 +566,11 @@ def main():
         print(f"HOMA-ORDERING ORACLE mode={MODE}: " + ("ALL CHECKPOINTS PASS" if ok else "FAILED"), flush=True)
         return 0 if ok else 1
     rcs = {}
+    # [DIAGNOSTICS_SAY_IT_V1] the simulator's run_all.py runs this with its output thrown away. Everything each mode
+    # printed is kept here, so a FAIL there can be read without running it again.
+    import tempfile
+    kept = os.path.join(tempfile.gettempdir(), "homa_ordering_oracle.last.txt")
+    open(kept, "w").close()
     for m in ("free", "ordered", "pieces", "gone", "sim", "simheld", "soft", "softmoved"):
         print(f"=== {m} ===", flush=True)
         env, ram, ram2 = dict(os.environ), None, None
@@ -591,6 +596,8 @@ def main():
             for x in (ram, ram2):
                 if x is not None:
                     x.kill(); x.wait()
+        with open(kept, "a") as f:
+            f.write("=== %s === rc=%s\n%s\n--- stderr ---\n%s\n" % (m, r.returncode, r.stdout, r.stderr[-20000:]))
         for line in r.stdout.split("\n"):
             if line.startswith(("  [", "    mode=", "    homasim", "HOMA-ORDERING", "RESULT")):
                 print(line, flush=True)
@@ -599,7 +606,7 @@ def main():
         rcs[m] = r.returncode
     ok = all(v == 0 for v in rcs.values())
     print()
-    print("ALL HOMA-ORDERING ORACLE CHECKPOINTS PASS" if ok else f"HOMA-ORDERING ORACLE FAILED {rcs}", flush=True)
+    print("ALL HOMA-ORDERING ORACLE CHECKPOINTS PASS" if ok else f"HOMA-ORDERING ORACLE FAILED {rcs} (every mode's output: {kept})", flush=True)
     return 0 if ok else 1
 
 
