@@ -195,6 +195,19 @@ reply written is P50 2.1 ms at this size, over 2,957 requests). This is the engi
 different every time has to cross, a third larger for the base64, and has not been measured; his tool cannot send
 one.
 
+**A third node, far away (the node John calls New York, 10.123.123.1), as the client; memory and server still on
+10.250.250.1; 240,000 bytes, one outstanding; 17 Nov.** Read from the server's side only (the client's own output
+was not captured, and the link was not pinged):
+
+| 240,000 bytes, 1 outstanding, far client | soft Homa | his cp_node on TCP |
+|---|---|---|
+| round trips a second | 10.0 | 4 (193 in 50 seconds, the first seconds slower) |
+| time per round trip | 100 ms (P50 99.9, P90 100.6, P99 106.6, between 222 requests arriving) | about 250 ms |
+
+The two runs were about a minute apart. Same reason as on the near pair: TCP carries 480,000 bytes over the long
+link each round trip, and soft Homa carries what changed, which for his constant payload is almost nothing, so its
+round trip is about the link's own.
+
 `try.sh servers RAM` (both of his servers at once) and `try.sh compare RAM SERVER` (the client alternates soft
 Homa and TCP at each of six sizes, each carrier once first and once second, a ping before and after, a table at the
 end kept under `results/`) put the two in one session. It is run by hand from two terminals; it is not yet the
