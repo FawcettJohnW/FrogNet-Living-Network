@@ -110,6 +110,65 @@ Each is John's, quoted where the words matter. They are the constraints everythi
 34. Names: `libsofthoma.so` is "the Homa API interface" (not "the shim", and not "the RAM manager", which was a
     wrong guess at what he meant). `softhoma-ram` is the RAM host its cells live in.
 
+## 2a. The stages, and each time the work went back a stage
+
+John, 17 Nov: "The record should also show the progression through the stages, and the times we had to roll back.
+Work, safe, fast." The order was set on 16 Nov: make it work, make it safe, make it fast. The work did not go
+through the stages once. Each part went through them, and several times a later stage showed that an earlier one
+had not really been reached, and the work went back. Those are the rollbacks. (Times in this file are Pacific. The
+times of the entries after 12:40 on 17 Nov were first written from guesswork and were wrong by up to two hours;
+they are corrected from the machines' own logs.)
+
+### Where each part stands
+
+| Part | Work | Safe | Fast |
+|---|---|---|---|
+| The Homa driver, two ends in one process | yes: 16 Nov, `8c67920f` (frames carried in order on a carrier that reorders) | yes: liveness by held read and no per-RPC timeout (`4af78f82`); no fallback; no preload (`54f4c3bb`) | partly: carrier chosen by round trip (`d2645d32`); spares remove a round trip (`ef1947a2`); never measured on machines |
+| The simulator of Homa's packets | yes: `8c67920f` | yes: loss and recovery, at most once | not a goal |
+| Soft Homa under his `cp_node`, one machine | yes: 16 Nov 23:59, `67362f12` | yes: 17 Nov 00:36, `51a6b684` | yes up to 240,000 bytes: `fb3c7009`, `cb4423c9`; NO above that |
+| Soft Homa under his `cp_node`, real machines | yes: 17 Nov 07:59 (after his tools were made to run on ARM) | yes: a request to a server that is not there ends at once; ends when its memory ends | measured against TCP: equal to 2.7 times faster up to 240,000 bytes, 2.5 to 10 times slower at 1,000,000 |
+| The driver with large frames | yes: pieces, `e7037514` | yes: nothing shed; order kept; whole messages ahead of pieces, `f3bcb3a9` | spares, `ef1947a2`; a piece whose contents change is unmeasured |
+| The driver when the memory moves | yes in one process: `9fe9591d` | a peer that is behind is handled; the old memory's session is left to end with the process | not looked at |
+| The driver between machines (the simulator, ruling 32) | **only just**: one topology of three, one battery of seven, `d19c9396` | no | no |
+| The driver on real nodes | **no** | no | no |
+| FrogTorch on the driver | **no**: still as built on 12 Nov, which is wrong | no | no |
+
+### The rollbacks
+
+Each is a place where the work was at one stage, something showed the stage before it had not been reached, and
+the work went back. "Withdrawn" means the thing was proposed or begun and dropped before it was built.
+
+| When | From | Back to | What showed it | What was rolled back or withdrawn |
+|---|---|---|---|---|
+| 17 Nov 00:59 | fast (explaining slow large payloads) | measure first | callgrind and strace | Two diagnoses made from reading code, both wrong. Withdrawn and replaced by what was measured. |
+| 17 Nov 07:20 | fast (first numbers on the Pis) | work | his client sent one request and stopped on ARM | The run itself. His tools had to be made to work on ARM before anything could be measured. |
+| 17 Nov 07:45 | fast | safe | a request to a server that was not there waited 60 s; his server filled the disk when the memory ended | Two safety holes found by trying to measure. Fixed before measuring again (`1a3fc17a`, `8b748038`). |
+| 17 Nov 08:50 | fast (run the two Torches on it) | work | John: "The transport should be transparent. If it is not, the job is not done" | The plan to pick wires by hand, withdrawn. Then a socket interposer, withdrawn. The inventory of what dials for itself (`7079d01a`) replaced them. |
+| 17 Nov 09:00 | work (the Torch on the driver) | the design of 11 Nov | John: a rank must not listen | The FrogTorch design of 12 Nov (`5b79b445`): each rank listening, readers connecting to it. **To be rolled back in code; not yet done.** The code of 11 Nov is what is revived. |
+| 17 Nov 09:20 | a name | the right name | John | `3c86f731` renamed the library "the RAM manager"; `e022a9ac` three minutes later corrected it to "the Homa API interface". The only rollback that is a pair of commits. |
+| 17 Nov 10:04 | fast (pieces cost a round trip) | work (how pieces travel) | John: "Why does that require an extra trip?" | The design in which the proxy learns the count and then asks (`e7037514`), replaced by spares already open (`ef1947a2`). |
+| 17 Nov 10:10 | a change to match the document | nothing to change | John: the point was moot | A second read to fetch a message's bytes, withdrawn. The document was changed to match the code (`fb5af1e0`). |
+| 17 Nov 10:20 | work (pieces sent by the calling thread) | work, with a place where the wire is decided | John, ruling 29 | Sending from the thread that has the frame, replaced by the wire manager (`f3bcb3a9`). |
+| 17 Nov 10:40 | work ("it runs on soft Homa") | safe | John: "WHAT???" | Soft Homa put under the driver by `LD_PRELOAD`, in every test until then. Replaced: the driver opens the library itself (`54f4c3bb`). The test tool I had started in order to avoid the risk, withdrawn. |
+| 17 Nov 11:07 | safe (no unit file to edit) | work (how the memory is found at all) | John: it can change address during a run | Addresses in settings, withdrawn before it was built. Replaced by the memory following the role (`9fe9591d`). |
+| 17 Nov 12:24 | "passes in the simulator" | not passing | John, ruling 32 | The claim. `homa_door_tier` stays as a step; it is not the simulator's verdict. |
+| 17 Nov 12:27 | work (the role's address) | work, done the deterministic way | John, ruling 33 | Asking the system resolver, replaced by one rule on the hosts file (`8ffbddc3`). |
+| 17 Nov 12:41 | the record | the record, with how each fault was found | John | Section 4 rewritten as cases (`b5567ade`). |
+| 17 Nov 12:48 | the tier driving the proxy's engine through a pipe | the real proxy process | half the pairs failed on TCP: a node has api.php on 8080 and its proxy on 80 | The agent that called the engine, built and replaced within the hour by `proxy_main` and the node's nat rule (`f09498a9`). |
+| 17 Nov 12:52 | work in one process | work between machines | 5 of 6 pairs failed on soft Homa | Nothing was undone; three things were missing (`d19c9396`). This is the stage the driver is at now. |
+
+### What the rollbacks have in common
+
+- **Most of them were found by trying to do the next stage.** Trying to measure found that it was not safe. Trying
+  to run an application found that it was not transparent. Trying to hand it over found that it was not
+  independent. Trying it between machines found that it did not start. The next stage is the test of the one
+  before, and that is the use of the order.
+- **"Work" was claimed four times at a narrower scope than was meant**: on one machine, in one process, with a
+  preload, with a stand-in. Each time the scope was the smallest in which it could be made to pass.
+- **Only one rollback is still owed in code**: FrogTorch back to the design of 11 Nov.
+- **One thing was built so that it could be rolled back**: the platform change to `cellwire.hpp` is a commit of its
+  own (`cb4423c9`) and has not been run against the other gates.
+
 ## 3. What was done, in order
 
 ### 16 Nov, evening: the driver, the simulator, liveness (`8c67920f` to `d2645d32`)
@@ -351,7 +410,7 @@ sockets for the TCP control. The machines can be namespaces on one bridge (every
 overlay gives on nodes) with the shaping per machine taken from the topology, which follows no route and spoofs no
 routing. If that reading of the rule is wrong, the tier's networking is the part to change.
 
-### 17 Nov 13:00: the tier's first step runs: three machines that are machines
+### 17 Nov 12:45: the tier's first step runs: three machines that are machines
 
 `simulation/wire_between_machines_tier.py`, step 0. Found while building it, each of which shaped the design:
 
@@ -380,7 +439,7 @@ Result of step 0 (`trial3`: Seattle5 10.250.250.1 with both roles, Seattle3B 10.
 10.123.123.1): each machine reaches the others, FrogNet's own call gives its own address, its hosts file names the
 ControlRam, and its own `api.php` answers. Next: each machine's real daemon and proxy engine, and the battery on TCP.
 
-### 17 Nov 13:10 to 13:55: machines as nodes; the TCP control passes; the Homa driver's first run between machines FAILS
+### 17 Nov 12:45 to 12:53: machines as nodes; the TCP control passes; the Homa driver's first run between machines FAILS
 
 `wire_between_machines_tier.py` (`f09498a9`). What a machine had to become, each found by a failure:
 
@@ -434,7 +493,7 @@ network the role's address is written to the hosts files by a merge AFTER the ma
 event, and the tier should bring a network up in that order instead of starting everything at once with the roles
 already written.
 
-### 17 Nov 13:55 to 14:45: the Homa driver passes the first battery between machines
+### 17 Nov 12:53 to 13:00: the Homa driver passes the first battery between machines
 
 Three changes, each made because of what the run between machines showed, none of them visible in one process:
 
@@ -803,7 +862,7 @@ Nothing here may be reported as working.
 0. **Boot order and the memory restarting** (found between machines, 17 Nov). Fixed for a boot: the daemon waits
    for its memory process, has its watcher before its first open, and a server arriving in the memory is an event.
    NOT fixed: a listener whose memory goes away and comes back with the hosts file unchanged. And whether a network
-   told `softhoma` only is a supported mode is John's call. See section 3, 13:10 to 14:45.
+   told `softhoma` only is a supported mode is John's call. See section 3, 12:45 to 13:00.
 0a. **On TCP, 1 request in about 1,600 between machines was answered 503 "REQ_MISS from daemon; exhausted
    retries"** (the existing system; found by the new tier; not looked into, not changed).
 1. **The simulator, by ruling 32.** The driver activated between machines on the topology, the full battery over it.
