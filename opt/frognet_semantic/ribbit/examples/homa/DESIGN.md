@@ -153,14 +153,35 @@ Found, and what follows from each:
    (`ribbit/cpp/src/ram_host.cpp`, `MAX_FRAME`, `recv_frame`). Soft Homa keeps every cell under it (a message over
    240,000 bytes is several cells) and says so loudly if its session ever ends. The platform's silence is John's to
    rule on; it is not changed here.
-2. **Opaque bytes must go past the semantic engine.** Payloads travel as base64 fields in a cell's bag. With several
-   large messages outstanding, each 240,000-byte cell takes about 175 ms to reach the reader (measured), because
-   the memory differences each row against the last one it gave that reader, and two unrelated payloads of the same
-   shape are the worst case for a difference. One cell of 667,000 bytes is not differenced and arrives in
-   milliseconds. `cp_node`'s payload is filler; nothing can be learned from it. The platform has the facility for
-   this, a vendor's own records on the session's sockets past the engine (`[VENDOR_STREAM_V1]`,
-   `ribbit/cpp/README.md`), and using it is the first step of "make it fast". Structured contents stay in the bag,
-   where the engine does its work.
+2. **Where the time goes on large payloads (measured 17 Nov; this replaces an earlier diagnosis here that was
+   wrong).** The earlier text blamed the memory's row differencing and proposed sending bytes past the engine.
+   Neither is right: `[VENDOR_STREAM_V1]` was removed from the platform on 17 Oct, and the memory uses almost no
+   processor on these runs (0.27 s in 9 s). His `cp_node` server was profiled by function (callgrind) on 240,000-byte
+   messages, and the memory's sockets were traced (strace). There are two causes, both in the platform:
+   - **A write classifies every string it carries, and throws the answer away.** `ribbit/cpp/include/cellwire.hpp`
+     `field_order()` calls `semtpl::infer_schema()` to learn the order of a cell's fields. That reads each string
+     several times, code point by code point, to ask whether it is an address, an interface, an enum or a host
+     name (`leaf_type`), and only the field order is kept, which does not depend on the answer. It is 72% of the
+     sender's instructions at 240,000 bytes. A copy of the platform outside the repository that walks the keys
+     without classifying the leaves (22-line patch, `cellwire-field-order-20261117a.patch`, same field order by
+     construction) gives, one request outstanding, P50 round trip:
+
+     | message | platform as it is | with the patch |
+     |---|---|---|
+     | 100 bytes | 167 us | 153 us |
+     | 48,000 bytes | 2.98 ms | 0.92 ms |
+     | 240,000 bytes | 13.6 ms | 2.85 ms |
+
+     The platform is not changed here; the patch is John's to rule on.
+   - **On one machine only: 44 ms for every 64 KB of a frame.** A session's sockets have a 32 KB send buffer
+     (`frogram.cpp`, "the buffer is the latency"). The loopback interface's segment is 65,483 bytes, so the buffer
+     holds one segment, the receiver has one segment and delays its acknowledgement 40 ms, and a 287 KB frame takes
+     five of them: the 175 ms per cell recorded before. With the loopback MTU set to 1,500, as on a wire, a
+     1,000,000-byte round trip goes from 750 ms to 74 ms (30 ms with the patch above). This is the sandbox, not
+     the design; large messages have to be timed on the nodes.
+
+   What was the shim's own is fixed (`[SOFT_HOMA_FAST_V1]`): its base64 wrote a byte at a time and copied each piece
+   twice; it now encodes and decodes in place. Payloads stay base64 fields in the cell's bag, on the semantic wire.
 3. **Made safe (second stage).** A client socket's name is its address and a nonce, and its RPC ids start at a
    random even number, so two clients that pick the same port cannot take each other's answers. A request in flight
    has a slot from its sender's own free list; its cells and its reply's cells are named by the slot, so a cell is

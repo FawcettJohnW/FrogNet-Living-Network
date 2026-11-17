@@ -62,7 +62,7 @@
 #include "homa.h"
 
 namespace {
-const char* BUILD = "softhoma-v2-20261117a";
+const char* BUILD = "softhoma-v3-20261117b";
 const size_t PIECE = 48000;        // one field of a cell: at most 65,535 bytes on the wire (semcodec TYPE_STR), in base64
 size_t RECORD = 240000;            // one cell: bulk goes in large records (PERFORMANCE-LESSONS.md section 2), and a
                                    // frame to the memory is at most 1 MiB (ram_host.cpp MAX_FRAME; over it the memory
@@ -81,25 +81,24 @@ struct Libc {
 };
 Libc& libc() { static Libc l; return l; }
 
-std::string b64(const std::string& in) {
-    static const char* T = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
-    std::string o; o.reserve((in.size() + 2) / 3 * 4);
-    size_t i = 0;
-    for (; i + 2 < in.size(); i += 3) { uint32_t v = uint8_t(in[i]) << 16 | uint8_t(in[i + 1]) << 8 | uint8_t(in[i + 2]);
-        o += T[v >> 18]; o += T[v >> 12 & 63]; o += T[v >> 6 & 63]; o += T[v & 63]; }
-    if (i + 1 == in.size()) { uint32_t v = uint8_t(in[i]) << 16; o += T[v >> 18]; o += T[v >> 12 & 63]; o += "=="; }
-    else if (i + 2 == in.size()) { uint32_t v = uint8_t(in[i]) << 16 | uint8_t(in[i + 1]) << 8; o += T[v >> 18]; o += T[v >> 12 & 63]; o += T[v >> 6 & 63]; o += '='; }
-    return o;
+// [SOFT_HOMA_FAST_V1] base64 straight into and out of the cell's text: sized once, no byte appended on its own
+void b64_into(std::string& o, const char* in, size_t n) {
+    static const char T[] = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
+    const size_t at = o.size(); o.resize(at + (n + 2) / 3 * 4);
+    char* w = &o[at]; const uint8_t* p = reinterpret_cast<const uint8_t*>(in); size_t i = 0;
+    for (; i + 2 < n; i += 3) { const uint32_t v = uint32_t(p[i]) << 16 | uint32_t(p[i + 1]) << 8 | p[i + 2];
+        *w++ = T[v >> 18]; *w++ = T[v >> 12 & 63]; *w++ = T[v >> 6 & 63]; *w++ = T[v & 63]; }
+    if (i + 1 == n) { const uint32_t v = uint32_t(p[i]) << 16; *w++ = T[v >> 18]; *w++ = T[v >> 12 & 63]; *w++ = '='; *w++ = '='; }
+    else if (i + 2 == n) { const uint32_t v = uint32_t(p[i]) << 16 | uint32_t(p[i + 1]) << 8; *w++ = T[v >> 18]; *w++ = T[v >> 12 & 63]; *w++ = T[v >> 6 & 63]; *w++ = '='; }
 }
-std::string unb64(const std::string& in) {
-    static int8_t D[256]; static bool init = false;
-    if (!init) { memset(D, -1, sizeof D); const char* T = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
-        for (int i = 0; i < 64; ++i) D[uint8_t(T[i])] = int8_t(i);
-        init = true; }
-    std::string o; o.reserve(in.size() / 4 * 3); uint32_t v = 0; int bits = 0;
-    for (unsigned char c : in) { if (D[c] < 0) continue; v = v << 6 | uint32_t(D[c]); bits += 6;
-        if (bits >= 8) { bits -= 8; o += char(v >> bits & 255); } }
-    return o;
+void unb64_into(std::string& o, const std::string& in) {
+    static const struct Table { int8_t d[256]; Table() { memset(d, -1, sizeof d); const char* T = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
+        for (int i = 0; i < 64; ++i) d[uint8_t(T[i])] = int8_t(i); } } D;
+    const size_t at = o.size(); o.resize(at + in.size() / 4 * 3 + 3);
+    char* w = &o[at]; uint32_t v = 0; int bits = 0;
+    for (unsigned char c : in) { const int8_t x = D.d[c]; if (x < 0) continue; v = v << 6 | uint32_t(x); bits += 6;
+        if (bits >= 8) { bits -= 8; *w++ = char(v >> bits & 255); } }
+    o.resize(size_t(w - o.data()));
 }
 
 const bool DEBUG = getenv("SOFTHOMA_DEBUG") != nullptr;
@@ -198,7 +197,7 @@ void start_watch(Sock* s) {                           // the socket's one standi
             auto f = r.fields(); if (!f) continue;
             if (DEBUG) fprintf(stderr, "[SOFTHOMA-DEBUG] %.3f %s got row %llu: %s id=%lld record %lld of %lld\n", now_ms(), s->name.c_str(), (unsigned long long)r.id, f->str("k").c_str(), (long long)f->num("i"), (long long)f->num("p") + 1, (long long)f->num("t"));
             std::string bytes; const size_t pieces = size_t(f->num("c"));
-            for (size_t p = 0; p < pieces; ++p) bytes += unb64(f->str("b" + std::to_string(p)));
+            for (size_t p = 0; p < pieces; ++p) unb64_into(bytes, f->str("b" + std::to_string(p)));
             const bool request = f->str("k") == "q"; const uint64_t id = uint64_t(f->num("i")); const std::string from = f->str("f");
             const size_t total = size_t(f->num("t")), which = size_t(f->num("p"));
             if (total > 1) {                          // one record of several: the message is whole when all are here
@@ -243,14 +242,15 @@ void put(Sock* s, const std::string& topic, bool request, uint64_t id, uint64_t 
     // of at most PIECE bytes. p: which record this is; t: how many there are.
     const size_t recs = (bytes.size() + RECORD - 1) / RECORD;
     for (size_t r = 0; r < recs; ++r) {
-        const std::string part = bytes.substr(r * RECORD, RECORD);
-        const size_t pieces = (part.size() + PIECE - 1) / PIECE;
-        std::string bag = "{";
-        for (size_t p = 0; p < pieces; ++p) bag += "\"b" + std::to_string(p) + "\":\"" + b64(part.substr(p * PIECE, PIECE)) + "\",";
+        const char* part = bytes.data() + r * RECORD; const size_t part_size = std::min(RECORD, bytes.size() - r * RECORD);
+        const size_t pieces = (part_size + PIECE - 1) / PIECE;
+        std::string bag; bag.reserve(part_size / 3 * 4 + 16 * pieces + 256); bag = "{";
+        for (size_t p = 0; p < pieces; ++p) { bag += "\"b" + std::to_string(p) + "\":\"";
+            b64_into(bag, part + p * PIECE, std::min(PIECE, part_size - p * PIECE)); bag += "\","; }
         bag += "\"c\":" + std::to_string(pieces) + ",\"f\":\"" + s->name + "\",\"i\":" + std::to_string(id) + ",\"k\":\"" + (request ? "q" : "r") +
                "\",\"p\":" + std::to_string(r) + ",\"s\":" + std::to_string(slot) + ",\"t\":" + std::to_string(recs) + "}";
         space->write("homa", topic, s->name + "." + std::to_string(slot) + "." + std::to_string(r), bag);
-        if (DEBUG) fprintf(stderr, "[SOFTHOMA-DEBUG] %.3f wrote %s id=%llu record %zu of %zu (%zu bytes) to %s\n", now_ms(), request ? "request" : "reply", (unsigned long long)id, r + 1, recs, part.size(), topic.c_str());
+        if (DEBUG) fprintf(stderr, "[SOFTHOMA-DEBUG] %.3f wrote %s id=%llu record %zu of %zu (%zu bytes) to %s\n", now_ms(), request ? "request" : "reply", (unsigned long long)id, r + 1, recs, part_size, topic.c_str());
     }
 }
 
