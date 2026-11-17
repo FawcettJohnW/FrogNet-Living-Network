@@ -7,6 +7,7 @@ HOMA="${1:?usage: tools/gate.sh /path/to/HomaModule}"
 HERE="$(cd "$(dirname "$0")/.." && pwd)"; cd "$HERE" || exit 1
 make HOMA="$HOMA" -j8 >/dev/null || { echo "  [FAIL] build"; exit 1; }
 ( cd "$HOMA/util" && make server homa_test cp_node >/dev/null 2>&1 ) || { echo "  [FAIL] his tools did not build"; exit 1; }
+export SOFTHOMA_EXIT_WHEN_MEMORY_GONE=1       # his server, left running when the memory ends, would print for ever
 export SOFTHOMA_NODE1=127.0.0.1                # cp_node names its servers node<N>; /etc/hosts is not written
 RAMPORT=${SOFTHOMA_GATE_PORT:-9111}; OUT=$(mktemp -d); fails=0
 export SOFTHOMA_RAM=127.0.0.1:$RAMPORT

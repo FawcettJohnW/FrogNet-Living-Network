@@ -152,6 +152,19 @@ number, so it waits forever. Reproduced with his arithmetic alone, compiled for 
 emulation: 18446744073709551615). Off x86 `try.sh client` therefore gives his client `--gbps 1000000` through his
 own option, which keeps the next start in the past; his source is not changed for it.
 
+**First figures on two machines** (two Pis, 10.250.250.1 holding the memory and his server, 10.251.251.1 his
+client; 100-byte messages, 8 outstanding; 17 Nov, shim v6): 3.3 to 3.7 thousand round trips a second, round trip
+P50 2.1 ms, P99 4.2 ms, P99.9 19 ms. In the server's own log the time from a request's row arriving to its reply
+being written is P50 0.10 ms, P99 0.32 ms (1,939 requests), so about 2.0 of the 2.1 ms is outside his server: the
+two crossings of the link and the memory. No control was run in that session, so these say nothing yet about TCP
+on the same machines; `try.sh tcpserver` and `try.sh tcpclient SERVER-ADDRESS` are that control (his cp_node on
+TCP, straight between the two, no memory). On one x86 machine TCP is ahead at 100 bytes (P50 57 us against 340 us),
+which is the case this is not built for.
+
+His `cp_node` server does not stop on a failed `recvmsg`: when the memory ends it calls it again at once, for ever,
+printing each time (30 GB of log in a few minutes here). `SOFTHOMA_EXIT_WHEN_MEMORY_GONE=1`, which `try.sh` and the
+gate set, ends the process there with one line instead.
+
 ## 6. What is expected, and how it is judged
 
 - Against Homa as shipped at defaults over a long round trip: on the simulator it completed 0 of 40 RPCs at 120 ms

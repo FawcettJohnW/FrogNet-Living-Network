@@ -11,6 +11,9 @@
 #   try.sh client RAM-ADDRESS SERVER-ADDRESS [WORKLOAD] [OUTSTANDING]
 #                                                   his cp_node as a client. WORKLOAD: a size in bytes, or his w1..w5
 #                                                   (default 100). OUTSTANDING: requests in flight (default 8).
+#   try.sh tcpserver                                the control: his cp_node as a server on TCP, no soft Homa, no memory
+#   try.sh tcpclient SERVER-ADDRESS [WORKLOAD] [OUTSTANDING]
+#                                                   his cp_node as a client on TCP, straight to the server
 # The memory's port is SOFTHOMA_TRY_PORT (default 9131).
 set -u
 HERE=$(cd "$(dirname "$(readlink -f "$0")")/.." && pwd)
@@ -66,7 +69,7 @@ server)
     echo "his cp_node server on soft Homa at $IP. On the client machine:"
     echo "    $0 client $RAM $IP"
     echo
-    exec env LD_PRELOAD="$HERE/build/libsofthoma.so" SOFTHOMA_RAM="$RAM:$PORT" SOFTHOMA_IP="$IP" \
+    exec env LD_PRELOAD="$HERE/build/libsofthoma.so" SOFTHOMA_RAM="$RAM:$PORT" SOFTHOMA_IP="$IP" SOFTHOMA_EXIT_WHEN_MEMORY_GONE=1 \
         "$HOMA/util/cp_node" server --protocol homa --first-port 4000 --port-threads 2
     ;;
 client)
@@ -82,9 +85,27 @@ client)
     case "$(uname -m)" in x86_64|i?86) ;; *) GBPS="--gbps 1000000"
         echo "try.sh: $(uname -m): his client is given --gbps 1000000 (send at once; without it his client sends one request and stops on this machine, see the comment in $0)" ;; esac
     echo
-    exec env LD_PRELOAD="$HERE/build/libsofthoma.so" SOFTHOMA_RAM="$RAM:$PORT" SOFTHOMA_IP="$IP" SOFTHOMA_NODE1="$SRV" \
+    exec env LD_PRELOAD="$HERE/build/libsofthoma.so" SOFTHOMA_RAM="$RAM:$PORT" SOFTHOMA_IP="$IP" SOFTHOMA_NODE1="$SRV" SOFTHOMA_EXIT_WHEN_MEMORY_GONE=1 \
         "$HOMA/util/cp_node" client --protocol homa --workload "${4:-100}" --client-max "${5:-8}" --ports 1 \
         --first-port 4000 --first-server 1 --server-nodes 1 $GBPS
     ;;
-*)  sed -n '5,14p' "$0" | sed 's/^# \{0,1\}//'; exit 1 ;;
+tcpserver)
+    built
+    echo "his cp_node server on TCP (the control: no soft Homa). His server takes connections only from 10.x, 172.16-31.x and 192.168.x."
+    echo "On the client machine:   $0 tcpclient THIS-MACHINE'S-ADDRESS"
+    echo
+    exec "$HOMA/util/cp_node" server --protocol tcp --first-port 4000 --port-threads 2
+    ;;
+tcpclient)
+    built; SRV=${2:-}; [ -n "$SRV" ] || die "usage: $0 tcpclient SERVER-ADDRESS [WORKLOAD] [OUTSTANDING]"
+    echo "his cp_node client on TCP straight to $SRV, workload ${3:-100}, ${4:-8} outstanding. One line a second; Ctrl-C ends it."
+    GBPS=""
+    case "$(uname -m)" in x86_64|i?86) ;; *) GBPS="--gbps 1000000"; echo "try.sh: $(uname -m): his client is given --gbps 1000000, as for soft Homa" ;; esac
+    echo
+    # the shim is loaded only to answer his name for the server (node1); a TCP socket is not its business
+    exec env LD_PRELOAD="$HERE/build/libsofthoma.so" SOFTHOMA_NODE1="$SRV" \
+        "$HOMA/util/cp_node" client --protocol tcp --workload "${3:-100}" --client-max "${4:-8}" --ports 1 \
+        --first-port 4000 --first-server 1 --server-nodes 1 $GBPS
+    ;;
+*)  sed -n '5,17p' "$0" | sed 's/^# \{0,1\}//'; exit 1 ;;
 esac

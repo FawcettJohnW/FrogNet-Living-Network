@@ -9,6 +9,9 @@
 //
 //   SOFTHOMA_RAM=HOST:PORT   the memory (a RAM host that serves the "homa" space; softhoma-ram is one)
 //   SOFTHOMA_IP=a.b.c.d      this machine's address, as its peers name it (default 127.0.0.1, said in the log)
+//   SOFTHOMA_EXIT_WHEN_MEMORY_GONE=1   end this process when its session with the memory ends. For programs that
+//                            do not stop on a failed recvmsg: his cp_node server calls it again at once, for ever,
+//                            and prints a line each time (30 GB of log in a few minutes, measured).
 //   SOFTHOMA_NODE<N>=a.b.c.d the address of the machine his cp_node calls node<N> (it looks its servers up by that
 //                            name). Without it the name is looked up as usual. /etc/hosts is not written.
 //
@@ -65,7 +68,7 @@
 #include "homa.h"
 
 namespace {
-const char* BUILD = "softhoma-v6-20261117j";
+const char* BUILD = "softhoma-v7-20261117k";
 const size_t PIECE = 48000;        // one field of a cell: at most 65,535 bytes on the wire (semcodec TYPE_STR), in base64
 size_t RECORD = 240000;            // one cell: bulk goes in large records (PERFORMANCE-LESSONS.md section 2), and a
                                    // frame to the memory is at most 1 MiB (ram_host.cpp MAX_FRAME; over it the memory
@@ -167,6 +170,10 @@ void memory_gone(Sock* s, const std::string& why) {   // this process's session 
     size_t n; { std::lock_guard<std::mutex> g(s->m); s->down = true; s->down_err = ENETDOWN; n = s->out.size(); }
     fprintf(stderr, "[SOFTHOMA] the MEMORY IS GONE for socket %s (%s): %zu request(s) outstanding end with it and the socket is down. Nothing is used in its place.\n", s->name.c_str(), why.c_str(), n);
     s->cv.notify_all(); wake(s);
+    if (getenv("SOFTHOMA_EXIT_WHEN_MEMORY_GONE")) {
+        fprintf(stderr, "[SOFTHOMA] this process ENDS HERE: its memory is gone and SOFTHOMA_EXIT_WHEN_MEMORY_GONE is set\n");
+        _exit(1);
+    }
 }
 
 bool ensure_space() {
