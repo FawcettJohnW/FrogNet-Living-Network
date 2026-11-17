@@ -95,9 +95,13 @@ The parts every node runs. 38 Python files, no subdirectories.
   Detection is not a fallback: a session whose carrier fails ends. A node told `homa` without the module stops with
   `HomaUnavailable`. Gate: `test_homa_carrier_oracle.py`.
 - **Soft Homa is its own carrier, `softhoma`** (`[SOFT_HOMA_CARRIER_V1]`). Homa's calls on shared memory
-  (`ribbit/examples/homa`, read its DESIGN.md) loaded into the process by LD_PRELOAD. The driver is the same;
-  `homa_socket.py` calls through the process's own symbols (`ctypes.CDLL(None)`), never a handle on libc, which
-  would go past it. `homa_transport.homa_name()` says which Homa this process has; kernel and soft Homa are not
+  (`ribbit/examples/homa`, read its DESIGN.md), a library the Homa driver opens ITSELF
+  (`[THE_DRIVER_LOADS_ITS_OWN_HOMA_V1]`, `homa_socket.soft_homa_library()`): the node is told where it is by
+  `FROGNET_SOFTHOMA_LIB` or the one line of `/etc/frognet/softhoma_library`, and with neither the library is never
+  loaded. Every call the driver's socket makes goes through that one handle and nothing else in the process does.
+  NEVER put it into a proxy or daemon with LD_PRELOAD: that stands it in front of every socket in the process, the
+  TCP driver's included (John: "There should be no risk to existing systems at all"). LD_PRELOAD is only for a
+  program that cannot be changed, his `cp_node`. The driver is the same on kernel Homa and soft Homa. `homa_transport.homa_name()` says which Homa this process has; kernel and soft Homa are not
   one wire, so each end's capability tuple says `homa` or `softhoma` and the two find TCP in common. Words:
   `softhoma` (must be loaded or the process stops); `homa` with soft Homa loaded stops.
 - **`[FRAMES_GO_IN_PIECES_V1]` a frame larger than one message goes in pieces.** The driver

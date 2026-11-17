@@ -167,7 +167,7 @@ def main():
     try:
         HT.carrier_for(P); stopped = False
     except SystemExit as e:
-        stopped = "not loaded" in str(e)
+        stopped = "not told where the soft Homa library is" in str(e)
     check(stopped, "told softhoma without it: the process stops and says so; nothing else is opened")
     HT._soft_homa_loaded = real_soft
     HT._kernel_homa_opens = real

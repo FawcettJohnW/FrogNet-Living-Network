@@ -44,7 +44,7 @@ import struct
 import threading
 from typing import List, NamedTuple, Optional, Tuple
 
-BUILD = "homa-transport-v3-20261117n"
+BUILD = "homa-transport-v4-20261117p"
 HOMA_PINNED_COMMIT = "07ce63ef153207a953c42a749ee2429fb5282f55"
 
 IPPROTO_HOMA = 146
@@ -153,29 +153,58 @@ def sysctls() -> dict:
     return out
 
 
+# [THE_DRIVER_LOADS_ITS_OWN_HOMA_V1] John 2026-11-17: "The driver should be independent and able to run alongside the
+# existing drivers. There should be no risk to existing systems at all." Soft Homa is a library (the Homa API interface,
+# ribbit/examples/homa libsofthoma.so). This driver opens that library itself and calls it, and only this driver's
+# socket goes through it. It is NOT put into the process with LD_PRELOAD: that would stand it in front of every
+# socket in the process, the TCP driver's included. (LD_PRELOAD is for a program that cannot be changed, his cp_node.)
+# Where the library is: FROGNET_SOFTHOMA_LIB, else the one line of SOFTHOMA_LIB_FILE. Neither: there is no soft Homa
+# here, the library is never loaded, and Homa means the kernel module.
+SOFTHOMA_LIB_FILE = os.environ.get("FROGNET_SOFTHOMA_LIB_FILE", "/etc/frognet/softhoma_library")
+_soft_lib = None
+_soft_lib_asked = False
+_soft_lib_lock = threading.Lock()
+
+
+def soft_homa_library():
+    """The soft Homa library this node was told to use, opened once, or None when it was told of none."""
+    global _soft_lib, _soft_lib_asked
+    with _soft_lib_lock:
+        if _soft_lib_asked:
+            return _soft_lib
+        path, src = os.environ.get("FROGNET_SOFTHOMA_LIB", "").strip(), "FROGNET_SOFTHOMA_LIB"
+        if not path:
+            try:
+                with open(SOFTHOMA_LIB_FILE) as f:
+                    path, src = f.read().strip(), SOFTHOMA_LIB_FILE
+            except FileNotFoundError:
+                path = ""
+        if path:
+            try:
+                _soft_lib = ctypes.CDLL(path, use_errno=True)       # this handle only: nothing else in the process sees it
+                _soft_lib.softhoma_build.restype = ctypes.c_char_p
+                _soft_lib.softhoma_record_bytes.restype = ctypes.c_size_t
+            except (OSError, AttributeError) as e:
+                raise HomaUnavailable("%s names the soft Homa library %r and it could not be used: %s: %s. This process "
+                                      "does not use another Homa in its place." % (src, path, type(e).__name__, e)) from e
+            print("[HOMA] [THE_DRIVER_LOADS_ITS_OWN_HOMA_V1] soft Homa %s opened from %s (%s) by the Homa driver; no "
+                  "other socket in this process goes through it" % (_soft_lib.softhoma_build().decode(), path, src), flush=True)
+        _soft_lib_asked = True
+        return _soft_lib
+
+
 def soft_homa_loaded() -> Optional[str]:
-    """Soft Homa's build if it is loaded into this process (ribbit/examples/homa, LD_PRELOAD), else None."""
-    try:
-        f = ctypes.CDLL(None).softhoma_build
-    except AttributeError:
-        return None
-    f.restype = ctypes.c_char_p
-    return f().decode()
+    """Soft Homa's build if this node was told of a soft Homa library (soft_homa_library), else None."""
+    lib = soft_homa_library()
+    return lib.softhoma_build().decode() if lib is not None else None
 
 
 def max_message() -> int:
     """[FRAMES_GO_IN_PIECES_V1] The largest message this process's Homa carries as ONE message on its fast path: Homa's
     own limit under the kernel module, and one cell (softhoma_record_bytes) under soft Homa. The driver cuts a frame
     into pieces of this size. A soft Homa that cannot say is refused: there is no guessing its record size."""
-    if soft_homa_loaded() is None:
-        return HOMA_MAX_MESSAGE_LENGTH
-    try:
-        f = ctypes.CDLL(None).softhoma_record_bytes
-    except AttributeError:
-        raise HomaUnavailable("soft Homa %s is loaded but has no softhoma_record_bytes(): it is older than this driver "
-                              "(%s); install the Homa API interface that came with it" % (soft_homa_loaded(), BUILD))
-    f.restype = ctypes.c_size_t
-    return int(f())
+    lib = soft_homa_library()
+    return HOMA_MAX_MESSAGE_LENGTH if lib is None else int(lib.softhoma_record_bytes())
 
 
 def startup_line(who: str) -> str:
@@ -204,16 +233,19 @@ class HomaSocket:
     REGION_MESSAGES = 64
 
     def __init__(self, bind_ip: str = "0.0.0.0", server_port: Optional[int] = None):
-        # [SOFT_HOMA_CARRIER_V1] the process's own symbols, not a handle on libc: where soft Homa is loaded into the
-        # process (ribbit/examples/homa, LD_PRELOAD) these calls are its calls, and where it is not they are libc's.
-        self._libc = ctypes.CDLL(None, use_errno=True)
-        try:
-            self._sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM, IPPROTO_HOMA)
-        except OSError as e:
-            raise HomaUnavailable("socket(AF_INET, SOCK_DGRAM, IPPROTO_HOMA=146) failed on kernel %s: errno=%s (%s). "
-                                  "The Homa module is not loaded here; this process does not use another transport."
-                                  % (os.uname().release, e.errno, e.strerror)) from e
-        self._fd = self._sock.fileno()
+        # [THE_DRIVER_LOADS_ITS_OWN_HOMA_V1] every call this socket makes goes to one place: the soft Homa library
+        # this node was told of, or else the system's own calls (the kernel module's socket). The socket is a bare
+        # descriptor so that no call on it can go anywhere else.
+        soft = soft_homa_library()
+        self._libc = soft if soft is not None else ctypes.CDLL(None, use_errno=True)
+        self._fd = self._libc.socket(socket.AF_INET, socket.SOCK_DGRAM, IPPROTO_HOMA)
+        if self._fd < 0:
+            e = ctypes.get_errno()
+            raise HomaUnavailable("socket(AF_INET, SOCK_DGRAM, IPPROTO_HOMA=146) failed on kernel %s: errno=%s (%s). %s; "
+                                  "this process does not use another transport."
+                                  % (os.uname().release, e, os.strerror(e),
+                                     "Soft Homa could not open it (is SOFTHOMA_RAM set and its memory there?)" if soft is not None
+                                     else "The Homa module is not loaded here"))
         self._closed = False
         self._tls = threading.local()            # per thread: the bpages of its last message, to hand back
         self.region_len = self.REGION_MESSAGES * HOMA_MAX_BPAGES * HOMA_BPAGE_SIZE
@@ -222,16 +254,20 @@ class HomaSocket:
         rb = homa_rcvbuf_args(self._region_addr, self.region_len)
         if self._libc.setsockopt(self._fd, IPPROTO_HOMA, SO_HOMA_RCVBUF, ctypes.byref(rb), ctypes.sizeof(rb)) != 0:
             e = ctypes.get_errno()
-            self._sock.close()
+            self._libc.close(self._fd)
             raise HomaUnavailable("setsockopt(SO_HOMA_RCVBUF, %d bytes) failed: errno=%d (%s)"
                                   % (self.region_len, e, os.strerror(e)))
         self.port = 0
         if server_port is not None:
-            self._sock.bind((bind_ip, int(server_port)))
+            sa = _sockaddr((bind_ip, int(server_port)))
+            if self._libc.bind(self._fd, ctypes.byref(sa), ctypes.sizeof(sa)) != 0:
+                e = ctypes.get_errno()
+                self._libc.close(self._fd)
+                raise OSError(e, "homa bind to %s:%d: %s" % (bind_ip, int(server_port), os.strerror(e)))
             one = ctypes.c_int(1)
             if self._libc.setsockopt(self._fd, IPPROTO_HOMA, SO_HOMA_SERVER, ctypes.byref(one), ctypes.sizeof(one)) != 0:
                 e = ctypes.get_errno()
-                self._sock.close()
+                self._libc.close(self._fd)
                 raise HomaUnavailable("setsockopt(SO_HOMA_SERVER) on port %d failed: errno=%d (%s)"
                                       % (server_port, e, os.strerror(e)))
             self.port = int(server_port)
@@ -328,8 +364,7 @@ class HomaSocket:
 
     def close(self) -> None:
         self._closed = True
-        try:
-            self._sock.shutdown(socket.SHUT_RDWR)   # wakes threads blocked in recvmsg (ESHUTDOWN)
-        except OSError as e:
-            print("[HOMA] shutdown of the socket on port %d at close: %s (closing it anyway)" % (self.port, e), flush=True)
-        self._sock.close()
+        if self._libc.shutdown(self._fd, socket.SHUT_RDWR) != 0:   # wakes threads blocked in recvmsg (ESHUTDOWN)
+            e = ctypes.get_errno()
+            print("[HOMA] shutdown of the socket on port %d at close: %s (closing it anyway)" % (self.port, os.strerror(e)), flush=True)
+        self._libc.close(self._fd)

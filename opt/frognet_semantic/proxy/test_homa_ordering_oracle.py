@@ -362,6 +362,9 @@ def run(mode):
     if soft:
         from core import homa_transport as HT
         check(HT.carriers_here() == ("softhoma",) and HT._soft_homa_loaded(), f"the wire ran on soft Homa ({HT._soft_homa_loaded()}): {total} operations, {len(problems)} problems")
+        import ctypes
+        check("LD_PRELOAD" not in os.environ and not hasattr(ctypes.CDLL(None), "softhoma_build"),
+              "[THE_DRIVER_LOADS_ITS_OWN_HOMA_V1] soft Homa was not preloaded and its calls are not among this process's own: only the Homa driver's socket goes through the library")
     elif sim:
         cc, sc = TH._get_mux().carrier.counters(), srv._carrier.counters()
         print("    homasim proxy socket: %s" % {k: v for k, v in cc.items() if v}, flush=True)
@@ -514,7 +517,7 @@ def main():
             where = "127.0.0.1:%s" % os.environ.get("SOFTHOMA_ORACLE_PORT", "9151")
             ram = subprocess.Popen([host, where], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
             time.sleep(0.7)
-            env.update(LD_PRELOAD=lib, SOFTHOMA_RAM=where, SOFTHOMA_IP="10.77.77.2")
+            env.update(FROGNET_SOFTHOMA_LIB=lib, SOFTHOMA_RAM=where, SOFTHOMA_IP="10.77.77.2")   # no LD_PRELOAD: the driver opens it
         try:
             r = subprocess.run([sys.executable, os.path.abspath(__file__), m], capture_output=True, text=True, timeout=900, env=env)
         finally:

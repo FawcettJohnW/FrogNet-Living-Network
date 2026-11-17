@@ -119,13 +119,21 @@ across the Internet share one memory.
 
 **Soft Homa is a carrier of its own (`[SOFT_HOMA_CARRIER_V1]`, built 17 Nov).** Kernel Homa and soft Homa answer the
 same calls and are not the same wire, so they have two names in the capability tuple, `homa` and `softhoma`. The
-Homa driver is the same for both: `core/homa_socket.py` makes its calls through the process's own symbols, so
-where `libsofthoma.so` is loaded into the proxy or the daemon (LD_PRELOAD, `SOFTHOMA_RAM`, `SOFTHOMA_IP`) they are
-soft Homa's, and it says so in its start-up line. One process has one of the two, whichever answers IPPROTO_HOMA
-in it. A kernel node and a soft node therefore find TCP in common. A node's word can be `softhoma` (Homa only, and
-it must be soft; without it the process stops); `homa` with soft Homa loaded stops and says the word is
-`softhoma`. Gate: `proxy/test_homa_ordering_oracle.py soft` runs the real engine at both ends through the driver
-on soft Homa with no substitution (the fan-out workload exact, frames in order, several in flight), then closes the
+Homa driver is the same for both, and it opens soft Homa itself (`[THE_DRIVER_LOADS_ITS_OWN_HOMA_V1]`; John, 17
+Nov: "The driver should be independent and able to run alongside the existing drivers. There should be no risk to
+existing systems at all"). `core/homa_socket.py` is told where `libsofthoma.so` is (`FROGNET_SOFTHOMA_LIB`, or the
+one line of `/etc/frognet/softhoma_library`), opens it as its own handle, and makes every call of its socket through
+that handle. Nothing else in the proxy or the daemon goes through the library, and with neither setting it is never
+loaded and Homa means the kernel module. It is NOT put into a proxy or daemon with LD_PRELOAD, which would stand it
+in front of every socket in the process, the TCP driver's included; an earlier build of this section did that in
+its tests. LD_PRELOAD remains the way soft Homa gets under a program that cannot be changed, his `cp_node` (section
+5a). The library still reads `SOFTHOMA_RAM` and `SOFTHOMA_IP` from the environment. The capability word is
+`softhoma`, and the driver says so in its start-up line. One process has one of the two: soft Homa where it was
+told of the library, else the kernel module. A kernel node and a soft node therefore find TCP in common. A node's word can be `softhoma` (Homa only, and
+it must be soft; without the library the process stops); `homa` on a node told of the library stops and says the
+word is `softhoma`. Gate: `proxy/test_homa_ordering_oracle.py soft` runs the real engine at both ends through the driver
+on soft Homa with no substitution and nothing preloaded (it checks that the library's calls are not among the
+process's own; the fan-out workload exact, frames in order, several in flight), then closes the
 daemon's socket with six requests outstanding and every one is failed in about 0.3 s by its capability cell, with
 no timer.
 

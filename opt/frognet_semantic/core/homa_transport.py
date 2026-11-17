@@ -91,13 +91,13 @@ def on_homa_driver() -> bool:
 
 
 def _soft_homa_loaded() -> Optional[str]:
-    """Soft Homa's build if it is loaded into this process, else None. A test replaces this function."""
+    """Soft Homa's build if this node was told of a soft Homa library, else None. A test replaces this function."""
     from core import homa_socket
     return homa_socket.soft_homa_loaded()
 
 
 def homa_name() -> str:
-    """The name of the Homa this process has: "softhoma" where soft Homa is loaded into it, else "homa"."""
+    """The name of the Homa this process has: "softhoma" where it was told of a soft Homa library, else "homa"."""
     return "softhoma" if _soft_homa_loaded() else "homa"
 
 
@@ -124,11 +124,13 @@ def carriers_here() -> Tuple[str, ...]:
             elif mode in ("homa", "softhoma"):
                 soft = _soft_homa_loaded()
                 if mode == "homa" and soft:
-                    raise SystemExit("[SEM-TRANSPORT] this node was told homa, and soft Homa (%s) is loaded into this "
-                                     "process: the Homa it would open is soft Homa. The word for that is softhoma." % soft)
+                    raise SystemExit("[SEM-TRANSPORT] this node was told homa, and it was also told of a soft Homa library "
+                                     "(%s): the Homa its driver would open is soft Homa. The word for that is softhoma." % soft)
                 if mode == "softhoma" and not soft:
-                    raise SystemExit("[SEM-TRANSPORT] this node was told softhoma, and soft Homa is not loaded into "
-                                     "this process (ribbit/examples/homa: LD_PRELOAD=libsofthoma.so, SOFTHOMA_RAM).")
+                    from core import homa_socket
+                    raise SystemExit("[SEM-TRANSPORT] this node was told softhoma, and it was not told where the soft Homa "
+                                     "library is (FROGNET_SOFTHOMA_LIB, or the one line of %s, names libsofthoma.so; "
+                                     "SOFTHOMA_RAM names its memory)." % homa_socket.SOFTHOMA_LIB_FILE)
                 _here = (mode,)
             else:
                 ok, why = _kernel_homa_opens()
