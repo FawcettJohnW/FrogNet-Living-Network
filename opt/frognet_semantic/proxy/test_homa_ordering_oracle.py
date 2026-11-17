@@ -93,7 +93,7 @@ class Hub:
         self.last_delivered = {}                         # (src, dst) -> highest post number delivered
         self.msgs = self.bytes = self.not_fnw1 = 0
         self.max_message = 0                             # mode "pieces" sets it: what one message may carry
-        self.pieces = self.mores = self.nothings = self.over = 0
+        self.pieces = self.mores = self.spares = self.nothings = self.over = 0
         self.to_dead = 0
         self.aborts, self.peer_gone_calls = 0, []
         threading.Thread(target=self._run, daemon=True, name="hub").start()
@@ -103,6 +103,8 @@ class Hub:
             self.pieces += 1
         elif payload[:4] == b"FNHM":
             self.mores += 1
+        elif payload[:4] == b"FNHS":
+            self.spares += 1
         elif payload[:4] == b"FNH0":
             self.nothings += 1
         elif payload[:4] != b"FNH1" or b"FNW1" not in payload[12:24]:
@@ -394,7 +396,10 @@ def run(mode):
         check(hub.over == 0 and hub.pieces > 1000, f"[FRAMES_GO_IN_PIECES_V1] no message was over the carrier's {hub.max_message} bytes; {hub.pieces} pieces were carried")
         check(cut_p > 0 and cut_p == join_d, f"every request the proxy cut ({cut_p}) the daemon put back together ({join_d})")
         check(cut_d > 0 and cut_d == join_p, f"every reply the daemon cut ({cut_d}) the proxy put back together ({join_p})")
-        check(hub.mores > 0 and hub.nothings > 0, f"replies with more pieces than their request had RPCs were asked for ({hub.mores} more) and request RPCs no reply piece needed were closed ({hub.nothings} nothing)")
+        check(hub.nothings > 0, f"request RPCs no reply piece needed were closed ({hub.nothings} nothing)")
+        on_spares, kept = sum(x.n_on_spares for x in sess), sum(x.n_kept for x in sess)
+        check(on_spares > 0 and kept > 0 and kept == hub.mores,
+              f"[THE_RPCS_ARE_ALREADY_OPEN_V1] reply pieces went on spares the proxy had open, with no extra round trip ({on_spares}); the spares ran out for {kept} pieces, each asked for once ({hub.mores} more), and the proxy now keeps {sum(w['spares_kept_open'] for w in now)} open ({hub.spares} spares sent)")
     if not sim:
         check(hub.not_fnw1 == 0, "every message was the driver's header followed by one whole FNW1 frame, or a piece of one")
     check(not tcp_workers, "no TCP worker was made")

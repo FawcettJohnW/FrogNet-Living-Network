@@ -47,8 +47,8 @@ from daemon.engine import session as S
 from daemon.engine.execution import ExecutionEngine
 from daemon.upstream.client import HttpClient
 from daemon.cache import semcache_db
-from proxy.transport_homa import (DRV_MAGIC, REQ_HDR, REP_HDR, END_MAGIC, PIECE_MAGIC, MORE_MAGIC, NOTHING, REQ_PIECE,
-                                  REP_PIECE, MORE_HDR, cut)
+from proxy.transport_homa import (DRV_MAGIC, REQ_HDR, REP_HDR, END_MAGIC, PIECE_MAGIC, MORE_MAGIC, SPARE_MAGIC, NOTHING,
+                                  REQ_PIECE, REP_PIECE, MORE_HDR, SPARE_HDR, cut)
 
 
 
@@ -99,7 +99,8 @@ class _MsgSession(S.SemanticSession):
         self._open: Dict[int, list] = {}                  # a request's rpc id -> its other RPCs, still unanswered
         self._seq_of: Dict[int, int] = {}                 # a request's rpc id -> its seq (what a "more" names it by)
         self._kept: Dict[Tuple[int, int], bytes] = {}     # (request seq, index) -> a reply piece waiting for its RPC
-        self.n_joined = self.n_cut = 0
+        self._spares: list = []                           # [THE_RPCS_ARE_ALREADY_OPEN_V1] the proxy's spare RPCs, open
+        self.n_joined = self.n_cut = self.n_on_spares = self.n_kept = 0
         self.n_in = self.n_out = self.n_early = 0
         self.max_early = 0
         self.order = []                                   # with keep_order_record: seqs in the order handed up
@@ -151,6 +152,15 @@ class _MsgSession(S.SemanticSession):
                 self._carrier.send_reply(d, rid, _ended_msg(self.sid, self.ended))
             return
         self.arrive(seq, rid0, peer0, b"".join(got[i][2] for i in range(count)))
+
+    def spare(self, rpc_id: int, peer: Tuple[str, int]) -> None:
+        """[THE_RPCS_ARE_ALREADY_OPEN_V1] An RPC of no request, left open for a reply piece to go on."""
+        if self.ended:
+            self._carrier.send_reply(peer, rpc_id, _ended_msg(self.sid, self.ended))
+            return
+        with self._dest_lock:
+            self._spares.append((rpc_id, peer))
+            self._dest[rpc_id] = peer                     # so end() lets go of it
 
     def more(self, seq: int, index: int, rpc_id: int, peer: Tuple[str, int]) -> None:
         """[FRAMES_GO_IN_PIECES_V1] The proxy's RPC for reply piece `index` of request `seq`. The piece was kept before
@@ -246,9 +256,16 @@ class _MsgSession(S.SemanticSession):
                         out = [REP_HDR.pack(DRV_MAGIC, rseq) + reply]
                     else:
                         parts = cut(reply, self.max_message - REP_PIECE.size)
-                        out = [REP_PIECE.pack(PIECE_MAGIC, rseq, i, len(parts)) + p for i, p in enumerate(parts)]
-                        for i in range(len(rpcs), len(out)):          # kept BEFORE piece 0 goes: the proxy asks after it
+                        while len(rpcs) < len(parts) and self._spares:     # [THE_RPCS_ARE_ALREADY_OPEN_V1]
+                            rid, d = self._spares.pop(0)
+                            self._dest.pop(rid, None)
+                            rpcs.append((rid, d))
+                            self.n_on_spares += 1
+                        sent = min(len(rpcs), len(parts))
+                        out = [REP_PIECE.pack(PIECE_MAGIC, rseq, req_seq, i, len(parts), sent) + p for i, p in enumerate(parts)]
+                        for i in range(sent, len(out)):               # kept BEFORE piece 0 goes: the proxy asks after it
                             self._kept[(req_seq, i)] = out[i]
+                            self.n_kept += 1
                         self.n_cut += 1
                 try:
                     for i, (rid, d) in enumerate(rpcs):
@@ -358,7 +375,8 @@ class MsgDaemonServer:
                     print("[DAEMON-HOMA] a RESPONSE (rpc %d, cookie %d) arrived on the daemon's server socket; the "
                           "daemon sends no requests: dropped" % (m.id, m.cookie), flush=True)
                     continue
-                if len(m.payload) < REQ_HDR.size or m.payload[:4] not in (DRV_MAGIC, PIECE_MAGIC, MORE_MAGIC):
+                is_spare = m.payload[:4] == SPARE_MAGIC and len(m.payload) >= SPARE_HDR.size
+                if not is_spare and (len(m.payload) < REQ_HDR.size or m.payload[:4] not in (DRV_MAGIC, PIECE_MAGIC, MORE_MAGIC)):
                     print("[DAEMON-HOMA] a request from %s:%d without the driver's header (%r): the far end is not "
                           "this driver; answered ERROR 400 outside any session" % (m.peer[0], m.peer[1], m.payload[:16]), flush=True)
                     self._carrier.send_reply(m.peer, m.id, wrap_error(400, "not the FNW1-on-Homa driver's message"))
@@ -369,6 +387,8 @@ class MsgDaemonServer:
                     _magic, sid, seq, index, count = REQ_PIECE.unpack_from(m.payload)
                 elif magic == MORE_MAGIC and len(m.payload) >= MORE_HDR.size:
                     _magic, sid, seq, index = MORE_HDR.unpack_from(m.payload)
+                elif is_spare:
+                    _magic, sid = SPARE_HDR.unpack_from(m.payload); seq = -1
                 else:
                     _magic, sid, seq = REQ_HDR.unpack_from(m.payload)
                 key = (m.peer[0], sid)
@@ -391,6 +411,8 @@ class MsgDaemonServer:
                     s.piece(seq, index, count, m.id, m.peer, m.payload[REQ_PIECE.size:])
                 elif magic == MORE_MAGIC:
                     s.more(seq, index, m.id, m.peer)
+                elif magic == SPARE_MAGIC:
+                    s.spare(m.id, m.peer)
                 else:
                     s.arrive(seq, m.id, m.peer, m.payload[REQ_HDR.size:])
         except homa_socket.CarrierClosed:

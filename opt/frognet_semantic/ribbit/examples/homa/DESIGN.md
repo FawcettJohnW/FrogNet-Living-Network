@@ -140,16 +140,24 @@ itself with a larger message, his `cp_node` included.
 | `FNH1` session seq + frame | proxy | a whole frame, as before |
 | `FNH2` session seq index count + bytes | proxy | one piece of a request; one RPC each, which the daemon keeps open |
 | `FNH1` rseq + frame | daemon | a whole reply, as before |
-| `FNH2` rseq index count + bytes | daemon | reply piece `index`; it answers the request's RPC `index` while the request has one |
-| `FNHM` session seq index | proxy | an RPC for reply piece `index` to arrive on, sent when a reply has more pieces than its request had RPCs |
+| `FNH2` rseq seq index count sent + bytes | daemon | reply piece `index` of the reply to request `seq`; `sent` is how many of the `count` pieces have gone |
+| `FNHS` session | proxy | a spare: an RPC of no request, left open at the daemon for a reply piece to go on |
+| `FNHM` session seq index | proxy | an RPC for reply piece `index` to arrive on, sent only when the spares open were too few |
 | `FNH0` | daemon | closes a request RPC that no reply piece needed |
 
-A reply with more pieces than its request costs one extra round trip: the proxy learns the count from the first
-piece and only then sends the `FNHM` RPCs for the rest, all at once. Unlike the Communicator's video nothing is
+**A large reply costs no extra round trip** (`[THE_RPCS_ARE_ALREADY_OPEN_V1]`; John, 17 Nov: "Allocate max size
+before, take all that come, and if the max was reached, then look for the flag"). Homa lets the daemon speak only
+in answer to an RPC, so a reply of m pieces needs m RPCs open. The request's own RPCs are used first. The rest go
+on the session's spares, which the proxy keeps open at the daemon (each is one held read) and replaces as they are
+used. `sent` is the flag: when it is under `count` the spares ran out, the proxy asks for the remaining pieces with
+`FNHM` (one round trip, once), and from then on keeps that many more spares open. The number kept open is what the
+session has needed; nothing is guessed and nothing is capped. A session that never has a large reply opens none.
+Unlike the Communicator's video nothing is
 shed: a piece that cannot be sent ends the session, as any lost frame does. Order is unchanged: a frame takes its
 turn when its last piece is in. Gate: `proxy/test_homa_ordering_oracle.py pieces` runs the ordered storm on a
-carrier limited to 64-byte messages (3,118 pieces; every frame cut at one end is rebuilt at the other; none over
-the limit; the liveness checks pass with several RPCs per request). NOT measured: a large frame through the driver
+carrier limited to 64-byte messages (3,184 pieces; every frame cut at one end is rebuilt at the other; none over
+the limit; 146 reply pieces went on spares already open and 35 had to be asked for, once each, after which the
+proxy kept 35 spares open; the liveness checks pass with several RPCs per request). NOT measured: a large frame through the driver
 on soft Homa on real machines, and a piece whose contents change from one frame to the next.
 
 Not done: one process holding both kernel Homa and soft Homa at once (a node with the module that also talks to

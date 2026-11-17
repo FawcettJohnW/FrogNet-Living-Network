@@ -75,14 +75,31 @@ END_MAGIC = b"FNHE"                     # the daemon's driver, in place of a rep
 # pieces, each a whole Homa message, and is put back together at the far end before anything above the driver sees it.
 #   request piece   "FNH2" session seq index count + bytes     one RPC each; the daemon keeps them open
 #   reply piece     "FNH2" rseq index count + bytes            piece i answers the request's RPC i while there is one
+#   spare           "FNHS" session                             the proxy's: an RPC left open at the daemon, of no request,
+#                                                              for a reply piece to arrive on (a held read)
 #   more            "FNHM" session seq index                   the proxy's: an RPC for reply piece `index` to arrive on,
-#                                                              sent when a reply has more pieces than the request had RPCs
+#                                                              sent only when the spares open were too few
+# [THE_RPCS_ARE_ALREADY_OPEN_V1] John 2026-11-17: "Allocate max size before, take all that come, and if the max was
+# reached, then look for the flag." Homa lets the daemon speak only in answer to an RPC, so a reply of m pieces needs
+# m RPCs open. The request's own come first; the rest go on the session's spares, which the proxy keeps open and
+# replaces as they are used, so a large reply costs no extra round trip. `sent` in a reply piece is the flag: how
+# many of the pieces have gone. When it is under `count` the spares ran out; the proxy asks for the rest ("more")
+# and from then on keeps that many more spares open. The number is what the session has needed, never a guess.
 #   nothing         "FNH0"                                     the daemon's: closes a request RPC no reply piece needed
 # Unlike the Communicator's video nothing is shed: a piece that cannot go ends the session, as any lost frame does.
-PIECE_MAGIC, MORE_MAGIC, NOTHING = b"FNH2", b"FNHM", b"FNH0"
+PIECE_MAGIC, MORE_MAGIC, SPARE_MAGIC, NOTHING = b"FNH2", b"FNHM", b"FNHS", b"FNH0"
 REQ_PIECE = struct.Struct("!4s8sQII")   # magic, session, seq, index, count
-REP_PIECE = struct.Struct("!4sQII")     # magic, reply seq, index, count
+REP_PIECE = struct.Struct("!4sQQIII")  # magic, reply seq, the request's seq, index, count, sent
+SPARE_HDR = struct.Struct("!4s8s")      # magic, session
 MORE_HDR = struct.Struct("!4s8sQI")     # magic, session, seq, index
+
+
+class _Spare:
+    """What _ClientMux.send asks of a request, for an RPC that is no request's."""
+    __slots__ = ("sent_at", "attempts", "retry_pending", "seqs", "gate")
+
+    def __init__(self):
+        self.sent_at, self.attempts, self.retry_pending, self.seqs, self.gate = {}, 0, False, [], None
 
 
 def cut(frame: bytes, room: int):
@@ -253,6 +270,9 @@ class _MsgWorker:
         self._early: Dict[int, Tuple[Any, bytes]] = {}  # replies that arrived before their turn
         self._out = set()                              # frames outstanding
         self._mine: Dict[Any, list] = {}               # [FRAMES_GO_IN_PIECES_V1] frame outstanding -> the driver's own of it
+        self._by_seq: Dict[int, Any] = {}              # request seq -> frame outstanding (a piece on a spare names it so)
+        self._spares: set = set()                      # [THE_RPCS_ARE_ALREADY_OPEN_V1] spares open at the daemon
+        self._spares_wanted = 0                        # how many to keep open: what this session has needed
         self._peer_latency = TS._PeerLatency(budget_floor=TS._BUDGET_FLOOR, budget_mult=TS._BUDGET_MULT,
                                              budget_ceiling=TS._BUDGET_CEILING)
         self._stopped = threading.Event()
@@ -260,7 +280,7 @@ class _MsgWorker:
         self._stopped_at = 0.0
         self._hello = None                             # the session's own HELLO, until its reply is in
         self.n_sent = self.n_replies = self.n_early = self.n_failed = 0
-        self.n_cut = self.n_joined = 0                 # [FRAMES_GO_IN_PIECES_V1] frames sent as pieces / replies rebuilt
+        self.n_cut = self.n_joined = self.n_more = 0   # [FRAMES_GO_IN_PIECES_V1] frames sent as pieces / replies rebuilt / pieces asked for
         self.max_out = self.max_early = 0
         print("[SEM-HOMA] session %s to %s:%d set=%d opened" % (self.session.hex(), host, self.port, set_id), flush=True)
         self._mux.attach(self)
@@ -298,6 +318,7 @@ class _MsgWorker:
             self._seq += 1
             mine[0] = seq
             self._mine[rpc] = mine
+            self._by_seq[seq] = rpc
             self._out.add(rpc)
             if hello:
                 self._hello = rpc
@@ -331,7 +352,9 @@ class _MsgWorker:
         if rpc.gate is not None:
             rpc.ticket = TS._gate_stamp(rpc.gate)      # [REFERENCES_MOVE_IN_WIRE_ORDER_V1] as _DaemonWorker's reader does
         self._out.discard(rpc)
-        self._mine.pop(rpc, None)
+        mine = self._mine.pop(rpc, None)
+        if mine is not None:
+            self._by_seq.pop(mine[0], None)
         self.n_replies += 1
         rpc.done.set()
 
@@ -358,19 +381,28 @@ class _MsgWorker:
         if payload[:4] == NOTHING:                     # [FRAMES_GO_IN_PIECES_V1] a request RPC the reply did not need
             return
         if payload[:4] == PIECE_MAGIC and len(payload) >= REP_PIECE.size:
-            _m, rseq, index, count = REP_PIECE.unpack_from(payload)
-            ask = ()
+            _m, rseq, req_seq, index, count, sent = REP_PIECE.unpack_from(payload)
+            ask, spares = (), []
             with self._lock:
+                self._spares.discard(rpc)                # if it came on a spare, that spare is used
+                rpc = self._by_seq.get(req_seq)
                 mine = self._mine.get(rpc)
                 if mine is None:                         # the session ended under it
                     return
                 mine[2][index] = payload[REP_PIECE.size:]
-                if count > mine[1]:                      # more pieces than the daemon has RPCs of ours to answer on
+                mine[1] = max(mine[1], sent)             # those have gone, on the request's RPCs and on spares
+                if count > mine[1]:                      # the flag: the spares ran out
                     ask = range(mine[1], count)
+                    self._spares_wanted += len(ask)
+                    self.n_more += len(ask)
                     mine[1] = count
                 done = len(mine[2]) == count
+                while len(self._spares) < self._spares_wanted:
+                    sp = _Spare(); self._spares.add(sp); spares.append(sp)
             for i in ask:
                 self._mux.send(self, rpc, MORE_HDR.pack(MORE_MAGIC, self.session, mine[0], i))
+            for sp in spares:
+                self._mux.send(self, sp, SPARE_HDR.pack(SPARE_MAGIC, self.session))
             if not done:
                 return
             with self._lock:
@@ -408,6 +440,7 @@ class _MsgWorker:
             self._stopped_at = time.time()
             self._stopped.set()
             left = list(self._out); self._out.clear(); self._early.clear()
+            spares = list(self._spares); self._spares.clear(); self._mine.clear(); self._by_seq.clear()
             self.n_failed += len(left)
         print("[SEM-HOMA] session %s to %s:%d ENDED: %s; %d outstanding frames fail with it (sent=%d replies=%d)"
               % (self.session.hex(), self.host, self.port, self._stopped_reason, len(left), self.n_sent, self.n_replies),
@@ -415,10 +448,11 @@ class _MsgWorker:
         for rpc in left:
             rpc.err = err if isinstance(err, OSError) else ConnectionError(self._stopped_reason)
             rpc.done.set()
-        self._mux.detach(self, [rid for rpc in left for rid in rpc.seqs])
+        self._mux.detach(self, [rid for rpc in left + spares for rid in rpc.seqs])
 
     def stats(self) -> Dict[str, Any]:
         return {"host": self.host, "session": self.session.hex(), "sent": self.n_sent, "replies": self.n_replies,
                 "replies_arrived_early": self.n_early, "most_held_early": self.max_early,
                 "most_outstanding": self.max_out, "failed": self.n_failed,
-                "frames_sent_as_pieces": self.n_cut, "replies_rebuilt_from_pieces": self.n_joined}
+                "frames_sent_as_pieces": self.n_cut, "replies_rebuilt_from_pieces": self.n_joined,
+                "reply_pieces_asked_for": self.n_more, "spares_kept_open": self._spares_wanted}
