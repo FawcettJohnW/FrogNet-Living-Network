@@ -65,7 +65,7 @@
 #include "homa.h"
 
 namespace {
-const char* BUILD = "softhoma-v5-20261117g";
+const char* BUILD = "softhoma-v6-20261117j";
 const size_t PIECE = 48000;        // one field of a cell: at most 65,535 bytes on the wire (semcodec TYPE_STR), in base64
 size_t RECORD = 240000;            // one cell: bulk goes in large records (PERFORMANCE-LESSONS.md section 2), and a
                                    // frame to the memory is at most 1 MiB (ram_host.cpp MAX_FRAME; over it the memory
@@ -147,6 +147,7 @@ void deliver(Sock* s, Msg&& msg) {
 
 // servers this process has been told are gone or closed (their capability cell said so); one that announces itself again is taken out
 std::set<std::string> not_there;                      // under G
+std::set<std::string> there;                          // under G: servers whose capability cell this process has seen there
 
 void server_gone(const std::string& who, bool closed) {            // a server's capability cell is gone or says closed: its machine or process left, or it closed its socket
     std::vector<Sock*> all; { std::lock_guard<std::mutex> g(G); for (auto& kv : socks) all.push_back(kv.second); }
@@ -187,7 +188,7 @@ void watch_servers() {                                // one read, per process, 
     if (can_watch) return;
     can_watch = true;
     space->follow("homa", "can", 0, [](std::vector<ribbit::SpaceRow>& rows) { for (auto& r : rows) { if (getenv("SOFTHOMA_DEBUG")) fprintf(stderr, "[SOFTHOMA-DEBUG] can row id=%llu instance=%s gone=%d\n", (unsigned long long)r.id, r.instance.c_str(), int(r.gone)); const bool left = r.gone || r.fields()->num("closed");
-        { std::lock_guard<std::mutex> g(G); if (left) not_there.insert(r.instance); else not_there.erase(r.instance); }
+        { std::lock_guard<std::mutex> g(G); if (left) { not_there.insert(r.instance); there.erase(r.instance); } else { not_there.erase(r.instance); there.insert(r.instance); } }
         if (left) server_gone(r.instance, !r.gone); } });
 }
 
@@ -330,10 +331,18 @@ ssize_t sendmsg(int fd, const msghdr* h, int flags) {
           id = s->next_id; s->next_id += 2; s->out[id] = Sock::Out{a->completion_cookie, to, slot}; ++s->n_sent; }
         watch_servers();
         a->id = id;
-        bool gone; { std::lock_guard<std::mutex> g(G); gone = not_there.count(to) != 0; }
-        if (gone) {                                   // its capability cell has said it is not there: the request ends as Homa ends one, in recvmsg
+        bool gone, known; { std::lock_guard<std::mutex> g(G); gone = not_there.count(to) != 0; known = gone || there.count(to) != 0; }
+        if (!known) {                                 // nothing has been heard of it yet: ask the memory, once, whether its capability cell is there
+            std::string build;
+            for (auto& r : space->read("homa", "can", to)) if (!r.gone && !r.fields()->num("closed")) build = r.fields()->str("build");
+            gone = build.empty();
+            { std::lock_guard<std::mutex> g(G); if (gone) not_there.insert(to); else there.insert(to); }
+            if (gone) fprintf(stderr, "[SOFTHOMA] %s has NO capability cell in the memory at %s: nothing is bound to that address and port on this memory (is the server running, and on this memory?)\n", to.c_str(), space->where().c_str());
+            else fprintf(stderr, "[SOFTHOMA] %s is there (its capability cell is in the memory; it runs %s)\n", to.c_str(), build.c_str());
+        }
+        if (gone) {                                   // the memory says it is not there: the request ends as Homa ends one, in recvmsg
             { std::lock_guard<std::mutex> g(s->m); ++s->n_gone; }
-            fprintf(stderr, "[SOFTHOMA] %s is NOT THERE (its capability cell said gone or closed): request %llu from %s ends at once, nothing was written\n", to.c_str(), (unsigned long long)id, s->name.c_str());
+            fprintf(stderr, "[SOFTHOMA] %s is NOT THERE (no capability cell, or it said gone or closed): request %llu from %s ends at once, nothing was written\n", to.c_str(), (unsigned long long)id, s->name.c_str());
             deliver(s, Msg{id, to, std::string(), false, EHOSTUNREACH});
             return 0;
         }

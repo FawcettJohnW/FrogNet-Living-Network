@@ -241,7 +241,9 @@ Found, and what follows from each:
    that address; bound to any, by `SOFTHOMA_IP`. A server that closes its socket says `closed` in its capability
    cell (the cell itself leaves only with the process), and those with requests outstanding to it are told at
    once; a request sent to a server known gone or closed ends at once (EHOSTUNREACH) and nothing is written. A
-   request to a port nobody ever announced still waits: the shim cannot tell "never there" from "not yet seen".
+   request to a server nothing has been heard of asks the memory once whether its capability cell is there, says in
+   one line what it found, and ends at once if it is not (found on the first two-machine run, where a client
+   started with no server running sat with 8 requests outstanding and said nothing).
 5. **IPv4 only.**
 6. **The sandbox has two cores.** Two `cp_node` clients at once each see a round trip of almost exactly 8 ms (one
    client alone: 0.5 ms), which is the scheduler's time slice with more runnable threads than cores, not the

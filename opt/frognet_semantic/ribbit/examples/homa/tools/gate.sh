@@ -57,9 +57,10 @@ la=$(grep "clients:" "$OUT/two-a.log" | tail -2 | head -1 | grep -o "[0-9.]* Kop
 # a server that dies with requests outstanding: its capability cell goes with it and every one ends, with no timer
 env LD_PRELOAD="$HERE/build/libsofthoma.so" timeout 20 "$HOMA/util/cp_node" client --protocol homa --workload 100 --client-max 8 --ports 1 --first-port 4200 --first-server 1 --server-nodes 1 >"$OUT/cp-gone.log" 2>&1 & CL=$!
 sleep 3; t0=$(date +%s%N); kill -9 $CPS; 
-for i in $(seq 1 100); do grep -q "is GONE" "$OUT/cp-gone.log" && break; sleep 0.05; done
+for i in $(seq 1 100); do grep -q "is GONE\|is NOT THERE" "$OUT/cp-gone.log" && break; sleep 0.05; done
 ms=$(( ($(date +%s%N) - t0) / 1000000 ))
-grep -q "is GONE (its capability cell left the memory)" "$OUT/cp-gone.log"; check $? "his server killed with requests outstanding: the client is told it is gone within about $ms ms (checked every 50 ms), by its capability cell leaving the memory: $(grep -o '[0-9]* request(s) from' "$OUT/cp-gone.log" | head -1 | cut -d' ' -f1) request(s) ended"
+# told either way: the requests outstanding end (GONE), or his client's next request is refused first (NOT THERE) and he exits on it
+grep -q "is GONE (its capability cell left the memory)\|is NOT THERE" "$OUT/cp-gone.log" && grep -q "No route to host" "$OUT/cp-gone.log"; check $? "his server killed with requests outstanding: the client is told it is gone within about $ms ms (checked every 50 ms), by its capability cell leaving the memory, and his client ends on it: $(grep -o 'is GONE\|is NOT THERE' "$OUT/cp-gone.log" | head -1)"
 kill $CL $RAM 2>/dev/null; wait 2>/dev/null
 [ "$fails" = 0 ] && { echo; echo "ALL SOFT-HOMA GATE CHECKPOINTS PASS"; rm -rf "$OUT"; exit 0; }
 echo; echo "SOFT-HOMA GATE FAILED ($fails); logs kept in $OUT"; exit 1
