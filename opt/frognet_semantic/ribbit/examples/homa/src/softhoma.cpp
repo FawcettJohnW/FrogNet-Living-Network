@@ -281,6 +281,10 @@ extern "C" {
 // [SOFT_HOMA_CARRIER_V1] how a program learns that the Homa it has opened is this one (core/homa_transport.py)
 const char* softhoma_build() { return BUILD; }
 
+// [FRAMES_GO_IN_PIECES_V1] the largest message that goes as ONE cell here. The driver (core/homa_socket.py) asks, and
+// cuts a frame into pieces of this size, so each piece is a whole message and takes the one-cell path.
+size_t softhoma_record_bytes() { ensure_space(); return RECORD; }
+
 int socket(int domain, int type, int protocol) {
     if (protocol != IPPROTO_HOMA) return libc().socket(domain, type, protocol);
     if (domain != AF_INET) { fprintf(stderr, "[SOFTHOMA] an IPPROTO_HOMA socket of family %d: only AF_INET is carried yet\n", domain); errno = EAFNOSUPPORT; return -1; }

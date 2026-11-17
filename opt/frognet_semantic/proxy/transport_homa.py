@@ -69,7 +69,25 @@ DRV_MAGIC = b"FNH1"
 REQ_HDR = struct.Struct("!4s8sQ")       # magic, session, seq
 REP_HDR = struct.Struct("!4sQ")         # magic, reply seq
 END_MAGIC = b"FNHE"                     # the daemon's driver, in place of a reply: "FNHE" + why this session has ended
-MAX_FRAME = homa_socket.HOMA_MAX_MESSAGE_LENGTH - REQ_HDR.size
+# [FRAMES_GO_IN_PIECES_V1] John 2026-11-17: "don't send more than 240K in a single message and do message splitting and
+# reconstruction like the Communicator does with the video" -- in the driver. A frame over what the carrier takes as one
+# message (homa_socket.max_message(): Homa's 1,000,000 under the module, one cell under soft Homa) goes as numbered
+# pieces, each a whole Homa message, and is put back together at the far end before anything above the driver sees it.
+#   request piece   "FNH2" session seq index count + bytes     one RPC each; the daemon keeps them open
+#   reply piece     "FNH2" rseq index count + bytes            piece i answers the request's RPC i while there is one
+#   more            "FNHM" session seq index                   the proxy's: an RPC for reply piece `index` to arrive on,
+#                                                              sent when a reply has more pieces than the request had RPCs
+#   nothing         "FNH0"                                     the daemon's: closes a request RPC no reply piece needed
+# Unlike the Communicator's video nothing is shed: a piece that cannot go ends the session, as any lost frame does.
+PIECE_MAGIC, MORE_MAGIC, NOTHING = b"FNH2", b"FNHM", b"FNH0"
+REQ_PIECE = struct.Struct("!4s8sQII")   # magic, session, seq, index, count
+REP_PIECE = struct.Struct("!4sQII")     # magic, reply seq, index, count
+MORE_HDR = struct.Struct("!4s8sQI")     # magic, session, seq, index
+
+
+def cut(frame: bytes, room: int):
+    """The frame as pieces of at most `room` bytes, in order."""
+    return [frame[i:i + room] for i in range(0, len(frame), room)]
 
 
 class PeerGone(ConnectionError):
@@ -89,6 +107,8 @@ class _ClientMux:
 
     def __init__(self, carrier):
         self.carrier = carrier
+        # [FRAMES_GO_IN_PIECES_V1] what this carrier takes as one message; a stand-in under a test may say its own
+        self.max_message = int(getattr(carrier, "max_message", 0) or homa_socket.max_message())
         self._cookies = itertools.count(1)
         self._lock = threading.Lock()
         self._waiting: Dict[int, Tuple["_MsgWorker", Any]] = {}
@@ -232,6 +252,7 @@ class _MsgWorker:
         self._next_r = 0                               # next reply seq to hand up
         self._early: Dict[int, Tuple[Any, bytes]] = {}  # replies that arrived before their turn
         self._out = set()                              # frames outstanding
+        self._mine: Dict[Any, list] = {}               # [FRAMES_GO_IN_PIECES_V1] frame outstanding -> the driver's own of it
         self._peer_latency = TS._PeerLatency(budget_floor=TS._BUDGET_FLOOR, budget_mult=TS._BUDGET_MULT,
                                              budget_ceiling=TS._BUDGET_CEILING)
         self._stopped = threading.Event()
@@ -239,6 +260,7 @@ class _MsgWorker:
         self._stopped_at = 0.0
         self._hello = None                             # the session's own HELLO, until its reply is in
         self.n_sent = self.n_replies = self.n_early = self.n_failed = 0
+        self.n_cut = self.n_joined = 0                 # [FRAMES_GO_IN_PIECES_V1] frames sent as pieces / replies rebuilt
         self.max_out = self.max_early = 0
         print("[SEM-HOMA] session %s to %s:%d set=%d opened" % (self.session.hex(), host, self.port, set_id), flush=True)
         self._mux.attach(self)
@@ -262,22 +284,31 @@ class _MsgWorker:
         return self._submit(packet, gate)
 
     def _submit(self, packet: bytes, gate, hello: bool = False):
-        if len(packet) > MAX_FRAME:
-            raise ValueError("a frame of %d bytes is over what one Homa message carries (%d after the driver's header); "
-                             "it is not split" % (len(packet), MAX_FRAME))
         rpc = TS._Rpc(packet, max_attempts=1, gate=gate)
+        big = self._mux.max_message
+        whole = len(packet) + REQ_HDR.size <= big
+        pieces = None if whole else cut(packet, big - REQ_PIECE.size)      # [FRAMES_GO_IN_PIECES_V1]
+        # per request, the driver's own: [its seq, how many RPCs the daemon has of it to answer on, reply pieces by index]
+        mine = [0, 1 if whole else len(pieces), {}]
         with self._lock:
             if self._stopped.is_set():
                 raise RuntimeError("peer %s:%d set=%d: session %s ended (%s) - not sending"
                                    % (self.host, self.port, self._set_id, self.session.hex(), self._stopped_reason))
             seq = self._seq
             self._seq += 1
+            mine[0] = seq
+            self._mine[rpc] = mine
             self._out.add(rpc)
             if hello:
                 self._hello = rpc
             self.n_sent += 1
+            self.n_cut += 0 if whole else 1
             self.max_out = max(self.max_out, len(self._out))
-        self._mux.send(self, rpc, REQ_HDR.pack(DRV_MAGIC, self.session, seq) + packet)
+        if whole:
+            self._mux.send(self, rpc, REQ_HDR.pack(DRV_MAGIC, self.session, seq) + packet)
+        else:
+            for i, piece in enumerate(pieces):
+                self._mux.send(self, rpc, REQ_PIECE.pack(PIECE_MAGIC, self.session, seq, i, len(pieces)) + piece)
         return rpc
 
     def wait(self, rpc) -> bytes:
@@ -300,6 +331,7 @@ class _MsgWorker:
         if rpc.gate is not None:
             rpc.ticket = TS._gate_stamp(rpc.gate)      # [REFERENCES_MOVE_IN_WIRE_ORDER_V1] as _DaemonWorker's reader does
         self._out.discard(rpc)
+        self._mine.pop(rpc, None)
         self.n_replies += 1
         rpc.done.set()
 
@@ -323,12 +355,35 @@ class _MsgWorker:
             self._broken(PeerGone("the daemon at %s:%d ended this session: %s"
                                   % (self.host, self.port, payload[4:].decode("utf-8", "replace"))))
             return
-        if len(payload) < REP_HDR.size or payload[:4] != DRV_MAGIC:
+        if payload[:4] == NOTHING:                     # [FRAMES_GO_IN_PIECES_V1] a request RPC the reply did not need
+            return
+        if payload[:4] == PIECE_MAGIC and len(payload) >= REP_PIECE.size:
+            _m, rseq, index, count = REP_PIECE.unpack_from(payload)
+            ask = ()
+            with self._lock:
+                mine = self._mine.get(rpc)
+                if mine is None:                         # the session ended under it
+                    return
+                mine[2][index] = payload[REP_PIECE.size:]
+                if count > mine[1]:                      # more pieces than the daemon has RPCs of ours to answer on
+                    ask = range(mine[1], count)
+                    mine[1] = count
+                done = len(mine[2]) == count
+            for i in ask:
+                self._mux.send(self, rpc, MORE_HDR.pack(MORE_MAGIC, self.session, mine[0], i))
+            if not done:
+                return
+            with self._lock:
+                frame = b"".join(mine[2][i] for i in range(count))
+                mine[2] = {}
+                self.n_joined += 1
+        elif len(payload) < REP_HDR.size or payload[:4] != DRV_MAGIC:
             self._broken(ConnectionError("a reply from %s:%d without the driver's header (%r): the far end is not this "
                                          "driver" % (self.host, self.port, payload[:16])))
             return
-        rseq = REP_HDR.unpack_from(payload)[1]
-        frame = payload[REP_HDR.size:]
+        else:
+            rseq = REP_HDR.unpack_from(payload)[1]
+            frame = payload[REP_HDR.size:]
         with self._lock:
             if self._stopped.is_set():
                 return
@@ -365,4 +420,5 @@ class _MsgWorker:
     def stats(self) -> Dict[str, Any]:
         return {"host": self.host, "session": self.session.hex(), "sent": self.n_sent, "replies": self.n_replies,
                 "replies_arrived_early": self.n_early, "most_held_early": self.max_early,
-                "most_outstanding": self.max_out, "failed": self.n_failed}
+                "most_outstanding": self.max_out, "failed": self.n_failed,
+                "frames_sent_as_pieces": self.n_cut, "replies_rebuilt_from_pieces": self.n_joined}

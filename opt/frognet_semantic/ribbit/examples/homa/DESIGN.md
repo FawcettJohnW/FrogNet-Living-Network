@@ -124,6 +124,34 @@ on soft Homa with no substitution (the fan-out workload exact, frames in order, 
 daemon's socket with six requests outstanding and every one is failed in about 0.3 s by its capability cell, with
 no timer.
 
+**A frame larger than one message goes in pieces** (`[FRAMES_GO_IN_PIECES_V1]`; John, 17 Nov: "don't send more
+than 240K in a single message and do message splitting and reconstruction like the Communicator does with the
+video", in the driver). Before this the driver refused a frame over Homa's 1,000,000 bytes and the daemon answered
+an oversized reply with ERROR 413. Now the driver asks its carrier what it takes as one message
+(`homa_socket.max_message()`: 1,000,000 under the kernel module; under soft Homa the Homa API interface's record,
+`softhoma_record_bytes()`, 240,000 unless `SOFTHOMA_RECORD` says otherwise) and cuts anything larger into numbered
+pieces, each a whole Homa message, rebuilt at the far end before the engine sees it. Under soft Homa every piece is
+therefore one cell, which is the path that was measured fast; the several-cell path inside the Homa API interface
+(section 7) is no longer reached by FrogNet's own traffic. It is still reached by a program that calls the socket
+itself with a larger message, his `cp_node` included.
+
+| Message | Sent by | Meaning |
+|---|---|---|
+| `FNH1` session seq + frame | proxy | a whole frame, as before |
+| `FNH2` session seq index count + bytes | proxy | one piece of a request; one RPC each, which the daemon keeps open |
+| `FNH1` rseq + frame | daemon | a whole reply, as before |
+| `FNH2` rseq index count + bytes | daemon | reply piece `index`; it answers the request's RPC `index` while the request has one |
+| `FNHM` session seq index | proxy | an RPC for reply piece `index` to arrive on, sent when a reply has more pieces than its request had RPCs |
+| `FNH0` | daemon | closes a request RPC that no reply piece needed |
+
+A reply with more pieces than its request costs one extra round trip: the proxy learns the count from the first
+piece and only then sends the `FNHM` RPCs for the rest, all at once. Unlike the Communicator's video nothing is
+shed: a piece that cannot be sent ends the session, as any lost frame does. Order is unchanged: a frame takes its
+turn when its last piece is in. Gate: `proxy/test_homa_ordering_oracle.py pieces` runs the ordered storm on a
+carrier limited to 64-byte messages (3,118 pieces; every frame cut at one end is rebuilt at the other; none over
+the limit; the liveness checks pass with several RPCs per request). NOT measured: a large frame through the driver
+on soft Homa on real machines, and a piece whose contents change from one frame to the next.
+
 Not done: one process holding both kernel Homa and soft Homa at once (a node with the module that also talks to
 soft-only peers reaches them on TCP today); which memory soft Homa's space lives in on the nodes (`SOFTHOMA_RAM`
 is given by hand; by `[WHICH_RAM_V1]` it is the SystemRam); none of this has run on a node.

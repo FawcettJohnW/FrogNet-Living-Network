@@ -100,3 +100,9 @@ The parts every node runs. 38 Python files, no subdirectories.
   would go past it. `homa_transport.homa_name()` says which Homa this process has; kernel and soft Homa are not
   one wire, so each end's capability tuple says `homa` or `softhoma` and the two find TCP in common. Words:
   `softhoma` (must be loaded or the process stops); `homa` with soft Homa loaded stops.
+- **`[FRAMES_GO_IN_PIECES_V1]` a frame larger than one message goes in pieces.** The driver
+  (`proxy/transport_homa.py`, `daemon/engine/server_homa.py`) asks the carrier what one message may be
+  (`homa_socket.max_message()`: 1,000,000 on kernel Homa, one cell on soft Homa) and cuts a larger frame or reply
+  into numbered pieces, each a whole Homa message, rebuilt before the engine sees it. Nothing is refused for size
+  and nothing is shed. The format and the gate are in `ribbit/examples/homa/DESIGN.md` section 5. Do not put a
+  size limit back above the driver.

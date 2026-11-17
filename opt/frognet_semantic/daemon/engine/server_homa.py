@@ -47,9 +47,9 @@ from daemon.engine import session as S
 from daemon.engine.execution import ExecutionEngine
 from daemon.upstream.client import HttpClient
 from daemon.cache import semcache_db
-from proxy.transport_homa import DRV_MAGIC, REQ_HDR, REP_HDR, END_MAGIC
+from proxy.transport_homa import (DRV_MAGIC, REQ_HDR, REP_HDR, END_MAGIC, PIECE_MAGIC, MORE_MAGIC, NOTHING, REQ_PIECE,
+                                  REP_PIECE, MORE_HDR, cut)
 
-MAX_REPLY = homa_socket.HOMA_MAX_MESSAGE_LENGTH - REP_HDR.size
 
 
 def _ended_msg(sid: bytes, why: str) -> bytes:
@@ -93,6 +93,13 @@ class _MsgSession(S.SemanticSession):
         self._early: Dict[int, Tuple[int, Tuple[str, int], bytes]] = {}
         self._dest: Dict[int, Tuple[str, int]] = {}       # rpc id -> where its reply goes, until it has gone
         self._dest_lock = threading.Lock()
+        # [FRAMES_GO_IN_PIECES_V1] (proxy/transport_homa.py has the format)
+        self.max_message = int(getattr(carrier, "max_message", 0) or homa_socket.max_message())
+        self._parts: Dict[int, Dict[int, Tuple[int, Tuple[str, int], bytes]]] = {}   # request seq -> its pieces so far
+        self._open: Dict[int, list] = {}                  # a request's rpc id -> its other RPCs, still unanswered
+        self._seq_of: Dict[int, int] = {}                 # a request's rpc id -> its seq (what a "more" names it by)
+        self._kept: Dict[Tuple[int, int], bytes] = {}     # (request seq, index) -> a reply piece waiting for its RPC
+        self.n_joined = self.n_cut = 0
         self.n_in = self.n_out = self.n_early = 0
         self.max_early = 0
         self.order = []                                   # with keep_order_record: seqs in the order handed up
@@ -118,10 +125,51 @@ class _MsgSession(S.SemanticSession):
             self._next += 1
             self._hand_up(s, rid, pr, fr)
 
+    def piece(self, seq: int, index: int, count: int, rpc_id: int, peer: Tuple[str, int], part: bytes) -> None:
+        """[FRAMES_GO_IN_PIECES_V1] One piece of a request. When all are in, the frame arrives as one; the RPC of piece 0
+        is the request's, and the others stay open for reply pieces."""
+        if self.ended:
+            self._carrier.send_reply(peer, rpc_id, _ended_msg(self.sid, self.ended))
+            return
+        got = self._parts.setdefault(seq, {})
+        got[index] = (rpc_id, peer, part)
+        if len(got) < count:
+            return
+        del self._parts[seq]
+        rid0, peer0, _p = got[0]
+        with self._dest_lock:
+            self._open[rid0] = [(got[i][0], got[i][1]) for i in range(1, count)]
+            for i in range(1, count):
+                self._dest[got[i][0]] = got[i][1]         # so end() lets go of them too
+        self.n_joined += 1
+        if self.ended:                                    # it ended while the pieces were coming in: let go of them all
+            with self._dest_lock:
+                rest = self._open.pop(rid0, [])
+                for rid, _d in rest:
+                    self._dest.pop(rid, None)
+            for rid, d in [(rid0, peer0)] + rest:
+                self._carrier.send_reply(d, rid, _ended_msg(self.sid, self.ended))
+            return
+        self.arrive(seq, rid0, peer0, b"".join(got[i][2] for i in range(count)))
+
+    def more(self, seq: int, index: int, rpc_id: int, peer: Tuple[str, int]) -> None:
+        """[FRAMES_GO_IN_PIECES_V1] The proxy's RPC for reply piece `index` of request `seq`. The piece was kept before
+        piece 0 went, so it is here."""
+        with self._dest_lock:
+            part = self._kept.pop((seq, index), None)
+        if part is None:
+            why = self.ended or "it asked for reply piece %d of request %d, which this session does not hold" % (index, seq)
+            self._carrier.send_reply(peer, rpc_id, _ended_msg(self.sid, why))
+            if not self.ended:
+                print("[DAEMON-HOMA] session %s from %s: %s; answered 'ended'" % (self.sid.hex(), self.peer_ip, why), flush=True)
+            return
+        self._carrier.send_reply(peer, rpc_id, part)
+
     def _hand_up(self, seq: int, rpc_id: int, peer: Tuple[str, int], frame: bytes) -> None:
         """One frame, in its turn, to the engine. Every path queues exactly one reply for rpc_id."""
         with self._dest_lock:
             self._dest[rpc_id] = peer
+            self._seq_of[rpc_id] = seq
         if self.ended:                                    # it ended while this frame was on its way up
             with self._dest_lock:
                 owed = self._dest.pop(rpc_id, None)
@@ -188,13 +236,23 @@ class _MsgSession(S.SemanticSession):
                         print("[DAEMON-HOMA-WRITER] reply for rpc %d to %s has no request on record: not sent"
                               % (seq, self.peer_ip), flush=True)
                     continue
-                if len(reply) > MAX_REPLY:
-                    print("[DAEMON-HOMA-WRITER] reply of %dB for rpc %d to %s is over what one Homa message carries "
-                          "(%d): answered ERROR 413 in its place" % (len(reply), seq, self.peer_ip, MAX_REPLY), flush=True)
-                    reply = wrap_error(413, "reply of %d bytes is over what one Homa message carries (%d); it is not split"
-                                       % (len(reply), MAX_REPLY))
+                # [FRAMES_GO_IN_PIECES_V1] the request's RPCs, piece 0's first; a reply over one message goes as pieces
+                with self._dest_lock:
+                    rpcs = [(seq, dest)] + self._open.pop(seq, [])
+                    for rid, _d in rpcs[1:]:
+                        self._dest.pop(rid, None)
+                    req_seq = self._seq_of.pop(seq, None)
+                    if len(reply) + REP_HDR.size <= self.max_message:
+                        out = [REP_HDR.pack(DRV_MAGIC, rseq) + reply]
+                    else:
+                        parts = cut(reply, self.max_message - REP_PIECE.size)
+                        out = [REP_PIECE.pack(PIECE_MAGIC, rseq, i, len(parts)) + p for i, p in enumerate(parts)]
+                        for i in range(len(rpcs), len(out)):          # kept BEFORE piece 0 goes: the proxy asks after it
+                            self._kept[(req_seq, i)] = out[i]
+                        self.n_cut += 1
                 try:
-                    self._carrier.send_reply(dest, seq, REP_HDR.pack(DRV_MAGIC, rseq) + reply)
+                    for i, (rid, d) in enumerate(rpcs):
+                        self._carrier.send_reply(d, rid, out[i] if i < len(out) else NOTHING)
                 except Exception as e:
                     # the reply numbered rseq will never reach the proxy, so nothing after it can be handed up there:
                     # this session's reply order is broken. Said once, with everything; the session stops answering.
@@ -300,12 +358,19 @@ class MsgDaemonServer:
                     print("[DAEMON-HOMA] a RESPONSE (rpc %d, cookie %d) arrived on the daemon's server socket; the "
                           "daemon sends no requests: dropped" % (m.id, m.cookie), flush=True)
                     continue
-                if len(m.payload) < REQ_HDR.size or m.payload[:4] != DRV_MAGIC:
+                if len(m.payload) < REQ_HDR.size or m.payload[:4] not in (DRV_MAGIC, PIECE_MAGIC, MORE_MAGIC):
                     print("[DAEMON-HOMA] a request from %s:%d without the driver's header (%r): the far end is not "
                           "this driver; answered ERROR 400 outside any session" % (m.peer[0], m.peer[1], m.payload[:16]), flush=True)
                     self._carrier.send_reply(m.peer, m.id, wrap_error(400, "not the FNW1-on-Homa driver's message"))
                     continue
-                _magic, sid, seq = REQ_HDR.unpack_from(m.payload)
+                magic = m.payload[:4]
+                index = count = -1
+                if magic == PIECE_MAGIC and len(m.payload) >= REQ_PIECE.size:
+                    _magic, sid, seq, index, count = REQ_PIECE.unpack_from(m.payload)
+                elif magic == MORE_MAGIC and len(m.payload) >= MORE_HDR.size:
+                    _magic, sid, seq, index = MORE_HDR.unpack_from(m.payload)
+                else:
+                    _magic, sid, seq = REQ_HDR.unpack_from(m.payload)
                 key = (m.peer[0], sid)
                 with self._lock:
                     s = self._sessions.get(key)
@@ -322,7 +387,12 @@ class MsgDaemonServer:
                 if new is s:
                     self.liveness.watch(s.node)
                     new = None
-                s.arrive(seq, m.id, m.peer, m.payload[REQ_HDR.size:])
+                if magic == PIECE_MAGIC:
+                    s.piece(seq, index, count, m.id, m.peer, m.payload[REQ_PIECE.size:])
+                elif magic == MORE_MAGIC:
+                    s.more(seq, index, m.id, m.peer)
+                else:
+                    s.arrive(seq, m.id, m.peer, m.payload[REQ_HDR.size:])
         except homa_socket.CarrierClosed:
             why = "socket closed"
         except Exception as e:

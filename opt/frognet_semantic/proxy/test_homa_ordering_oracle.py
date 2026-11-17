@@ -92,13 +92,23 @@ class Hub:
         self.overtakes = 0
         self.last_delivered = {}                         # (src, dst) -> highest post number delivered
         self.msgs = self.bytes = self.not_fnw1 = 0
+        self.max_message = 0                             # mode "pieces" sets it: what one message may carry
+        self.pieces = self.mores = self.nothings = self.over = 0
         self.to_dead = 0
         self.aborts, self.peer_gone_calls = 0, []
         threading.Thread(target=self._run, daemon=True, name="hub").start()
 
     def post(self, src, dst, payload, deliver):
-        if payload[:4] != b"FNH1" or b"FNW1" not in payload[12:24]:
+        if payload[:4] == b"FNH2":
+            self.pieces += 1
+        elif payload[:4] == b"FNHM":
+            self.mores += 1
+        elif payload[:4] == b"FNH0":
+            self.nothings += 1
+        elif payload[:4] != b"FNH1" or b"FNW1" not in payload[12:24]:
             self.not_fnw1 += 1
+        if self.max_message and len(payload) > self.max_message:
+            self.over += 1
         with self.cv:
             due = time.monotonic() + self.rng.uniform(0, self.jitter_s) + len(payload) * self.per_byte_s
             heapq.heappush(self.heap, (due, next(self.n), next(self.posted), src, dst, len(payload), deliver))
@@ -127,6 +137,7 @@ class Endpoint:
         from core import homa_socket as H
         self.H, self.hub, self.addr = H, hub, addr
         self.inbox = queue.Queue()
+        self.max_message = hub.max_message               # [FRAMES_GO_IN_PIECES_V1] 0: Homa's own limit
         self.ids = itertools.count(2, 2)
         self.cookies = {}
         self.lock = threading.Lock()
@@ -215,6 +226,8 @@ def run(mode):
     hub = Hub(seed=int(os.environ.get("HOMA_ORACLE_SEED", "20261116")), jitter_s=float(os.environ.get("HOMA_ORACLE_JITTER_MS", "4")) / 1000.0)
     soft = mode == "soft"
     sim = mode in ("sim", "simheld", "soft")       # no substitution: the driver's own socket
+    if mode == "pieces":                           # [FRAMES_GO_IN_PIECES_V1] the ordered run on a carrier whose messages are small
+        hub.max_message = 64
     if not sim:
         proxy_end = Endpoint(hub, ("10.77.77.2", 40001))
         TH._client_carrier = lambda: proxy_end
@@ -374,8 +387,16 @@ def run(mode):
     early_d, early_p = sum(x.n_early for x in sess), sum(w["replies_arrived_early"] for w in ws)
     check(early_d > 0 and early_p > 0, f"the driver did the work: {early_d} requests and {early_p} replies arrived ahead of their turn and were held for it")
     check(worst["n"] > 1, f"contract 3: nothing was held back from the wire: up to {worst['n']} frames of one instance in flight together")
+    if mode == "pieces":
+        now = [w.stats() for w in TS._WORKERS.values()]         # read now: a request was made since `ws` was taken
+        cut_p, join_p = sum(w["frames_sent_as_pieces"] for w in now), sum(w["replies_rebuilt_from_pieces"] for w in now)
+        cut_d, join_d = sum(x.n_cut for x in sess), sum(x.n_joined for x in sess)
+        check(hub.over == 0 and hub.pieces > 1000, f"[FRAMES_GO_IN_PIECES_V1] no message was over the carrier's {hub.max_message} bytes; {hub.pieces} pieces were carried")
+        check(cut_p > 0 and cut_p == join_d, f"every request the proxy cut ({cut_p}) the daemon put back together ({join_d})")
+        check(cut_d > 0 and cut_d == join_p, f"every reply the daemon cut ({cut_d}) the proxy put back together ({join_p})")
+        check(hub.mores > 0 and hub.nothings > 0, f"replies with more pieces than their request had RPCs were asked for ({hub.mores} more) and request RPCs no reply piece needed were closed ({hub.nothings} nothing)")
     if not sim:
-        check(hub.not_fnw1 == 0, "every message was the driver's header followed by one whole FNW1 frame")
+        check(hub.not_fnw1 == 0, "every message was the driver's header followed by one whole FNW1 frame, or a piece of one")
     check(not tcp_workers, "no TCP worker was made")
     # ---- contract 5 by liveness. From here on the carrier reports nothing unless the mode is Homa as shipped.
     hub.dead_after_s = 3600.0
@@ -402,7 +423,8 @@ def run(mode):
     for th in ths: th.join(20)
     dt = time.time() - t0
     hold.set()
-    check(owed == 6 and [g[0] for g in got] == [503] * 6 and all("ended this session" in g[1] for g in got) and dt < 3.0,
+    # in pieces: a request is several RPCs, every one of them owed an answer and let go
+    check((owed == 6 or (mode == "pieces" and owed > 6)) and [g[0] for g in got] == [503] * 6 and all("ended this session" in g[1] for g in got) and dt < 3.0,
           f"the daemon's driver was told the proxy end stopped with {owed} requests in the engine: the session ended, each was let go, and every caller was told in {dt:.2f}s ({sorted(set(g[0] for g in got))}, {got[0][1][:80]!r})")
     check(not srv._sessions and w0[0].is_stopped() and "ended this session" in w0[0].stopped_reason(), f"the session is gone at both ends, with the reason ({w0[0].stopped_reason()[:100]})")
     time.sleep(0.3)
@@ -449,7 +471,7 @@ def run(mode):
         cc = mux.carrier.counters()
         check(cc["timeouts"] == 0 and not [k for k in mux.carrier._rpcs], f"Homa abandoned nothing on its own ({cc['timeouts']} timeouts) and holds nothing for that peer now")
     else:
-        check(hub.aborts - a0 == 6 and [c for c in hub.peer_gone_calls if c[0] == ("10.77.77.2", 40001)] == [(("10.77.77.2", 40001), (F.DAEMON_IP, F.PORT))], f"the 6 requests were aborted in the carrier and it was told the peer is gone, once ({hub.aborts - a0} aborts)")
+        check((hub.aborts - a0 == 6 or (mode == "pieces" and hub.aborts - a0 > 6)) and [c for c in hub.peer_gone_calls if c[0] == ("10.77.77.2", 40001)] == [(("10.77.77.2", 40001), (F.DAEMON_IP, F.PORT))], f"the 6 requests were aborted in the carrier and it was told the peer is gone, once ({hub.aborts - a0} aborts)")
     check(w1.is_stopped() and not tcp_workers, f"the session is ended with the reason and no TCP worker was made ({w1.stopped_reason()[:80]})")
 
     # (c) the daemon's driver is told a MACHINE left
@@ -470,7 +492,7 @@ def main():
         print(f"HOMA-ORDERING ORACLE mode={MODE}: " + ("ALL CHECKPOINTS PASS" if ok else "FAILED"), flush=True)
         return 0 if ok else 1
     rcs = {}
-    for m in ("free", "ordered", "gone", "sim", "simheld", "soft"):
+    for m in ("free", "ordered", "pieces", "gone", "sim", "simheld", "soft"):
         print(f"=== {m} ===", flush=True)
         env, ram = dict(os.environ), None
         if m == "soft":

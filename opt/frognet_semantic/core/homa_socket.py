@@ -29,7 +29,8 @@ back. recv() copies the message out into a Python bytes and hands the bpages bac
 so no bpage is ever held across two messages and nothing above this file can see the region.
 
 [NO_FALLBACK_V1] No Homa socket, no TCP in its place: HomaUnavailable is raised with the kernel's reason and the
-caller stops. A message over HOMA_MAX_MESSAGE_LENGTH is refused here with its size; it is not split.
+caller stops. A message over HOMA_MAX_MESSAGE_LENGTH is refused here with its size. This file does not split: the
+driver above it does ([FRAMES_GO_IN_PIECES_V1], proxy/transport_homa.py), to max_message() below.
 """
 from __future__ import annotations
 
@@ -43,7 +44,7 @@ import struct
 import threading
 from typing import List, NamedTuple, Optional, Tuple
 
-BUILD = "homa-transport-v2-20261116i"
+BUILD = "homa-transport-v3-20261117n"
 HOMA_PINNED_COMMIT = "07ce63ef153207a953c42a749ee2429fb5282f55"
 
 IPPROTO_HOMA = 146
@@ -160,6 +161,21 @@ def soft_homa_loaded() -> Optional[str]:
         return None
     f.restype = ctypes.c_char_p
     return f().decode()
+
+
+def max_message() -> int:
+    """[FRAMES_GO_IN_PIECES_V1] The largest message this process's Homa carries as ONE message on its fast path: Homa's
+    own limit under the kernel module, and one cell (softhoma_record_bytes) under soft Homa. The driver cuts a frame
+    into pieces of this size. A soft Homa that cannot say is refused: there is no guessing its record size."""
+    if soft_homa_loaded() is None:
+        return HOMA_MAX_MESSAGE_LENGTH
+    try:
+        f = ctypes.CDLL(None).softhoma_record_bytes
+    except AttributeError:
+        raise HomaUnavailable("soft Homa %s is loaded but has no softhoma_record_bytes(): it is older than this driver "
+                              "(%s); install the Homa API interface that came with it" % (soft_homa_loaded(), BUILD))
+    f.restype = ctypes.c_size_t
+    return int(f())
 
 
 def startup_line(who: str) -> str:
