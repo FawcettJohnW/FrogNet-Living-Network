@@ -38,6 +38,10 @@ Three runs, each its own process (the engine's references are process-wide):
             simulator (Homa's protocol over real UDP on this machine: grants, SRPT, RESEND/BUSY, timeouts), with 2% of
             packets dropped each way. Same checks as ordered, and contract 5 both ways: by liveness, and by Homa's
             own timeout when the peer goes silent. This is the configuration the simulator tiers run.
+  soft      the driver as shipped, with NO substitution in this file, on soft Homa: Homa's calls on shared memory
+            (ribbit/examples/homa), loaded into this process, the memory a process of its own. The node's word is
+            softhoma. Same checks as ordered up to contract 5; then the daemon's socket closes with requests
+            outstanding and every one is failed at once by the memory's word, with no timer. [SOFT_HOMA_CARRIER_V1]
   simheld   the same on the simulator with Homa's per-RPC timeout REMOVED, waits held and timers measured
             ([NO_RPC_TIMEOUT_V1] [HELD_WAITS_V1] [TIMERS_FROM_THE_MEASURED_PATH_V1]). Requests outstanding to a
             machine that has died wait three times timeout_ticks and none is abandoned; liveness says it left and
@@ -64,7 +68,7 @@ import time
 MODE = sys.argv[1] if len(sys.argv) > 1 else "all"
 SIM = MODE in ("sim", "simheld")
 os.environ["FROGNET_LOCAL_GW"] = "10.88.88.1"     # the .1 each end names itself by in its HELLO (one process, both ends)
-os.environ["FROGNET_SEM_TRANSPORT"] = "homasim" if SIM else "homa"
+os.environ["FROGNET_SEM_TRANSPORT"] = "homasim" if SIM else "softhoma" if MODE == "soft" else "homa"
 if SIM:
     os.environ.setdefault("FROGNET_HOMASIM_LOSS", "0.02")
 if MODE == "simheld":
@@ -209,7 +213,8 @@ def run(mode):
         print(f"  [{'PASS' if cond else 'FAIL'}] {msg}", flush=True)
 
     hub = Hub(seed=int(os.environ.get("HOMA_ORACLE_SEED", "20261116")), jitter_s=float(os.environ.get("HOMA_ORACLE_JITTER_MS", "4")) / 1000.0)
-    sim = mode in ("sim", "simheld")
+    soft = mode == "soft"
+    sim = mode in ("sim", "simheld", "soft")       # no substitution: the driver's own socket
     if not sim:
         proxy_end = Endpoint(hub, ("10.77.77.2", 40001))
         TH._client_carrier = lambda: proxy_end
@@ -339,7 +344,10 @@ def run(mode):
     print("RESULT " + json.dumps({"mode": mode, "ops": total, "seconds": round(dt, 2), "per_s": round(total / dt), "problems": len(problems),
                                   "messages": hub.msgs, "bytes": hub.bytes, "overtakes": hub.overtakes,
                                   "worst_in_flight_per_instance": worst["n"], "driver": ws}), flush=True)
-    if sim:
+    if soft:
+        from core import homa_transport as HT
+        check(HT.carriers_here() == ("softhoma",) and HT._soft_homa_loaded(), f"the wire ran on soft Homa ({HT._soft_homa_loaded()}): {total} operations, {len(problems)} problems")
+    elif sim:
         cc, sc = TH._get_mux().carrier.counters(), srv._carrier.counters()
         print("    homasim proxy socket: %s" % {k: v for k, v in cc.items() if v}, flush=True)
         print("    homasim daemon socket: %s" % {k: v for k, v in sc.items() if v}, flush=True)
@@ -411,6 +419,13 @@ def run(mode):
     else:
         del hub.ends[(F.DAEMON_IP, F.PORT)]
     got, ths = burst()
+    if soft:
+        # soft Homa: the daemon's socket closed, its capability cell says so, and the memory tells those it owed
+        for th in ths: th.join(20)
+        dt = time.time() - t0
+        check([g[0] for g in got] == [503] * 6 and dt < 1.0, f"contract 5 on soft Homa: the daemon's socket closed with 6 requests outstanding; every one was failed (503) in {dt * 1000:.0f} ms by its capability cell saying closed, no timer, none re-sent ({[g[0] for g in got]}, {got[0][1][:90]!r})")
+        check(not tcp_workers, "and still no TCP worker")
+        return ok
     if mode == "sim":
         # Homa as shipped: its own timeout reports the silent peer, and that ends the session too
         for th in ths: th.join(20)
@@ -455,9 +470,25 @@ def main():
         print(f"HOMA-ORDERING ORACLE mode={MODE}: " + ("ALL CHECKPOINTS PASS" if ok else "FAILED"), flush=True)
         return 0 if ok else 1
     rcs = {}
-    for m in ("free", "ordered", "gone", "sim", "simheld"):
+    for m in ("free", "ordered", "gone", "sim", "simheld", "soft"):
         print(f"=== {m} ===", flush=True)
-        r = subprocess.run([sys.executable, os.path.abspath(__file__), m], capture_output=True, text=True, timeout=900)
+        env, ram = dict(os.environ), None
+        if m == "soft":
+            built = os.path.join(os.path.dirname(HERE), "ribbit", "examples", "homa", "build")
+            lib, host = os.path.join(built, "libsofthoma.so"), os.path.join(built, "softhoma-ram")
+            if not (os.path.exists(lib) and os.path.exists(host)):
+                print(f"  [FAIL] soft Homa is not built: make -C {os.path.dirname(built)} HOMA=<HomaModule checkout>", flush=True)
+                rcs[m] = 1
+                continue
+            where = "127.0.0.1:%s" % os.environ.get("SOFTHOMA_ORACLE_PORT", "9151")
+            ram = subprocess.Popen([host, where], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+            time.sleep(0.7)
+            env.update(LD_PRELOAD=lib, SOFTHOMA_RAM=where, SOFTHOMA_IP="10.77.77.2")
+        try:
+            r = subprocess.run([sys.executable, os.path.abspath(__file__), m], capture_output=True, text=True, timeout=900, env=env)
+        finally:
+            if ram is not None:
+                ram.kill(); ram.wait()
         for line in r.stdout.split("\n"):
             if line.startswith(("  [", "    mode=", "    homasim", "HOMA-ORDERING", "RESULT")):
                 print(line, flush=True)

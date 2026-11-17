@@ -33,7 +33,15 @@ One word says how a node chooses. It is read once at start from /etc/frognet/sem
               On a node where no Homa socket opens, "auto" is "tcp": nothing new runs.
     tcp       TCP only, and nothing here runs.
     homa      Homa only, on the kernel module. A harness's word, and a node's when every peer is the same.
+    softhoma  Homa only, and it must be soft Homa: Homa's calls on shared memory (ribbit/examples/homa), loaded into
+              this process. A node told "softhoma" without it stops.
     homasim   Homa only, on core/homa_sim.py (the Homa simulator). A harness's word.
+
+[SOFT_HOMA_CARRIER_V1] Kernel Homa and soft Homa answer the same calls and are not the same wire, so they are two
+carriers with two names: "homa" and "softhoma". One process has one of them: whichever answers IPPROTO_HOMA in it
+(homa_name()). The Homa driver is the same for both. Each end says which it has in its capability tuple, so a kernel
+node and a soft node find TCP in common and nothing else. A node told "homa" in whose process soft Homa is loaded
+stops: the word for that is "softhoma".
 
 Any other word stops the process with the word in the message.
 
@@ -48,9 +56,9 @@ import threading
 from typing import Dict, Optional, Tuple
 
 TRANSPORT_FILE = os.environ.get("FROGNET_SEM_TRANSPORT_FILE", "/etc/frognet/semantic_transport")
-VALID = ("auto", "tcp", "homa", "homasim")
-WALK = ("homa", "tcp")            # the walk's order: equal or unmeasured carriers are taken in this order
-BUILD = "homa-carrier-v1-20261116k"
+VALID = ("auto", "tcp", "homa", "softhoma", "homasim")
+WALK = ("homa", "softhoma", "tcp")    # the walk's order: equal or unmeasured carriers are taken in this order
+BUILD = "homa-carrier-v2-20261117d"
 _chosen = None
 _here: Optional[Tuple[str, ...]] = None
 _lock = threading.Lock()
@@ -79,7 +87,18 @@ def semantic_transport() -> str:
 
 def on_homa_driver() -> bool:
     """True when this node was told Homa only (over the module or over the simulator)."""
-    return semantic_transport() in ("homa", "homasim")
+    return semantic_transport() in ("homa", "softhoma", "homasim")
+
+
+def _soft_homa_loaded() -> Optional[str]:
+    """Soft Homa's build if it is loaded into this process, else None. A test replaces this function."""
+    from core import homa_socket
+    return homa_socket.soft_homa_loaded()
+
+
+def homa_name() -> str:
+    """The name of the Homa this process has: "softhoma" where soft Homa is loaded into it, else "homa"."""
+    return "softhoma" if _soft_homa_loaded() else "homa"
 
 
 def _kernel_homa_opens() -> Tuple[bool, str]:
@@ -100,13 +119,23 @@ def carriers_here() -> Tuple[str, ...]:
             mode = semantic_transport()
             if mode == "tcp":
                 _here = ("tcp",)
-            elif mode in ("homa", "homasim"):
+            elif mode == "homasim":
                 _here = ("homa",)
+            elif mode in ("homa", "softhoma"):
+                soft = _soft_homa_loaded()
+                if mode == "homa" and soft:
+                    raise SystemExit("[SEM-TRANSPORT] this node was told homa, and soft Homa (%s) is loaded into this "
+                                     "process: the Homa it would open is soft Homa. The word for that is softhoma." % soft)
+                if mode == "softhoma" and not soft:
+                    raise SystemExit("[SEM-TRANSPORT] this node was told softhoma, and soft Homa is not loaded into "
+                                     "this process (ribbit/examples/homa: LD_PRELOAD=libsofthoma.so, SOFTHOMA_RAM).")
+                _here = (mode,)
             else:
                 ok, why = _kernel_homa_opens()
-                _here = ("homa", "tcp") if ok else ("tcp",)
-                print("[SEM-TRANSPORT] [CARRIER_PER_HOP_V1] carriers here: %s (kernel Homa: %s)"
-                      % (", ".join(_here), why), flush=True)
+                soft = _soft_homa_loaded()
+                _here = (homa_name(), "tcp") if ok else ("tcp",)
+                print("[SEM-TRANSPORT] [CARRIER_PER_HOP_V1] carriers here: %s (%s: %s)"
+                      % (", ".join(_here), "soft Homa %s" % soft if soft else "kernel Homa", why), flush=True)
         return _here
 
 
@@ -138,14 +167,16 @@ def _peer_carriers(node: str) -> Optional[Tuple[str, ...]]:
 
 
 def carrier_for(host: str) -> str:
-    """The carrier a NEW session to `host` opens on. See the module docstring for the rule."""
+    """The driver a NEW session to `host` opens on: "homa" (the Homa driver, on kernel Homa or soft Homa, whichever
+    this process has) or "tcp". See the module docstring for the rule."""
     mode = semantic_transport()
     if mode == "tcp":
         return "tcp"
-    if mode in ("homa", "homasim"):
+    if mode in ("homa", "softhoma", "homasim"):
+        carriers_here()                     # a word this process cannot keep stops it here
         return "homa"
     mine = carriers_here()
-    if "homa" not in mine:
+    if mine == ("tcp",):
         return "tcp"
     from core.homa_liveness import node_of
     node = node_of(host)
@@ -167,7 +198,7 @@ def carrier_for(host: str) -> str:
                      ", ".join(mine),
                      ", ".join("%s %.3f ms" % (c, _rtt[(node, c)] * 1000) if (node, c) in _rtt else "%s not yet" % c
                                for c in common)), flush=True)
-    return pick
+    return "tcp" if pick == "tcp" else "homa"
 
 
 def worker_idle(w) -> bool:
@@ -184,7 +215,7 @@ def daemon_server(host: str, port: int, resolver, tcp_server_class):
     if mine == ("tcp",):
         return tcp_server_class(host=host, port=port, resolver=resolver)
     from daemon.engine.server_homa import MsgDaemonServer
-    if mine == ("homa",):
+    if len(mine) == 1:
         return MsgDaemonServer(host=host, port=port, resolver=resolver)
 
     class _EveryCarrier:

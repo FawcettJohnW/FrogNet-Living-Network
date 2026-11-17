@@ -112,6 +112,22 @@ property of one hop between two ends, not of the network:
 That is what lets fast and slow nodes, racks with the kernel module and Pis without it, and datacenters joined
 across the Internet share one memory.
 
+**Soft Homa is a carrier of its own (`[SOFT_HOMA_CARRIER_V1]`, built 17 Nov).** Kernel Homa and soft Homa answer the
+same calls and are not the same wire, so they have two names in the capability tuple, `homa` and `softhoma`. The
+Homa driver is the same for both: `core/homa_socket.py` makes its calls through the process's own symbols, so
+where `libsofthoma.so` is loaded into the proxy or the daemon (LD_PRELOAD, `SOFTHOMA_RAM`, `SOFTHOMA_IP`) they are
+soft Homa's, and it says so in its start-up line. One process has one of the two, whichever answers IPPROTO_HOMA
+in it. A kernel node and a soft node therefore find TCP in common. A node's word can be `softhoma` (Homa only, and
+it must be soft; without it the process stops); `homa` with soft Homa loaded stops and says the word is
+`softhoma`. Gate: `proxy/test_homa_ordering_oracle.py soft` runs the real engine at both ends through the driver
+on soft Homa with no substitution (the fan-out workload exact, frames in order, several in flight), then closes the
+daemon's socket with six requests outstanding and every one is failed in about 0.3 s by its capability cell, with
+no timer.
+
+Not done: one process holding both kernel Homa and soft Homa at once (a node with the module that also talks to
+soft-only peers reaches them on TCP today); which memory soft Homa's space lives in on the nodes (`SOFTHOMA_RAM`
+is given by hand; by `[WHICH_RAM_V1]` it is the SystemRam); none of this has run on a node.
+
 ## 6. What is expected, and how it is judged
 
 - Against Homa as shipped at defaults over a long round trip: on the simulator it completed 0 of 40 RPCs at 120 ms
@@ -197,7 +213,11 @@ Found, and what follows from each:
    flight, and nothing bounds how many that is (the first stage's ring of 4,096 and its EAGAIN are gone). `read()`
    and an unknown `ioctl` are answered EINVAL as the module answers them; a socket shut down gives nothing more.
 4. **Two binds of one port at the same instant can both succeed**: the memory has no compare-and-set. A bind
-   refuses (EADDRINUSE) a port whose capability cell is already there.
+   refuses (EADDRINUSE) a port whose capability cell is already there. A socket bound to one address is named by
+   that address; bound to any, by `SOFTHOMA_IP`. A server that closes its socket says `closed` in its capability
+   cell (the cell itself leaves only with the process), and those with requests outstanding to it are told at
+   once; a request sent to a server known gone or closed ends at once (EHOSTUNREACH) and nothing is written. A
+   request to a port nobody ever announced still waits: the shim cannot tell "never there" from "not yet seen".
 5. **IPv4 only.**
 6. **The sandbox has two cores.** Two `cp_node` clients at once each see a round trip of almost exactly 8 ms (one
    client alone: 0.5 ms), which is the scheduler's time slice with more runnable threads than cores, not the

@@ -152,9 +152,25 @@ def sysctls() -> dict:
     return out
 
 
+def soft_homa_loaded() -> Optional[str]:
+    """Soft Homa's build if it is loaded into this process (ribbit/examples/homa, LD_PRELOAD), else None."""
+    try:
+        f = ctypes.CDLL(None).softhoma_build
+    except AttributeError:
+        return None
+    f.restype = ctypes.c_char_p
+    return f().decode()
+
+
 def startup_line(who: str) -> str:
     """[DIAGNOSTICS_SAY_IT_V1] One log line that says what this process is running on, so nobody runs a command to find
     out: build, kernel, the pinned Homa commit this file's layouts are from, and every Homa sysctl."""
+    soft = soft_homa_loaded()
+    if soft:                                    # [SOFT_HOMA_CARRIER_V1] no module, so no sysctls: it has no timers to set
+        return ("[HOMA] %s build=%s kernel=%s homa_h=%s on SOFT HOMA %s (Homa's calls on shared memory, memory at %s, "
+                "this machine named %s): no kernel module, no Homa sysctls"
+                % (who, BUILD, os.uname().release, HOMA_PINNED_COMMIT[:7], soft, os.environ.get("SOFTHOMA_RAM", "(not set)"),
+                   os.environ.get("SOFTHOMA_IP", "127.0.0.1 (SOFTHOMA_IP not set)")))
     s = sysctls()
     keys = ("timeout_ticks", "resend_ticks", "resend_interval", "request_ack_ticks", "unsched_bytes", "hijack_tcp",
             "max_gso_size", "link_mbps", "max_overcommit", "num_priorities")
@@ -172,7 +188,9 @@ class HomaSocket:
     REGION_MESSAGES = 64
 
     def __init__(self, bind_ip: str = "0.0.0.0", server_port: Optional[int] = None):
-        self._libc = ctypes.CDLL(ctypes.util.find_library("c") or "libc.so.6", use_errno=True)
+        # [SOFT_HOMA_CARRIER_V1] the process's own symbols, not a handle on libc: where soft Homa is loaded into the
+        # process (ribbit/examples/homa, LD_PRELOAD) these calls are its calls, and where it is not they are libc's.
+        self._libc = ctypes.CDLL(None, use_errno=True)
         try:
             self._sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM, IPPROTO_HOMA)
         except OSError as e:

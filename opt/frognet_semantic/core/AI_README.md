@@ -94,3 +94,9 @@ The parts every node runs. 38 Python files, no subdirectories.
   (`docs/spec/spec-05-routing.md` 4.1). Nothing is preferred by kind. A node with no Homa is exactly as it was.
   Detection is not a fallback: a session whose carrier fails ends. A node told `homa` without the module stops with
   `HomaUnavailable`. Gate: `test_homa_carrier_oracle.py`.
+- **Soft Homa is its own carrier, `softhoma`** (`[SOFT_HOMA_CARRIER_V1]`). Homa's calls on shared memory
+  (`ribbit/examples/homa`, read its DESIGN.md) loaded into the process by LD_PRELOAD. The driver is the same;
+  `homa_socket.py` calls through the process's own symbols (`ctypes.CDLL(None)`), never a handle on libc, which
+  would go past it. `homa_transport.homa_name()` says which Homa this process has; kernel and soft Homa are not
+  one wire, so each end's capability tuple says `homa` or `softhoma` and the two find TCP in common. Words:
+  `softhoma` (must be loaded or the process stops); `homa` with soft Homa loaded stops.

@@ -62,7 +62,7 @@
 #include "homa.h"
 
 namespace {
-const char* BUILD = "softhoma-v3-20261117c";
+const char* BUILD = "softhoma-v4-20261117f";
 const size_t PIECE = 48000;        // one field of a cell: at most 65,535 bytes on the wire (semcodec TYPE_STR), in base64
 size_t RECORD = 240000;            // one cell: bulk goes in large records (PERFORMANCE-LESSONS.md section 2), and a
                                    // frame to the memory is at most 1 MiB (ram_host.cpp MAX_FRAME; over it the memory
@@ -142,7 +142,10 @@ void deliver(Sock* s, Msg&& msg) {
     s->cv.notify_one();
 }
 
-void server_gone(const std::string& who) {            // a server's capability cell is gone: its machine or process left
+// servers this process has been told are gone or closed (their capability cell said so); one that announces itself again is taken out
+std::set<std::string> not_there;                      // under G
+
+void server_gone(const std::string& who, bool closed) {            // a server's capability cell is gone or says closed: its machine or process left, or it closed its socket
     std::vector<Sock*> all; { std::lock_guard<std::mutex> g(G); for (auto& kv : socks) all.push_back(kv.second); }
     for (Sock* s : all) {
         std::vector<Msg> failed;
@@ -151,7 +154,7 @@ void server_gone(const std::string& who) {            // a server's capability c
               if (it->second.to == who) { failed.push_back(Msg{it->first, who, std::string(), false, EHOSTUNREACH}); ++it; }
               else ++it;
           s->n_gone += failed.size(); }
-        if (!failed.empty()) fprintf(stderr, "[SOFTHOMA] %s is GONE (its capability cell left the memory): %zu request(s) from %s end with it\n", who.c_str(), failed.size(), s->name.c_str());
+        if (!failed.empty()) fprintf(stderr, "[SOFTHOMA] %s is GONE (its capability cell %s): %zu request(s) from %s end with it\n", who.c_str(), closed ? "says it closed its socket" : "left the memory", failed.size(), s->name.c_str());
         for (auto& f : failed) deliver(s, std::move(f));
     }
 }
@@ -180,7 +183,9 @@ void watch_servers() {                                // one read, per process, 
     std::lock_guard<std::mutex> g(G);
     if (can_watch) return;
     can_watch = true;
-    space->follow("homa", "can", -1, [](std::vector<ribbit::SpaceRow>& rows) { for (auto& r : rows) { if (getenv("SOFTHOMA_DEBUG")) fprintf(stderr, "[SOFTHOMA-DEBUG] can row id=%llu instance=%s gone=%d\n", (unsigned long long)r.id, r.instance.c_str(), int(r.gone)); if (r.gone) server_gone(r.instance); } });
+    space->follow("homa", "can", 0, [](std::vector<ribbit::SpaceRow>& rows) { for (auto& r : rows) { if (getenv("SOFTHOMA_DEBUG")) fprintf(stderr, "[SOFTHOMA-DEBUG] can row id=%llu instance=%s gone=%d\n", (unsigned long long)r.id, r.instance.c_str(), int(r.gone)); const bool left = r.gone || r.fields()->num("closed");
+        { std::lock_guard<std::mutex> g(G); if (left) not_there.insert(r.instance); else not_there.erase(r.instance); }
+        if (left) server_gone(r.instance, !r.gone); } });
 }
 
 void start_watch(Sock* s) {                           // the socket's one standing read, on its own name
@@ -221,13 +226,13 @@ void start_watch(Sock* s) {                           // the socket's one standi
     }, [s](const std::string& why) { memory_gone(s, why); });
 }
 
-void name_socket(Sock* s, uint16_t port) {             // port 0: a client socket
+void name_socket(Sock* s, uint16_t port, const std::string& ip) {   // port 0: a client socket
     uint64_t r[2] = {uint64_t(getpid()), uint64_t(reinterpret_cast<uintptr_t>(s))};
     if (getrandom(r, sizeof r, 0) != sizeof r) {}
     s->next_id = (r[1] & 0xffffffffffffULL) << 1 | 2;
-    if (port) { s->port = port; s->name = my_ip + ":" + std::to_string(port); }
+    if (port) { s->port = port; s->name = ip + ":" + std::to_string(port); }
     else { char nonce[20]; snprintf(nonce, sizeof nonce, "%012llx", (unsigned long long)(r[0] & 0xffffffffffffULL));
-           s->port = uint16_t(32768 + (r[1] >> 48 & 0x7fff)); s->name = my_ip + ":" + std::to_string(s->port) + "/" + nonce; }
+           s->port = uint16_t(32768 + (r[1] >> 48 & 0x7fff)); s->name = ip + ":" + std::to_string(s->port) + "/" + nonce; }
     start_watch(s);
 }
 
@@ -262,6 +267,9 @@ void release(Sock* s, homa_recvmsg_args* a) {         // bpages the application 
 
 extern "C" {
 
+// [SOFT_HOMA_CARRIER_V1] how a program learns that the Homa it has opened is this one (core/homa_transport.py)
+const char* softhoma_build() { return BUILD; }
+
 int socket(int domain, int type, int protocol) {
     if (protocol != IPPROTO_HOMA) return libc().socket(domain, type, protocol);
     if (domain != AF_INET) { fprintf(stderr, "[SOFTHOMA] an IPPROTO_HOMA socket of family %d: only AF_INET is carried yet\n", domain); errno = EAFNOSUPPORT; return -1; }
@@ -277,9 +285,11 @@ int socket(int domain, int type, int protocol) {
 int bind(int fd, const sockaddr* addr, socklen_t len) {
     Sock* s = find(fd); if (!s) return libc().bind(fd, addr, len);
     if (!s->name.empty()) { errno = EINVAL; return -1; }
-    const uint16_t port = ntohs(reinterpret_cast<const sockaddr_in*>(addr)->sin_port);
-    if (port && !space->read("homa", "can", my_ip + ":" + std::to_string(port)).empty()) { errno = EADDRINUSE; return -1; }
-    name_socket(s, port);
+    const sockaddr_in* in = reinterpret_cast<const sockaddr_in*>(addr); const uint16_t port = ntohs(in->sin_port);
+    // bound to one address: that is the address its peers send to. Bound to any: SOFTHOMA_IP.
+    std::string ip = my_ip; if (in->sin_addr.s_addr != htonl(INADDR_ANY)) { char b[64]; inet_ntop(AF_INET, &in->sin_addr, b, sizeof b); ip = b; }
+    if (port) for (auto& r : space->read("homa", "can", ip + ":" + std::to_string(port))) if (!r.fields()->num("closed")) { errno = EADDRINUSE; return -1; }
+    name_socket(s, port, ip);
     s->server = true;
     space->write("homa", "can", s->name, "{\"build\":\"" + std::string(BUILD) + "\"}");   // gone with this process's session
     return 0;
@@ -307,7 +317,7 @@ ssize_t sendmsg(int fd, const msghdr* h, int flags) {
     if (total == 0 || total > HOMA_MAX_MESSAGE_LENGTH) { errno = EINVAL; return -1; }
     std::string bytes; bytes.reserve(total);
     for (size_t i = 0; i < size_t(h->msg_iovlen); ++i) bytes.append(static_cast<const char*>(h->msg_iov[i].iov_base), h->msg_iov[i].iov_len);
-    if (s->name.empty()) name_socket(s, 0);
+    if (s->name.empty()) name_socket(s, 0, my_ip);
     { std::lock_guard<std::mutex> g(s->m); if (s->down_err) { errno = s->down_err; return -1; } }
     if (a->id == 0) {                                 // a request: one write into this socket's own cells
         std::string to = name_of(static_cast<const sockaddr*>(h->msg_name)); uint64_t id, slot;
@@ -316,8 +326,15 @@ ssize_t sendmsg(int fd, const msghdr* h, int flags) {
           if (sl.free.empty()) slot = sl.next++; else { slot = *sl.free.begin(); sl.free.erase(sl.free.begin()); }
           id = s->next_id; s->next_id += 2; s->out[id] = Sock::Out{a->completion_cookie, to, slot}; ++s->n_sent; }
         watch_servers();
-        put(s, to, true, id, slot, bytes);
         a->id = id;
+        bool gone; { std::lock_guard<std::mutex> g(G); gone = not_there.count(to) != 0; }
+        if (gone) {                                   // its capability cell has said it is not there: the request ends as Homa ends one, in recvmsg
+            { std::lock_guard<std::mutex> g(s->m); ++s->n_gone; }
+            fprintf(stderr, "[SOFTHOMA] %s is NOT THERE (its capability cell said gone or closed): request %llu from %s ends at once, nothing was written\n", to.c_str(), (unsigned long long)id, s->name.c_str());
+            deliver(s, Msg{id, to, std::string(), false, EHOSTUNREACH});
+            return 0;
+        }
+        put(s, to, true, id, slot, bytes);
         return 0;
     }
     Sock::Owed o;                                     // a reply: the same write, the other way, in the request's slot
@@ -397,6 +414,9 @@ int close(int fd) {
     Sock* s = find(fd); if (!s) return libc().close(fd);
     { std::lock_guard<std::mutex> g(s->m); s->down = true; }
     s->cv.notify_all();
+    // a server that closes says so in its capability cell: the cell itself leaves only with this process's session,
+    // and those with requests outstanding to it are owed the news now
+    if (s->server) space->write("homa", "can", s->name, "{\"build\":\"" + std::string(BUILD) + "\",\"closed\":1}");
     fprintf(stderr, "[SOFTHOMA] socket %s closed: sent=%llu received=%llu ended-by-a-peer-leaving=%llu\n", s->name.empty() ? "(unnamed)" : s->name.c_str(),
             (unsigned long long)s->n_sent, (unsigned long long)s->n_recv, (unsigned long long)s->n_gone);
     is_homa[fd].store(false, std::memory_order_release);

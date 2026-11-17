@@ -60,7 +60,7 @@ from typing import Any, Dict, Optional, Tuple
 
 from core import homa_socket
 from core.homa_liveness import node_of
-from core.homa_transport import note_rtt
+from core.homa_transport import homa_name, note_rtt
 from core.semcache_wire import wrap_hello, try_parse, OP_HELLO
 from proxy import transport_semantic as TS
 
@@ -180,7 +180,7 @@ class _ClientMux:
                 sent = rpc.sent_at.get(m.cookie)
                 if sent is not None:
                     worker._peer_latency.observe(time.time() - sent)
-                    note_rtt(worker.node, "homa", time.time() - sent)      # [CARRIER_PER_HOP_V1]
+                    note_rtt(worker.node, homa_name(), time.time() - sent)      # [CARRIER_PER_HOP_V1]
                 worker._arrived(rpc, m.payload)
         except homa_socket.CarrierClosed:
             why = "socket closed"

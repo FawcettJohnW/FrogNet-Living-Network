@@ -134,6 +134,42 @@ def main():
     check(type(w3) is H and w1.stopped and len(made) == 2, "the next request finds it with nothing outstanding: it is retired and the session opens on homa")
     w4 = TS._get_worker(P, 9009)
     check(w4 is w3 and len(made) == 2, "and stays there: one session, no spare")
+
+    # [SOFT_HOMA_CARRIER_V1] a node in whose process soft Homa is loaded: the same driver, another carrier's name
+    real_soft = HT._soft_homa_loaded
+    HT._soft_homa_loaded = lambda: "softhoma-stood-in"
+    fresh(); HT._kernel_homa_opens = lambda: (True, "an IPPROTO_HOMA socket opened (stood in)"); HT._tcp_rtt = lambda host: None
+    check(HT.homa_name() == "softhoma" and HT.carriers_here() == ("softhoma", "tcp"), f"soft Homa is loaded into this process: carriers {HT.carriers_here()}")
+    theirs["v"] = ("homa", "tcp")
+    check(HT.carrier_for(P) == "tcp", "a peer with kernel Homa and tcp: soft Homa and kernel Homa are not one wire, tcp is what both have")
+    theirs["v"] = ("homa",)
+    try:
+        HT.carrier_for(P); none = False
+    except ConnectionError as e:
+        none = "no carrier in common" in str(e) and "softhoma" in str(e)
+    check(none, "a peer told kernel Homa only: no carrier in common, said with both ends' carriers")
+    theirs["v"] = ("softhoma", "tcp")
+    check(HT.carrier_for(P) == "homa", "a peer with soft Homa and tcp, nothing measured: the Homa driver (on soft Homa)")
+    HT.note_rtt(P, "softhoma", 0.0003); HT._tcp_rtt = lambda host: 0.0002
+    check(HT.carrier_for(P) == "tcp" and (P, "homa") not in HT._rtt, "soft Homa 0.3 ms and tcp 0.2 ms: tcp. Its round trips are kept under its own name, not kernel Homa's")
+    HT.note_rtt(P, "softhoma", 0.0001)
+    check(HT.carrier_for(P) == "homa", "soft Homa measures 0.1 ms: the Homa driver again")
+    fresh("homa")
+    try:
+        HT.carriers_here(); stopped = False
+    except SystemExit as e:
+        stopped = "softhoma" in str(e)
+    check(stopped, "told homa with soft Homa loaded: the process stops and says the word is softhoma")
+    fresh("softhoma")
+    check(HT.carriers_here() == ("softhoma",) and HT.carrier_for(P) == "homa" and HT.on_homa_driver(), "told softhoma with soft Homa loaded: Homa only, on soft Homa")
+    HT._soft_homa_loaded = lambda: None
+    fresh("softhoma")
+    try:
+        HT.carrier_for(P); stopped = False
+    except SystemExit as e:
+        stopped = "not loaded" in str(e)
+    check(stopped, "told softhoma without it: the process stops and says so; nothing else is opened")
+    HT._soft_homa_loaded = real_soft
     HT._kernel_homa_opens = real
     print()
     print("ALL HOMA-CARRIER ORACLE CHECKPOINTS PASS" if ok else "HOMA-CARRIER ORACLE FAILED", flush=True)
