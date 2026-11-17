@@ -29,6 +29,10 @@ simulator need to activate the driver between machines on the topology and use t
 battery of tests. That is passing." One proxy and one daemon in one process (`homa_door_tier.py`) and a driver's own
 oracles are steps toward that and are not it. The record of bringing a transport up, and what the simulator needed
 for it, is `ribbit/examples/homa/EXPLORATION-LOG.md` (section 9).
+`wire_between_machines_tier.py` is the tier for it: each machine is a network namespace built as a node (its own
+address, hosts file, database, `api.php` on 8080, the real `proxy_main` on 80 and `daemon_main` on 9009, the node's
+nat rules and tools), the network is brought up as a network comes up, and the battery runs from every machine to
+every other on the transport given. Run it with `--transport tcp` first: that is the control.
 
 ## Traps
 

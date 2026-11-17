@@ -434,6 +434,64 @@ network the role's address is written to the hosts files by a merge AFTER the ma
 event, and the tier should bring a network up in that order instead of starting everything at once with the roles
 already written.
 
+### 17 Nov 13:55 to 14:45: the Homa driver passes the first battery between machines
+
+Three changes, each made because of what the run between machines showed, none of them visible in one process:
+
+1. **The memory says when it is there** (`[THE_MEMORY_SAYS_WHEN_IT_IS_THERE_V1]`, `server_homa._memory_child`).
+   The daemon waits on its memory process's pipe for the one line it prints when it holds the space. An event, not
+   a timer.
+2. **The watcher exists before the first try to open** (`MsgDaemonServer.run`). The hosts watcher was made only
+   after the listener's socket opened, so a listener whose first open failed could never be told of the event it
+   was waiting for.
+3. **A server arriving in the memory is an event** (`[A_SERVER_ARRIVING_IS_AN_EVENT_V1]`: `softhoma_wait_servers()`
+   in the Homa API interface, `homa_socket.soft_on_servers_change`, `PeerLiveness.wake`). A node whose hold on the
+   ControlRam could not be taken, because the ControlRam's machine had not yet arrived in the memory, was told to
+   hold again "at the next network event", and none came. The standing read on the capability cells already knows
+   when a server arrives; a driver's end now waits on it (one held read) and takes its hold again. With this every
+   machine's capability tuples, proxy and daemon, reach the ControlRam over the Homa wire and every hold is taken.
+
+And the tier now brings a network up the way a network comes up: machines boot with no role named in their hosts
+files; each machine is waited for until it answers a request to itself through its own proxy; then "the merge"
+writes the role lines into the hosts files one machine at a time, the role's own machine last. Each daemon opens
+its Homa listener on its own hosts event, with nothing restarted.
+
+**Results, `trial3`, battery (a)**, 180 concurrent reads and 90 writes for each of the six ordered pairs, links
+unshaped, one sandbox machine underneath:
+
+| Transport | Runs | Passed | What failed |
+|---|---|---|---|
+| `tcp` (the control) | 6 | 5 | once, one read of 270 was answered 503, "REQ_MISS from daemon; exhausted retries" |
+| `softhoma` | 6 | 6 after the check was fixed (see below) | nothing of the wire's |
+
+- The TCP failure is the existing system's, found by this tier: a read during the concurrent phase got REQ_MISS and
+  the proxy ran out of retries. It is rare (1 request in about 1,600) and has not been looked into. It is NOT
+  changed here; it is recorded for John.
+- Two failures were the tier's own and are fixed: writes for one writer's tuple were being sent by several threads
+  at once, so a later value could arrive first (each writer is now one program writing in order, as in
+  `test_fanout_wire_order_oracle`); and the check of which driver carried the sessions read the proxy's log line by
+  line, where two threads' lines are sometimes on one line.
+- Mean of the pairs' median request times: soft Homa 25.0 ms, TCP 23.7 ms (30 pairs each). On unshaped links in one
+  sandbox this says only that neither is far from the other; it is not a performance result.
+- Every session ran on the driver the word called for; each end named itself in its HELLO by the node's own
+  `getEth0Address`; nothing was preloaded.
+- All the driver's own gates pass on this code (ordering oracle 8 modes, carrier, liveness, liveness on the real
+  memory, simulator, layout, the TCP driver's gates, soft Homa's `cp_node` gate was last run before change 3).
+
+**What ruling 32 still lacks after this**: one topology of three machines, one battery of the seven planned, links
+unshaped. Not yet: the door scenarios, large frames with changing contents, a short frame during a long one, a
+daemon stopping and a machine leaving, the role moving between machines, `auto` with a TCP-only machine, the 20
+hardware topologies, and shaped links (this sandbox has no `netem`; `slowlink.py` is the way).
+
+**Open design points for John** (not decided by me):
+- A node told `softhoma` ONLY can bring its wire up only because of change 3 and the order the merge writes the
+  hosts files. A network is expected to run `auto`, where TCP is always there to reach the ControlRam. Whether
+  `softhoma`-only is a mode to support, or a test word, is his call.
+- When the machine that holds soft Homa's memory restarts it with the hosts file unchanged, the other machines'
+  sockets go down, and their listeners open again only at a network event. Change 3 makes "a server arrived" such an
+  event for the liveness hold; it is not yet used to reopen a LISTENER whose memory went away and came back. Not
+  built, not tested.
+
 ## 4. The interventions: what was said, why it was noticed, what had not been considered
 
 John, 17 Nov, of the first version of this file: "It is not just the order. It is what I asked and why I asked it.
@@ -742,9 +800,12 @@ Raspberry Pi 5s. Ping 1.9 ms within Seattle, 91.6 ms to New York. 17 Nov, Homa A
 
 Nothing here may be reported as working.
 
-0. **What tells a node that soft Homa's memory has come up** (found 17 Nov 13:55, between machines): after a boot
-   or a restart of the memory with the hosts file unchanged, a daemon's Homa listener stays down. And told
-   `softhoma` only, the ControlRam is reached over the wire being brought up. See section 3, 13:10 to 13:55.
+0. **Boot order and the memory restarting** (found between machines, 17 Nov). Fixed for a boot: the daemon waits
+   for its memory process, has its watcher before its first open, and a server arriving in the memory is an event.
+   NOT fixed: a listener whose memory goes away and comes back with the hosts file unchanged. And whether a network
+   told `softhoma` only is a supported mode is John's call. See section 3, 13:10 to 14:45.
+0a. **On TCP, 1 request in about 1,600 between machines was answered 503 "REQ_MISS from daemon; exhausted
+   retries"** (the existing system; found by the new tier; not looked into, not changed).
 1. **The simulator, by ruling 32.** The driver activated between machines on the topology, the full battery over it.
 2. **Any of the driver on a node.** Pieces, spares, the wire manager, the library opened by the driver, the memory
    following the role, `softhoma-ram` started by the daemon: none has run outside the sandbox. Only his `cp_node`
@@ -861,6 +922,18 @@ here; where this work did one late or wrong, it says so.
   address, the capability tuples, and the role's host. Where a tier stands in for those, it is not testing the
   driver between machines.
 - What is still missing for ruling 32 is recorded as it is found, below this line.
+- **A machine has to be a node, or the tier is testing a stand-in.** What that took (`wire_between_machines_tier.py`):
+  a network namespace with the machine's own 10.x.y.1; `/etc/netns/<ns>/hosts` as its hosts file, rewritten in
+  place; its own database behind a relay at 127.0.0.1:3306; `api.php` on port 8080 and the real `proxy_main` on
+  port 80; the three nat rules of `etc/setup_iptables`; the checkout's `usr/local/bin` bound at `/usr/local/bin` in
+  the machine's own mount namespace. Each of these was found by a failure, not planned.
+- **Bring the network up as a network comes up**: machines first, then the merge writing the roles into the hosts
+  files one machine at a time. Starting everything at once with the roles already written hides the boot-order
+  faults, and it was those the first run found.
+- **Run the existing transport through a new tier first, several times.** The TCP control failed 1 run in 6 on a
+  fault of the existing system. Without that, the same failure on Homa would have been charged to Homa.
+- **A tier's own faults look like the wire's.** Two of the first failures were the test's (concurrent writers to one
+  tuple; reading an interleaved log line by line).
 
 **E. Working practice that this record shows mattered**
 

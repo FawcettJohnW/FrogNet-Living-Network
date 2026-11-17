@@ -68,7 +68,7 @@
 #include "homa.h"
 
 namespace {
-const char* BUILD = "softhoma-v8-20261117q";
+const char* BUILD = "softhoma-v9-20261117r";
 const size_t PIECE = 48000;        // one field of a cell: at most 65,535 bytes on the wire (semcodec TYPE_STR), in base64
 size_t RECORD = 240000;            // one cell: bulk goes in large records (PERFORMANCE-LESSONS.md section 2), and a
                                    // frame to the memory is at most 1 MiB (ram_host.cpp MAX_FRAME; over it the memory
@@ -156,6 +156,9 @@ void deliver(Sock* s, Msg&& msg) {
 // servers this process has been told are gone or closed (their capability cell said so); one that announces itself again is taken out
 std::set<std::string> not_there;                      // under G
 std::set<std::string> there;                          // under G: servers whose capability cell this process has seen there
+// [A_SERVER_ARRIVING_IS_AN_EVENT_V1] every change to the two sets, and every change of memory, is counted and told to
+// whoever waits in softhoma_wait_servers(): a server arriving in the memory is an event a driver can wait on.
+uint64_t servers_changed = 0; std::condition_variable servers_cv;     // under G
 
 void server_gone(const std::string& who, bool closed) {            // a server's capability cell is gone or says closed: its machine or process left, or it closed its socket
     std::vector<Sock*> all; { std::lock_guard<std::mutex> g(G); for (auto& kv : socks) all.push_back(kv.second); }
@@ -206,7 +209,8 @@ void watch_servers(ribbit::Space* sp) {               // one read, per memory, o
     can_watch = true;
     const uint64_t mine = memory_number.load();       // rows from a memory this process has let go of are not this memory's news
     sp->follow("homa", "can", 0, [mine](std::vector<ribbit::SpaceRow>& rows) { if (mine != memory_number.load()) return; for (auto& r : rows) { if (getenv("SOFTHOMA_DEBUG")) fprintf(stderr, "[SOFTHOMA-DEBUG] can row id=%llu instance=%s gone=%d\n", (unsigned long long)r.id, r.instance.c_str(), int(r.gone)); const bool left = r.gone || r.fields()->num("closed");
-        { std::lock_guard<std::mutex> g(G); if (left) { not_there.insert(r.instance); there.erase(r.instance); } else { not_there.erase(r.instance); there.insert(r.instance); } }
+        { std::lock_guard<std::mutex> g(G); if (left) { not_there.insert(r.instance); there.erase(r.instance); } else { not_there.erase(r.instance); there.insert(r.instance); } ++servers_changed; }
+        servers_cv.notify_all();
         if (left) server_gone(r.instance, !r.gone); } });
 }
 
@@ -320,6 +324,19 @@ int softhoma_await(const char* addr, double seconds) {
     }
 }
 
+// [A_SERVER_ARRIVING_IS_AN_EVENT_V1] Found between machines (simulation/wire_between_machines_tier.py, 17 Nov): a node
+// whose hold on the ControlRam failed because the ControlRam's machine had not yet arrived in soft Homa's memory was
+// told to hold again "at the next network event", and none came: the hosts file had already changed. A server
+// arriving in (or leaving) the memory IS the event. This call returns when the set of servers this process knows has
+// changed since `seen` (the number it returned before; 0 the first time), or the memory itself has changed. It is one
+// held read: the standing read on the capability cells wakes it. It does not return on a timer.
+uint64_t softhoma_wait_servers(uint64_t seen) {
+    if (ensure_space()) { ribbit::Space* sp; { std::lock_guard<std::mutex> g(SP); sp = space; } if (sp) watch_servers(sp); }
+    std::unique_lock<std::mutex> g(G);
+    servers_cv.wait(g, [&] { return servers_changed != seen; });
+    return servers_changed;
+}
+
 // [THE_MEMORY_IS_WHERE_THE_ROLE_IS_V1] John 2026-11-17: "You know it can change address during a run. Right?" The
 // driver's call: the memory is at `ram` (HOST:PORT) NOW, and this machine is `ip` to its peers NOW. Every socket this
 // process has on a memory it had before is down from here (gone is gone: what was outstanding ends, as when a memory
@@ -331,7 +348,8 @@ int softhoma_memory(const char* ram, const char* ip) {
     { std::lock_guard<std::mutex> g(SP); old = space; was = old ? old->where() : ""; space = nullptr; tried = false; told_ram = ram ? ram : ""; told_ip = ip ? ip : ""; }
     memory_number.fetch_add(1);
     std::vector<Sock*> all;
-    { std::lock_guard<std::mutex> g(G); for (auto& kv : socks) all.push_back(kv.second); can_watch = false; there.clear(); not_there.clear(); }
+    { std::lock_guard<std::mutex> g(G); for (auto& kv : socks) all.push_back(kv.second); can_watch = false; there.clear(); not_there.clear(); ++servers_changed; }
+    servers_cv.notify_all();
     int n = 0;
     for (Sock* s : all) {
         size_t out; bool already;

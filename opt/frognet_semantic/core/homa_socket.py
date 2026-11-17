@@ -186,6 +186,8 @@ def soft_homa_library():
                 _soft_lib.softhoma_build.restype = ctypes.c_char_p
                 _soft_lib.softhoma_record_bytes.restype = ctypes.c_size_t
                 _soft_lib.softhoma_await.argtypes = [ctypes.c_char_p, ctypes.c_double]
+                _soft_lib.softhoma_wait_servers.argtypes = [ctypes.c_uint64]
+                _soft_lib.softhoma_wait_servers.restype = ctypes.c_uint64
             except (OSError, AttributeError) as e:
                 raise HomaUnavailable("%s names the soft Homa library %r and it could not be used: %s: %s. This process "
                                       "does not use another Homa in its place." % (src, path, type(e).__name__, e)) from e
@@ -204,6 +206,7 @@ def soft_homa_library():
 SOFTHOMA_ROLE = "databasehost.frognet"                       # the SystemRam, as the hosts file names it
 SOFTHOMA_PORT = int(os.environ.get("FROGNET_SOFTHOMA_PORT", "9131"))
 _soft_told: Optional[Tuple[str, str]] = None
+_soft_named = threading.Event()                              # set each time the library is told where the memory is
 
 
 def soft_memory_now() -> Tuple[str, str]:
@@ -249,6 +252,7 @@ def soft_memory_tell(why: str) -> bool:
             return False
         was, _soft_told = _soft_told, now
     down = lib.softhoma_memory(now[0].encode(), now[1].encode())
+    _soft_named.set()
     print("[HOMA] [THE_MEMORY_IS_WHERE_THE_ROLE_IS_V1] %s: soft Homa's memory is at %s and this node is %s (before: %s); "
           "%d socket(s) on the memory before went down" % (why, now[0], now[1], "%s, node %s" % was if was else "nothing", down), flush=True)
     return True
@@ -263,6 +267,34 @@ def soft_peer_there(dest: Tuple[str, int], wait_s: float) -> bool:
         return True
     soft_memory_tell("a peer is being looked for")
     return lib.softhoma_await(("%s:%d" % (dest[0], int(dest[1]))).encode(), ctypes.c_double(float(wait_s))) == 1
+
+
+def soft_on_servers_change(tell, who: str) -> None:
+    """[A_SERVER_ARRIVING_IS_AN_EVENT_V1] Call tell() each time a server arrives in or leaves soft Homa's memory, or the
+    memory itself changes. One thread, held in the library on the standing read on the capability cells. A driver's
+    end gives it its liveness's wake(): a hold that could not be taken because the ControlRam's machine was not in the
+    memory yet is taken when that machine arrives, which is the network event it was waiting for. Nothing on kernel
+    Homa."""
+    lib = soft_homa_library()
+    if lib is None:
+        return
+
+    def held():
+        seen = 0
+        while True:
+            try:
+                if _soft_told is None:
+                    soft_memory_tell("%s is waiting for servers to arrive" % who)
+                seen = lib.softhoma_wait_servers(seen)
+            except HomaUnavailable as e:
+                print("[HOMA] %s: %s; servers arriving are waited for once the memory can be named" % (who, e), flush=True)
+                _soft_named.wait(); _soft_named.clear()
+                continue
+            try:
+                tell()
+            except Exception as e:
+                print("[HOMA] %s: the handler for a server arriving raised %s: %r" % (who, type(e).__name__, e), flush=True)
+    threading.Thread(target=held, daemon=True, name="softhoma-servers").start()
 
 
 def soft_homa_loaded() -> Optional[str]:

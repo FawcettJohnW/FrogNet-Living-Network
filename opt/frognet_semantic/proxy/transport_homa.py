@@ -182,6 +182,8 @@ class _ClientMux:
         # network event the driver asks where it is now; if it moved, the library puts this socket down, the receiver
         # below ends and the sessions with it, and the next message the wire manager has opens a new socket there.
         self.liveness.on_hosts_change = self._hosts_changed
+        if hasattr(self.liveness, "wake"):
+            homa_socket.soft_on_servers_change(self.liveness.wake, "proxy semantic wire")   # [A_SERVER_ARRIVING_IS_AN_EVENT_V1]
         self.carrier_down = ""                         # why the socket is down, when it is
         self.n_reopened = 0
         print("[SEM-HOMA] [LIVENESS_IS_A_HELD_READ_V1] a peer leaving is learned from the held read on (homa, can) and "

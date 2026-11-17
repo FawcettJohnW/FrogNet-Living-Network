@@ -210,6 +210,11 @@ class PeerLiveness:
     stop = withdraw
 
     # -- the driver's one call
+    def wake(self) -> None:
+        """[A_SERVER_ARRIVING_IS_AN_EVENT_V1] A network event this watcher did not see for itself (the driver's: a
+        server arrived in soft Homa's memory). A hold that was not taken is held again now."""
+        self._net.set()
+
     def watch(self, ip: str) -> None:
         """The driver has a session with this peer: when the watcher says its machine left, it is gone, even if its
         tuple was never read here."""

@@ -389,13 +389,32 @@ class MsgDaemonServer:
         elif child is not None:
             print("[DAEMON-HOMA] this node's soft Homa memory process at %s had ENDED (exit %s)" % (child[1], child[0].returncode), flush=True)
         try:
-            self._child = (subprocess.Popen([exe, at]), at)
-            print("[DAEMON-HOMA] [THE_MEMORY_IS_WHERE_THE_ROLE_IS_V1] this node serves soft Homa's memory at %s (%s, pid %d); "
-                  "it is the one used while this node holds the SystemRam role" % (at, exe, self._child[0].pid), flush=True)
+            p = subprocess.Popen([exe, at], stderr=subprocess.PIPE, text=True)
         except OSError as e:
             self._child = None
             print("[DAEMON-HOMA] soft Homa's memory process could not be started (%s at %s): %s. This node cannot hold "
                   "soft Homa's memory; it is tried again at the next network event." % (exe, at, e), flush=True)
+            return
+        # [THE_MEMORY_SAYS_WHEN_IT_IS_THERE_V1] found between machines (simulation/wire_between_machines_tier.py,
+        # 17 Nov): this listener opened its socket before its own memory process was listening, was refused, and
+        # nothing ever said the memory had come up. The process says when it holds the space (one line); that line is
+        # waited for here, on its pipe. It is an event, not a timer: the read returns when the line is written, or
+        # when the process ends without writing it.
+        first = p.stderr.readline()
+        if "held here" not in first:
+            rest = first + (p.stderr.read() or "")
+            self._child = None
+            print("[DAEMON-HOMA] soft Homa's memory process ended without holding the space (%s at %s, exit %s): %s. It is "
+                  "tried again at the next network event." % (exe, at, p.wait(), rest.strip()[-300:]), flush=True)
+            return
+        self._child = (p, at)
+        print("[DAEMON-HOMA] [THE_MEMORY_IS_WHERE_THE_ROLE_IS_V1] this node serves soft Homa's memory at %s (pid %d: %s); it "
+              "is the one used while this node holds the SystemRam role" % (at, p.pid, first.strip()), flush=True)
+
+        def say():                                        # what the memory process says after that, into this log
+            for line in p.stderr:
+                print(line.rstrip(), flush=True)
+        threading.Thread(target=say, daemon=True, name="softhoma-ram-log").start()
 
     def _hosts_changed(self) -> None:
         """The liveness watcher's thread, each time the hosts file is rewritten."""
@@ -411,6 +430,13 @@ class MsgDaemonServer:
         down when its memory goes or moves: the listener then opens again where the memory is, at once if it is
         there, else at the next network event (never on a timer)."""
         self._changed = threading.Event()
+        # The watcher on the hosts file exists before the first try to open: found between machines (17 Nov), a
+        # listener whose first open failed had no watcher, so the event it was waiting for could never reach it.
+        if self.liveness is None:
+            self.liveness = self._peer_liveness()
+            self.liveness.on_hosts_change = self._hosts_changed
+            if hasattr(self.liveness, "wake"):
+                homa_socket.soft_on_servers_change(self.liveness.wake, "daemon semantic wire")   # [A_SERVER_ARRIVING_IS_AN_EVENT_V1]
         while not self._stopping:
             self._changed.clear()
             try:

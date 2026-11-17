@@ -48,6 +48,7 @@ import io
 import json
 import os
 import queue
+import re
 import shutil
 import subprocess
 import sys
@@ -172,18 +173,15 @@ def agent():
     def local(method, path, body):
         return fetch("http://127.0.0.1:8080" + path, method, body, 30)      # this machine's own api.php, directly
 
-    def many(reqs, threads):
-        out, lock, it = [None] * len(reqs), threading.Lock(), iter(enumerate(reqs))
+    def streams(lists):
+        """Each list is one program on the machine: its requests one after another, the lists at once. A writer's
+        writes to its own tuple are therefore in order, as test_fanout_wire_order_oracle's writers are."""
+        out = [[None] * len(l) for l in lists]
 
-        def work():
-            while True:
-                with lock:
-                    nxt = next(it, None)
-                if nxt is None:
-                    return
-                i, r = nxt
-                out[i] = req(*r)
-        ts = [threading.Thread(target=work) for _ in range(threads)]
+        def work(k):
+            for i, r in enumerate(lists[k]):
+                out[k][i] = req(r["target"], r["method"], r["path"], r.get("body"))
+        ts = [threading.Thread(target=work, args=(k,)) for k in range(len(lists))]
         for t in ts: t.start()
         for t in ts: t.join()
         return out
@@ -194,8 +192,8 @@ def agent():
         try:
             if c["op"] == "req":
                 r = req(c["target"], c["method"], c["path"], c.get("body"))
-            elif c["op"] == "many":
-                r = many([(x["target"], x["method"], x["path"], x.get("body")) for x in c["reqs"]], c["threads"])
+            elif c["op"] == "streams":
+                r = streams(c["lists"])
             elif c["op"] == "local":
                 r = local(c["method"], c["path"], c.get("body"))
             else:
@@ -205,13 +203,13 @@ def agent():
         print(MARK + json.dumps(r), flush=True)
 
 
-def hosts_text(machines):
-    """A node's hosts file after the merge: every machine in the block, and the role lines."""
+def hosts_text(machines, roles=True):
+    """A node's hosts file: every machine in the block and, once the merge's election has run, the role lines."""
     out = ["127.0.0.1 localhost"]
     for m in machines:
         out.append("%s FrogNetHost.%s %s" % (m.ip, m.name, m.name))
     for m in machines:
-        for r in m.roles:
+        for r in m.roles if roles else ():
             out.append("%s %s.frognet" % (m.ip, r))
     return "\n".join(out) + "\n"
 
@@ -275,7 +273,7 @@ def bring_up(machines, dbc):
     for m in machines:
         os.makedirs(m.dir)
         os.makedirs("/etc/netns/%s" % m.ns, exist_ok=True)
-        write_hosts(m, hosts_text(machines))
+        write_hosts(m, hosts_text(machines, roles=False))    # booted; the merge has not run: no role is named yet
         sh(["ip", "netns", "add", m.ns], check=True)
         host_if, ns_if = "fnwh%d" % m.n, "eth0"
         sh(["ip", "link", "add", host_if, "type", "veth", "peer", "name", ns_if, "netns", m.ns], check=True)
@@ -350,19 +348,17 @@ def battery_fanout(machines, check):
             warm.append(a.ask("req", target=b.ip, method="POST", path=WPATH, body=json.dumps(
                 {"SensorName": "w0.%s.from.%s" % (b.name, a.name), "SensorType": "WW", "SensorAddress": a.ip, "SensorNetwork": a.name,
                  "jsonData": {"v": 0}})))
-            reqs = []
-            for i in range(N):
-                for r in range(R):
-                    reqs.append({"target": b.ip, "method": "GET", "path": RPATH % (TYPES[r % 2], 1 + (i + r) % 3)})
-                for w in range(W):
-                    reqs.append({"target": b.ip, "method": "POST", "path": WPATH, "body": json.dumps(
-                        {"SensorName": "w%d.%s.from.%s" % (w, b.name, a.name), "SensorType": "WW", "SensorAddress": a.ip,
-                         "SensorNetwork": a.name, "jsonData": {"v": i}})})
+            lists = [[{"target": b.ip, "method": "GET", "path": RPATH % (TYPES[r % 2], 1 + (i + r) % 3)} for i in range(N)]
+                     for r in range(R)]                   # R readers
+            lists += [[{"target": b.ip, "method": "POST", "path": WPATH, "body": json.dumps(
+                {"SensorName": "w%d.%s.from.%s" % (w, b.name, a.name), "SensorType": "WW", "SensorAddress": a.ip,
+                 "SensorNetwork": a.name, "jsonData": {"v": i}})} for i in range(N)] for w in range(W)]   # W writers
             t0 = time.time()
-            got = a.ask("many", reqs=reqs, threads=R + W, wait_s=300)
+            ans = a.ask("streams", lists=lists, wait_s=300)
             dt = time.time() - t0
-            if not isinstance(got, list):
-                check(False, "%s -> %s: %s" % (a.name, b.name, got)); good = False; continue
+            if not isinstance(ans, list):
+                check(False, "%s -> %s: %s" % (a.name, b.name, ans)); good = False; continue
+            reqs, got = [q for l in lists for q in l], [g for l in ans for g in l]
             bad = []
             for q, g in zip(reqs, got):
                 if g["status"] != 200:
@@ -393,13 +389,26 @@ def battery_fanout(machines, check):
     return good
 
 
+def wait_for_listeners(machines, wait_s=30):
+    """Each daemon's own log line that it is listening on Homa, once per machine. The tier reads the machines' logs;
+    it does not ask the memory, so it stands in for nothing."""
+    t_end, there = time.time() + wait_s, {}
+    while time.time() < t_end:
+        there = {m.name: "[DAEMON-HOMA] [HOMA_TRANSPORT_V1] semantic wire on Homa at" in open(m.daemon_log, errors="replace").read() for m in machines}
+        if all(there.values()):
+            break
+        time.sleep(0.3)
+    return there
+
+
 def battery_carried(machines, word, check):
     """What carried it, read from each machine's own proxy log: its sessions, and on which driver."""
     good = True
     for m in machines:
         log = open(m.proxy_log, errors="replace").read()
-        homa = sorted({l.split(" to ")[1].split(":")[0] for l in log.split("\n") if l.startswith("[SEM-HOMA] session ") and " opened" in l})
-        tcp = sorted({l.split("host=")[1].split()[0] for l in log.split("\n") if l.startswith("[RPC-TRACE] event=connect_ok host=")})
+        # anywhere in the text: two threads' lines are sometimes written on one line of the log
+        homa = sorted(set(re.findall(r"\[SEM-HOMA\] session [0-9a-f]+ to ([0-9.]+):\d+ set=\d+ opened", log)))
+        tcp = sorted(set(re.findall(r"\[RPC-TRACE\] event=connect_ok host=([0-9.]+) ", log)))
         unknown = "LOCAL GW UNKNOWN" in log or "LOCAL GW UNKNOWN" in open(m.daemon_log, errors="replace").read()
         others = sorted(o.ip for o in machines if o is not m)
         if word == "tcp":
@@ -450,25 +459,40 @@ def main():
             pings = [m.exec(["ping", "-c", "1", "-W", "2", o.ip]).returncode == 0 for o in others]
             me = m.exec([PY, "-c", "import sys; sys.path.insert(0, %r); from core import frognet_tuples as T; print(T.my_ip())" % SEM],
                         env=m.env).stdout.strip().split("\n")[-1]
-            role = m.exec([PY, "-c", "import socket; print(socket.gethostbyname('databasehost_control.frognet'))"], env=m.env).stdout.strip()
+            role = m.exec(["getent", "hosts", "databasehost_control.frognet"]).stdout.split()[:1]
             api = m.exec(["php", "-r", "echo @file_get_contents('http://127.0.0.1:8080/api.php?entity=sensors&action=values&limit=1');"]).stdout
-            check(all(pings) and me == m.ip and role == machines[0].ip and api.strip().startswith(("{", "[")),
-                  "%s: reaches the others (%s), FrogNet's own call gives its address as %s, its hosts file names the "
-                  "ControlRam %s, and its own api.php answers where a node's does, on port 8080 (%s)" % (m.name, pings, me, role, api.strip()[:60]))
+            check(all(pings) and me == m.ip and role == [] and api.strip().startswith(("{", "[")),
+                  "%s: reaches the others (%s), FrogNet's own call gives its address as %s, no role is named in its "
+                  "hosts file yet (%s), and its own api.php answers where a node's does, on port 8080 (%s)" % (m.name, pings, me, role, api.strip()[:60]))
 
         # ---- the wire: every machine's daemon and proxy, on the transport given
         for m in machines:
             m.start_wire(a.transport)
         up = [m.ask(None, wait_s=60) for m in machines]
-        def listening():
-            return [m.exec(["bash", "-c", "exec 3<>/dev/tcp/127.0.0.1/80"]).returncode == 0 and
-                    (a.transport == "softhoma" or m.exec(["bash", "-c", "exec 3<>/dev/tcp/127.0.0.1/9009"]).returncode == 0) for m in machines]
-        t_end = time.time() + 40
-        while not all(listening()) and time.time() < t_end:
-            time.sleep(0.5)
-        check(all(u.get("ready") for u in up) and all(m.daemon.poll() is None and m.proxy_main.poll() is None for m in machines) and all(listening()),
-              "every machine's daemon (daemon_main.py) and proxy (proxy_main) are up, told %s, with the node's port-80 rule (%s)"
-              % (a.transport, listening()))
+        def answering():
+            # a machine is ready when a request to ITSELF is answered through its own proxy (the node's rule sends
+            # it there, and the proxy serves it from the machine's api.php). A proxy accepts connections before it
+            # has made its template tables, so "port 80 is open" is not "ready".
+            return [m.ask("req", target=m.ip, method="GET", path=RPATH % ("none", 1)).get("status") == 200 for m in machines]
+        t_end = time.time() + 60
+        ready = answering()
+        while not all(ready) and time.time() < t_end:
+            time.sleep(0.5); ready = answering()
+        check(all(u.get("ready") for u in up) and all(m.daemon.poll() is None and m.proxy_main.poll() is None for m in machines) and all(ready),
+              "every machine's daemon (daemon_main.py) and proxy (proxy_main) are up, told %s, and each answers a request to "
+              "itself through its own proxy by the node's port-80 rule (%s)" % (a.transport, ready))
+
+        # ---- the merge: the election's role lines reach the machines' hosts files one machine at a time, as on a
+        # network (each node's file changes in its own time). The watcher in each driver takes it as its event.
+        for m in reversed(machines):                      # the role's own machine learns it last
+            write_hosts(m, hosts_text(machines))
+            time.sleep(0.4)
+        named = [m.exec(["getent", "hosts", "databasehost.frognet"]).stdout.split()[:1] == [machines[0].ip] for m in machines]
+        check(all(named), "the merge wrote the role lines: every machine's hosts file names %s as databasehost.frognet" % machines[0].ip)
+        if a.transport != "tcp":
+            there = wait_for_listeners(machines)
+            check(all(there.values()), "every machine's daemon opened its Homa listener in soft Homa's memory after its own hosts "
+                                       "file changed, with nothing restarted (%s)" % there)
 
         ok = battery_fanout(machines, check) and ok
         ok = battery_carried(machines, a.transport, check) and ok
