@@ -332,4 +332,22 @@ Found, and what follows from each:
    client alone: 0.5 ms), which is the scheduler's time slice with more runnable threads than cores, not the
    memory. Timing with more than one client needs the nodes.
 
-Not built: the kernel module on the nodes; drivers for FrogTorch's three wires; the passthrough handler; the matrix.
+**The transport is not yet transparent, so the job is not done (John, 17 Nov: "The transport should be transparent.
+If it is not, the job is not done").** Only the FNW1 semantic wire (proxy to daemon) asks `core/homa_transport.py`
+which carrier to open. Everything else that talks between nodes opens its own TCP socket, read from the code:
+
+| What | Where it dials or listens for itself |
+|---|---|
+| FrogTorch's tensor link (owner's memory to reader) | `agent_workload/tuplespace/tensor_plane.py` 1194, 1590, 2315; `memory_plane.py` 70 |
+| FrogTorch's control (the frogtorch-ram) | `agent_workload/tuplespace/frogtorch_ram_client.py` 110; `frogtorch_ram.py` 288 |
+| AIConnect | `agent_workload/aiconnect/producer.py` 191, 216, 249, 381 |
+| Every C++ Ribbit session (three sockets each) and the RAM host's listener | `ribbit/cpp/src/frogram.cpp` `dial()` 443, 449, 452, 1058; `ram_client.cpp` 13; `ram_host.cpp` 1361 |
+
+So a PyTorch or FrogTorch run today puts nothing on Homa whatever the node's carrier word says. Done means: one
+place opens a link to a peer, for Python and for C++, every one of the above goes through it, and it hands back
+the bus the engine is already held to (whole frames, in order each way, many in flight, the reply finds its
+request, broken is broken) on whichever carrier the hop has. Then the carrier is a property of the hop and nothing
+above it changes, which is the thesis. Soft Homa itself rides a Ribbit session to its memory, so under those
+sessions the carriers are TCP and kernel Homa; soft Homa is Homa's interface on the memory, one layer up.
+
+Not built: that one place and its callers; the kernel module on the nodes; drivers for FrogTorch's three wires; the passthrough handler; the matrix.
