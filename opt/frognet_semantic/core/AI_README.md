@@ -117,6 +117,9 @@ The parts every node runs. 38 Python files, no subdirectories.
   send and the daemon's listener opens again (`MsgDaemonServer.run`). A peer that is not yet in the new memory
   (`[A_PEER_IS_THERE_WHEN_ITS_CELL_IS_V1]`, `homa_transport._peer_in_soft_memory`) gets no soft Homa session. Never
   put an address, a RAM host or a node's own address in a setting or an environment variable for a service.
+- **Adding another transport: read `ribbit/examples/homa/EXPLORATION-LOG.md` first**, section 9 for the procedure
+  and section 4 for the mistakes already made once. It is the record of how the Homa driver was brought up, wrong
+  turns included.
 - **`[THE_WIRE_MANAGER_SENDS_V1]` only the wire manager calls the carrier's send.** A thread that has a frame makes
   the wire bytes and queues them (`_ClientMux.send`, the daemon session's writer); `WireManager`'s one thread per
   end sends, whole messages ahead of waiting pieces. Do not send from the thread that has the frame.

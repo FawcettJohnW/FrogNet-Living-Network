@@ -408,7 +408,94 @@ Nothing here may be reported as working.
   `[THE_MEMORY_IS_WHERE_THE_ROLE_IS_V1]`, `[A_PEER_IS_THERE_WHEN_ITS_CELL_IS_V1]`, `[ONE_INPUT_ONE_RULE_V1]`,
   `[HOMA_DRIVER_TIERS_V1]`, `[THE_SOCKET_HOP_CAN_BE_A_REAL_DRIVER_V1]`.
 
-## 9. Commits
+## 9. Bringing up a new transport: what this work teaches
+
+John, 17 Nov: "This chat is educational by itself. It provides a true historical record of the exploration and
+validation process for new transport types, plus general support for the simulator." Homa is the first transport
+brought under CroakOS after TCP. The next one (EFCP from RINA is the one John has named) should not have to
+rediscover any of this. The steps are in the order they should be done, which is not the order they were done in
+here; where this work did one late or wrong, it says so.
+
+**A. Before any code**
+
+1. Write down what the transport must supply, from the engine's side, not the transport's: the bus contract (whole
+   frames; in order each way; many in flight; a reply finds its request; broken is broken). The engine is not
+   changed to suit a transport (ruling 2).
+2. Read the transport's own code for what each of its mechanisms is FOR, and write the table of what each becomes
+   under memory (section 5). Most of a message protocol's machinery exists because of messages: keep-alives become
+   one held read, crash timeouts become liveness on a capability tuple, receiver grants become the read.
+3. Read its build files and its deployment scripts as well as its source. How a mechanism is really used is there
+   (his TCP hijacking: off in the code, on in his cluster script and his best settings, absent from the version
+   upstreamed to the kernel).
+4. Fix the contract with its author's own tools: his API and his load generator run unchanged, and nothing is added
+   to his workload (ruling 13).
+
+**B. The driver**
+
+5. A driver is FrogNet's own code that carries the semantic wire's frames between a proxy and a daemon on one kind
+   of socket. It sits under the engine at ONE seam on each side (`daemon_main.py`: which listener;
+   `transport_semantic._get_worker`: which worker). A new transport adds a driver beside the others and touches
+   nothing else. On a node where it is not turned on, the code path is the existing one, line for line.
+6. The driver decides what goes on the wire; the carrier only places it (ruling 29). Threads that have frames make
+   the wire bytes and queue them; one wire manager per end sends; whole messages go ahead of waiting pieces.
+7. The driver takes the carrier's limits from the carrier (`max_message()`), never from a constant, and cuts and
+   rebuilds frames itself. Nothing above it has a size limit.
+8. If the carrier is a library, the driver opens it itself and calls it through its own handle. It is never
+   preloaded into a service (ruling 30). Preloading is only for a program that cannot be changed.
+9. Nothing the driver needs to find (a RAM host, a peer, this node's own address) is kept in a setting, an
+   environment variable or a variable read once. Roles move and addresses change during a run. Each is calculated
+   from one input by one rule (the hosts file the election writes), when a socket opens and again at every network
+   event (rulings 31, 33).
+10. Liveness is the capability tuple and the hosts file watcher. The driver removes what a departed peer had. It
+    does not rely on the transport's own timeout, and nothing is retried on a timer: a failed step is tried again at
+    the next event.
+11. When a place moves, each node learns it in its own time. Design for the peer that is behind
+    (`[A_PEER_IS_THERE_WHEN_ITS_CELL_IS_V1]`), and make sure the failure it produces is not one an older layer
+    counts against the peer (the proxy's three strikes).
+12. Carriers are per hop: each end says what it can open, and a session opens on what both have. A node told only
+    one carrier stops rather than use another.
+
+**C. Validation, in this order**
+
+13. The driver's own oracle on the real engine at both ends, on a stand-in carrier that reorders and delays
+    (`proxy/test_homa_ordering_oracle.py`). Include a mode that shows the hazard when the contract is NOT kept
+    (`free`), so the test is known to be able to fail.
+14. A simulator of the transport's own packets, with loss, if there is no real one to run against.
+15. The existing TCP driver's gates, unchanged, with the new code in the tree. They are the proof that the seam did
+    no harm.
+16. **The real simulator** (`simulation/run_all.py`), first with nothing set. This work did that late, and it found
+    two files without license headers at once.
+17. **Passing, by ruling 32**: the driver activated between machines on the simulator's topology and used as the
+    transport for the full battery. Not one proxy and one daemon in one process; not the driver's own oracles. This
+    work has not done it yet (section 7, item 1).
+18. Real machines, with the author's own load generator, against TCP IN THE SAME SESSION (the mesh moves 1.5 times
+    in an evening; a control from another day is not a control). Near and far. Write the prediction down first and
+    record it when it is wrong (two were).
+19. Only then the application above (here, the two Torches), with the carrier swapped underneath and nothing else
+    changed.
+
+**D. What the simulator needed, and still needs, to support a transport**
+
+- A tier's one substitution must be replaceable by the real thing. `door_semantic_tier.py` substituted the socket
+  hop; it now takes a real driver there (`SOCKET_HOP`). Any tier that stands in for the wire should be the same.
+- The simulator throws a tier's output away. A tier must keep its own (`homa_ordering_oracle.last.txt`), or a FAIL
+  inside a full run cannot be read.
+- Each simulated machine must give the driver what a node gives it: its own hosts file (`FROGNET_HOSTS`), its own
+  address, the capability tuples, and the role's host. Where a tier stands in for those, it is not testing the
+  driver between machines.
+- What is still missing for ruling 32 is recorded as it is found, below this line.
+
+**E. Working practice that this record shows mattered**
+
+- Measure before explaining. Three explanations given from reading code were wrong and were corrected by a
+  profiler, a packet count or a second machine.
+- Confirm against the code before answering a question about someone else's code, and say which file.
+- A document that claims more than the code does is a defect in the document or the code; find out which
+  (`DESIGN.md` on when a message's bytes move).
+- Say "not started" when it is not started, and "not explained" when it is not explained.
+- Name things for what they are; ask what a name refers to before renaming.
+
+## 10. Commits
 
 | Commit | When | What |
 |---|---|---|

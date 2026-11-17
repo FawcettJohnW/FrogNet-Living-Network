@@ -24,6 +24,12 @@ modelled or namespaced environments — it does not model FrogNet, it executes i
 
 Read `SIM_STATUS.md` before claiming anything about coverage.
 
+**A transport driver's tests pass here only one way** (John, 2026-11-17, of the Homa driver): "The Homa tests in the
+simulator need to activate the driver between machines on the topology and use that as the transport for a full
+battery of tests. That is passing." One proxy and one daemon in one process (`homa_door_tier.py`) and a driver's own
+oracles are steps toward that and are not it. The record of bringing a transport up, and what the simulator needed
+for it, is `ribbit/examples/homa/EXPLORATION-LOG.md` (section 9).
+
 ## Traps
 
 - **The simulator runs from a checkout, not from a node.** `sim_env.py` is imported first ([SIM_OWNS_ITS_ENV_V1]):
