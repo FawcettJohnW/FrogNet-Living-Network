@@ -208,6 +208,14 @@ The two runs were about a minute apart. Same reason as on the near pair: TCP car
 link each round trip, and soft Homa carries what changed, which for his constant payload is almost nothing, so its
 round trip is about the link's own.
 
+**The same-session tables (17 Nov, shim v7), near pair and far pair, six sizes, are in
+`REPORT-soft-homa-against-tcp-20261117.md`**, which stands on its own. In short: the same as TCP at 100 and 1,000
+bytes on both links; 2.5 to 2.7 times faster from 10,000 to 240,000 bytes on the near pair and 1.3 to 2.5 times
+from 100,000 to 240,000 on the far pair, on his constant payload; and at 1,000,000 bytes 10 times slower near
+(649 ms against 62 ms) and 2.5 times slower far. The last is the several-cells path of item 2 below, now timed on
+nodes: it is not only the one-machine loopback effect described there, because the server and the memory share a
+node and meet over loopback there too, and because cells written as several records are not sent as differences.
+
 `try.sh servers RAM` (both of his servers at once) and `try.sh compare RAM SERVER` (the client alternates soft
 Homa and TCP at each of six sizes, each carrier once first and once second, a ping before and after, a table at the
 end kept under `results/`) put the two in one session. It is run by hand from two terminals; it is not yet the
