@@ -12,6 +12,8 @@ RAMPORT=${SOFTHOMA_GATE_PORT:-9111}; OUT=$(mktemp -d); fails=0
 export SOFTHOMA_RAM=127.0.0.1:$RAMPORT
 soft() { env LD_PRELOAD="$HERE/build/libsofthoma.so" "$@"; }   # in the background, exec so that $! is the program
 check() { if [ "$1" = 0 ]; then echo "  [PASS] $2"; else echo "  [FAIL] $2"; fails=$((fails+1)); fi; }
+# [FIELD_ORDER_WITHOUT_LEAF_TYPES_V1] the platform change soft Homa's speed rests on: same field order as before it
+build/field-order-check 300000 >"$OUT/field-order.log" 2>&1; check $? "a cell write's field order without classifying its strings is the order with: $(tail -1 "$OUT/field-order.log")"
 build/softhoma-ram 127.0.0.1:$RAMPORT 2>"$OUT/ram.log" & RAM=$!
 sleep 1
 env LD_PRELOAD="$HERE/build/libsofthoma.so" "$HOMA/util/server" --port 4100 >"$OUT/server.log" 2>&1 & SRV=$!

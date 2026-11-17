@@ -139,7 +139,7 @@ both incrementally. `tools/gate.sh /path/to/HomaModule` holds it to his tools, u
 `util/server`, and `util/cp_node` as server and client on fixed 100-byte messages, his w2 and w4 distributions, and
 500,000 and 1,000,000-byte messages; two `cp_node` clients at once on one server; then his server is killed with
 requests outstanding and the client is told within tens of milliseconds, by the server's capability cell leaving
-the memory, with no timer. 17 of 17. His `homa_test close` ends in `std::terminate` by its own construction (a joinable
+the memory, with no timer. 18 of 18 with the field-order comparison. His `homa_test close` ends in `std::terminate` by its own construction (a joinable
 thread is destroyed) and is not in the gate.
 
 Measured on one machine, through the memory as a separate process (this shows the contract is kept; a comparison
@@ -162,22 +162,30 @@ Found, and what follows from each:
      `field_order()` calls `semtpl::infer_schema()` to learn the order of a cell's fields. That reads each string
      several times, code point by code point, to ask whether it is an address, an interface, an enum or a host
      name (`leaf_type`), and only the field order is kept, which does not depend on the answer. It is 72% of the
-     sender's instructions at 240,000 bytes. A copy of the platform outside the repository that walks the keys
-     without classifying the leaves (22-line patch, `cellwire-field-order-20261117a.patch`, same field order by
-     construction) gives, one request outstanding, P50 round trip:
+     sender's instructions at 240,000 bytes. Walking the keys without classifying the leaves
+     (`[FIELD_ORDER_WITHOUT_LEAF_TYPES_V1]`, 12 lines in `cellwire.hpp`, its own commit on this branch so that it
+     can be dropped alone) gives, one request outstanding, P50 round trip:
 
-     | message | platform as it is | with the patch |
+     | message | before | with the change |
      |---|---|---|
      | 100 bytes | 167 us | 153 us |
      | 48,000 bytes | 2.98 ms | 0.92 ms |
      | 240,000 bytes | 13.6 ms | 2.85 ms |
 
-     The platform is not changed here; the patch is John's to rule on.
+     What it rests on: the two orders are compared on 300,000 generated bags (nested objects, lists of objects,
+     unsafe keys, the keys `type` and `_array`, every kind of string `leaf_type` tells apart) and none differs;
+     `tools/field_order_check.cpp` is that comparison and `tools/gate.sh` runs it. The platform's own
+     `ribbit/cpp/qualify.sh` gives the same result lines with and without the change, but it does not pass in the
+     sandbox either way, so it certifies nothing here: the semtpl oracle reports `canon_key` 84 of 220 differing
+     from `core/json_handler.py` (the Python has carried a body's field set in a sensor upsert's key since
+     befe497c, 1 Nov; `semtpl.hpp` was last changed 19 Oct), fnwp e2e and ramrows fail with it, and WRITE-WINDOW
+     and ROW-SCAN-BOUND pass on one run and fail on the next in both copies. None of that is touched here.
+     The other examples' gates (MQTT, Redis, FD&F) have not been run against the change.
    - **On one machine only: 44 ms for every 64 KB of a frame.** A session's sockets have a 32 KB send buffer
      (`frogram.cpp`, "the buffer is the latency"). The loopback interface's segment is 65,483 bytes, so the buffer
      holds one segment, the receiver has one segment and delays its acknowledgement 40 ms, and a 287 KB frame takes
      five of them: the 175 ms per cell recorded before. With the loopback MTU set to 1,500, as on a wire, a
-     1,000,000-byte round trip goes from 750 ms to 74 ms (30 ms with the patch above). This is the sandbox, not
+     1,000,000-byte round trip goes from 750 ms to 74 ms (30 ms with the change above). This is the sandbox, not
      the design; large messages have to be timed on the nodes.
 
    What was the shim's own is fixed (`[SOFT_HOMA_FAST_V1]`): its base64 wrote a byte at a time and copied each piece

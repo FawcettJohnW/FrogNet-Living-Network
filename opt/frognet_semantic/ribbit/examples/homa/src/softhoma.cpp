@@ -62,7 +62,7 @@
 #include "homa.h"
 
 namespace {
-const char* BUILD = "softhoma-v3-20261117b";
+const char* BUILD = "softhoma-v3-20261117c";
 const size_t PIECE = 48000;        // one field of a cell: at most 65,535 bytes on the wire (semcodec TYPE_STR), in base64
 size_t RECORD = 240000;            // one cell: bulk goes in large records (PERFORMANCE-LESSONS.md section 2), and a
                                    // frame to the memory is at most 1 MiB (ram_host.cpp MAX_FRAME; over it the memory
