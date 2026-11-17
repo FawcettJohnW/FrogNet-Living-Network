@@ -44,12 +44,15 @@ DB_CONFIG (setup.sh), and for softhoma the Homa API interface built. Says what i
   python3 simulation/wire_between_machines_tier.py [--transport tcp] [--topology trial3] [--keep]
 """
 import argparse
+import io
 import json
 import os
+import queue
 import shutil
 import subprocess
 import sys
 import tempfile
+import threading
 import time
 
 HERE = os.path.dirname(os.path.abspath(__file__))
@@ -88,14 +91,118 @@ class Machine:
         self.hosts = "/etc/netns/%s/hosts" % self.ns
         self.procs = []
 
+    def _in(self, argv):
+        """argv as run ON this machine: in its network namespace, with the node's tools where a node has them. `ip
+        netns exec` gives the process a mount namespace of its own; in it the checkout's usr/local/bin is put at
+        /usr/local/bin, so the node's own scripts (getEth0Address, which reads /usr/local/bin/mapInterfaces) run as
+        on a node and find THIS machine's LAN device and address. Nothing is installed on the machine running the
+        simulator ([SIM_OWNS_ITS_ENV_V1])."""
+        return ["ip", "netns", "exec", self.ns, "bash", "-c", 'mount --bind "$0" /usr/local/bin && exec "$@"',
+                os.environ["FROGNET_BIN_ROOT"]] + argv
+
     def run(self, argv, env=None, **kw):
-        """A process in this machine's namespace."""
-        p = subprocess.Popen(["ip", "netns", "exec", self.ns] + argv, env=env, **kw)
+        """A process on this machine."""
+        p = subprocess.Popen(self._in(argv), env=env, **kw)
         self.procs.append(p)
         return p
 
     def exec(self, argv, env=None, inp=None):
-        return subprocess.run(["ip", "netns", "exec", self.ns] + argv, env=env, input=inp, capture_output=True, text=True)
+        return subprocess.run(self._in(argv), env=env, input=inp, capture_output=True, text=True)
+
+    def start_wire(self, word):
+        """This machine's daemon and proxy (the processes a node runs, as its units start them) told the transport
+        `word`, and a client on the machine."""
+        env = dict(self.env, FROGNET_SEM_TRANSPORT=word)
+        if word != "tcp":
+            env["FROGNET_SOFTHOMA_LIB"] = os.path.join(SOFT_BUILT, "libsofthoma.so")   # the driver opens it; nothing preloaded
+        self.daemon_log = os.path.join(self.dir, "daemon.log")
+        self.daemon = self.run([PY, os.path.join(SEM, "daemon", "daemon_main.py"), "--listen", "0.0.0.0:9009"], env=env, cwd=SEM,
+                               stdout=open(self.daemon_log, "w"), stderr=subprocess.STDOUT)
+        self.proxy_log = os.path.join(self.dir, "proxy.log")
+        self.proxy_main = self.run([PY, "-m", "proxy.proxy_main", "--listen", "0.0.0.0:80"], env=env, cwd=SEM,
+                                   stdout=open(self.proxy_log, "w"), stderr=subprocess.STDOUT)
+        self.proxy = self.run([PY, os.path.abspath(__file__), "--agent"], env=env, cwd=SEM, stdin=subprocess.PIPE,
+                              stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True, bufsize=1)
+        self.answers = queue.Queue()
+
+        def read():
+            for line in self.proxy.stdout:
+                if line.startswith(MARK):
+                    self.answers.put(json.loads(line[len(MARK):]))
+            self.answers.put({"error": "the client on this machine ended"})
+        threading.Thread(target=read, daemon=True).start()
+
+    def ask(self, op, wait_s=120, **kw):
+        if op is not None:
+            self.proxy.stdin.write(json.dumps(dict(kw, op=op)) + "\n"); self.proxy.stdin.flush()
+        try:
+            return self.answers.get(timeout=wait_s)
+        except queue.Empty:
+            return {"error": "no answer from the client on %s in %ds" % (self.name, wait_s)}
+
+
+# ----------------------------------------------------------------------------------------- a machine's proxy (child)
+MARK = "@@WIRE-TIER "
+
+
+def agent():
+    """Run in a machine's namespace: a client on that machine. It asks for http://<another machine>/..., as a program
+    on a node does, and the node's own port-80 rule hands the request to the node's proxy. One JSON line in, one line
+    out."""
+    import urllib.error
+    import urllib.request
+
+    def fetch(url, method, body, wait_s=90):
+        r = urllib.request.Request(url, data=body.encode() if body else None, method=method,
+                                   headers={"Content-Type": "application/json"} if body else {})
+        t0 = time.time()
+        try:
+            with urllib.request.urlopen(r, timeout=wait_s) as f:
+                return {"status": f.status, "body": f.read().decode(errors="replace"),
+                        "cache": f.headers.get("X-FrogNet-Cache", ""), "ms": (time.time() - t0) * 1000}
+        except urllib.error.HTTPError as e:
+            return {"status": e.code, "body": e.read().decode(errors="replace"), "cache": e.headers.get("X-FrogNet-Cache", ""),
+                    "ms": (time.time() - t0) * 1000}
+        except Exception as e:
+            return {"status": -1, "body": "%s: %s" % (type(e).__name__, e), "cache": "", "ms": (time.time() - t0) * 1000}
+
+    def req(target, method, path, body):
+        return fetch("http://%s%s" % (target, path), method, body)
+
+    def local(method, path, body):
+        return fetch("http://127.0.0.1:8080" + path, method, body, 30)      # this machine's own api.php, directly
+
+    def many(reqs, threads):
+        out, lock, it = [None] * len(reqs), threading.Lock(), iter(enumerate(reqs))
+
+        def work():
+            while True:
+                with lock:
+                    nxt = next(it, None)
+                if nxt is None:
+                    return
+                i, r = nxt
+                out[i] = req(*r)
+        ts = [threading.Thread(target=work) for _ in range(threads)]
+        for t in ts: t.start()
+        for t in ts: t.join()
+        return out
+
+    print(MARK + json.dumps({"ready": True}), flush=True)
+    for line in sys.stdin:
+        c = json.loads(line)
+        try:
+            if c["op"] == "req":
+                r = req(c["target"], c["method"], c["path"], c.get("body"))
+            elif c["op"] == "many":
+                r = many([(x["target"], x["method"], x["path"], x.get("body")) for x in c["reqs"]], c["threads"])
+            elif c["op"] == "local":
+                r = local(c["method"], c["path"], c.get("body"))
+            else:
+                r = {"error": "no such op %r" % c["op"]}
+        except Exception as e:
+            r = {"error": "%s: %s" % (type(e).__name__, e)}
+        print(MARK + json.dumps(r), flush=True)
 
 
 def hosts_text(machines):
@@ -152,6 +259,7 @@ def tear_down(machines):
         if pids:
             sh(["kill", "-9"] + pids)
         sh(["ip", "netns", "del", m.ns])
+        sh(["ip", "link", "del", "fnwh%d" % m.n])            # its end of the link, if the namespace's going left it
         shutil.rmtree("/etc/netns/%s" % m.ns, ignore_errors=True)
         sh(["mariadb", "-uroot", "-e", "DROP DATABASE IF EXISTS %s" % m.db])
     sh(["ip", "link", "del", BRIDGE])
@@ -203,11 +311,113 @@ def bring_up(machines, dbc):
         m.env = dict(os.environ, FROGNET_DB_CONFIG=cfg, FROGNET_HOSTS=m.hosts, FROGNET_HELD_DIR=held,
                      FROGNET_BLOB_ROOT=os.path.join(m.dir, "blobs"), PYTHONDONTWRITEBYTECODE="1")
         m.env.pop("LD_PRELOAD", None)
-        m.run(["php", "-S", "0.0.0.0:80", "-t", web], env=dict(m.env, PHP_CLI_SERVER_WORKERS="8"),
+        # its api.php where a node's is, on port 8080; port 80 is the node's proxy
+        m.run(["php", "-S", "0.0.0.0:8080", "-t", web], env=dict(m.env, PHP_CLI_SERVER_WORKERS="16"),
               stdout=open(os.path.join(m.dir, "php.log"), "w"), stderr=subprocess.STDOUT)
+        # the node's HTTP interception, as etc/setup_iptables writes it: what a program on the node sends to port 80
+        # of a FrogNet address goes to the node's own proxy; the daemon's own requests (mark 1) do not
+        for rule in (["-A", "OUTPUT", "-m", "mark", "--mark", "1", "-p", "tcp", "--dport", "80", "-j", "RETURN"],
+                     ["-A", "OUTPUT", "-p", "tcp", "-d", "127.0.0.1/32", "--dport", "80", "-j", "ACCEPT"],
+                     ["-A", "OUTPUT", "-p", "tcp", "-d", "10.0.0.0/8", "--dport", "80", "-j", "REDIRECT", "--to-ports", "80"]):
+            r = m.exec(["iptables", "-t", "nat"] + rule)
+            if r.returncode != 0:
+                raise RuntimeError("iptables %s in %s: %s" % (" ".join(rule), m.ns, r.stderr.strip()))
+
+
+RPATH = "/api.php?entity=sensors&action=values&SensorType=%s&limit=%d&order=SensorID&parse=1"
+WPATH = "/api.php?entity=sensor_data&action=upsert_by_name"
+
+
+def battery_fanout(machines, check):
+    """(a) From every machine's proxy to every other machine's daemon: concurrent reads and writes through the wire,
+    each compared with what the target machine's own api.php says. The workload of test_fanout_wire_order_oracle,
+    with the target's real api.php and database in place of that oracle's stand-in origin."""
+    good = True
+    R, W, N, TYPES = 6, 3, 30, ("WA", "WB")
+    for b in machines:                                    # what each machine holds: 3 rows of each type, written on it
+        for t in TYPES:
+            for i in range(3):
+                r = b.ask("local", method="POST", path=WPATH, body=json.dumps(
+                    {"SensorName": "%s.%s.s%d" % (t, b.name, i), "SensorType": t, "SensorAddress": b.ip, "SensorNetwork": b.name,
+                     "jsonData": {"v": i, "at": b.name}}))
+                if r.get("status") != 200:
+                    check(False, "seeding %s: its own api.php refused a row: %s" % (b.name, r)); return False
+    for a in machines:
+        for b in machines:
+            if a is b:
+                continue
+            warm = [a.ask("req", target=b.ip, method="GET", path=RPATH % (t, k)) for t in TYPES for k in (1, 2)]
+            warm.append(a.ask("req", target=b.ip, method="POST", path=WPATH, body=json.dumps(
+                {"SensorName": "w0.%s.from.%s" % (b.name, a.name), "SensorType": "WW", "SensorAddress": a.ip, "SensorNetwork": a.name,
+                 "jsonData": {"v": 0}})))
+            reqs = []
+            for i in range(N):
+                for r in range(R):
+                    reqs.append({"target": b.ip, "method": "GET", "path": RPATH % (TYPES[r % 2], 1 + (i + r) % 3)})
+                for w in range(W):
+                    reqs.append({"target": b.ip, "method": "POST", "path": WPATH, "body": json.dumps(
+                        {"SensorName": "w%d.%s.from.%s" % (w, b.name, a.name), "SensorType": "WW", "SensorAddress": a.ip,
+                         "SensorNetwork": a.name, "jsonData": {"v": i}})})
+            t0 = time.time()
+            got = a.ask("many", reqs=reqs, threads=R + W, wait_s=300)
+            dt = time.time() - t0
+            if not isinstance(got, list):
+                check(False, "%s -> %s: %s" % (a.name, b.name, got)); good = False; continue
+            bad = []
+            for q, g in zip(reqs, got):
+                if g["status"] != 200:
+                    bad.append((q["path"][-40:], g["status"], g["body"][:120])); continue
+                d = json.loads(g["body"])
+                if q["method"] == "GET":
+                    t, k = q["path"].split("SensorType=")[1].split("&")[0], int(q["path"].split("limit=")[1].split("&")[0])
+                    rows = d.get("rows", [])
+                    if len(rows) != k or any(x.get("SensorType") != t for x in rows):
+                        bad.append((q["path"][-40:], "rows", [(x.get("SensorName"), x.get("SensorType")) for x in rows][:4]))
+                elif not d.get("ok"):
+                    bad.append(("write", g["body"][:120]))
+            ms = sorted(g["ms"] for g in got if g["status"] == 200)
+            # the same read through the wire and from the target's own api.php
+            path = RPATH % ("WW", 10)
+            wire, own = a.ask("req", target=b.ip, method="GET", path=path), b.ask("local", method="GET", path=path)
+            same = wire.get("status") == 200 and own.get("status") == 200 and json.loads(wire["body"]) == json.loads(own["body"])
+            last = {r["SensorName"]: (r.get("data") or r.get("jsonData") or {}).get("v") for r in json.loads(own["body"]).get("rows", [])} if own.get("status") == 200 else {}
+            mine = {"w%d.%s.from.%s" % (w, b.name, a.name): N - 1 for w in range(W)}
+            held = all(last.get(n) == v for n, v in mine.items())
+            fine = all(w.get("status") == 200 for w in warm) and not bad and same and held
+            good = good and fine
+            check(fine, "%s -> %s: %d concurrent reads and %d writes in %.1fs (median %.1f ms): every read answered its own "
+                        "rows, every write acknowledged, %s holds each writer's last value, and a read through the wire "
+                        "equals %s's own api.php%s" % (a.name, b.name, R * N, W * N, dt, ms[len(ms) // 2] if ms else -1, b.name, b.name,
+                                                       "" if fine else " -- WRONG: warm %s; %d bad %s; same=%s; last=%s" % (
+                                                           [w.get("status") for w in warm], len(bad), bad[:3], same, {n: last.get(n) for n in mine})))
+    return good
+
+
+def battery_carried(machines, word, check):
+    """What carried it, read from each machine's own proxy log: its sessions, and on which driver."""
+    good = True
+    for m in machines:
+        log = open(m.proxy_log, errors="replace").read()
+        homa = sorted({l.split(" to ")[1].split(":")[0] for l in log.split("\n") if l.startswith("[SEM-HOMA] session ") and " opened" in l})
+        tcp = sorted({l.split("host=")[1].split()[0] for l in log.split("\n") if l.startswith("[RPC-TRACE] event=connect_ok host=")})
+        unknown = "LOCAL GW UNKNOWN" in log or "LOCAL GW UNKNOWN" in open(m.daemon_log, errors="replace").read()
+        others = sorted(o.ip for o in machines if o is not m)
+        if word == "tcp":
+            fine = tcp == others and not homa
+        elif word == "softhoma":
+            fine = homa == others and not tcp and "LD_PRELOAD" not in log
+        else:
+            fine = sorted(set(homa) | set(tcp)) == others
+        fine = fine and not unknown
+        good = good and fine
+        check(fine, "%s: told %s; its proxy's sessions on the Homa driver: %s; on the TCP driver: %s; each end named itself in "
+                    "its HELLO by the node's own getEth0Address: %s" % (m.name, word, homa or "none", tcp or "none", not unknown))
+    return good
 
 
 def main():
+    if "--agent" in sys.argv:
+        return agent()
     ap = argparse.ArgumentParser()
     ap.add_argument("--transport", default="tcp", choices=("tcp", "softhoma", "auto"))
     ap.add_argument("--topology", default="trial3", choices=sorted(TOPOLOGIES))
@@ -241,10 +451,27 @@ def main():
             me = m.exec([PY, "-c", "import sys; sys.path.insert(0, %r); from core import frognet_tuples as T; print(T.my_ip())" % SEM],
                         env=m.env).stdout.strip().split("\n")[-1]
             role = m.exec([PY, "-c", "import socket; print(socket.gethostbyname('databasehost_control.frognet'))"], env=m.env).stdout.strip()
-            api = m.exec(["php", "-r", "echo @file_get_contents('http://127.0.0.1/api.php?entity=sensors&action=values&limit=1');"]).stdout
+            api = m.exec(["php", "-r", "echo @file_get_contents('http://127.0.0.1:8080/api.php?entity=sensors&action=values&limit=1');"]).stdout
             check(all(pings) and me == m.ip and role == machines[0].ip and api.strip().startswith(("{", "[")),
                   "%s: reaches the others (%s), FrogNet's own call gives its address as %s, its hosts file names the "
-                  "ControlRam %s, and its own api.php answers on its port 80 (%s)" % (m.name, pings, me, role, api.strip()[:60]))
+                  "ControlRam %s, and its own api.php answers where a node's does, on port 8080 (%s)" % (m.name, pings, me, role, api.strip()[:60]))
+
+        # ---- the wire: every machine's daemon and proxy, on the transport given
+        for m in machines:
+            m.start_wire(a.transport)
+        up = [m.ask(None, wait_s=60) for m in machines]
+        def listening():
+            return [m.exec(["bash", "-c", "exec 3<>/dev/tcp/127.0.0.1/80"]).returncode == 0 and
+                    (a.transport == "softhoma" or m.exec(["bash", "-c", "exec 3<>/dev/tcp/127.0.0.1/9009"]).returncode == 0) for m in machines]
+        t_end = time.time() + 40
+        while not all(listening()) and time.time() < t_end:
+            time.sleep(0.5)
+        check(all(u.get("ready") for u in up) and all(m.daemon.poll() is None and m.proxy_main.poll() is None for m in machines) and all(listening()),
+              "every machine's daemon (daemon_main.py) and proxy (proxy_main) are up, told %s, with the node's port-80 rule (%s)"
+              % (a.transport, listening()))
+
+        ok = battery_fanout(machines, check) and ok
+        ok = battery_carried(machines, a.transport, check) and ok
     finally:
         if a.keep:
             print("kept: %s; namespaces %s" % (tmp, ", ".join(m.ns for m in machines)))
