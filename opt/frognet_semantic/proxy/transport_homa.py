@@ -198,7 +198,7 @@ _mux_lock = threading.Lock()
 def _client_carrier():
     """The proxy's Homa socket. A test replaces this function to put a stand-in with the same calls under the driver;
     nothing in the tree does."""
-    from core.sem_transport import open_homa_socket
+    from core.homa_transport import open_homa_socket
     return open_homa_socket("proxy semantic wire (client socket)")
 
 

@@ -272,7 +272,7 @@ class MsgDaemonServer:
     def _server_carrier(self):
         """The daemon's Homa socket. A test replaces this method to put a stand-in with the same calls under the
         driver; nothing in the tree does."""
-        from core.sem_transport import open_homa_socket
+        from core.homa_transport import open_homa_socket
         return open_homa_socket("daemon semantic wire (server socket %s:%d)" % (self.host, self.port),
                                 bind_ip=self.host, server_port=self.port)
 

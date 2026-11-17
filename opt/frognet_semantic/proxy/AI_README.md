@@ -38,7 +38,7 @@ The proxy: intercepts HTTP, speaks FNWP-1 to the daemon, holds the caches.
 
 ## The semantic wire on Homa (`[HOMA_TRANSPORT_V1]`, 2026-11-16)
 
-`core/sem_transport.py` says which transport the FNW1 wire runs on: `tcp` (the default, everything above) or `homa`,
+`core/homa_transport.py` says which transport the FNW1 wire runs on: `tcp` (the default, everything above) or `homa`,
 one word in `/etc/frognet/semantic_transport`. It is configured, never probed, and there is no fallback from one to
 the other. With `homa`, `_get_worker` hands the engine `transport_homa._MsgWorker` instead of `_DaemonWorker`.
 

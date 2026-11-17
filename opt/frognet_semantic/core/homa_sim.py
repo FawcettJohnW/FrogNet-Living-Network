@@ -11,7 +11,7 @@ WHAT IT IS FOR. The Homa kernel module cannot be loaded in the sandbox or the si
 node's kernel. This gives every Homa driver in the tree (core/homa_socket.HomaSocket's callers) a socket with the
 same calls that runs anywhere Python runs, between processes and between machines, so the drivers, the oracles and
 the simulator tiers run through Homa's BEHAVIOUR without the module. It is selected by configuration
-(core/sem_transport.py: the word "homasim"), never probed, and is never used in place of the module.
+(core/homa_transport.py: the word "homasim"), never probed, and is never used in place of the module.
 
 WHAT IT IS. The protocol of HomaModule's protocol.md (commit 07ce63e), written from that document:
 

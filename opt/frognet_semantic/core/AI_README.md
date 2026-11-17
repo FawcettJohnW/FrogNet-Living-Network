@@ -85,5 +85,5 @@ The parts every node runs. 38 Python files, no subdirectories.
   - **Not covered:** a peer process killed without stopping, on a machine that stays, and not started again.
   Gates: `test_homa_liveness_oracle.py` (the rule, on a stand-in store) and `test_homa_liveness_ram_oracle.py`
   (the same rule on the real api.php, `frognet_held` and MariaDB; it needs root, php and port 80, and skips without).
-- **`sem_transport.py` is configuration, not detection.** It does not look at whether Homa is loaded. A node
+- **`homa_transport.py` is configuration, not detection.** It does not look at whether Homa is loaded. A node
   configured `homa` without the module stops with `HomaUnavailable`.

@@ -5,7 +5,7 @@
 #  See COPYRIGHT and LICENSE at the root of this tree.         #
 ################################################################
 """
-core/sem_transport.py -- [HOMA_TRANSPORT_V1] which transport the FNW1 semantic wire runs on, on this node.
+core/homa_transport.py -- [HOMA_TRANSPORT_V1] which transport the FNW1 semantic wire runs on, on this node.
 
 Configured, never probed. One word -- "tcp", "homa" (the kernel module) or "homasim" (core/homa_sim.py, the Homa
 simulator: the same driver over Homa's protocol in user space, for the sandbox and the simulator) -- read once at start from the deployment file

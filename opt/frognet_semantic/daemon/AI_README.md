@@ -34,7 +34,7 @@ The daemon: reads FNWP-1 frames, executes against the origin, replies.
 
 ## The semantic wire on Homa (`[HOMA_TRANSPORT_V1]`, 2026-11-16)
 
-With `homa` in `/etc/frognet/semantic_transport` (`core/sem_transport.py`), `daemon_main` starts
+With `homa` in `/etc/frognet/semantic_transport` (`core/homa_transport.py`), `daemon_main` starts
 `engine/server_homa.MsgDaemonServer` instead of `DaemonServer`. Read the section of the same name in
 `proxy/AI_README.md` first: it has the bus contract and the rule that the driver, not the engine, keeps wire order.
 The hazards on this side:

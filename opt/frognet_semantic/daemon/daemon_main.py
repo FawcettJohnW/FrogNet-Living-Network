@@ -129,8 +129,8 @@ def main() -> None:
         raise SystemExit(1) from e
 
     resolver = DestinationResolver()
-    # [HOMA_TRANSPORT_V1] the one seam: configured (core/sem_transport.py), never probed, never reconsidered
-    from core.sem_transport import on_homa_driver
+    # [HOMA_TRANSPORT_V1] the one seam: configured (core/homa_transport.py), never probed, never reconsidered
+    from core.homa_transport import on_homa_driver
     if on_homa_driver():
         from daemon.engine.server_homa import MsgDaemonServer
         server = MsgDaemonServer(host=host, port=port, resolver=resolver)

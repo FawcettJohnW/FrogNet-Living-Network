@@ -2199,7 +2199,7 @@ def _is_frognet_ip(ip: str) -> bool:
 # [RETURN_ONLY_V1] _ensure_proxy_listener removed - proxy no longer accepts daemon callbacks.
 
 
-from core.sem_transport import on_homa_driver   # [HOMA_TRANSPORT_V1]
+from core.homa_transport import on_homa_driver   # [HOMA_TRANSPORT_V1]
 
 
 def _get_worker(host: str, port: int, set_id: int = 0) -> _DaemonWorker:
@@ -2250,7 +2250,7 @@ def _get_worker(host: str, port: int, set_id: int = 0) -> _DaemonWorker:
             w = None
         if w is None:
             # [HOMA_TRANSPORT_V1] the one seam: which transport object stands under the engine is configured
-            # (core/sem_transport.py), never probed, and never reconsidered. The engine's calls on it are the same.
+            # (core/homa_transport.py), never probed, and never reconsidered. The engine's calls on it are the same.
             if on_homa_driver():
                 from proxy.transport_homa import _MsgWorker
                 w = _MsgWorker(host, port, set_id)
