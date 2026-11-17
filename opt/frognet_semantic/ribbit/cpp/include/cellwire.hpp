@@ -69,7 +69,18 @@ inline std::string get_str(std::string_view f, size_t& p) {
     const size_t n = size_t(get_varint(f, p)); if (p + n > f.size()) throw std::runtime_error("cellwire: cut short");
     std::string s(f.substr(p, n)); p += n; return s;
 }
-inline std::vector<std::string> field_order(const Obj& bag) { return semtpl::field_order_and_type_map(semtpl::infer_schema(bag, "")).first; }
+// [FIELD_ORDER_WITHOUT_LEAF_TYPES_V1] a cell's field order is its sorted key paths. It does not depend on what kind of
+// string a leaf holds, so the leaves are not classified (semtpl::leaf_type reads every string several times over,
+// code point by code point, to ask whether it is an address, an interface, an enum or a host name).
+inline Obj shape_only(const Obj& v) {
+    if (v.is<pyv::Dict>()) { const Dict& d = v.as<pyv::Dict>();
+        for (const auto& k : d.keys) if (!semtpl::detail::safe_key(k)) return semtpl::detail::type1("any");
+        Dict out; for (const auto& k : semtpl::detail::sorted_keys(d)) out.set(k, shape_only(*semtpl::get(d, k)));
+        return out; }
+    if (v.is<pyv::List>()) { Dict out; out.set("_array", semtpl::detail::type1("any")); return out; }
+    return semtpl::detail::type1("any");
+}
+inline std::vector<std::string> field_order(const Obj& bag) { return semtpl::field_order_and_type_map(shape_only(bag)).first; }
 inline semcodec::Fields fields(Obj& bag, const std::vector<std::string>& fo) {
     semcodec::Fields f; f.reserve(fo.size());
     for (const auto& p : fo) { Obj* v = semtpl::path_ptr(bag, p); f.emplace_back(p, v ? std::move(*v) : Obj(pyv::None{})); }
