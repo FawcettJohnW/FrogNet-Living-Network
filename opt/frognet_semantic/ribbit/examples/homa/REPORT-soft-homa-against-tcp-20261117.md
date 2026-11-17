@@ -131,10 +131,12 @@ trip figure. It has not been confirmed by a trace.
 
 ## What was predicted
 
-Two predictions were written down before the runs they concern. At 100 bytes TCP was predicted ahead; in the
-same-session table the two are the same. At 240,000 bytes TCP was predicted ahead several times over, on the
-grounds that soft Homa encodes the payload and passes it through the engine; soft Homa was 2.7 times faster, because
-the prediction left out that the engine does not send what has not changed.
+Two predictions were written down before the runs they concern, and both were wrong.
+
+- **100 bytes.** TCP was predicted ahead. In the same-session table the two are the same.
+- **240,000 bytes.** TCP was predicted ahead several times over, on the grounds that soft Homa encodes the payload
+  and passes it through the engine. Soft Homa was 2.7 times faster, because the prediction left out that the engine
+  does not send what has not changed.
 
 ## How to run it again
 
@@ -152,5 +154,6 @@ On a client node:
 
     /opt/softhoma-20261117g/ribbit/examples/homa/tools/try.sh compare MEMORY-ADDRESS SERVER-ADDRESS
 
-The table and every run's output are kept under `results/` beside the tool. The design, the rulings it follows and
+The `servers` and `compare` commands need the `try.sh` delivered as `try-20261117m.sh` copied over the one in that
+tarball. The table and every run's output are kept under `results/` beside the tool. The design, the rulings it follows and
 the record of each finding are in `DESIGN.md` in the same directory.
