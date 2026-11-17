@@ -56,8 +56,12 @@ def node(ip, role, port):
     import frognet_tuples as T2                   # the module object frognet_held uses
     T2.my_ip = lambda: ip
 
+    out = threading.Lock()                        # liveness has two threads (the hold and the file watcher):
+                                                  # each event is one whole line
+
     def say(**k):
-        print("EV " + json.dumps(k), flush=True)
+        with out:
+            sys.stdout.write("EV " + json.dumps(k) + "\n"); sys.stdout.flush()
 
     lv = L.PeerLiveness(role, port, lambda p, why, left: say(ev="gone", ip=p, why=why, machine_left=left), "%s %s" % (ip, role),
                         on_network_event=lambda: say(ev="netevent"), dbhost=RAM)
@@ -86,8 +90,9 @@ class Node:
     def _pump(self):
         for line in self.p.stdout:
             self.log.append(line.rstrip())
-            if line.startswith("EV "):
-                self.q.put(json.loads(line[3:]))
+            i = line.find("EV {")                 # the node's own log lines share its stdout
+            if i >= 0:
+                self.q.put(json.loads(line[i + 3:]))
 
     def until(self, pred, wait_s=10.0):
         """Events up to and including the first that satisfies pred; None if it does not come."""
