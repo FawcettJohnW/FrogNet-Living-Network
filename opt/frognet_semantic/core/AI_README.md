@@ -60,7 +60,9 @@ The parts every node runs. 38 Python files, no subdirectories.
   other's; nothing is copied; no new conversation between the two ends is added to make an old one cheaper.
 - **`homa_liveness.py`: whether a peer is there is a held read on its capability tuple**
   (`[LIVENESS_IS_A_HELD_READ_V1]`). Each END of the driver writes its own `(homa, can, <its .1>:<proxy|daemon>)`
-  with an `inst` that is new every start, and holds one read on the family: a peer end whose tuple is no longer in
+  in the ControlRam (`databasehost_control.frognet`, the highest .1: its address is arithmetic, so it is known
+  before anything is selected, and a carrier's capability is needed to reach everything else, the SystemRam
+  included), with an `inst` that is new every start, and holds one read on the family: a peer end whose tuple is no longer in
   the memory, or is marked stopped, or has another `inst`, is gone. It also puts a file watcher (inotify) on
   `/etc/hosts` (`[HOSTS_IS_WATCHED_V1]`, John 2026-11-16: "You don't need to read hosts; you put a file watcher on
   it"): the merge rewriting it is the network event, and the machines that were in the block (`_alive_ones`, the

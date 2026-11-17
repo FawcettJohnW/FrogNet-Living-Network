@@ -14,7 +14,7 @@ again, and every owner writes its own truth again at the RAM now named. A machin
 
 Each end of the Homa driver does two things, both in the memory and neither to the other end:
 
-  writes its own   (homa, can, <its .1>:<proxy|daemon>) = {ip, role, port, inst, build} in the SystemRam: "this end of
+  writes its own   (homa, can, <its .1>:<proxy|daemon>) = {ip, role, port, inst, build} in the ControlRam: "this end of
                    the semantic wire is on Homa here". One tuple per END, because the two ends are two processes: a
                    proxy that stops has not taken its node's daemon with it. `inst` is new every time the process
                    starts. Written at start; written again whenever a read shows it is not there (the RAM was rebuilt
@@ -64,8 +64,13 @@ from typing import Callable, Dict, Optional, Set, Tuple
 SERVICE, VAR = "homa", "can"
 ROLES = ("proxy", "daemon")
 HOLD_S = 300.0                    # the caller's bound on one hold; at the bound it simply holds again
-BUILD = "homa-liveness-v3-20261116j"
-SYSTEM_RAM = "databasehost.frognet"
+BUILD = "homa-liveness-v4-20261116k"
+# [CAPABILITY_IN_THE_CONTROL_RAM_V1] John, 2026-11-16: "Highest static ip is control ram, where the capability tuples
+# live. Reach it over whatever transport is loaded." The ControlRam's address is arithmetic (the highest .1), so it is
+# known before anything is selected, and it is where the role selection already reads capability
+# (frognet_tuples.DEFAULT_DBHOST, frognet_service_hosts.service_host_lines). A carrier's capability is needed to reach
+# everything else, the ControlRam included, so it cannot live in a RAM that has to be reached first.
+CONTROL_RAM = "databasehost_control.frognet"
 
 
 def node_of(ip: str) -> str:
@@ -75,7 +80,7 @@ def node_of(ip: str) -> str:
 
 
 class _Ram:
-    """The SystemRam and the hosts block, through the tree's own calls. A test replaces _ram() with a stand-in of
+    """The ControlRam and the hosts block, through the tree's own calls. A test replaces _ram() with a stand-in of
     the same calls."""
 
     def __init__(self, dbhost: str):
@@ -132,7 +137,7 @@ class _Ram:
             pass                                           # names() blocks in read(); another file in /etc changed
 
 
-def _ram(dbhost: str = SYSTEM_RAM):
+def _ram(dbhost: str = CONTROL_RAM):
     return _Ram(dbhost)
 
 
@@ -142,7 +147,7 @@ class PeerLiveness:
     the peer's machine left the network (the hosts block), False when only that end of it stopped."""
 
     def __init__(self, role: str, port: int, on_gone: Callable[[str, str, bool], None], who: str,
-                 on_network_event: Optional[Callable[[], None]] = None, dbhost: str = SYSTEM_RAM):
+                 on_network_event: Optional[Callable[[], None]] = None, dbhost: str = CONTROL_RAM):
         if role not in ROLES:
             raise ValueError("homa liveness: role is one of %r, not %r" % (ROLES, role))
         self.ram = _ram(dbhost)
@@ -159,7 +164,7 @@ class PeerLiveness:
         self.n_events = self.n_gone = self.n_reasserted = 0
         self._stop = threading.Event()
         self._at_exit = False
-        # The first write is made on the liveness thread, not here: on a node the way to the SystemRam can be the
+        # The first write is made on the liveness thread, not here: on a node the way to the ControlRam can be the
         # semantic wire itself, and the driver that is constructing this must not wait on its own wire.
         self._net = threading.Event()             # set by the watcher at each network event
         threading.Thread(target=self._run, daemon=True, name="homa-liveness").start()
@@ -178,7 +183,7 @@ class PeerLiveness:
             self._at_exit = True
             atexit.register(self.withdraw)        # registered after the first put that was kept, so it runs BEFORE
                                                   # frognet_tuples' own atexit delete of this tuple (atexit is LIFO)
-        print("[HOMA-LIVENESS] %s %s (%s, %s, %s) inst=%s in the SystemRam: %s"
+        print("[HOMA-LIVENESS] %s %s (%s, %s, %s) inst=%s in the ControlRam: %s"
               % (self.who, "wrote its own" if kept else "COULD NOT WRITE its own", SERVICE, VAR, self._scope(),
                  self.inst, why), flush=True)
 

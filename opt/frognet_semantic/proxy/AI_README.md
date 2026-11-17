@@ -70,7 +70,7 @@ way; many in flight; a reply finds its request; broken is broken.
   or has no such session). The session here ends with that reason.
 - **The carrier is told an address is gone only when the machine left.** A daemon that stopped starts again at the
   same address; `peer_gone` then would drop what the socket has with the new one.
-- **Nothing in the driver's construction waits on the SystemRam.** On a node the way to the SystemRam can be this
+- **Nothing in the driver's construction waits on the ControlRam.** On a node the way to the ControlRam can be this
   wire. `PeerLiveness` makes its first write on its own thread.
 - **Neither driver reads a frame**, beyond what the TCP server already reads to bring a session up (HELLO, RTT_PING).
 - **This has not run on a Homa kernel.** The socket under the oracle is a stand-in that keeps Homa's calls and

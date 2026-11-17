@@ -9,7 +9,7 @@ test_homa_liveness_ram_oracle.py -- [LIVENESS_IS_A_HELD_READ_V1] core/homa_liven
 
 Nothing is stood in for: the tree's api.php and held_fire.php served on port 80 over MariaDB, core/frognet_tuples
 writing the tuples, core/frognet_held holding the reads and taking the fires, a hosts file rewritten the way the merge
-rewrites it. Three nodes are three processes on three addresses of this machine (10.61.61.1 is also the SystemRam).
+rewrites it. Three nodes are three processes on three addresses of this machine (10.61.61.1 is also the ControlRam).
 
 What it holds core/homa_liveness.PeerLiveness to:
 

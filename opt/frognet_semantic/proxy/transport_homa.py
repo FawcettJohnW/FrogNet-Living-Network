@@ -33,7 +33,7 @@ How each is kept on Homa, which gives 1 and 4 itself and none of the others:
      length and the 4-byte reply sequence are the TCP driver's. No frame is read by either driver.
   3. A frame is one RPC, sent in submit(). Nothing is held back from the wire.
   5. [LIVENESS_IS_A_HELD_READ_V1] Whether the peer is there is not asked of Homa. core/homa_liveness holds one read
-     on the (homa, can) family in the SystemRam and reads the hosts block at each network event; when the peer's
+     on the (homa, can) family in the ControlRam and reads the hosts block at each network event; when the peer's
      daemon end stops, or is replaced, or its machine leaves the network, every session with it ends at once: every
      outstanding frame fails with that reason (PeerGone), the requests are aborted in Homa, and the worker is
      retired. The next request to the peer starts a new session, as a new connection does on TCP. This does not
@@ -134,7 +134,7 @@ class _ClientMux:
 
     def _network_event(self) -> None:
         self.n_network_events += 1
-        print("[SEM-HOMA] network event: the SystemRam was rebuilt and this end wrote its own tuple again; sessions "
+        print("[SEM-HOMA] network event: the ControlRam was rebuilt and this end wrote its own tuple again; sessions "
               "with peers that are still there carry on", flush=True)
 
     def send(self, worker: "_MsgWorker", rpc, wire: bytes) -> None:

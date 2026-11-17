@@ -24,13 +24,13 @@ unchanged: _MsgSession replaces only its two socket loops.
                             the .1 in its HELLO (frame 0), as a TCP session is named by its HELLO's return address.
 
 WHEN A PEER LEAVES  [LIVENESS_IS_A_HELD_READ_V1]. A Homa server is told nothing when a client goes away, and nothing
-is asked of Homa. core/homa_liveness holds one read on the (homa, can) family in the SystemRam and reads the hosts
+is asked of Homa. core/homa_liveness holds one read on the (homa, can) family in the ControlRam and reads the hosts
 block at each network event. When a peer's proxy end stops or is replaced, or its machine leaves the network, every
 session from it ends here: it answers nothing more, the requests it still owed an answer are answered with the driver's
 ended message ("FNHE" + why; answering is the only way a Homa server lets go of a request), and a message that
 arrives for it afterwards is answered the same way. When it was the MACHINE that left, this daemon then tells its local api.php remove_writer for
-the machine's /24, the call the TCP driver makes when the machine's last socket closes ([WRITER_GONE_V1]): on the
-SystemRam's host that is what takes the machine's tuples out of the memory and fires the holds on them. A proxy that
+the machine's /24, the call the TCP driver makes when the machine's last socket closes ([WRITER_GONE_V1]): on a
+RAM host that is what takes the machine's tuples out of the memory and fires the holds on them. A proxy that
 only stopped has not left the network, and what its machine wrote stays.
 """
 from __future__ import annotations
@@ -266,7 +266,7 @@ class MsgDaemonServer:
 
     def _network_event(self) -> None:
         self.n_network_events += 1
-        print("[DAEMON-HOMA] network event: the SystemRam was rebuilt and this end wrote its own tuple again; sessions "
+        print("[DAEMON-HOMA] network event: the ControlRam was rebuilt and this end wrote its own tuple again; sessions "
               "from peers that are still there carry on", flush=True)
 
     def _server_carrier(self):

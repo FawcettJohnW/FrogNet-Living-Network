@@ -7,7 +7,7 @@
 """
 test_homa_liveness_oracle.py -- [LIVENESS_IS_A_HELD_READ_V1] a peer's liveness is a held read on its capability tuple.
 
-core/homa_liveness.PeerLiveness against a stand-in for the SystemRam's store and the hosts block (put, hold and the
+core/homa_liveness.PeerLiveness against a stand-in for the ControlRam's store and the hosts block (put, hold and the
 block; the rule that reads the rows is the real one) with real held-read behaviour: a hold returns when the family is
 not what the holder last saw, or on the hosts event. With the Homa simulator underneath (per-RPC timeout REMOVED,
 waits held): requests wait on a peer for many times timeout_ticks and none is abandoned; the peer's machine leaves the
@@ -37,7 +37,7 @@ def check(cond, msg):
 
 
 class Memory:
-    """The (homa, can) family of one SystemRam and the network's hosts block, with real held-read behaviour: a hold
+    """The (homa, can) family of one ControlRam and the network's hosts block, with real held-read behaviour: a hold
     returns when the family is not what the holder last saw, or when the block is rewritten (the hosts event)."""
     def __init__(self, block):
         self.rows, self.cv, self.puts, self.block, self.moves = {}, threading.Condition(), [], set(block), 0
