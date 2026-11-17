@@ -161,6 +161,22 @@ on the same machines; `try.sh tcpserver` and `try.sh tcpclient SERVER-ADDRESS` a
 TCP, straight between the two, no memory). On one x86 machine TCP is ahead at 100 bytes (P50 57 us against 340 us),
 which is the case this is not built for.
 
+**The control, same two Pis, 16 minutes later** (not the same session, so the link may have differed; one ping
+between them read 1.78 ms):
+
+| 100 bytes, 8 outstanding | soft Homa (shim v6) | his cp_node on TCP |
+|---|---|---|
+| round trips a second | 3.3 to 3.7 thousand (two seconds at 2.6 and 2.8) | 3.7 to 4.0 thousand |
+| round trip P50 | 2.05 to 2.13 ms | 1.94 to 1.95 ms |
+| round trip P99 | 4.1 to 4.5 ms | 2.8 to 3.1 ms |
+| round trip P99.9 | 14 to 19 ms | 7 to 10 ms |
+
+Predicted before it was run: TCP ahead at this size. It is, by about 0.15 ms at the median (7%) on a link whose own
+round trip is about 1.8 ms, and by more in the tail. The memory was on the server's machine, so both carriers
+crossed the link once each way; with the memory on a third machine soft Homa crosses two links each way and this
+figure does not cover that. Not yet measured on machines: messages of other sizes, his workloads w1 to w5, more
+than one client.
+
 His `cp_node` server does not stop on a failed `recvmsg`: when the memory ends it calls it again at once, for ever,
 printing each time (30 GB of log in a few minutes here). `SOFTHOMA_EXIT_WHEN_MEMORY_GONE=1`, which `try.sh` and the
 gate set, ends the process there with one line instead.
