@@ -32,6 +32,23 @@ build)
     [ -f "$HOMA/homa.h" ] || die "HomaModule is not at $HOMA (set HOMA=/path/to/HomaModule)"
     if [ -f "$HERE/../../cpp/ensure_build_deps.sh" ]; then . "$HERE/../../cpp/ensure_build_deps.sh"; ribbit_ensure_build_deps; fi
     make -C "$HERE" HOMA="$HOMA" -j"$(nproc)" || die "the shim did not build"
+    # His tools are written for x86: the cycle counter is the RDTSC instruction and the crash handler prints the x86
+    # program counter. On any other machine those two places are changed in THIS copy of his source, and it is said
+    # here. Nothing else of his is touched; on x86 nothing is.
+    case "$(uname -m)" in
+    x86_64|i?86) ;;
+    *)  if ! grep -q "soft Homa try.sh" "$HOMA/util/test_utils.h"; then
+            sed -i -e '1i #include <time.h>   /* soft Homa try.sh */' -e 's|^\t__asm__ __volatile__("rdtsc" : "=a" (lo), "=d" (hi));$|\t{ struct timespec ts; clock_gettime(CLOCK_MONOTONIC, \&ts); uint64_t ns = (uint64_t) ts.tv_sec * 1000000000ull + (uint64_t) ts.tv_nsec; lo = (uint32_t) ns; hi = (uint32_t) (ns >> 32); }   /* soft Homa try.sh: this machine has no RDTSC instruction */|' "$HOMA/util/test_utils.h"
+            grep -q "no RDTSC instruction" "$HOMA/util/test_utils.h" || die "could not give his rdtsc() a clock for $(uname -m) in $HOMA/util/test_utils.h"
+            echo "try.sh: $(uname -m) has no RDTSC: his util/test_utils.h rdtsc() now reads CLOCK_MONOTONIC in nanoseconds (his code calibrates it against the clock itself)"
+        fi
+        case "$(uname -m)" in aarch64|arm64) PC=pc ;; arm*) PC=arm_pc ;; *) PC="" ;; esac
+        if grep -q 'uc->uc_mcontext.gregs\[REG_RIP\]' "$HOMA/util/cp_node.cc"; then
+            [ -n "$PC" ] || die "his cp_node.cc crash handler prints the x86 program counter and this script does not know the register's name on $(uname -m)"
+            sed -i "s|uc->uc_mcontext.gregs\[REG_RIP\]|uc->uc_mcontext.$PC|" "$HOMA/util/cp_node.cc"
+            echo "try.sh: his util/cp_node.cc crash handler now prints this machine's program counter (uc_mcontext.$PC) in place of x86's"
+        fi ;;
+    esac
     make -C "$HOMA/util" server homa_test cp_node || die "his tools did not build"
     echo; echo "built. On the machine that holds the memory:  $0 ram"
     ;;

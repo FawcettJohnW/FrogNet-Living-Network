@@ -137,6 +137,12 @@ FrogNet's `getEth0Address` where there is one. His `cp_node` looks its servers u
 answers those names from `SOFTHOMA_NODE<N>` and `/etc/hosts` is not written (FrogNet watches that file). As of
 17 Nov this has run on one machine only.
 
+His tools are written for x86. On any other machine `try.sh build` changes two places in the copy of his source it
+builds from, and says so: `rdtsc()` in `util/test_utils.h` reads CLOCK_MONOTONIC in nanoseconds (his code calibrates
+the counter against the clock, so his figures stand), and `cp_node.cc`'s crash handler prints that machine's program
+counter. Found on the first node build (a Pi); checked by cross-compiling all three tools for aarch64 and by
+running the whole gate on x86 with the clock change. His calls, his workloads and his reporting are not touched.
+
 ## 6. What is expected, and how it is judged
 
 - Against Homa as shipped at defaults over a long round trip: on the simulator it completed 0 of 40 RPCs at 120 ms
