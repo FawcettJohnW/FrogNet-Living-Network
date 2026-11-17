@@ -137,6 +137,39 @@ process's own; the fan-out workload exact, frames in order, several in flight), 
 daemon's socket with six requests outstanding and every one is failed in about 0.3 s by its capability cell, with
 no timer.
 
+**Soft Homa's memory is where the SystemRam role is, and it moves** (`[THE_MEMORY_IS_WHERE_THE_ROLE_IS_V1]`; John,
+17 Nov, of an address kept in a setting: "You know it can change address during a run. Right?"). The role is
+elected and moves when the network splits or merges, and a node's own address can change, so the driver keeps no
+address anywhere:
+
+- The memory is on the machine `databasehost.frognet` names, on soft Homa's own port (`FROGNET_SOFTHOMA_PORT`,
+  9131). Every node with the Homa driver on soft Homa runs the memory process itself (`softhoma-ram`, a child of the
+  daemon's Homa listener, at the node's address as it is now; no unit file); the one on the node that holds the role
+  is the one used. (`[ROLES_ON_API_V1]`: a role is a host, a service keeps its own port.)
+- Where the memory is and what this node is called are asked when a socket is opened and again at every hosts
+  change (`PeerLiveness.on_hosts_change`, the watcher both ends already have). When either has changed the library
+  is told (`softhoma_memory()`): every socket on the memory before goes down, the sessions on them end with that
+  reason and their callers are told (2 to 3 ms in the gate), and nothing is sent again.
+- The proxy opens a new socket when it next has something to send. The daemon's listener opens again at once if
+  the memory is there, else at the next network event. Neither is tried on a timer.
+- Each node arrives in the new memory when its OWN hosts file changes, so a peer can be behind
+  (`[A_PEER_IS_THERE_WHEN_ITS_CELL_IS_V1]`). A peer is in the memory when its capability cell is. On `auto` a peer
+  that is not there does not have soft Homa in common for that session, so it opens on TCP if both have TCP. Told
+  `softhoma` only, the session is not opened and the caller is told at once why; the next request looks again. The
+  library answers from its one standing read on the capability cells and asks the memory only about a peer it has
+  not heard of.
+- The Homa API interface keeps the memory each socket was opened on; `softhoma_memory()` changes only where a NEW
+  socket opens. A program that cannot be changed (his `cp_node`) is still told once by `SOFTHOMA_RAM` and
+  `SOFTHOMA_IP`. The platform's `Space` has no close, so the session with a memory this process has left ends with
+  the process.
+
+Gate: `proxy/test_homa_ordering_oracle.py softmoved`. With six requests outstanding the memory moves to a second
+memory process; all six end in 2 ms; a request to the daemon before its node has learned of the move is refused in
+5 ms with the reason; once it has, the next request is answered on a new session in 4 ms and twenty more after it;
+no TCP worker is made. NOT done: none of this has run on a node; `softhoma-ram` being started by the daemon is
+written and has not been run (the gate starts the two memories itself); what was in the old memory is not carried
+to the new one (each end writes its capability cell again; requests in flight end).
+
 **A frame larger than one message goes in pieces** (`[FRAMES_GO_IN_PIECES_V1]`; John, 17 Nov: "don't send more
 than 240K in a single message and do message splitting and reconstruction like the Communicator does with the
 video", in the driver). Before this the driver refused a frame over Homa's 1,000,000 bytes and the daemon answered

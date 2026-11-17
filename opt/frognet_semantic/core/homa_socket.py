@@ -184,6 +184,7 @@ def soft_homa_library():
                 _soft_lib = ctypes.CDLL(path, use_errno=True)       # this handle only: nothing else in the process sees it
                 _soft_lib.softhoma_build.restype = ctypes.c_char_p
                 _soft_lib.softhoma_record_bytes.restype = ctypes.c_size_t
+                _soft_lib.softhoma_await.argtypes = [ctypes.c_char_p, ctypes.c_double]
             except (OSError, AttributeError) as e:
                 raise HomaUnavailable("%s names the soft Homa library %r and it could not be used: %s: %s. This process "
                                       "does not use another Homa in its place." % (src, path, type(e).__name__, e)) from e
@@ -191,6 +192,56 @@ def soft_homa_library():
                   "other socket in this process goes through it" % (_soft_lib.softhoma_build().decode(), path, src), flush=True)
         _soft_lib_asked = True
         return _soft_lib
+
+
+# [THE_MEMORY_IS_WHERE_THE_ROLE_IS_V1] John 2026-11-17: "You know it can change address during a run. Right?" Soft Homa's
+# memory is on the machine that holds the SystemRam role, on soft Homa's own port. The role is elected and it moves when
+# the network splits or merges; a node's own address can change too. So no address is kept in any setting: both are
+# asked for when a socket is opened and again at every network event (the drivers' hosts-file watcher), and when either
+# has changed the library is told (softhoma_memory): its sockets on the old memory go down, the sessions on them end,
+# and the next socket opens on the memory where it is now.
+SOFTHOMA_ROLE = "databasehost.frognet"                       # the SystemRam, as the hosts file names it
+SOFTHOMA_PORT = int(os.environ.get("FROGNET_SOFTHOMA_PORT", "9131"))
+_soft_told: Optional[Tuple[str, str]] = None
+
+
+def soft_memory_now() -> Tuple[str, str]:
+    """(HOST:PORT of soft Homa's memory, this node's own address), both as they are NOW. A test replaces this function."""
+    from core import frognet_tuples
+    return "%s:%d" % (socket.gethostbyname(SOFTHOMA_ROLE), SOFTHOMA_PORT), frognet_tuples.my_ip()
+
+
+def soft_memory_tell(why: str) -> bool:
+    """Ask where the memory and this node are now and, if either changed, tell the library. True when it was told.
+    Raises HomaUnavailable when it cannot be said where they are: nothing is guessed and nothing kept from before."""
+    global _soft_told
+    lib = soft_homa_library()
+    if lib is None:
+        return False
+    try:
+        now = soft_memory_now()
+    except Exception as e:
+        raise HomaUnavailable("soft Homa's memory is on the machine %s names and it cannot be said where that is now "
+                              "(%s: %s); no address from before is used" % (SOFTHOMA_ROLE, type(e).__name__, e)) from e
+    with _soft_lib_lock:
+        if now == _soft_told:
+            return False
+        was, _soft_told = _soft_told, now
+    down = lib.softhoma_memory(now[0].encode(), now[1].encode())
+    print("[HOMA] [THE_MEMORY_IS_WHERE_THE_ROLE_IS_V1] %s: soft Homa's memory is at %s and this node is %s (before: %s); "
+          "%d socket(s) on the memory before went down" % (why, now[0], now[1], "%s, node %s" % was if was else "nothing", down), flush=True)
+    return True
+
+
+def soft_peer_there(dest: Tuple[str, int], wait_s: float) -> bool:
+    """[A_PEER_IS_THERE_WHEN_ITS_CELL_IS_V1] Whether a Homa listener is bound at `dest` in the memory this process is on
+    now; with wait_s > 0, one held read on its capability cell for up to that long. On kernel Homa there is no such
+    thing to ask and the answer is True."""
+    lib = soft_homa_library()
+    if lib is None:
+        return True
+    soft_memory_tell("a peer is being looked for")
+    return lib.softhoma_await(("%s:%d" % (dest[0], int(dest[1]))).encode(), ctypes.c_double(float(wait_s))) == 1
 
 
 def soft_homa_loaded() -> Optional[str]:
@@ -214,8 +265,8 @@ def startup_line(who: str) -> str:
     if soft:                                    # [SOFT_HOMA_CARRIER_V1] no module, so no sysctls: it has no timers to set
         return ("[HOMA] %s build=%s kernel=%s homa_h=%s on SOFT HOMA %s (Homa's calls on shared memory, memory at %s, "
                 "this machine named %s): no kernel module, no Homa sysctls"
-                % (who, BUILD, os.uname().release, HOMA_PINNED_COMMIT[:7], soft, os.environ.get("SOFTHOMA_RAM", "(not set)"),
-                   os.environ.get("SOFTHOMA_IP", "127.0.0.1 (SOFTHOMA_IP not set)")))
+                % (who, BUILD, os.uname().release, HOMA_PINNED_COMMIT[:7], soft,
+                   _soft_told[0] if _soft_told else "(not asked yet)", _soft_told[1] if _soft_told else "(not asked yet)"))
     s = sysctls()
     keys = ("timeout_ticks", "resend_ticks", "resend_interval", "request_ack_ticks", "unsched_bytes", "hijack_tcp",
             "max_gso_size", "link_mbps", "max_overcommit", "num_priorities")
@@ -237,6 +288,8 @@ class HomaSocket:
         # this node was told of, or else the system's own calls (the kernel module's socket). The socket is a bare
         # descriptor so that no call on it can go anywhere else.
         soft = soft_homa_library()
+        if soft is not None:
+            soft_memory_tell("a Homa socket is being opened")
         self._libc = soft if soft is not None else ctypes.CDLL(None, use_errno=True)
         self._fd = self._libc.socket(socket.AF_INET, socket.SOCK_DGRAM, IPPROTO_HOMA)
         if self._fd < 0:
@@ -333,6 +386,9 @@ class HomaSocket:
             self._tls.owed = [int(args.bpage_offsets[i]) for i in range(int(args.num_bpages))]
             if self._closed or e in (errno.EBADF, errno.ESHUTDOWN):
                 raise CarrierClosed("homa socket closed")
+            if e == errno.ENETDOWN and soft_homa_library() is not None:
+                # [THE_MEMORY_IS_WHERE_THE_ROLE_IS_V1] soft Homa: the memory under this socket is gone, or has moved
+                raise CarrierClosed("the memory under this soft Homa socket is gone or has moved")
             if int(args.id) != 0:
                 self.n_failed += 1
                 raise RpcFailed(int(args.id), int(args.completion_cookie), e)
@@ -363,6 +419,8 @@ class HomaSocket:
                 "failed": self.n_failed, "bytes_out": self.bytes_out, "bytes_in": self.bytes_in, "port": self.port}
 
     def close(self) -> None:
+        if self._closed:
+            return                                   # once: the descriptor's number may belong to something else by now
         self._closed = True
         if self._libc.shutdown(self._fd, socket.SHUT_RDWR) != 0:   # wakes threads blocked in recvmsg (ESHUTDOWN)
             e = ctypes.get_errno()

@@ -68,7 +68,7 @@
 #include "homa.h"
 
 namespace {
-const char* BUILD = "softhoma-v7-20261117k";
+const char* BUILD = "softhoma-v8-20261117q";
 const size_t PIECE = 48000;        // one field of a cell: at most 65,535 bytes on the wire (semcodec TYPE_STR), in base64
 size_t RECORD = 240000;            // one cell: bulk goes in large records (PERFORMANCE-LESSONS.md section 2), and a
                                    // frame to the memory is at most 1 MiB (ram_host.cpp MAX_FRAME; over it the memory
@@ -114,6 +114,7 @@ struct Msg { uint64_t id; std::string from, bytes; bool request; int err = 0; ui
 
 struct Sock {
     int fd; std::string name; uint16_t port = 0; bool watching = false, server = false, down = false;
+    ribbit::Space* sp = nullptr;                      // the memory this socket was opened on, for its whole life
     std::mutex m; std::condition_variable cv;
     std::multimap<size_t, Msg> inbox;                 // by length: the consumer's policy is shortest first
     uint64_t next_id = 2;
@@ -132,6 +133,10 @@ struct Sock {
 
 std::mutex G; std::unordered_map<int, Sock*> socks;
 ribbit::Space* space = nullptr; std::string my_ip; bool can_watch = false;
+// [THE_MEMORY_IS_WHERE_THE_ROLE_IS_V1] where the memory is can change while this process runs (the role is elected; the
+// network splits and merges). softhoma_memory() below is how the driver says where it is NOW. Each socket keeps the
+// memory it was opened on; `space` is the one a NEW socket opens on.
+std::mutex SP; bool tried = false; std::string told_ram, told_ip; std::atomic<uint64_t> memory_number{0};
 std::atomic<bool> is_homa[1 << 16];                   // by descriptor: every other descriptor costs one load here
 
 Sock* find(int fd) {
@@ -177,24 +182,30 @@ void memory_gone(Sock* s, const std::string& why) {   // this process's session 
 }
 
 bool ensure_space() {
-    static std::once_flag once;
-    std::call_once(once, [] {
-        const char* ram = getenv("SOFTHOMA_RAM"); const char* ip = getenv("SOFTHOMA_IP");
-        my_ip = ip && *ip ? ip : "127.0.0.1";
-        if (const char* r = getenv("SOFTHOMA_RECORD")) { size_t v = size_t(atol(r)); if (v >= 1000 && v <= 700000) RECORD = v; }   // for measuring only
-        if (!ram || !*ram) { fprintf(stderr, "[SOFTHOMA] %s: SOFTHOMA_RAM=HOST:PORT is not set: there is no memory to carry Homa on, and nothing is used in its place\n", BUILD); return; }
-        try { space = new ribbit::Space(ram, "homa"); }
-        catch (const std::exception& e) { fprintf(stderr, "[SOFTHOMA] %s: the memory at %s: %s\n", BUILD, ram, e.what()); return; }
-        fprintf(stderr, "[SOFTHOMA] %s Homa's calls on memory at %s; this machine is %s%s\n", BUILD, ram, my_ip.c_str(), ip && *ip ? "" : " (SOFTHOMA_IP not set)");
-    });
-    return space != nullptr;
+    std::lock_guard<std::mutex> g(SP);
+    if (space) return true;
+    if (tried) return false;                          // said once; asked again only after softhoma_memory()
+    tried = true;
+    // The driver says where (softhoma_memory). A program that cannot be changed is told by its environment
+    // (SOFTHOMA_RAM, SOFTHOMA_IP: his cp_node), once, for its life.
+    const char* e_ram = getenv("SOFTHOMA_RAM"); const char* e_ip = getenv("SOFTHOMA_IP");
+    const std::string ram = !told_ram.empty() ? told_ram : (e_ram ? e_ram : "");
+    const std::string ip = !told_ip.empty() ? told_ip : (e_ip ? e_ip : "");
+    my_ip = !ip.empty() ? ip : "127.0.0.1";
+    if (const char* r = getenv("SOFTHOMA_RECORD")) { size_t v = size_t(atol(r)); if (v >= 1000 && v <= 700000) RECORD = v; }   // for measuring only
+    if (ram.empty()) { fprintf(stderr, "[SOFTHOMA] %s: it has not been said where the memory is (the driver's softhoma_memory(), or SOFTHOMA_RAM=HOST:PORT): there is no memory to carry Homa on, and nothing is used in its place\n", BUILD); return false; }
+    try { space = new ribbit::Space(ram, "homa"); }
+    catch (const std::exception& e) { fprintf(stderr, "[SOFTHOMA] %s: the memory at %s: %s\n", BUILD, ram.c_str(), e.what()); return false; }
+    fprintf(stderr, "[SOFTHOMA] %s Homa's calls on memory at %s; this machine is %s%s\n", BUILD, ram.c_str(), my_ip.c_str(), !ip.empty() ? "" : " (not said: 127.0.0.1)");
+    return true;
 }
 
-void watch_servers() {                                // one read, per process, on every server's capability cell
+void watch_servers(ribbit::Space* sp) {               // one read, per memory, on every server's capability cell
     std::lock_guard<std::mutex> g(G);
     if (can_watch) return;
     can_watch = true;
-    space->follow("homa", "can", 0, [](std::vector<ribbit::SpaceRow>& rows) { for (auto& r : rows) { if (getenv("SOFTHOMA_DEBUG")) fprintf(stderr, "[SOFTHOMA-DEBUG] can row id=%llu instance=%s gone=%d\n", (unsigned long long)r.id, r.instance.c_str(), int(r.gone)); const bool left = r.gone || r.fields()->num("closed");
+    const uint64_t mine = memory_number.load();       // rows from a memory this process has let go of are not this memory's news
+    sp->follow("homa", "can", 0, [mine](std::vector<ribbit::SpaceRow>& rows) { if (mine != memory_number.load()) return; for (auto& r : rows) { if (getenv("SOFTHOMA_DEBUG")) fprintf(stderr, "[SOFTHOMA-DEBUG] can row id=%llu instance=%s gone=%d\n", (unsigned long long)r.id, r.instance.c_str(), int(r.gone)); const bool left = r.gone || r.fields()->num("closed");
         { std::lock_guard<std::mutex> g(G); if (left) { not_there.insert(r.instance); there.erase(r.instance); } else { not_there.erase(r.instance); there.insert(r.instance); } }
         if (left) server_gone(r.instance, !r.gone); } });
 }
@@ -202,7 +213,7 @@ void watch_servers() {                                // one read, per process, 
 void start_watch(Sock* s) {                           // the socket's one standing read, on its own name
     if (s->watching) return;
     s->watching = true;
-    space->follow("homa", s->name, -1, [s](std::vector<ribbit::SpaceRow>& rows) {
+    s->sp->follow("homa", s->name, -1, [s](std::vector<ribbit::SpaceRow>& rows) {
         for (auto& r : rows) {
             if (r.gone) {                             // a sender's cells went with it; what was taken was taken
                 std::string who = r.instance; for (int k = 0; k < 2; ++k) who = who.substr(0, who.rfind('.'));   // <name>.<slot>.<record>
@@ -265,7 +276,7 @@ void put(Sock* s, const std::string& topic, bool request, uint64_t id, uint64_t 
             b64_into(bag, part + p * PIECE, std::min(PIECE, part_size - p * PIECE)); bag += "\","; }
         bag += "\"c\":" + std::to_string(pieces) + ",\"f\":\"" + s->name + "\",\"i\":" + std::to_string(id) + ",\"k\":\"" + (request ? "q" : "r") +
                "\",\"p\":" + std::to_string(r) + ",\"s\":" + std::to_string(slot) + ",\"t\":" + std::to_string(recs) + "}";
-        space->write("homa", topic, s->name + "." + std::to_string(slot) + "." + std::to_string(r), bag);
+        s->sp->write("homa", topic, s->name + "." + std::to_string(slot) + "." + std::to_string(r), bag);
         if (DEBUG) fprintf(stderr, "[SOFTHOMA-DEBUG] %.3f wrote %s id=%llu record %zu of %zu (%zu bytes) to %s\n", now_ms(), request ? "request" : "reply", (unsigned long long)id, r + 1, recs, part_size, topic.c_str());
     }
 }
@@ -285,12 +296,63 @@ const char* softhoma_build() { return BUILD; }
 // cuts a frame into pieces of this size, so each piece is a whole message and takes the one-cell path.
 size_t softhoma_record_bytes() { ensure_space(); return RECORD; }
 
+// [A_PEER_IS_THERE_WHEN_ITS_CELL_IS_V1] The driver's question before it opens a session: is a server bound at `addr`
+// ("a.b.c.d:port") in the memory this process is on NOW? After the memory moves, each end arrives in the new one when
+// its own hosts file changes, so a peer can be a moment behind. The answer is its capability cell, and waiting for it
+// is one held read on that cell for up to `seconds` (0: just look). 1: it is there. 0: it is not (no cell, or it says
+// closed, when the time was up). -1: this process has no memory.
+int softhoma_await(const char* addr, double seconds) {
+    if (!addr || !ensure_space()) return -1;
+    ribbit::Space* sp; { std::lock_guard<std::mutex> g(SP); sp = space; }
+    if (!sp) return -1;
+    const std::string to = addr; const double until = now_ms() + seconds * 1000.0; long long after = 0;
+    watch_servers(sp);                                // the one standing read on every server's cell keeps the two sets below current
+    { std::lock_guard<std::mutex> g(G); if (there.count(to)) return 1; if (not_there.count(to) && seconds <= 0) return 0; }   // known: nothing is asked
+    for (;;) {
+        const double left = (until - now_ms()) / 1000.0;
+        bool there_now = false, any = false;
+        for (auto& r : sp->read("homa", "can", to, after, left > 0 ? left : 0)) {
+            any = true; if (static_cast<long long>(r.id) > after) after = static_cast<long long>(r.id);
+            there_now = !r.gone && !r.fields()->num("closed");
+        }
+        if (there_now) { std::lock_guard<std::mutex> g(G); not_there.erase(to); there.insert(to); return 1; }
+        if (!any || left <= 0) { std::lock_guard<std::mutex> g(G); if (!there.count(to)) not_there.insert(to); return 0; }   // nothing new before the time was up
+    }
+}
+
+// [THE_MEMORY_IS_WHERE_THE_ROLE_IS_V1] John 2026-11-17: "You know it can change address during a run. Right?" The
+// driver's call: the memory is at `ram` (HOST:PORT) NOW, and this machine is `ip` to its peers NOW. Every socket this
+// process has on a memory it had before is down from here (gone is gone: what was outstanding ends, as when a memory
+// dies), and the next socket opens on the memory named. The old memory's session is not torn down here (the platform's
+// Space has no close); it ends with this process, and this process's cells in it with it. Returns how many sockets
+// went down.
+int softhoma_memory(const char* ram, const char* ip) {
+    ribbit::Space* old; std::string was;
+    { std::lock_guard<std::mutex> g(SP); old = space; was = old ? old->where() : ""; space = nullptr; tried = false; told_ram = ram ? ram : ""; told_ip = ip ? ip : ""; }
+    memory_number.fetch_add(1);
+    std::vector<Sock*> all;
+    { std::lock_guard<std::mutex> g(G); for (auto& kv : socks) all.push_back(kv.second); can_watch = false; there.clear(); not_there.clear(); }
+    int n = 0;
+    for (Sock* s : all) {
+        size_t out; bool already;
+        { std::lock_guard<std::mutex> g(s->m); already = s->down; s->down = true; s->down_err = ENETDOWN; out = s->out.size(); }
+        if (already) continue;
+        ++n;
+        fprintf(stderr, "[SOFTHOMA] the memory has MOVED: socket %s was on the memory at %s; %zu request(s) outstanding end with it and the socket is down\n", s->name.c_str(), was.c_str(), out);
+        s->cv.notify_all(); wake(s);
+    }
+    fprintf(stderr, "[SOFTHOMA] %s the memory is now at %s and this machine is %s (it was %s; %d socket(s) on it went down)\n", BUILD, told_ram.c_str(), told_ip.c_str(), old ? was.c_str() : "nowhere yet", n);
+    return n;
+}
+
 int socket(int domain, int type, int protocol) {
     if (protocol != IPPROTO_HOMA) return libc().socket(domain, type, protocol);
     if (domain != AF_INET) { fprintf(stderr, "[SOFTHOMA] an IPPROTO_HOMA socket of family %d: only AF_INET is carried yet\n", domain); errno = EAFNOSUPPORT; return -1; }
     if (!ensure_space()) { errno = EPROTONOSUPPORT; return -1; }
     int fd = eventfd(0, EFD_SEMAPHORE | EFD_NONBLOCK); if (fd < 0) return -1;
     Sock* s = new Sock; s->fd = fd;
+    { std::lock_guard<std::mutex> g(SP); s->sp = space; }
+    if (!s->sp) { libc().close(fd); delete s; errno = ENETDOWN; return -1; }      // the memory was let go of between the two lines above
     if (fd >= (1 << 16)) { libc().close(fd); delete s; errno = EMFILE; return -1; }
     { std::lock_guard<std::mutex> g(G); socks[fd] = s; }
     is_homa[fd].store(true, std::memory_order_release);
@@ -303,10 +365,10 @@ int bind(int fd, const sockaddr* addr, socklen_t len) {
     const sockaddr_in* in = reinterpret_cast<const sockaddr_in*>(addr); const uint16_t port = ntohs(in->sin_port);
     // bound to one address: that is the address its peers send to. Bound to any: SOFTHOMA_IP.
     std::string ip = my_ip; if (in->sin_addr.s_addr != htonl(INADDR_ANY)) { char b[64]; inet_ntop(AF_INET, &in->sin_addr, b, sizeof b); ip = b; }
-    if (port) for (auto& r : space->read("homa", "can", ip + ":" + std::to_string(port))) if (!r.fields()->num("closed")) { errno = EADDRINUSE; return -1; }
+    if (port) for (auto& r : s->sp->read("homa", "can", ip + ":" + std::to_string(port))) if (!r.fields()->num("closed")) { errno = EADDRINUSE; return -1; }
     name_socket(s, port, ip);
     s->server = true;
-    space->write("homa", "can", s->name, "{\"build\":\"" + std::string(BUILD) + "\"}");   // gone with this process's session
+    s->sp->write("homa", "can", s->name, "{\"build\":\"" + std::string(BUILD) + "\"}");   // gone with this process's session
     return 0;
 }
 
@@ -340,15 +402,15 @@ ssize_t sendmsg(int fd, const msghdr* h, int flags) {
           auto& sl = s->slots[to];                    // a slot of this socket's own: the lowest that is free, or a new one
           if (sl.free.empty()) slot = sl.next++; else { slot = *sl.free.begin(); sl.free.erase(sl.free.begin()); }
           id = s->next_id; s->next_id += 2; s->out[id] = Sock::Out{a->completion_cookie, to, slot}; ++s->n_sent; }
-        watch_servers();
+        watch_servers(s->sp);
         a->id = id;
         bool gone, known; { std::lock_guard<std::mutex> g(G); gone = not_there.count(to) != 0; known = gone || there.count(to) != 0; }
         if (!known) {                                 // nothing has been heard of it yet: ask the memory, once, whether its capability cell is there
             std::string build;
-            for (auto& r : space->read("homa", "can", to)) if (!r.gone && !r.fields()->num("closed")) build = r.fields()->str("build");
+            for (auto& r : s->sp->read("homa", "can", to)) if (!r.gone && !r.fields()->num("closed")) build = r.fields()->str("build");
             gone = build.empty();
             { std::lock_guard<std::mutex> g(G); if (gone) not_there.insert(to); else there.insert(to); }
-            if (gone) fprintf(stderr, "[SOFTHOMA] %s has NO capability cell in the memory at %s: nothing is bound to that address and port on this memory (is the server running, and on this memory?)\n", to.c_str(), space->where().c_str());
+            if (gone) fprintf(stderr, "[SOFTHOMA] %s has NO capability cell in the memory at %s: nothing is bound to that address and port on this memory (is the server running, and on this memory?)\n", to.c_str(), s->sp->where().c_str());
             else fprintf(stderr, "[SOFTHOMA] %s is there (its capability cell is in the memory; it runs %s)\n", to.c_str(), build.c_str());
         }
         if (gone) {                                   // the memory says it is not there: the request ends as Homa ends one, in recvmsg
@@ -435,11 +497,12 @@ int shutdown(int fd, int how) {
 
 int close(int fd) {
     Sock* s = find(fd); if (!s) return libc().close(fd);
-    { std::lock_guard<std::mutex> g(s->m); s->down = true; }
+    bool memory_went; { std::lock_guard<std::mutex> g(s->m); s->down = true; memory_went = s->down_err != 0; }
     s->cv.notify_all();
     // a server that closes says so in its capability cell: the cell itself leaves only with this process's session,
-    // and those with requests outstanding to it are owed the news now
-    if (s->server) space->write("homa", "can", s->name, "{\"build\":\"" + std::string(BUILD) + "\",\"closed\":1}");
+    // and those with requests outstanding to it are owed the news now. (Not when its memory went or moved: there is
+    // nothing of this socket's to say there.)
+    if (s->server && !memory_went) s->sp->write("homa", "can", s->name, "{\"build\":\"" + std::string(BUILD) + "\",\"closed\":1}");
     fprintf(stderr, "[SOFTHOMA] socket %s closed: sent=%llu received=%llu ended-by-a-peer-leaving=%llu\n", s->name.empty() ? "(unnamed)" : s->name.c_str(),
             (unsigned long long)s->n_sent, (unsigned long long)s->n_recv, (unsigned long long)s->n_gone);
     is_homa[fd].store(false, std::memory_order_release);

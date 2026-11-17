@@ -161,6 +161,9 @@ class PeerLiveness:
         self.carriers = tuple(carriers)           # what this end carries the wire on ([CARRIER_PER_HOP_V1])
         self.peer_carriers: Dict[str, Tuple[str, ...]] = {}   # peer ip -> what its other end says it carries it on
         self.on_network_event = on_network_event
+        # [THE_MEMORY_IS_WHERE_THE_ROLE_IS_V1] called on the watcher's thread each time the hosts file is rewritten:
+        # the driver asks then where soft Homa's memory and this node are now. Set by the driver's end; None otherwise.
+        self.on_hosts_change: Optional[Callable[[], None]] = None
         self._lock = threading.Lock()
         self.seen: Dict[str, str] = {}            # peer ip -> the inst of its other-end tuple, as last read
         self.block: Optional[Set[str]] = None     # the hosts block as of the watcher's last event (and the start)
@@ -307,6 +310,11 @@ class PeerLiveness:
                     self.left -= now               # a machine that left and is in the block again is back
                     self.block = now
             self._net.set()
+            if self.on_hosts_change is not None:
+                try:
+                    self.on_hosts_change()
+                except Exception as e:
+                    print("[HOMA-LIVENESS] %s: the hosts-change handler raised %s: %r" % (self.who, type(e).__name__, e), flush=True)
             for ip in gone:
                 self._gone(ip, "its machine is no longer in the hosts block (it left the network)", True)
 

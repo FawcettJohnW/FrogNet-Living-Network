@@ -365,9 +365,74 @@ class MsgDaemonServer:
         return open_homa_socket("daemon semantic wire (server socket %s:%d)" % (self.host, self.port),
                                 bind_ip=self.host, server_port=self.port)
 
+    # ---- [THE_MEMORY_IS_WHERE_THE_ROLE_IS_V1] soft Homa only. Its memory is on the machine that holds the SystemRam
+    # role, and the role moves. Every node with soft Homa turned on is able to serve the memory (its own child process,
+    # on soft Homa's port); the one the role is on is the one used. When the hosts file changes the driver asks where
+    # the memory is now; if it moved, this listener's socket goes down, its sessions end, and it opens again there.
+    def _memory_child(self) -> None:
+        """Keep this node's own copy of soft Homa's memory process running, at this node's address as it is now. A
+        test replaces this method."""
+        lib = homa_socket.soft_homa_library()
+        if lib is None:
+            return
+        import os, subprocess
+        from core import frognet_tuples
+        exe = os.path.join(os.path.dirname(os.path.abspath(lib._name)), "softhoma-ram")
+        at = "%s:%d" % (frognet_tuples.my_ip(), homa_socket.SOFTHOMA_PORT)
+        child = getattr(self, "_child", None)
+        if child is not None and child[0].poll() is None and child[1] == at:
+            return
+        if child is not None and child[0].poll() is None:
+            print("[DAEMON-HOMA] this node's address changed: its soft Homa memory process at %s is ended" % child[1], flush=True)
+            child[0].terminate()
+        elif child is not None:
+            print("[DAEMON-HOMA] this node's soft Homa memory process at %s had ENDED (exit %s)" % (child[1], child[0].returncode), flush=True)
+        try:
+            self._child = (subprocess.Popen([exe, at]), at)
+            print("[DAEMON-HOMA] [THE_MEMORY_IS_WHERE_THE_ROLE_IS_V1] this node serves soft Homa's memory at %s (%s, pid %d); "
+                  "it is the one used while this node holds the SystemRam role" % (at, exe, self._child[0].pid), flush=True)
+        except OSError as e:
+            self._child = None
+            print("[DAEMON-HOMA] soft Homa's memory process could not be started (%s at %s): %s. This node cannot hold "
+                  "soft Homa's memory; it is tried again at the next network event." % (exe, at, e), flush=True)
+
+    def _hosts_changed(self) -> None:
+        """The liveness watcher's thread, each time the hosts file is rewritten."""
+        try:
+            self._memory_child()
+            homa_socket.soft_memory_tell("the hosts file changed")
+        except Exception as e:
+            print("[DAEMON-HOMA] at the hosts change: %s: %s" % (type(e).__name__, e), flush=True)
+        self._changed.set()
+
     def run(self) -> None:
+        """Listen for as long as the process runs. On kernel Homa the socket does not go away. On soft Homa it goes
+        down when its memory goes or moves: the listener then opens again where the memory is, at once if it is
+        there, else at the next network event (never on a timer)."""
+        self._changed = threading.Event()
+        while True:
+            self._changed.clear()
+            try:
+                self._memory_child()
+                self._listen()
+                why = "its socket went down"
+            except homa_socket.HomaUnavailable as e:
+                why = "it could not open: %s" % e
+                if homa_socket.soft_homa_library() is None:
+                    raise
+                print("[DAEMON-HOMA] the Homa listener is NOT listening (%s). It opens at the next network event." % why, flush=True)
+                self._changed.wait()
+                continue
+            if homa_socket.soft_homa_library() is None:
+                return
+            print("[DAEMON-HOMA] [THE_MEMORY_IS_WHERE_THE_ROLE_IS_V1] the Homa listener ended (%s); opening it again where "
+                  "soft Homa's memory is now" % why, flush=True)
+
+    def _listen(self) -> None:
         self._carrier = self._server_carrier()
-        self.liveness = self._peer_liveness()
+        if self.liveness is None:
+            self.liveness = self._peer_liveness()
+            self.liveness.on_hosts_change = self._hosts_changed
         print("[DAEMON-HOMA] [HOMA_TRANSPORT_V1] semantic wire on Homa at %s:%d. [LIVENESS_IS_A_HELD_READ_V1] a peer "
               "leaving is learned from the held read on (homa, can) and the hosts block; when a machine leaves, "
               "[WRITER_GONE_V1] is told as on TCP." % (self.host, self.port), flush=True)
@@ -429,16 +494,23 @@ class MsgDaemonServer:
                     s.spare(m.id, m.peer)
                 else:
                     s.arrive(seq, m.id, m.peer, m.payload[REQ_HDR.size:])
-        except homa_socket.CarrierClosed:
-            why = "socket closed"
+        except homa_socket.CarrierClosed as e:
+            why = "socket closed (%s)" % e
         except Exception as e:
             why = "exception %s: %r" % (type(e).__name__, e)
             raise
         finally:
             print("[DAEMON-HOMA] receive loop ended: %s" % why, flush=True)
             with self._lock:
-                for s in self._sessions.values():
+                ended = list(self._sessions.items()); self._sessions.clear()
+                for k, s in ended:
+                    self._ended[k] = "the daemon's Homa listener ended: %s" % why
+                    s.ended = s.ended or self._ended[k]
                     s._reply_q.put((-1, b"", 0))
+            try:
+                self._carrier.close()
+            except Exception as e:
+                print("[DAEMON-HOMA] closing the listener's socket: %r" % (e,), flush=True)
 
     def stats(self) -> Dict[str, Dict[str, int]]:
         with self._lock:

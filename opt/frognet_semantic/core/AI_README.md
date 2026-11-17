@@ -110,6 +110,13 @@ The parts every node runs. 38 Python files, no subdirectories.
   into numbered pieces, each a whole Homa message, rebuilt before the engine sees it. Nothing is refused for size
   and nothing is shed. The format and the gate are in `ribbit/examples/homa/DESIGN.md` section 5. Do not put a
   size limit back above the driver.
+- **`[THE_MEMORY_IS_WHERE_THE_ROLE_IS_V1]` no address of soft Homa's memory is kept anywhere.** It is on the machine
+  `databasehost.frognet` names, and that moves. `homa_socket.soft_memory_tell()` asks where it and this node are when
+  a socket opens and at every hosts change (`PeerLiveness.on_hosts_change`); when either changed the library is told,
+  the sockets on the old memory go down, the sessions end, the proxy opens a new socket when it next has something to
+  send and the daemon's listener opens again (`MsgDaemonServer.run`). A peer that is not yet in the new memory
+  (`[A_PEER_IS_THERE_WHEN_ITS_CELL_IS_V1]`, `homa_transport._peer_in_soft_memory`) gets no soft Homa session. Never
+  put an address, a RAM host or a node's own address in a setting or an environment variable for a service.
 - **`[THE_WIRE_MANAGER_SENDS_V1]` only the wire manager calls the carrier's send.** A thread that has a frame makes
   the wire bytes and queues them (`_ClientMux.send`, the daemon session's writer); `WireManager`'s one thread per
   end sends, whole messages ahead of waiting pieces. Do not send from the thread that has the frame.
