@@ -48,7 +48,7 @@ from daemon.engine.execution import ExecutionEngine
 from daemon.upstream.client import HttpClient
 from daemon.cache import semcache_db
 from proxy.transport_homa import (DRV_MAGIC, REQ_HDR, REP_HDR, END_MAGIC, PIECE_MAGIC, MORE_MAGIC, SPARE_MAGIC, NOTHING,
-                                  REQ_PIECE, REP_PIECE, MORE_HDR, SPARE_HDR, cut)
+                                  REQ_PIECE, REP_PIECE, MORE_HDR, SPARE_HDR, cut, WireManager)
 
 
 
@@ -100,6 +100,8 @@ class _MsgSession(S.SemanticSession):
         self._seq_of: Dict[int, int] = {}                 # a request's rpc id -> its seq (what a "more" names it by)
         self._kept: Dict[Tuple[int, int], bytes] = {}     # (request seq, index) -> a reply piece waiting for its RPC
         self._spares: list = []                           # [THE_RPCS_ARE_ALREADY_OPEN_V1] the proxy's spare RPCs, open
+        self.wire_out = None                              # [THE_WIRE_MANAGER_SENDS_V1] the server's; set before a frame arrives
+        self.send_failed = ""                             # why a reply could not be sent, once one could not
         self.n_joined = self.n_cut = self.n_on_spares = self.n_kept = 0
         self.n_in = self.n_out = self.n_early = 0
         self.max_early = 0
@@ -173,7 +175,7 @@ class _MsgSession(S.SemanticSession):
             if not self.ended:
                 print("[DAEMON-HOMA] session %s from %s: %s; answered 'ended'" % (self.sid.hex(), self.peer_ip, why), flush=True)
             return
-        self._carrier.send_reply(peer, rpc_id, part)
+        self.wire_out.give((self, peer, rpc_id, part), True)
 
     def _hand_up(self, seq: int, rpc_id: int, peer: Tuple[str, int], frame: bytes) -> None:
         """One frame, in its turn, to the engine. Every path queues exactly one reply for rpc_id."""
@@ -239,6 +241,9 @@ class _MsgSession(S.SemanticSession):
                 if seq == -1:
                     why = "session ended"
                     break
+                if seq == -2 or self.send_failed:
+                    why = "send failed: " + self.send_failed
+                    break
                 with self._dest_lock:
                     dest = self._dest.pop(seq, None)
                 if dest is None:
@@ -267,17 +272,12 @@ class _MsgSession(S.SemanticSession):
                             self._kept[(req_seq, i)] = out[i]
                             self.n_kept += 1
                         self.n_cut += 1
-                try:
-                    for i, (rid, d) in enumerate(rpcs):
-                        self._carrier.send_reply(d, rid, out[i] if i < len(out) else NOTHING)
-                except Exception as e:
-                    # the reply numbered rseq will never reach the proxy, so nothing after it can be handed up there:
-                    # this session's reply order is broken. Said once, with everything; the session stops answering.
-                    print("[DAEMON-HOMA-WRITER] SEND FAILED rpc=%d rseq=%d %dB to %s:%d: %s: %r - the session's reply "
-                          "order is broken; it answers nothing more and its peer's outstanding requests will not complete"
-                          % (seq, rseq, len(reply), dest[0], dest[1], type(e).__name__, e), flush=True)
-                    why = "send failed"
-                    break
+                # (a reply that cannot be sent never reaches the proxy, so nothing after it can be handed up there: the
+                # wire manager says so once, sets send_failed, and this loop stops above)
+                # [THE_WIRE_MANAGER_SENDS_V1] this thread decides what goes; the server's wire manager places it
+                for i, (rid, d) in enumerate(rpcs):
+                    msg = out[i] if i < len(out) else NOTHING
+                    self.wire_out.give((self, d, rid, msg), msg[:4] == PIECE_MAGIC)
                 rseq += 1
                 self.n_out += 1
                 S.bump_semantic(peer_ip=self.peer_ip, wire_in=wire_in, wire_out=len(reply))
@@ -300,6 +300,7 @@ class MsgDaemonServer:
         self._ended: Dict[Tuple[str, bytes], str] = {}   # sessions that ended -> why (the last 4096 of them)
         self._lock = threading.Lock()
         self._carrier = None
+        self._wire = WireManager("daemon-homa-wire", self._put_reply)     # [THE_WIRE_MANAGER_SENDS_V1]
         self.liveness = None
         self.n_peers_gone = self.n_network_events = 0
 
@@ -344,6 +345,18 @@ class MsgDaemonServer:
         self.n_network_events += 1
         print("[DAEMON-HOMA] network event: the ControlRam was rebuilt and this end wrote its own tuple again; sessions "
               "from peers that are still there carry on", flush=True)
+
+    def _put_reply(self, s: "_MsgSession", dest: Tuple[str, int], rid: int, msg: bytes) -> None:
+        """The wire manager's thread: one reply message onto the carrier."""
+        try:
+            self._carrier.send_reply(dest, rid, msg)
+        except Exception as e:
+            if not s.send_failed:
+                print("[DAEMON-HOMA-WIRE] SEND FAILED rpc=%d %dB to %s:%d session %s: %s: %r - the session's reply order is "
+                      "broken; it answers nothing more and its peer's outstanding requests will not complete"
+                      % (rid, len(msg), dest[0], dest[1], s.sid.hex(), type(e).__name__, e), flush=True)
+            s.send_failed = "%s: %r" % (type(e).__name__, e)
+            s._reply_q.put((-2, b"", 0))                  # wake its writer so it stops
 
     def _server_carrier(self):
         """The daemon's Homa socket. A test replaces this method to put a stand-in with the same calls under the
@@ -398,6 +411,7 @@ class MsgDaemonServer:
                     if s is None and was is None:
                         s = _MsgSession(m.peer, sid, self.resolver, self._http_client, self._carrier, fast_exec, db_exec)
                         s.on_named = self._named
+                        s.wire_out = self._wire
                         self._sessions[key] = s
                         print("[DAEMON-HOMA] session %s from %s opened (%d sessions)" % (sid.hex(), m.peer[0], len(self._sessions)), flush=True)
                         new = s

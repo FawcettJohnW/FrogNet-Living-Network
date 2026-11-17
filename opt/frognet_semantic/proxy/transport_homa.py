@@ -51,6 +51,7 @@ ladder. One Homa socket serves every peer (Homa has no connection); one thread r
 """
 from __future__ import annotations
 
+import collections
 import itertools
 import os
 import struct
@@ -94,6 +95,51 @@ SPARE_HDR = struct.Struct("!4s8s")      # magic, session
 MORE_HDR = struct.Struct("!4s8sQI")     # magic, session, seq, index
 
 
+class WireManager:
+    """[THE_WIRE_MANAGER_SENDS_V1] John 2026-11-17: "The driver is the thing that decides what goes on the wire. The
+    transport just places it there. ... The drivers should stick the wire bytes on a queue that the wire manager
+    reads off. If you wish, use two queues".
+
+    Every thread that has a frame makes its own wire bytes (header, pieces) and gives them here; it sends nothing
+    itself. This object's one thread is the only caller of the carrier's send. Two queues: messages that are whole,
+    and pieces of frames that were cut. A whole message always goes before a piece that is waiting, so a short frame
+    is never behind the rest of a long one from the same end; the far end puts frames back in order by their seq, so
+    nothing above the driver sees the difference. `put` does the send and deals with its own failure."""
+
+    def __init__(self, name: str, put):
+        self._whole, self._pieces = collections.deque(), collections.deque()
+        self._cv = threading.Condition()
+        self._put = put
+        self.n_whole = self.n_pieces = self.n_ahead = 0          # n_ahead: whole messages sent while a piece waited
+        threading.Thread(target=self._run, daemon=True, name=name).start()
+
+    def give(self, item, piece: bool) -> None:
+        with self._cv:
+            (self._pieces if piece else self._whole).append(item)
+            self._cv.notify()
+
+    def _run(self) -> None:
+        while True:
+            with self._cv:
+                while not self._whole and not self._pieces:
+                    self._cv.wait()
+                if self._whole:
+                    item = self._whole.popleft()
+                    self.n_whole += 1
+                    self.n_ahead += 1 if self._pieces else 0
+                else:
+                    item = self._pieces.popleft()
+                    self.n_pieces += 1
+            try:
+                self._put(*item)
+            except BaseException as e:               # put handles a failed send itself; this is a defect in put
+                print("[SEM-HOMA-WIRE] the wire manager's send raised %s: %r; that message did not go"
+                      % (type(e).__name__, e), flush=True)
+
+    def stats(self) -> Dict[str, int]:
+        return {"whole": self.n_whole, "pieces": self.n_pieces, "whole_sent_ahead_of_a_waiting_piece": self.n_ahead}
+
+
 class _Spare:
     """What _ClientMux.send asks of a request, for an RPC that is no request's."""
     __slots__ = ("sent_at", "attempts", "retry_pending", "seqs", "gate")
@@ -134,6 +180,7 @@ class _ClientMux:
         self.liveness = _peer_liveness(self._peer_gone, self._network_event)
         print("[SEM-HOMA] [LIVENESS_IS_A_HELD_READ_V1] a peer leaving is learned from the held read on (homa, can) and "
               "the hosts block; Homa's per-RPC timeout is not relied on", flush=True)
+        self.wire = WireManager("sem-homa-wire", self._put)      # [THE_WIRE_MANAGER_SENDS_V1]
         self._rx = threading.Thread(target=self._receive, daemon=True, name="sem-homa-rx")
         self._rx.start()
 
@@ -178,18 +225,30 @@ class _ClientMux:
               "with peers that are still there carry on", flush=True)
 
     def send(self, worker: "_MsgWorker", rpc, wire: bytes) -> None:
-        cookie = next(self._cookies)
-        with self._lock:
-            self._waiting[cookie] = (worker, rpc)
-        rpc.sent_at[cookie] = time.time()
-        rpc.attempts = 1
-        rpc.retry_pending = False
-        try:
-            rpc.seqs.append(self.carrier.send_request((worker.host, worker.port), wire, cookie))
-        except BaseException as e:
+        """Called on the thread that has the frame: its wire bytes go on the wire manager's queue."""
+        self.wire.give((worker, rpc, wire), wire[:4] == PIECE_MAGIC)
+
+    def _put(self, worker: "_MsgWorker", rpc, wire: bytes) -> None:
+        """The wire manager's thread: one message onto the carrier. Under the session's lock, so a session that ends
+        either has this RPC among those it gives up, or never sends it."""
+        err = None
+        with worker._lock:
+            if worker._stopped.is_set():
+                return
+            cookie = next(self._cookies)
             with self._lock:
-                self._waiting.pop(cookie, None)
-            worker._broken(e)                          # its seq will never arrive: the order has a hole
+                self._waiting[cookie] = (worker, rpc)
+            rpc.sent_at[cookie] = time.time()
+            rpc.attempts = 1
+            rpc.retry_pending = False
+            try:
+                rpc.seqs.append(self.carrier.send_request((worker.host, worker.port), wire, cookie))
+            except BaseException as e:
+                with self._lock:
+                    self._waiting.pop(cookie, None)
+                err = e
+        if err is not None:
+            worker._broken(err)                        # its seq will never arrive: the order has a hole
 
     def _receive(self) -> None:
         why = "unset"

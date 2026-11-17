@@ -157,6 +157,17 @@ on the session's spares, which the proxy keeps open at the daemon (each is one h
 used. `sent` is the flag: when it is under `count` the spares ran out, the proxy asks for the remaining pieces with
 `FNHM` (one round trip, once), and from then on keeps that many more spares open. The number kept open is what the
 session has needed; nothing is guessed and nothing is capped. A session that never has a large reply opens none.
+**The driver decides what goes on the wire; the wire manager places it** (`[THE_WIRE_MANAGER_SENDS_V1]`; John,
+17 Nov: "The driver is the thing that decides what goes on the wire. The transport just places it there. ... The
+drivers should stick the wire bytes on a queue that the wire manager reads off. If you wish, use two queues").
+Every thread that has a frame makes that frame's wire bytes itself (header, pieces) and puts them on a queue; it
+sends nothing. Each end has one wire manager (`WireManager`, `proxy/transport_homa.py`), whose one thread is the
+only caller of the carrier's send. It has two queues, whole messages and pieces of frames that were cut, and a whole
+message always goes before a piece that is waiting. So a short frame is not behind the rest of a long one from the
+same end, which is Homa's shortest-first kept where it belongs under CroakOS, in the sender's driver and the
+reader's read, with no GRANT. The far end puts frames back in order by seq, so nothing above the driver sees it.
+In the `pieces` gate the proxy's wire manager sent 39 whole messages ahead of waiting pieces.
+
 Unlike the Communicator's video nothing is
 shed: a piece that cannot be sent ends the session, as any lost frame does. Order is unchanged: a frame takes its
 turn when its last piece is in. Gate: `proxy/test_homa_ordering_oracle.py pieces` runs the ordered storm on a

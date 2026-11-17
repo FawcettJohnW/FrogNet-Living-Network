@@ -400,6 +400,10 @@ def run(mode):
         on_spares, kept = sum(x.n_on_spares for x in sess), sum(x.n_kept for x in sess)
         check(on_spares > 0 and kept > 0 and kept == hub.mores,
               f"[THE_RPCS_ARE_ALREADY_OPEN_V1] reply pieces went on spares the proxy had open, with no extra round trip ({on_spares}); the spares ran out for {kept} pieces, each asked for once ({hub.mores} more), and the proxy now keeps {sum(w['spares_kept_open'] for w in now)} open ({hub.spares} spares sent)")
+    if mode == "pieces":
+        pw, dw = TH._get_mux().wire.stats(), srv._wire.stats()
+        check(pw["whole_sent_ahead_of_a_waiting_piece"] > 0 and pw["pieces"] > 1000,
+              f"[THE_WIRE_MANAGER_SENDS_V1] the proxy's wire manager sent whole messages ahead of pieces that were waiting ({pw}); the daemon's: {dw}")
     if not sim:
         check(hub.not_fnw1 == 0, "every message was the driver's header followed by one whole FNW1 frame, or a piece of one")
     check(not tcp_workers, "no TCP worker was made")
