@@ -35,3 +35,55 @@ The parts every node runs. 38 Python files, no subdirectories.
   `SensorName = "SD:" + var + "." + scope`, `SensorType = service`. The `SD:`
   prefix marks a tuple reapable; observed sensor data carries no prefix and is
   never reaped.
+
+## Homa (`[HOMA_TRANSPORT_V1]`, 2026-11-16)
+
+- **`homa_socket.py` is the only file that knows Homa's system calls**, and its layouts are typed from `homa.h` at
+  one commit (`HOMA_PINNED_COMMIT`). They are NOT the same on every HomaModule branch: `HOMAIOCABORT` differs between
+  `main` at 07ce63e and the `linux_6.13.9` and `net-next` branches. Run `test_homa_layout_oracle.py <HomaModule dir>`
+  against the header of the module actually built for a node before trusting it there.
+- **Buffers:** one receive region per socket, registered once; bpages go back on the same thread's next `recvmsg`;
+  messages are copied out. Do not hand a view of the region to anything outside the file.
+- **`homa_sim.py` is the Homa simulator** (`[HOMA_SIM_V1]`): Homa's protocol from `protocol.md` in user space over
+  UDP, behind the same calls as `HomaSocket`, chosen with the word `homasim`. It exists so the Homa drivers and their
+  oracles run in the sandbox and the simulator, where the module cannot load. Three things to keep straight: no
+  number from it is a Homa number; its tick is 10 ms where the module's is 1 ms (at 1 ms Python re-sent bytes that
+  were only in its own queues and timed RPCs out with no loss), so its times are 10 x the module's and its tick
+  counts are the module's; and its timer rule is `homa_timer_check_rpc`'s, read from the code -- change it only
+  against that function. `test_homa_sim_oracle.py` holds it to the document, rule by rule.
+- **The simulator is also where Homa is changed.** The work's thesis is that Homa can stand outside the datacenter,
+  as it is or once made to; CroakOS's methods are applied to it one switch at a time, each measured against Homa as
+  shipped on the same simulator: `held_waits` (`[HELD_WAITS_V1]`, a waiting request is a held read, not a RESEND and
+  a BUSY every resend_interval), `rpc_timeout=0` (`[NO_RPC_TIMEOUT_V1]`, the per-RPC timeout removed: a peer leaving is
+  membership's one event, `peer_gone`) and `adaptive` (`[TIMERS_FROM_THE_MEASURED_PATH_V1]`, each socket times its own round
+  trips and sets its timers from them). Rules for any further one: each end writes only its own state and reads the
+  other's; nothing is copied; no new conversation between the two ends is added to make an old one cheaper.
+- **`homa_liveness.py`: whether a peer is there is a held read on its capability tuple**
+  (`[LIVENESS_IS_A_HELD_READ_V1]`). Each END of the driver writes its own `(homa, can, <its .1>:<proxy|daemon>)`
+  with an `inst` that is new every start, and holds one read on the family: a peer end whose tuple is no longer in
+  the memory, or is marked stopped, or has another `inst`, is gone. It also puts a file watcher (inotify) on
+  `/etc/hosts` (`[HOSTS_IS_WATCHED_V1]`, John 2026-11-16: "You don't need to read hosts; you put a file watcher on
+  it"): the merge rewriting it is the network event, and the machines that were in the block (`_alive_ones`, the
+  role selection's own rule) and are not now have left. The file is not read to find out whether something happened.
+  A machine going down is a network event, so nothing here watches a socket, times an RPC or asks the peer
+  anything. Do not look for a transport-level replacement for the TCP close: there is none to find. Hazards:
+  - **The stored name carries `SD:`.** `frognet_tuples.put` stores `SD:<var>.<scope>` and api.php matches
+    `SensorName__like` against the stored name. A hold on `can.%` reads nothing and never fires. Use
+    `frognet_tuples.var_name(var, "%")`. (The example in `frognet_held.py`'s docstring, `caps.%`, has this wrong.)
+  - **`frognet_held` imports `frognet_tuples` by bare name.** A process that imports `core` as a package must put
+    `core/` on `sys.path` before its first hold (`[CORE_ON_THE_PATH_V1]`), or the hold raises ModuleNotFoundError.
+  - **api.php's delete fires no hold; a write does.** An end that stops writes its tuple once more, marked
+    `stopped`, before `frognet_tuples`' atexit removes it. That write is what its peers' holds fire on.
+  - **The driver removes the closed connection** (John, 2026-11-16). On TCP the socket closing is the close and the
+    daemon's driver calls `remove_writer` (`[WRITER_GONE_V1]`). On Homa the watcher is the close: the daemon's
+    driver, told a machine left, ends its sessions and makes the same call. Nothing else removes a dead machine's
+    tuples, and a hold on its tuple alone never fires.
+  - **A read that shows this end's own tuple missing says nothing about any peer's tuple** (the RAM was rebuilt;
+    everyone is writing again). Calling peers gone on that read was a defect once.
+  - **Two live processes of one role on one node** would write over each other without end; the second write of a
+    foreign `inst` is said and not answered.
+  - **Not covered:** a peer process killed without stopping, on a machine that stays, and not started again.
+  Gates: `test_homa_liveness_oracle.py` (the rule, on a stand-in store) and `test_homa_liveness_ram_oracle.py`
+  (the same rule on the real api.php, `frognet_held` and MariaDB; it needs root, php and port 80, and skips without).
+- **`sem_transport.py` is configuration, not detection.** It does not look at whether Homa is loaded. A node
+  configured `homa` without the module stops with `HomaUnavailable`.
