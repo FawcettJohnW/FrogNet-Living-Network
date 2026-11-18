@@ -1008,6 +1008,68 @@ copies a machine's logs to `<log>.before-it-left` before it comes back.
 outside a difference" at the branch's base commit `948b435c` (run in a separate checkout of it), in the oracle's
 own `explicit_fields` helper. It is not in the gate set I had been running. Not changed.
 
+### 18 Nov 00:05 to 01:30: the final-code range; soft Homa fails two topologies; the memory says when it can be reached
+
+**The final-code range on TCP.** All 20 topologies, perfect links, batteries (a) fan-out, (c) large frames, (d) the
+door's scenarios, (b) a machine leaving and returning: 20 of 20 pass (`tools/sandbox/matrix.sh tcp none`).
+
+**John asked for the performance comparison so far** (22:41 his time). Given, side by side, from the final-code
+runs on the 7 topologies then finished on both drivers (276 machine pairs each): small requests, median, TCP 24.0 ms,
+soft Homa 26.6 ms; large frames, reply/request medians in ms, TCP against soft Homa: 1,000 characters 24/18 against
+27/21; 100,000 23/44 against 29/49; 300,000 41/87 against 53/98; 1,000,000 127/231 against 153/250; 3,000,000
+257/654 against 316/656. Soft Homa is 10 to 25% slower under the driver on perfect links. The cases where it is
+ahead are his own `cp_node` between real nodes (10,000 to 240,000 bytes) and small requests on 4g-shaped links.
+
+**John asked whether the run profiles** (22:50): "Is the run doing profiling that can be examined for
+optimizations?" It does not. It records per-request and per-size times and the drivers' trace lines; nothing says
+where the time goes inside the proxy, the daemon or the Homa API interface. Owed: `py-spy` on proxy and daemon and
+`strace` timing on `softhoma-ram` during battery (c), on both drivers.
+
+**A wrong status I gave.** I told John soft Homa was "7 of 20, all passing". The seventh was still running when I
+counted its file, and it failed. Corrected to him in the next message.
+
+**Soft Homa fails two topologies at battery (b)**: `topo_dual_wg_transit_bridge` (9 failures) and
+`topo_multilan_shared_wg_transit` (5). TCP passes both. After the machine that left returns and the merge runs, two
+or three machines are never listening on Homa again and every request to or from the returned machine is 503
+"PeerGone". Reproduced with `--keep` and read from the machines' logs (G3_s1 against G3_hub):
+
+1. The merge rewrites one machine at a time, the SystemRam's own machine last. G3_s1's hosts file named the
+   memory's machine (G1_w1, 10.150.2.1) before G1_w1 had its routes back. G3_s1's one connect to the memory failed.
+2. A failed step is tried again at the next event. G3_s1's events are its hosts file, which had already changed
+   and did not change again, and its held read on the ControlRam.
+3. The held read on the ControlRam goes through the node's proxy, on the semantic wire, on soft Homa: on the very
+   memory that could not be reached. It failed with 503 and said "holding again at the next network event".
+4. No event was left. The machines that did come back (G3_hub) did so only because an old hold happened to return
+   after the memory's machine was reachable. It was luck of timing, and that is why 9 topologies passed.
+
+The cause is in the design, not the simulator: the driver's event channel rode on the thing whose arrival it was
+waiting to hear about. A real network converges one machine at a time too, and nothing orders "my hosts file names
+the memory" after "the memory's machine can route to me".
+
+**The fix, `[THE_MEMORY_SAYS_WHERE_IT_IS_REACHED_V1]`** (library `softhoma-v11-20261118a`, driver
+`homa-transport-v5-20261118a`). The event that was missing belongs to the memory's own machine. Every node already
+runs its own memory process (`softhoma-ram`) at its own address. So:
+
+- When the node that holds the memory has ITS network event (its hosts file rewritten), its daemon calls
+  `softhoma_announce(block)`: one cell, (homa, memory), is written into the memory process of each machine of its
+  block. A machine that cannot be reached is said and left; its own event comes later and its own connect then
+  finds the memory.
+- Every process holds one standing read on that cell in its OWN machine's memory process (`watch_home`), which is
+  on its own address and there whatever the network is doing. A row is a network event: the memory is connected to
+  again at the next socket, and whoever waits in `softhoma_wait_servers()` is woken. The daemon's waiting listener
+  is now woken by that too, not only the liveness watcher.
+
+Either end's event may come last; whichever does finds the path whole (a machine learns a route through a
+neighbour that already has it). Nothing runs on a timer and nothing stands in for the memory.
+
+Run again on `topo_dual_wg_transit_bridge`: 213 checkpoints pass, 0 fail. The logs show the path taken: G3_s1's
+connect fails twice, then "a network event from the memory's own machine (10.150.2.1:9131 {"n":2}): the memory is
+connected to again at the next socket", then "the listener that was not listening tries again". Eight processes
+across the machines were brought back by that event in the one run.
+
+Not yet run on this code when this was written: the 13 driver gates, and the other 19 topologies on soft Homa. The
+9 soft Homa passes from before the fix are run again, since the library changed.
+
 ## 4. The interventions: what was said, why it was noticed, what had not been considered
 
 John, 17 Nov, of the first version of this file: "It is not just the order. It is what I asked and why I asked it.

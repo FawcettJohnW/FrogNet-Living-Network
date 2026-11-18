@@ -426,6 +426,8 @@ class MsgDaemonServer:
         try:
             self._memory_child()
             homa_socket.soft_memory_tell("the hosts file changed", event=True)
+            # [THE_MEMORY_SAYS_WHERE_IT_IS_REACHED_V1] the daemon runs this node's memory process, so the daemon says it
+            homa_socket.soft_memory_announce(self.liveness.ram.live_block(), "daemon semantic wire")
         except Exception as e:
             print("[DAEMON-HOMA] at the hosts change: %s: %s" % (type(e).__name__, e), flush=True)
         self._wake("this node's hosts file was rewritten")
@@ -452,7 +454,10 @@ class MsgDaemonServer:
             # listener that is waiting.
             self.liveness.on_read = lambda: self._wake("the held read on the ControlRam returned")
             if hasattr(self.liveness, "wake"):
-                homa_socket.soft_on_servers_change(self.liveness.wake, "daemon semantic wire")   # [A_SERVER_ARRIVING_IS_AN_EVENT_V1]
+                def arrived():                            # [A_SERVER_ARRIVING_IS_AN_EVENT_V1] and [THE_MEMORY_SAYS_WHERE_IT_IS_REACHED_V1]
+                    self.liveness.wake()
+                    self._wake("a server arrived in soft Homa's memory, or the memory's machine said it can be reached")
+                homa_socket.soft_on_servers_change(arrived, "daemon semantic wire")
         while not self._stopping:
             self._changed.clear()
             try:
