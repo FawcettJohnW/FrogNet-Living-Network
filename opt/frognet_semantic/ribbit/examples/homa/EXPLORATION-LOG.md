@@ -1102,6 +1102,63 @@ Still true and still open: a hold that is refused (HTTP 500 or 503 from the RAM)
 event", and if no merge follows there is none. `core/test_homa_liveness_ram_oracle.py` failed once in four runs on
 exactly that (a hold refused with 500 while the RAM was being rebuilt).
 
+### 17 Nov 23:45 to 18 Nov 00:45: soft Homa across the range on the final code, and where its time goes
+
+**The range.** `softhoma`, perfect links, library `softhoma-v13-20261118c`, driver `homa-transport-v6-20261118c`,
+batteries (a), (c), (d), (b): 20 of 20 topologies pass, 1,574 checkpoints, 0 failures
+(`/home/claude/logs/final/softhoma__none/`). TCP on the same batteries: 20 of 20.
+
+**One failure that did not repeat, and is not explained.** In the first pass of this range
+`topo_asym_lan2_wg_lan3` failed 2 checkpoints of battery (b): after A1 returned, B3's proxy held every session to
+A1 as "PeerGone". The machines' logs were not kept (the matrix deleted them). The same topology then passed 6 times
+in a row. `matrix.sh` now keeps every machine's logs of any run that does not pass. It is counted as open (section
+7), not as passed.
+
+**A fault in my own metrics, found by reading them.** The first tables from the proxy end showed only the waiter's
+marks: `wait()` took the trail out of the driver's table when it began, so the wire manager's and receiver's marks
+had nowhere to land. Fixed (the trail stays until its waiter has the reply); the range was started again so all 20
+are on one code.
+
+**Where the time goes** (`tools/sandbox/where_time_goes.py` over the 20 topologies' metrics; the whole table is in
+`results/where-the-time-goes-softhoma-20-topologies-20261118.txt`).
+
+Small requests (up to 1,000 bytes; 176,100 on the proxy end, 192,100 on the daemon end):
+
+| where | typical ms | share |
+|---|---|---|
+| proxy: whole round trip inside the driver | 14.8 (mean) | 100% |
+| daemon: the engine (frame handed up, to its reply) | 6.5 | 84.5% of the daemon's 8.3 |
+| memory: a message from the sender's write to the receiver's callback | 1.43 mean, each way | |
+| Homa API interface: a whole message waiting for `recvmsg` to take it | 0.56 mean, each way | |
+| proxy: reply handed up, to the waiter running | 0.29 | 5.0% |
+| proxy: waiter waiting, to the wire manager taking the request | 0.23 | 4.5% |
+| daemon: engine's reply waiting for the writer thread | 0.14 | 4.4% |
+| base64 out and in, copies in and out, building the cell | under 0.01 together | |
+
+So for a small request the engine is the largest single piece (6.5 of about 15 ms), the two trips through the memory
+are about 2.9 ms, and the two waits for `recvmsg` about 1.1 ms. What I would have guessed, base64, is nothing.
+
+Large frames (the driver cuts them into messages of up to 240,000 bytes; 10,510 such messages):
+
+| where | mean ms | worst ms |
+|---|---|---|
+| memory: sender's write to receiver's callback | 142.5 | 2,146 |
+| the write into the memory (returns before it is carried) | 1.39 | 10.1 |
+| unbase64 | 0.40 | 10.4 |
+| base64 | 0.21 | 6.6 |
+| waiting for `recvmsg` | 0.28 | 5.2 |
+| copy out | 0.03 | 3.6 |
+
+For frames over 1,000,000 bytes the proxy's own table says the same from above: 31% of all their time is between
+the first and last reply piece arriving (typical 1,860 ms in the worst processes), and on the daemon 52% is the
+request's pieces arriving. The bottleneck for large frames is the carriage of a large cell through the memory: the
+platform's client queue, its TCP to the memory process, the memory process, and the push to the reader. That is
+where soft Homa loses to TCP at 1,000,000 bytes and up. It is inside the Ribbit platform (`ribbit/cpp`), which
+these metrics do not reach into: that code is not mine to mark without John's word.
+
+Not measured the same way: the TCP driver (existing code, not authorized), so there is no stage-by-stage table for
+TCP to set beside this one yet. The whole-process sampling profiler is also still owed.
+
 ## 4. The interventions: what was said, why it was noticed, what had not been considered
 
 John, 17 Nov, of the first version of this file: "It is not just the order. It is what I asked and why I asked it.

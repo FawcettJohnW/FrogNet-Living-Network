@@ -17,6 +17,8 @@ for f in simulation/baselines/topo_*.json; do
   kept=$(sed -n 's/^kept: \([^;]*\);.*/\1/p' "$out/$k.txt" | tail -1)
   if [ -n "$kept" ] && [ -d "$kept" ]; then
     grep -H "WIRE-METRICS\|SOFTHOMA-METRICS" "$kept"/*/daemon.log "$kept"/*/proxy.log 2>/dev/null | sed "s|$kept/||" > "$out/$k.metrics.txt"
+    # a failure's evidence is kept: the logs of every machine of a run that did not pass
+    grep -q "^RESULT PASS" "$out/$k.txt" || { rm -rf "$out/$k.logs"; mkdir -p "$out/$k.logs"; (cd "$kept" && for m in *; do mkdir -p "$out/$k.logs/$m"; cp "$m"/*.log* "$out/$k.logs/$m/" 2>/dev/null; done); }
     rm -rf "$kept"
   fi
   $PY -c "

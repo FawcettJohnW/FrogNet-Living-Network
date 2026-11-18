@@ -454,11 +454,12 @@ class _MsgWorker:
         return rpc
 
     def wait(self, rpc) -> bytes:
-        tr = self._tr.pop(rpc, None)
+        tr = self._tr.get(rpc)                         # the other threads mark it until its waiter has the reply
         WM.mark(tr, "waiter_waits")
         try:
             return self._wait(rpc)
         finally:
+            self._tr.pop(rpc, None)
             WM.mark(tr, "waiter_woke")
             WM.done(tr, bytes_in=len(rpc.reply or b""))
 
