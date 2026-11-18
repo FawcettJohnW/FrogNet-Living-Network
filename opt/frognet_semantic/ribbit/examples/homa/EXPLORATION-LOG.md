@@ -1206,6 +1206,55 @@ right answer to a frame the link cannot carry in the budget (an error the app is
 in a known state), decides what "passing" means on shaped links, and so is asked of John rather than chosen by me.
 The shaped range also needs more than 15 minutes a topology with frames this large on slow links.
 
+### 18 Nov 02:34 to 02:50: the stall on the memory's own machine; John stops the soft path and restates the wire
+
+**John's answer to the three decisions** (02:34): "1 yes 2 yes". I read it as: a frame the link cannot carry in the
+driver's budget is rightly an error the app is told; and clocks inside the Ribbit platform. The TCP driver (item 3)
+was not answered and is not touched.
+
+**Where the 142 ms is.** Before putting clocks into the platform I measured one cell through a memory process in
+isolation (`/home/claude/scripts/bench/cell_transit.cpp`, not in the tree): a writer, a reader holding a read, cells
+of random text as the Homa API interface writes them.
+
+| cell | another machine, ordinary link (veth, MTU 1500) | on the memory's own machine |
+|---|---|---|
+| 60,000 characters | 0.56 ms | 0.44 ms |
+| 120,000 | 1.18 ms | 43.4 ms |
+| 240,000 | 1.89 ms | 131.3 ms |
+| 320,000 | 2.33 ms | 134.0 ms |
+
+Cells of one repeated character (which the session compresses) take under 1 ms everywhere. So the cost is not the
+platform's carriage in general: it is only on the machine that holds the memory, in steps of about 40 ms. My
+reading, NOT proven (John stopped the test of it): the platform sets a 32 KB send buffer (`ribbit/cpp/src/frogram.cpp`
+lines 447, 455; `ram_host.cpp` line 1259, "the buffer is the latency"); a machine talking to itself uses segments of
+about 64 KB; the buffer holds fewer than two, so each waits out the receiver's 40 ms delayed acknowledgement. It
+fits the `cp_node` loss at 1,000,000 bytes on real nodes: five records at about 130 ms is the 649 ms measured.
+
+**John stops the soft path** (02:36 to 02:42), on my words "the receiver's callback": "What callback? That is a
+violation", "Why the hell is it doing this", "Multiplex", then: "Start over and reconsider the problem. You are
+trying to mimic a message passing system. Dont do that". What I said that made him notice: that the Homa API
+interface takes a standing read per socket and the platform calls a function with each row, feeding an inbox that
+`recvmsg` empties. What I had not considered: I had stacked three message systems (FrogNet's frames; Homa RPCs with
+pieces, sequence numbers, spares, ordering and a wire manager to carry them; a Homa socket imitated on cells with a
+mailbox per receiver, slots, records, base64, an inbox and owed replies), then measured the bottom one and begun
+tuning it. `docs/CONVERTING-TO-RIBBIT.md` section 5b names that: tuning machinery that should disappear. It was also
+circular: the wire a node uses to reach its RAM host was carried through a second memory process on that RAM host,
+itself reached over a TCP session; the failure of 17 Nov, a hold on the ControlRam riding on the memory it waited
+for, was that circle. And base64 in a cell breaks John's wire rule of 18 Oct ("never ship ... base64-encoded bags").
+
+**John restates the wire** (02:49): "We own the wire. It is whatever connection the driver chooses to make, but it
+is a permanently open connection where we control what is sent and received on the socket. The data on the socket is
+exactly that -- data, and the transport doesnt need to know anything about it. It was provided by the packing method
+of the driver and on the other end will be handed unchanged to the unpacking method. The packing and unpacking
+methods are part of the driver."
+
+What that makes a driver: a permanent connection of its own choosing between the machine and the RAM host, a
+packing method and an unpacking method. For Homa that is Homa's own framing of the data, on a connection the driver
+holds open; no memory process, no cells, no imitation socket under FrogNet's wire. This is a ROLLBACK of the soft
+path from "fast" to "work": `softhoma` as built (through `libsofthoma.so` and `softhoma-ram`) is not the carrier of
+FrogNet's wire. The Homa API interface remains what it was first built as, his API for his own unchanged programs.
+Nothing is changed in code at this entry; head is `54ea3241` plus this record.
+
 ## 4. The interventions: what was said, why it was noticed, what had not been considered
 
 John, 17 Nov, of the first version of this file: "It is not just the order. It is what I asked and why I asked it.
