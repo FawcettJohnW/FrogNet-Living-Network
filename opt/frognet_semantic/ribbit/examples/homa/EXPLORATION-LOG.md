@@ -1176,6 +1176,36 @@ Two runs were cut off by my own outer time limit in the middle of a topology and
 incomplete result file was deleted and that topology run again from the start. Not yet run: shaped links on the
 final code.
 
+### 18 Nov 02:30 to 03:50: shaped links on the final code; the shaper had one end; a frame the link cannot carry in time
+
+**First shaped run** (`--links mixed`, `topo_asym_chain_wg_star`: Ca1 4g, Ca2 lan, Ca3 wan-100ms, HubB 4g-lossy,
+Bs1 wifi, Bs2 halow 600 kb/s, Bs3 4g). Soft Homa, Bs1 to Bs2, 1,000,000 characters: reply 17.3 s, request 34.7 s;
+3,000,000: reply 52 s, request not back inside the test's 90 s. TCP on the same pair: 3,000,000 in 0.75 s.
+
+**The shaper was wrong, found from that TCP figure.** No radio carries 3,000,000 characters to a 600 kb/s machine
+in 0.75 s. `shaped_link.py` shaped a connection by the machine that OPENED it alone, so TCP from Bs1 (wifi) to Bs2
+(halow) saw wifi. Soft Homa was not flattered, because every machine opens its own connection to the RAM host.
+Fixed as `[A_LINK_HAS_TWO_ENDS_V1]`: a connection is shaped by both machines' uplinks, one after the other (delays
+add, the narrower bandwidth is the bandwidth, a chunk is lost if either end loses it). The results from the
+one-ended shaper are set aside in `/home/claude/logs/final/shaper-v1-one-end-only/` and are not counted.
+
+**With both ends shaped, TCP, the same topology:** to or from the 600 kb/s machine, 1,000,000 characters: reply
+13.5 s, request 27.0 s; 3,000,000: the TCP driver ends the RPC itself, "failed after 1 attempts (30.2s, budget
+30.0s)", both directions. 89 checkpoints passed and 2 failed (those two pairs) before my own 900 s limit on a
+topology ended the run unfinished.
+
+What this says, side by side on the 600 kb/s link at 1,000,000 characters: TCP 13.5 / 27.0 s, soft Homa 17.3 /
+34.7 s. Soft Homa is 1.28 times slower, which is base64: 4 bytes in the cell for every 3 of the frame. On perfect
+links the metrics said base64 costs nothing (CPU); on a narrow link it costs bandwidth. Carrying the bytes as bytes
+in the cell would remove it; whether the platform's cell can carry bytes that are not text has not been tried.
+
+**Stopped here on a question that is John's.** A 3,000,000-character frame needs 40 s or more on a 600 kb/s link.
+TCP's driver refuses it at its 30 s budget with a said error; soft Homa has no such budget and would deliver it in
+about 104 s, past the test's 90 s. Battery (c) calls both a failure. Whether that is a failure of the driver, or the
+right answer to a frame the link cannot carry in the budget (an error the app is told, as John ruled for a machine
+in a known state), decides what "passing" means on shaped links, and so is asked of John rather than chosen by me.
+The shaped range also needs more than 15 minutes a topology with frames this large on slow links.
+
 ## 4. The interventions: what was said, why it was noticed, what had not been considered
 
 John, 17 Nov, of the first version of this file: "It is not just the order. It is what I asked and why I asked it.

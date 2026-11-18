@@ -614,9 +614,12 @@ def shape_links(machines, links, check):
     said = {}
     for m in machines:
         m.link = shaped_link.profile_for(links, m.n)
+    for m in machines:
         log = os.path.join(m.dir, "link.log")
+        # [A_LINK_HAS_TWO_ENDS_V1] each uplink is told the other machines' uplinks: a connection has both
         m.run([PY, os.path.join(HERE, "shaped_link.py"), "--port", str(LINK_PORT), "--src", m.ip, "--profile", m.link,
-               "--seed", str(m.n)], env=m.env, stdout=open(log, "w"), stderr=subprocess.STDOUT)
+               "--seed", str(m.n), "--peers", ",".join("%s=%s" % (o.ip, o.link) for o in machines if o is not m)],
+              env=m.env, stdout=open(log, "w"), stderr=subprocess.STDOUT)
         t_end = time.time() + 20
         while "[SHAPED-LINK]" not in open(log).read() and time.time() < t_end:
             time.sleep(0.1)
@@ -628,7 +631,7 @@ def shape_links(machines, links, check):
             if r.returncode != 0:
                 raise RuntimeError("iptables %s in %s: %s" % (" ".join(rule), m.ns, r.stderr.strip()))
     import slowlink
-    check(all(said.values()), "shaped links: every machine's TCP to another machine goes through its own uplink: %s" % "; ".join(
+    check(all(said.values()), "shaped links: every machine's TCP to another machine goes through its own uplink and the far machine's: %s" % "; ".join(
         "%s %s (%s)" % (m.name, m.link, slowlink.profile(m.link).label()) for m in machines))
 
 

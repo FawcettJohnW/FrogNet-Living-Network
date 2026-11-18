@@ -75,12 +75,26 @@ def profile_for(name, index, seed=7):
     return random.Random(seed * 1000 + index).choice(MIXED)
 
 
+def both_ends(a, b):
+    """[A_LINK_HAS_TWO_ENDS_V1] The link a connection between two machines has: each machine's own uplink, one after
+    the other. Found 18 Nov on the first shaped run: a connection was shaped by the machine that OPENED it alone, so
+    TCP from a machine on a fast link to one on a 600 kb/s link carried 3,000,000 characters in 0.75 s, which no radio
+    allows, while soft Homa (where every machine opens its own connection to the RAM host) paid for the slow link
+    every time. The delays add, the jitters add as independent ones do, the narrower bandwidth is the bandwidth, and
+    a chunk is lost if either end loses it."""
+    if b is None:
+        return a
+    return slowlink.replace(a, latency_ms=a.latency_ms + b.latency_ms, jitter_ms=(a.jitter_ms ** 2 + b.jitter_ms ** 2) ** 0.5,
+                            rate_Bps=min(a.rate_Bps, b.rate_Bps), loss=1 - (1 - a.loss) * (1 - b.loss))
+
+
 class Uplink(slowlink.Relay):
     """slowlink.Relay with two differences: it listens where it is told, and each connection goes where that
     connection was going before the machine's rule sent it here."""
 
-    def __init__(self, port, src, up, down=None, seed=0, name="uplink"):
+    def __init__(self, port, src, up, down=None, seed=0, name="uplink", peers=None):
         self.target, self.up, self.down, self.name = None, up, down or up, name
+        self.peers = peers or {}                          # the other machines' uplinks, by their /24's .1
         self.src = src
         self.rng = random.Random(seed)
         self.stats = {"connections": 0}
@@ -122,8 +136,11 @@ class Uplink(slowlink.Relay):
                 s.setsockopt(socket.IPPROTO_TCP, socket.TCP_NODELAY, 1)
             self.stats["connections"] += 1
             self.conns.append((c, t))
-            rtt = 2 * self.up.latency_ms
-            for src, dst, L, k in ((c, t, self.up, "up"), (t, c, self.down, "down")):
+            far = self.peers.get(".".join(target[0].split(".")[:3]) + ".1")
+            up, down = both_ends(self.up, far), both_ends(self.down, far)
+            self.stats["with_far_end"] = self.stats.get("with_far_end", 0) + (1 if far is not None else 0)
+            rtt = 2 * up.latency_ms
+            for src, dst, L, k in ((c, t, up, "up"), (t, c, down, "down")):
                 d_ = slowlink._Direction(src, dst, L, self.rng, self.stats, k, rtt)
                 threading.Thread(target=d_.reader, daemon=True).start()
                 threading.Thread(target=d_.writer, daemon=True).start()
@@ -135,11 +152,14 @@ def main():
     ap.add_argument("--src", required=True)
     ap.add_argument("--profile", required=True)
     ap.add_argument("--seed", type=int, default=0)
+    ap.add_argument("--peers", default="", help="the other machines' uplinks: <their .1>=<profile>, separated by commas")
     a = ap.parse_args()
     link = slowlink.profile(a.profile)
-    u = Uplink(a.port, a.src, link, seed=a.seed)
+    peers = {kv.split("=")[0]: slowlink.profile(kv.split("=")[1]) for kv in a.peers.split(",") if kv}
+    u = Uplink(a.port, a.src, link, seed=a.seed, peers=peers)
     print("[SHAPED-LINK] [SHAPED_LINKS_BETWEEN_MACHINES_V1] %s's uplink is %s (%s), every TCP connection to another "
-          "machine except port 80, listening on %d" % (a.src, a.profile, link.label(), a.port), flush=True)
+          "machine except port 80, listening on %d; a connection is shaped by this uplink and the far machine's, one after the "
+          "other (%d known)" % (a.src, a.profile, link.label(), a.port, len(peers)), flush=True)
     threading.Event().wait()                               # until the tier ends this process; `u` relays meanwhile
 
 
