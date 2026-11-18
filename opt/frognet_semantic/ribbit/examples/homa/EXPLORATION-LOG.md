@@ -143,6 +143,16 @@ Each is John's, quoted where the words matter. They are the constraints everythi
     but the payload is whatever the driver says the payload is, which makes custom security protocols, including
     transient or OTP protocols, possible on a per-ram basis."
 
+47. (20:28) "That's why you're journaling this chat. It becomes a template and instruction for installing custom
+    drivers. Secure facilities could have networks keyed by physical key generators, for example, and they can use
+    that key in whatever form they wish to tell the other side what to do with something, or to get more data, or
+    whatever."
+    What this makes of the record: section 9 (bringing up a new transport) is the procedure a third party follows,
+    `core/TRANSPORT-DRIVER-INTERFACE.md` is what they implement, and the cases in section 4 are what goes wrong on
+    the way. Owed for it to be usable by someone who is not here: a driver must be installable without editing
+    `core/homa_transport.py` (its list of words, `VALID`, is fixed today), and the interface must be declared in
+    code, not only described.
+
 ## 2a. The stages, and each time the work went back a stage
 
 John, 17 Nov: "The record should also show the progression through the stages, and the times we had to roll back.
