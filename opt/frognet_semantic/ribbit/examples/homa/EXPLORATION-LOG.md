@@ -1398,6 +1398,30 @@ Checked before packaging for nodes:
   does not cross a ham link until that file is given the port. The comment now says so. That file is not mine to
   change without John's word.
 
+### 18 Nov 08:55 to 10:25: the per-RAM settings across the range; a tarball for nodes
+
+Same code (`8b80d447`), perfect links, all four batteries, 20 topologies each:
+
+| setting | topologies passing | checkpoints | failures |
+|---|---|---|---|
+| `tcp` | 20 of 20 | 1,516 | 0 |
+| `softhoma` | 20 of 20 | 1,574 | 0 |
+| `softhoma`, with `databasehost_control.frognet tcp` | 20 of 20 | 1,574 | 0 |
+| `tcp`, with `databasehost.frognet softhoma` | 20 of 20 | 1,536 | 0 |
+
+The last is the setting proposed for a first deployment: every node on TCP as now, and each node's connection to the
+SystemRam on soft Homa. The run's own checkpoint shows it took effect: each proxy's sessions to the SystemRam's
+machine are on the Homa driver and its others on the TCP driver.
+
+John asked (05:57) whether shaped links are in this. They are not: the shaper is wired in and shapes both ends, but
+the range has not been run over shaped links on this code, and battery (c) does not yet size its largest frame to
+the link or check that a frame the link cannot carry in the budget fails with a said error. That is next.
+
+**For nodes:** `frognet-transport-drivers-20261118-<commit>.tgz`, one tarball, the 27 runtime files under
+`opt/frognet_semantic` that differ from the base (core, daemon, proxy; nothing under `/usr/local/bin`), with
+`opt/frognet_semantic/TRANSPORT-DRIVERS-BUILD.txt` inside saying what it is, how to turn soft Homa on and off, what
+the logs say, and what has and has not been tested. Not tested on a real node.
+
 ## 4. The interventions: what was said, why it was noticed, what had not been considered
 
 John, 17 Nov, of the first version of this file: "It is not just the order. It is what I asked and why I asked it.
