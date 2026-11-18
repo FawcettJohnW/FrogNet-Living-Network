@@ -1070,6 +1070,38 @@ across the machines were brought back by that event in the one run.
 Not yet run on this code when this was written: the 13 driver gates, and the other 19 topologies on soft Homa. The
 9 soft Homa passes from before the fix are run again, since the library changed.
 
+### 17 Nov 23:15 to 23:45: metrics at every boundary; the fix above is taken back (a rollback)
+
+**Metrics.** John (23:13): "If you are updating to fix the driver, add metrics so we can find the bottlenecks. And
+not just where you think they are." Built as `[WHERE_THE_TIME_GOES_V1]`: `core/wire_metrics.py` (every interval
+between two marks of a request, by frame size, with queue depths and thread counts, said in the process's own log
+at counts, never on a timer); marks on the proxy and daemon ends of the Homa driver; and the Homa API interface
+times each of its own steps (copy in, base64, cell build, memory write, row decode, unbase64, record join, transit
+from the sender's write, wait in the inbox, blocked in recvmsg, copy out). `tools/sandbox/matrix.sh` copies the
+metrics out per topology. The TCP driver is not marked: that is existing code and has not been authorized.
+A sampling profiler over whole processes (both drivers, C++ frames included) is still owed.
+
+**ROLLBACK: `[THE_MEMORY_SAYS_WHERE_IT_IS_REACHED_V1]` is taken out.** I told John the fix: the memory's machine
+writes a cell into the memory process of every other machine of its block. John (23:22): "There should not be any
+communications except between the machine and the ram host." and (23:25): "Notification does not propagate between
+nodes. That is a violation. Use held reads." What I had built was a second channel, from one machine to every
+other. What I had not considered: the event already exists in the design. A node's converged merge writes its facts
+into the RAM; every node holds a read there; the read returns and the node runs its own merge, which rewrites its
+hosts file; that rewrite is the drivers' event. The fault was in my simulator's merge, which wrote each machine's
+files once and stopped, so the machines written before the SystemRam's machine never had the event a network would
+have given them. `softhoma_announce`, `watch_home` and `soft_memory_announce` are removed (library
+`softhoma-v13-20261118c`, driver `homa-transport-v6-20261118c`); `the_merge` now ends with each other machine's
+own merge running once more (`[A_MERGE_IS_READ_BY_EVERY_NODE_V1]`). `topo_dual_wg_transit_bridge` on soft Homa with
+no channel between machines: 213 pass, 0 fail.
+
+What the code in the tree does today, said to John because it differs from his statement: outside region mode
+`runMerge.bash` (line 314) still calls `propogateNotification`, which goes node to node; in region mode it does not
+("the facts write is the notification"). The simulator models the region-mode behaviour.
+
+Still true and still open: a hold that is refused (HTTP 500 or 503 from the RAM) is "held again at the next network
+event", and if no merge follows there is none. `core/test_homa_liveness_ram_oracle.py` failed once in four runs on
+exactly that (a hold refused with 500 while the RAM was being rebuilt).
+
 ## 4. The interventions: what was said, why it was noticed, what had not been considered
 
 John, 17 Nov, of the first version of this file: "It is not just the order. It is what I asked and why I asked it.

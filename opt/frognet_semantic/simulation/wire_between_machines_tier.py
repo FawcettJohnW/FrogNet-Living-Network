@@ -187,6 +187,19 @@ def the_merge(net, machines, alive, why, roles=True, pause=0.4):
                 raise RuntimeError("the merge's route %s via %s dev %s on %s: %s" % (dest, via, dev, m.name, r.stderr.strip()))
         write_hosts(m, hosts_text(m, roles))
         time.sleep(pause)
+    # [A_MERGE_IS_READ_BY_EVERY_NODE_V1] John, 2026-11-17: "There should not be any communications except between the
+    # machine and the ram host" and "Notification does not propagate between nodes. That is a violation. Use held
+    # reads." A node's converged merge writes its facts into the RAM (usr/local/bin/runMerge.bash, region mode:
+    # "the facts write is the notification"); every node has a read held on the RAM, that read returns, and the node
+    # runs its own merge, which rewrites its hosts file. So the LAST node to change is followed by a merge on every
+    # other node. This tier had written each machine's files once and stopped, so a machine whose files were written
+    # before the SystemRam's machine had its routes never had another event, though on a network it would have
+    # (found on topo_dual_wg_transit_bridge and topo_multilan_shared_wg_transit, 17 Nov). Here: after the last
+    # machine's files are in place, each other machine's hosts file is rewritten once more, as by its own merge
+    # (same routes; the file may say the same thing). Nothing passes from one machine to another.
+    for m in order[:-1]:
+        write_hosts(m, hosts_text(m, roles))
+        time.sleep(pause / 4)
     print("   the merge (%s): %s" % (why, "; ".join("%s knows %d, SystemRam %s, ControlRam %s" % (
         m.name, len(m.block), m.system.name, m.control.name) for m in alive)), flush=True)
 

@@ -45,7 +45,7 @@ import sys
 import threading
 from typing import List, NamedTuple, Optional, Tuple
 
-BUILD = "homa-transport-v5-20261118a"
+BUILD = "homa-transport-v6-20261118c"
 HOMA_PINNED_COMMIT = "07ce63ef153207a953c42a749ee2429fb5282f55"
 
 IPPROTO_HOMA = 146
@@ -188,7 +188,6 @@ def soft_homa_library():
                 _soft_lib.softhoma_await.argtypes = [ctypes.c_char_p, ctypes.c_double]
                 _soft_lib.softhoma_wait_servers.argtypes = [ctypes.c_uint64]
                 _soft_lib.softhoma_wait_servers.restype = ctypes.c_uint64
-                _soft_lib.softhoma_announce.argtypes = [ctypes.c_char_p]
             except (OSError, AttributeError) as e:
                 raise HomaUnavailable("%s names the soft Homa library %r and it could not be used: %s: %s. This process "
                                       "does not use another Homa in its place." % (src, path, type(e).__name__, e)) from e
@@ -261,22 +260,6 @@ def soft_memory_tell(why: str, event: bool = False) -> bool:
     print("[HOMA] [THE_MEMORY_IS_WHERE_THE_ROLE_IS_V1] %s: soft Homa's memory is at %s and this node is %s (before: %s); "
           "%d socket(s) on the memory before went down" % (why, now[0], now[1], "%s, node %s" % was if was else "nothing", down), flush=True)
     return True
-
-
-def soft_memory_announce(block, who: str) -> None:
-    """[THE_MEMORY_SAYS_WHERE_IT_IS_REACHED_V1] The call of the node that holds soft Homa's memory, at its own network
-    event: every machine of its block (`block`: their addresses) is told, in the memory process each runs for itself,
-    that the memory can be reached now. Found across the simulator's topologies (17 Nov): a machine whose hosts file
-    named the memory before the memory's machine could route back to it tried once, failed, and had no event left to
-    try again at, because its other event (the held read on the ControlRam) travels on this memory. On a node that does
-    not hold the memory the library does nothing. Nothing on kernel Homa."""
-    lib = soft_homa_library()
-    if lib is None or not block:
-        return
-    n = lib.softhoma_announce(",".join(sorted(block)).encode())
-    if n > 0:
-        print("[HOMA] [THE_MEMORY_SAYS_WHERE_IT_IS_REACHED_V1] %s: this node holds soft Homa's memory; the %d other "
-              "machine(s) of its block are being told it can be reached now" % (who, n), flush=True)
 
 
 def soft_peer_there(dest: Tuple[str, int], wait_s: float) -> bool:

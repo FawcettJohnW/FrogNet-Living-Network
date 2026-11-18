@@ -70,7 +70,7 @@
 #include "homa.h"
 
 namespace {
-const char* BUILD = "softhoma-v12-20261118b";
+const char* BUILD = "softhoma-v13-20261118c";
 const size_t PIECE = 48000;        // one field of a cell: at most 65,535 bytes on the wire (semcodec TYPE_STR), in base64
 size_t RECORD = 240000;            // one cell: bulk goes in large records (PERFORMANCE-LESSONS.md section 2), and a
                                    // frame to the memory is at most 1 MiB (ram_host.cpp MAX_FRAME; over it the memory
@@ -247,46 +247,6 @@ void memory_gone(Sock* s, const std::string& why) {   // this process's session 
     }
 }
 
-// [THE_MEMORY_SAYS_WHERE_IT_IS_REACHED_V1] Found across the simulator's topologies (topo_dual_wg_transit_bridge and
-// topo_multilan_shared_wg_transit, 17 Nov): a machine's hosts file named the memory's new machine before that machine
-// could route back to it. The one connect failed; the hosts file did not change again; and the driver's other event,
-// its held read on the ControlRam, travels on this same memory. Nothing was left to say "it can be reached now", and
-// the machine stayed off the wire for good. The event that was missing is the memory machine's own: when ITS routes
-// and hosts file are in place it writes one cell, (homa, memory), into the memory process each machine of its block
-// runs for itself (softhoma_announce below). Every process holds one standing read on that cell in its OWN machine's
-// memory process, which is on its own address and is there whatever the network is doing. A row there is a network
-// event: the memory is connected to again at the next socket, and whoever waits in softhoma_wait_servers() is woken.
-// Either end's event may come last; whichever does finds the path whole. Nothing here runs on a timer.
-ribbit::Space* home = nullptr; std::string home_at;   // under SP
-void home_gone(ribbit::Space* h, const std::string& why) {
-    { std::lock_guard<std::mutex> g(SP); if (home != h) return; home = nullptr; }
-    fprintf(stderr, "[SOFTHOMA] %s the standing read on this machine's own memory process at %s ended (%s); it is held again at the next network event\n", BUILD, h->where().c_str(), why.c_str());
-}
-void watch_home() {                                   // called at each event the driver tells (softhoma_memory) and by a waiter
-    std::string at; ribbit::Space* h = nullptr;
-    { std::lock_guard<std::mutex> g(SP);
-      const size_t c = told_ram.rfind(':');
-      if (told_ip.empty() || c == std::string::npos) return;
-      at = told_ip + told_ram.substr(c);
-      if (home && home_at == at) return;
-      if (at == told_ram) { home = nullptr; home_at = at; return; }    // the memory is on this machine: its own event is the hosts file
-      try { h = new ribbit::Space(at, "homa"); }
-      catch (const std::exception& e) { fprintf(stderr, "[SOFTHOMA] %s this machine's own memory process at %s: %s. Its word that the memory can be reached is read from the next network event on.\n", BUILD, at.c_str(), e.what()); return; }
-      home = h; home_at = at; }
-    try {
-        h->follow("homa", "memory", (long long)h->newest("homa", "memory"), [h](std::vector<ribbit::SpaceRow>& rows) {
-            std::string who;
-            for (auto& r : rows) if (!r.gone) who = r.instance + " " + r.text();
-            if (who.empty()) return;
-            bool again;
-            { std::lock_guard<std::mutex> g(SP); if (home != h) return; again = !space && tried; if (again) tried = false; }
-            { std::lock_guard<std::mutex> g(G); ++servers_changed; }
-            servers_cv.notify_all();
-            fprintf(stderr, "[SOFTHOMA] %s a network event from the memory's own machine (%s)%s\n", BUILD, who.c_str(), again ? ": the memory is connected to again at the next socket" : "");
-        }, [h](const std::string& why) { home_gone(h, why); });
-    } catch (const std::exception& e) { home_gone(h, e.what()); }
-}
-
 bool ensure_space() {
     std::lock_guard<std::mutex> g(SP);
     if (space) return true;
@@ -447,7 +407,6 @@ int softhoma_await(const char* addr, double seconds) try {
 // changed since `seen` (the number it returned before; 0 the first time), or the memory itself has changed. It is one
 // held read: the standing read on the capability cells wakes it. It does not return on a timer.
 uint64_t softhoma_wait_servers(uint64_t seen) try {
-    watch_home();
     if (ensure_space()) { ribbit::Space* sp; { std::lock_guard<std::mutex> g(SP); sp = space; } if (sp) watch_servers(sp); }
     std::unique_lock<std::mutex> g(G);
     servers_cv.wait(g, [&] { return servers_changed != seen; });
@@ -469,7 +428,6 @@ int softhoma_memory(const char* ram, const char* ip) {
           same = true;
       }
       else { old = space; was = old ? old->where() : ""; space = nullptr; tried = false; told_ram = r; told_ip = i; } }
-    watch_home();                                     // [THE_MEMORY_SAYS_WHERE_IT_IS_REACHED_V1]
     if (same) return 0;
     memory_number.fetch_add(1);
     std::vector<Sock*> all;
@@ -488,29 +446,6 @@ int softhoma_memory(const char* ram, const char* ip) {
     return n;
 }
 
-// [THE_MEMORY_SAYS_WHERE_IT_IS_REACHED_V1] The call of the machine the memory is on, at its own network event: `peers`
-// is the addresses of the machines of its block, separated by commas. One cell is written into each one's own memory
-// process. A machine that cannot be reached now is said and left: its own event comes after this one, and its own
-// connect then finds the memory. Not repeated, not on a timer. The writes are made on a thread of their own so the
-// driver's event handler does not wait on a machine that is not there. Returns how many machines are being told.
-int softhoma_announce(const char* peers) try {
-    std::string ram, ip; { std::lock_guard<std::mutex> g(SP); ram = told_ram; ip = told_ip; }
-    const size_t c = ram.rfind(':');
-    if (ip.empty() || c == std::string::npos || ip + ram.substr(c) != ram) return 0;      // the memory is not on this machine
-    std::vector<std::string> to; std::string p = peers ? peers : "", one;
-    for (size_t i = 0; i <= p.size(); ++i) { if (i == p.size() || p[i] == ',') { if (!one.empty() && one != ip) to.push_back(one + ram.substr(c)); one.clear(); } else one += p[i]; }
-    static std::atomic<uint64_t> n{0}; const uint64_t k = ++n;
-    std::thread([to, ram, k] {
-        size_t told = 0; std::string not_told;
-        for (auto& at : to) {
-            try { ribbit::Space far(at, "homa"); far.write("homa", "memory", ram, "{\"n\":" + std::to_string(k) + "}"); if (!far.flush()) throw std::runtime_error("the write was not taken"); ++told; }
-            catch (const std::exception& e) { not_told += " " + at + " (" + e.what() + ")"; }
-        }
-        fprintf(stderr, "[SOFTHOMA] %s the memory at %s said it can be reached (%llu) to %zu of %zu machine(s) of its block%s%s\n", BUILD, ram.c_str(), (unsigned long long)k, told, to.size(),
-                not_told.empty() ? "" : "; not told, each connects at its own next network event:", not_told.c_str());
-    }).detach();
-    return int(to.size());
-} catch (const std::exception& e) { return went("softhoma_announce", e); }
 
 int socket(int domain, int type, int protocol) {
     if (protocol != IPPROTO_HOMA) return libc().socket(domain, type, protocol);
