@@ -33,10 +33,10 @@ import struct
 import threading
 from typing import Dict, List, Optional, Tuple
 
-from core.homa_socket import Msg, RpcFailed, CarrierClosed, HomaUnavailable
+from core.homa_socket import Msg, RpcFailed, CarrierClosed, HomaUnavailable, PeerConnectionEnded
 from core.transport_driver import TransportDriver, ConnectionGone
 
-BUILD = "homa-frames-on-tcp-v2-20261118b"
+BUILD = "homa-frames-on-tcp-v3-20261118c"
 PORT = 9131                          # soft Homa's port (the firewall already has it)
 SEGMENT = 240000                     # no unit on the connection carries more of a message than this
 DATA = 0x10                          # homa_wire.h: enum homa_packet_type
@@ -298,6 +298,12 @@ class HomaFramesOnTcp:
         for rid, ck in failed:
             self.n_failed += 1
             self._inbox.put(RpcFailed(rid, ck, errno.EHOSTUNREACH))
+        # [A_SESSION_ENDS_WITH_ITS_CONNECTION_V1] found on topo_two_aps_ham_radio, 18 Nov: a machine left with nothing
+        # outstanding to it, came back, and the proxy went on with its old session on a new connection; the daemon,
+        # new, waited for that session's first frames, which had gone to its predecessor. The driver is told the
+        # connection ended, and ends the sessions that were on it.
+        if (mine or self.server) and not self._closed:
+            self._inbox.put(PeerConnectionEnded(c.far, why))
         return len(failed)
 
     def recv(self) -> Msg:

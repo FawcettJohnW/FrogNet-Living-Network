@@ -120,6 +120,16 @@ class RpcFailed(OSError):
         self.rpc_id, self.cookie = rpc_id, cookie
 
 
+class PeerConnectionEnded(ConnectionError):
+    """[A_SESSION_ENDS_WITH_ITS_CONNECTION_V1] A carrier that holds a connection open to each peer (soft Homa,
+    core/homa_frames.py) says that one of them has ended. Every session on it ends with it, at both ends, whether or
+    not anything was outstanding. The kernel module's socket has no connections and never raises this."""
+
+    def __init__(self, peer: Tuple[str, int], why: str):
+        super().__init__("the connection with %s:%d ended: %s" % (peer[0], peer[1], why))
+        self.peer, self.why = peer, why
+
+
 class CarrierClosed(RuntimeError):
     """The socket was closed under a recv(): the receiver's thread ends."""
 

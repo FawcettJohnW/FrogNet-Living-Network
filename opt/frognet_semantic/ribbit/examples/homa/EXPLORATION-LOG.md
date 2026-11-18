@@ -1288,6 +1288,71 @@ calls the kernel module's socket does. Tried on its own: messages of 0 to 3,000,
 yet wired in; the memory process, the cells and the imitation socket are still what `softhoma` runs on at this
 commit.
 
+### 18 Nov 04:30 to 06:00: `softhoma` runs on Homa's frames on a held-open connection; the range passes
+
+**Wired in.** For the word `softhoma` the Homa driver's two ends now run on `core/homa_frames.HomaFramesOnTcp`
+(`core/homa_transport.open_homa_socket`). No proxy or daemon opens the soft Homa library or starts a memory process:
+`core/homa_socket.soft_homa_library()` returns None for the wire. Its now unreachable branches (the memory child,
+"the memory moved", the server-arrival wait) are still in the files at this entry and come out next.
+
+**A rule I nearly broke.** My first wiring made `auto` take soft Homa on any node without Homa in its kernel,
+because soft Homa now needs nothing but TCP. The carrier gate's first checkpoint caught it: "a node with no Homa:
+exactly as it was". John's ruling of 17 Nov stands ("There should be no risk to existing systems at all"): soft Homa
+is taken only when a word of the node's setting says `softhoma`. On `auto` a node without kernel Homa is on TCP.
+
+**Found by the ordering gate:** the daemon's end closed its listening socket while its own thread was in
+`accept()`; the port went on taking connections nobody read, and six requests waited out the 60 s cap. The listener
+is now shut down before it is closed (`homa-frames-on-tcp-v2`). After it: all six failed in 311 ms by the connection
+ending.
+
+**Gates changed, and why.** `proxy/test_homa_ordering_oracle.py`: the mode that moved the memory in the middle of a
+run is removed (there is no memory); on soft Homa it now checks that nothing arrived ahead of its turn (one
+connection keeps the order it is given), where it had required the driver to reorder. `core/test_homa_carrier_oracle.py`:
+two checkpoints that required `softhoma` without a library to stop the process now check that `softhoma` needs
+nothing told but the word. 13 of 13 gates.
+
+**The range, `softhoma`, perfect links, batteries (a), (c), (d), (b), first pass:** 19 of 20 topologies pass; `topo_two_aps_ham_radio` fails (next entry)
+(`/home/claude/logs/final/softhoma__none/`). The simulator's checkpoints that were about the memory are restated: a
+machine leaving closes no listener on any other machine; the returned machine's daemon listens.
+
+**Side by side, same code, same session** (500 machine pairs each for small requests; 94 pairs for each size):
+
+| | TCP | soft Homa |
+|---|---|---|
+| small requests, median | 21.2 ms | 22.9 ms |
+| 1,000 characters, reply / request | 19 / 13 | 22 / 15 |
+| 100,000 | 18 / 37 | 20 / 36 |
+| 300,000 | 34 / 76 | 38 / 73 |
+| 1,000,000 | 115 / 204 | 122 / 194 |
+| 3,000,000 | 250 / 591 | 252 / 524 |
+
+Before this change, on the memory, the same table read 26.6 ms for small requests and 153 / 250 and 316 / 656 at
+1,000,000 and 3,000,000. Soft Homa is now within 2 ms of TCP on small requests, level on replies, and ahead on
+large requests.
+
+### 18 Nov 06:00 to 06:30: a session ends with its connection
+
+**The one failure of the first pass.** `topo_two_aps_ham_radio` (two machines), battery (b): after HillCrest left
+and came back, every request from Valley to HillCrest waited out the 60 s cap. I had written "20 of 20" into this
+record before the last topology had finished; it was 19, and the line above is corrected.
+
+Read from the kept logs. Valley's connection to HillCrest ended when HillCrest was killed, with nothing outstanding
+on it, so nothing on Valley's proxy was told and its session to HillCrest stayed as it was. When HillCrest came back
+Valley opened a new connection and went on with the old session, at the next frame number of that session.
+HillCrest's daemon was new; it opened a session for that id and waited for the session's first frames, which had
+gone to its predecessor. On the other topologies liveness had ended Valley's kind of session first; with two
+machines, the one left alone did not have its peer called gone.
+
+**Fix, `[A_SESSION_ENDS_WITH_ITS_CONNECTION_V1]`** (`homa-frames-on-tcp-v3`). A session lives on its permanent
+connection and ends with it, at both ends, whether or not anything was outstanding. The carrier says a connection
+ended (`core/homa_socket.PeerConnectionEnded`); the proxy end ends its sessions to that daemon; the daemon end ends
+the sessions that came on that connection. The next request opens a new connection and a new session. The kernel
+module's socket has no connections and never says this. `topo_two_aps_ham_radio`: 3 runs, 3 passes, 25 checkpoints
+each. 13 of 13 gates. The range is run again from the start on this code.
+
+Open, and possibly the same thing seen from the other side: the one unexplained failure of 17 Nov on
+`topo_asym_lan2_wg_lan3` (a returned machine's peer holding its sessions as "PeerGone").
+
 ## 4. The interventions: what was said, why it was noticed, what had not been considered
 
 John, 17 Nov, of the first version of this file: "It is not just the order. It is what I asked and why I asked it.

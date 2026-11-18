@@ -305,6 +305,13 @@ class _ClientMux:
                     if hit is not None:
                         hit[0]._broken(e)
                     continue
+                except homa_socket.PeerConnectionEnded as e:     # [A_SESSION_ENDS_WITH_ITS_CONNECTION_V1]
+                    with self._lock:
+                        on_it = [w for w in self._workers if w.host == e.peer[0]]
+                    print("[SEM-HOMA] %s: %d session(s) on it end with it" % (e, len(on_it)), flush=True)
+                    for w in on_it:
+                        w._broken(PeerGone(str(e)))
+                    continue
                 if m.is_request:
                     print("[SEM-HOMA] a REQUEST (rpc %d, %dB from %s:%d) arrived on the proxy's client socket; the "
                           "proxy serves none and it is not answered" % (m.id, len(m.payload), m.peer[0], m.peer[1]),

@@ -544,6 +544,16 @@ class MsgDaemonServer:
                 except homa_socket.RpcFailed as e:
                     print("[DAEMON-HOMA] an incoming RPC failed in the kernel before delivery: %s" % e, flush=True)
                     continue
+                except homa_socket.PeerConnectionEnded as e:     # [A_SESSION_ENDS_WITH_ITS_CONNECTION_V1]
+                    with self._lock:
+                        hit = [(k, x) for k, x in self._sessions.items() if x.peer == e.peer]
+                        for k, x in hit:
+                            self._sessions.pop(k, None)
+                            self._ended[k] = str(e)
+                    for _k, x in hit:
+                        x.end(str(e))
+                    print("[DAEMON-HOMA] %s: %d session(s) on it ended; %d sessions remain" % (e, len(hit), len(self._sessions)), flush=True)
+                    continue
                 if not m.is_request:
                     print("[DAEMON-HOMA] a RESPONSE (rpc %d, cookie %d) arrived on the daemon's server socket; the "
                           "daemon sends no requests: dropped" % (m.id, m.cookie), flush=True)
