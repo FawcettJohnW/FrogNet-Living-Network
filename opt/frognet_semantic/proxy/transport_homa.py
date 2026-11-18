@@ -60,6 +60,7 @@ import time
 from typing import Any, Dict, Optional, Tuple
 
 from core import homa_socket
+from core import wire_metrics as WM          # [WHERE_THE_TIME_GOES_V1]
 from core.homa_liveness import node_of
 from core.homa_transport import homa_name, note_rtt
 from core.semcache_wire import wrap_hello, try_parse, OP_HELLO
@@ -266,6 +267,8 @@ class _ClientMux:
         """The wire manager's thread: one message onto the carrier. Under the session's lock, so a session that ends
         either has this RPC among those it gives up, or never sends it."""
         err = None
+        tr = worker._tr.get(rpc)
+        WM.mark(tr, "wm_took.first", first=True); WM.mark(tr, "wm_took.last")
         if self.carrier_down and not worker._stopped.is_set():
             err = self._reopen()
             if err is not None:
@@ -282,6 +285,7 @@ class _ClientMux:
             rpc.retry_pending = False
             try:
                 rpc.seqs.append(self.carrier.send_request((worker.host, worker.port), wire, cookie))
+                WM.mark(tr, "sent.first", first=True); WM.mark(tr, "sent.last")
             except BaseException as e:
                 with self._lock:
                     self._waiting.pop(cookie, None)
@@ -312,6 +316,8 @@ class _ClientMux:
                     print("[SEM-HOMA] a reply for cookie %d whose session has ended: dropped" % m.cookie, flush=True)
                     continue
                 worker, rpc = hit
+                tr = worker._tr.get(rpc)
+                WM.mark(tr, "reply_arrived.first", first=True); WM.mark(tr, "reply_arrived.last", replies_awaited=len(self._waiting))
                 sent = rpc.sent_at.get(m.cookie)
                 if sent is not None:
                     worker._peer_latency.observe(time.time() - sent)
@@ -369,6 +375,7 @@ class _MsgWorker:
         self._next_r = 0                               # next reply seq to hand up
         self._early: Dict[int, Tuple[Any, bytes]] = {}  # replies that arrived before their turn
         self._out = set()                              # frames outstanding
+        self._tr: Dict[Any, Any] = {}                  # [WHERE_THE_TIME_GOES_V1] frame outstanding -> its trail, until its waiter has it
         self._mine: Dict[Any, list] = {}               # [FRAMES_GO_IN_PIECES_V1] frame outstanding -> the driver's own of it
         self._by_seq: Dict[int, Any] = {}              # request seq -> frame outstanding (a piece on a spare names it so)
         self._spares: set = set()                      # [THE_RPCS_ARE_ALREADY_OPEN_V1] spares open at the daemon
@@ -412,6 +419,12 @@ class _MsgWorker:
 
     def _submit(self, packet: bytes, gate, hello: bool = False):
         rpc = TS._Rpc(packet, max_attempts=1, gate=gate)
+        w = self._mux.wire
+        tr = WM.start("proxy", "request", outstanding=len(self._out), wm_whole_waiting=len(w._whole),
+                      wm_pieces_waiting=len(w._pieces), replies_awaited=len(self._mux._waiting), threads=threading.active_count())
+        if tr is not None:
+            tr.bytes_out = len(packet)
+            self._tr[rpc] = tr
         big = self._mux.max_message
         whole = len(packet) + REQ_HDR.size <= big
         pieces = None if whole else cut(packet, big - REQ_PIECE.size)      # [FRAMES_GO_IN_PIECES_V1]
@@ -437,9 +450,19 @@ class _MsgWorker:
         else:
             for i, piece in enumerate(pieces):
                 self._mux.send(self, rpc, REQ_PIECE.pack(PIECE_MAGIC, self.session, seq, i, len(pieces)) + piece)
+        WM.mark(tr, "queued", pieces=1 if whole else len(pieces))
         return rpc
 
     def wait(self, rpc) -> bytes:
+        tr = self._tr.pop(rpc, None)
+        WM.mark(tr, "waiter_waits")
+        try:
+            return self._wait(rpc)
+        finally:
+            WM.mark(tr, "waiter_woke")
+            WM.done(tr, bytes_in=len(rpc.reply or b""))
+
+    def _wait(self, rpc) -> bytes:
         if not rpc.done.wait(timeout=_SAFETY_CAP):
             raise TimeoutError("RPC to %s:%d: no reply in %.0fs and Homa reported no failure (the peer's kernel is "
                                "answering, its daemon has not)" % (self.host, self.port, _SAFETY_CAP))
@@ -463,6 +486,7 @@ class _MsgWorker:
         if mine is not None:
             self._by_seq.pop(mine[0], None)
         self.n_replies += 1
+        WM.mark(self._tr.get(rpc), "handed_up", held_for_order=len(self._early))
         rpc.done.set()
 
     def _named(self, frame: bytes) -> None:
@@ -497,6 +521,7 @@ class _MsgWorker:
                 if mine is None:                         # the session ended under it
                     return
                 mine[2][index] = payload[REP_PIECE.size:]
+                WM.mark(self._tr.get(rpc), "reply_piece.first", first=True); WM.mark(self._tr.get(rpc), "reply_piece.last", reply_pieces=count)
                 mine[1] = max(mine[1], sent)             # those have gone, on the request's RPCs and on spares
                 if count > mine[1]:                      # the flag: the spares ran out
                     ask = range(mine[1], count)

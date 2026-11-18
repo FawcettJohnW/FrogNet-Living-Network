@@ -41,6 +41,7 @@ import time
 from typing import Dict, Tuple
 
 from core import homa_socket
+from core import wire_metrics as WM          # [WHERE_THE_TIME_GOES_V1]
 from core.homa_liveness import node_of
 from core.semcache_wire import try_parse, wrap_hello, wrap_rtt_pong, wrap_error, OP_HELLO, OP_RTT_PING
 from daemon.engine import session as S
@@ -55,6 +56,20 @@ from proxy.transport_homa import (DRV_MAGIC, REQ_HDR, REP_HDR, END_MAGIC, PIECE_
 def _ended_msg(sid: bytes, why: str) -> bytes:
     """What the driver answers in place of a reply on a session that has ended."""
     return END_MAGIC + ("session %s ended: %s" % (sid.hex(), why)).encode("utf-8")
+
+
+class _StampedQueue(queue.Queue):
+    """[WHERE_THE_TIME_GOES_V1] The session's reply queue, which also keeps WHEN the engine put each reply on it: the
+    writer takes a reply some time after the engine made it, and that wait is one of the intervals."""
+
+    def __init__(self):
+        super().__init__()
+        self.put_ns: Dict[int, int] = {}
+
+    def put(self, item, *a, **k):
+        if WM.ON and item[0] >= 0:
+            self.put_ns[item[0]] = time.perf_counter_ns()
+        super().put(item, *a, **k)
 
 
 class _MsgSession(S.SemanticSession):
@@ -78,7 +93,10 @@ class _MsgSession(S.SemanticSession):
         self._http_client = http_client
         self.engine = ExecutionEngine(resolver=self.resolver, http_client=self._http_client)
         self._request_seq = 0
-        self._reply_q: "queue.Queue[Tuple[int, bytes, int]]" = queue.Queue()
+        self._reply_q: "queue.Queue[Tuple[int, bytes, int]]" = _StampedQueue()
+        self._tr_seq: Dict[int, object] = {}              # [WHERE_THE_TIME_GOES_V1] request seq -> its trail, until it goes to the engine
+        self._tr: Dict[int, object] = {}                  # rpc id -> its trail, until the writer has its reply
+        self._tr_out: Dict[int, tuple] = {}               # rpc id -> (trail, is the reply's last message), until it is sent
         self._alive = True
         self._preread_frame = None
         # the driver's
@@ -115,6 +133,10 @@ class _MsgSession(S.SemanticSession):
             self._carrier.send_reply(peer, rpc_id, _ended_msg(self.sid, self.ended))
             return
         self.n_in += 1
+        tr = self._tr_seq.get(seq)
+        if tr is None:
+            tr = self._tr_seq[seq] = WM.start("daemon", "request", requests_owed=len(self._dest), threads=threading.active_count())
+        WM.mark(tr, "frame_whole", held_for_order=len(self._early))
         if not self.KEEP_ORDER:
             self._hand_up(seq, rpc_id, peer, frame)
             return
@@ -135,6 +157,9 @@ class _MsgSession(S.SemanticSession):
             self._carrier.send_reply(peer, rpc_id, _ended_msg(self.sid, self.ended))
             return
         got = self._parts.setdefault(seq, {})
+        if seq not in self._tr_seq:
+            self._tr_seq[seq] = WM.start("daemon", "request", requests_owed=len(self._dest), threads=threading.active_count())
+        WM.mark(self._tr_seq[seq], "piece_arrived.last", pieces=count)
         got[index] = (rpc_id, peer, part)
         if len(got) < count:
             return
@@ -190,6 +215,11 @@ class _MsgSession(S.SemanticSession):
             return
         if self.keep_order_record:
             self.order.append(seq)
+        tr = self._tr_seq.pop(seq, None)
+        if tr is not None:
+            tr.bytes_in = len(frame)
+            self._tr[rpc_id] = tr
+        WM.mark(tr, "to_engine", replies_waiting_for_writer=self._reply_q.qsize())
         t_recv = time.monotonic_ns()
         try:
             msg = try_parse(frame)
@@ -213,6 +243,7 @@ class _MsgSession(S.SemanticSession):
             self._reply_q.put((rpc_id, wrap_error(400, "malformed FNW1 frame: %s" % e), len(frame)))
             return
         self._submit_frame(frame, rpc_id, len(frame), self._fast, self._db)
+        WM.mark(tr, "engine_took_it")
 
     def end(self, why: str) -> int:
         """The peer is gone. Runs on the liveness thread while the receiving thread may be in arrive(): `ended` is set
@@ -238,6 +269,13 @@ class _MsgSession(S.SemanticSession):
         try:
             while True:
                 seq, reply, wire_in = self._reply_q.get()
+                tr = self._tr.pop(seq, None)
+                put_at = self._reply_q.put_ns.pop(seq, None)
+                if tr is not None:
+                    if put_at:
+                        tr.marks["engine_replied"] = put_at
+                    tr.bytes_out = len(reply)
+                WM.mark(tr, "writer_took", replies_waiting_for_writer=self._reply_q.qsize())
                 if seq == -1:
                     why = "session ended"
                     break
@@ -275,9 +313,13 @@ class _MsgSession(S.SemanticSession):
                 # (a reply that cannot be sent never reaches the proxy, so nothing after it can be handed up there: the
                 # wire manager says so once, sets send_failed, and this loop stops above)
                 # [THE_WIRE_MANAGER_SENDS_V1] this thread decides what goes; the server's wire manager places it
+                WM.mark(tr, "reply_cut", reply_pieces=len(out), wm_whole_waiting=len(self.wire_out._whole), wm_pieces_waiting=len(self.wire_out._pieces))
                 for i, (rid, d) in enumerate(rpcs):
                     msg = out[i] if i < len(out) else NOTHING
+                    if tr is not None:
+                        self._tr_out[rid] = (tr, i == len(rpcs) - 1)
                     self.wire_out.give((self, d, rid, msg), msg[:4] == PIECE_MAGIC)
+                WM.mark(tr, "given_to_wm")
                 rseq += 1
                 self.n_out += 1
                 S.bump_semantic(peer_ip=self.peer_ip, wire_in=wire_in, wire_out=len(reply))
@@ -354,8 +396,13 @@ class MsgDaemonServer:
 
     def _put_reply(self, s: "_MsgSession", dest: Tuple[str, int], rid: int, msg: bytes) -> None:
         """The wire manager's thread: one reply message onto the carrier."""
+        tr, last = s._tr_out.pop(rid, (None, False))
+        WM.mark(tr, "wm_took.first", first=True); WM.mark(tr, "wm_took.last")
         try:
             self._carrier.send_reply(dest, rid, msg)
+            WM.mark(tr, "sent.first", first=True); WM.mark(tr, "sent.last")
+            if last:
+                WM.done(tr)
         except Exception as e:
             if not s.send_failed:
                 print("[DAEMON-HOMA-WIRE] SEND FAILED rpc=%d %dB to %s:%d session %s: %s: %r - the session's reply order is "

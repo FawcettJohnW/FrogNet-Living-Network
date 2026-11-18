@@ -1008,7 +1008,7 @@ copies a machine's logs to `<log>.before-it-left` before it comes back.
 outside a difference" at the branch's base commit `948b435c` (run in a separate checkout of it), in the oracle's
 own `explicit_fields` helper. It is not in the gate set I had been running. Not changed.
 
-### 18 Nov 00:05 to 01:30: the final-code range; soft Homa fails two topologies; the memory says when it can be reached
+### 17 Nov 21:45 to 23:15: the final-code range; soft Homa fails two topologies; the memory says when it can be reached
 
 **The final-code range on TCP.** All 20 topologies, perfect links, batteries (a) fan-out, (c) large frames, (d) the
 door's scenarios, (b) a machine leaving and returning: 20 of 20 pass (`tools/sandbox/matrix.sh tcp none`).

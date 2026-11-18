@@ -55,6 +55,7 @@
 #include <cstring>
 #include <dlfcn.h>
 #include <map>
+#include <ctime>
 #include <mutex>
 #include <thread>
 #include <netinet/in.h>
@@ -69,7 +70,7 @@
 #include "homa.h"
 
 namespace {
-const char* BUILD = "softhoma-v11-20261118a";
+const char* BUILD = "softhoma-v12-20261118b";
 const size_t PIECE = 48000;        // one field of a cell: at most 65,535 bytes on the wire (semcodec TYPE_STR), in base64
 size_t RECORD = 240000;            // one cell: bulk goes in large records (PERFORMANCE-LESSONS.md section 2), and a
                                    // frame to the memory is at most 1 MiB (ram_host.cpp MAX_FRAME; over it the memory
@@ -111,7 +112,45 @@ void unb64_into(std::string& o, const std::string& in) {
 const bool DEBUG = getenv("SOFTHOMA_DEBUG") != nullptr;
 double now_ms() { timespec t; clock_gettime(CLOCK_MONOTONIC, &t); return t.tv_sec * 1e3 + t.tv_nsec / 1e6; }
 
-struct Msg { uint64_t id; std::string from, bytes; bool request; int err = 0; uint64_t slot = 0; };
+// [WHERE_THE_TIME_GOES_V1] John, 2026-11-17: "add metrics so we can find the bottlenecks. And not just where you think
+// they are." Every step a message takes through this file is timed, by the size of the message: on the way out the
+// copy from the caller, the base64, the rest of building the cell, and the write into the memory; on the way in the
+// decode of the row, the base64, the joining of records, the time the row took to get here from the sender's write
+// (the sender's wall clock is in the cell; between two machines that figure includes the difference of their clocks),
+// the time a whole message waited for recvmsg to take it, the time recvmsg was blocked with nothing to take, and the
+// copy to the caller's pages. Said in this process's own stderr as [SOFTHOMA-METRICS], each time SAY_EVERY messages
+// have gone through and when a socket closes. Nothing is on a timer. SOFTHOMA_METRICS=0 turns the saying off.
+enum { M_SEND_TOTAL, M_SEND_COPY_IN, M_SEND_PEER_CHECK, M_SEND_B64, M_SEND_BUILD_CELL, M_SEND_MEMORY_WRITE,
+       M_IN_ROW_TOTAL, M_IN_DECODE_ROW, M_IN_UNB64, M_IN_JOIN_RECORDS, M_IN_TRANSIT_FROM_SENDERS_WRITE,
+       M_RECV_WAITED_IN_INBOX, M_RECV_BLOCKED_NOTHING_TO_TAKE, M_RECV_COPY_OUT, M_RECV_TOTAL_NOT_BLOCKED, M_COUNT };
+const char* const M_NAME[M_COUNT] = { "send.total", "send.copy_in", "send.peer_check", "send.base64", "send.build_cell", "send.memory_write",
+       "in.row_total", "in.decode_row", "in.unbase64", "in.join_records", "in.transit_from_senders_write",
+       "recv.waited_in_inbox", "recv.blocked_nothing_to_take", "recv.copy_out", "recv.total_not_blocked" };
+const size_t M_SIZE[] = { 10000, 240000, size_t(-1) }; const char* const M_SIZE_NAME[] = { "<=10,000", "<=240,000", "larger" };
+struct Meter { std::atomic<uint64_t> n{0}, ns{0}, mx{0}; };
+Meter meters[3][M_COUNT]; std::atomic<uint64_t> m_msgs[3], m_bytes[3];
+const uint64_t SAY_EVERY = 2000;
+inline uint64_t mono_ns() { timespec t; clock_gettime(CLOCK_MONOTONIC, &t); return uint64_t(t.tv_sec) * 1000000000ULL + uint64_t(t.tv_nsec); }
+inline uint64_t wall_ns() { timespec t; clock_gettime(CLOCK_REALTIME, &t); return uint64_t(t.tv_sec) * 1000000000ULL + uint64_t(t.tv_nsec); }
+inline int size_class(size_t bytes) { return bytes <= M_SIZE[0] ? 0 : bytes <= M_SIZE[1] ? 1 : 2; }
+inline void meter(int cls, int which, uint64_t d) { Meter& m = meters[cls][which]; m.n.fetch_add(1, std::memory_order_relaxed); m.ns.fetch_add(d, std::memory_order_relaxed);
+    uint64_t was = m.mx.load(std::memory_order_relaxed); while (d > was && !m.mx.compare_exchange_weak(was, d, std::memory_order_relaxed)) {} }
+void say_metrics(const char* why, int only = -1) {
+    static const bool on = !(getenv("SOFTHOMA_METRICS") && getenv("SOFTHOMA_METRICS")[0] == '0'); if (!on) return;
+    for (int c = 0; c < 3; ++c) {
+        if (!m_msgs[c].load() || (only >= 0 && only != c)) continue;
+        std::string line; char b[256];
+        for (int w = 0; w < M_COUNT; ++w) { const uint64_t n = meters[c][w].n.load(); if (!n) continue;
+            snprintf(b, sizeof b, " %s n=%llu mean=%.3fms max=%.3fms sum=%.1fms;", M_NAME[w], (unsigned long long)n, double(meters[c][w].ns.load()) / double(n) / 1e6, double(meters[c][w].mx.load()) / 1e6, double(meters[c][w].ns.load()) / 1e6); line += b; }
+        fprintf(stderr, "[SOFTHOMA-METRICS] %s pid=%d (%s) messages %s: %llu, %llu bytes:%s\n", BUILD, int(getpid()), why, M_SIZE_NAME[c], (unsigned long long)m_msgs[c].load(), (unsigned long long)m_bytes[c].load(), line.c_str());
+    }
+}
+// said at 1, 2, 5, 10, 20, 50 ... 1,000 messages of a size class and then at every SAY_EVERY: a count, not a clock, so a
+// process that is ended without closing its sockets has still said where its time went up to its last such count
+inline bool say_at(uint64_t n) { if (n >= SAY_EVERY) return n % SAY_EVERY == 0; uint64_t d = 1; while (d * 10 <= n) d *= 10; return n == d || n == 2 * d || n == 5 * d; }
+inline void went_through(size_t bytes) { const int c = size_class(bytes); const uint64_t n = m_msgs[c].fetch_add(1) + 1; m_bytes[c].fetch_add(bytes); if (say_at(n)) say_metrics("at this count", c); }
+
+struct Msg { uint64_t id; std::string from, bytes; bool request; int err = 0; uint64_t slot = 0; uint64_t whole_at = 0; };
 
 struct Sock {
     int fd; std::string name; uint16_t port = 0; bool watching = false, server = false, down = false;
@@ -149,6 +188,7 @@ void free_slot(Sock* s, const std::string& to, uint64_t slot) { s->slots[to].fre
 std::string addr_of(const std::string& name) { return name.substr(0, name.find('/')); }           // "<ip>:<port>"
 
 void deliver(Sock* s, Msg&& msg) {
+    msg.whole_at = mono_ns();
     { std::lock_guard<std::mutex> g(s->m); s->inbox.emplace(msg.bytes.size(), std::move(msg)); }
     wake(s);
     s->cv.notify_one();
@@ -289,13 +329,21 @@ void start_watch(Sock* s) {                           // the socket's one standi
                 for (auto it = s->parts.begin(); it != s->parts.end();) it = it->first.first == who ? s->parts.erase(it) : std::next(it);
                 continue;
             }
+            const uint64_t t_row = mono_ns();
             auto f = r.fields(); if (!f) continue;
+            const uint64_t t_dec = mono_ns();
             if (DEBUG) fprintf(stderr, "[SOFTHOMA-DEBUG] %.3f %s got row %llu: %s id=%lld record %lld of %lld\n", now_ms(), s->name.c_str(), (unsigned long long)r.id, f->str("k").c_str(), (long long)f->num("i"), (long long)f->num("p") + 1, (long long)f->num("t"));
             std::string bytes; const size_t pieces = size_t(f->num("c"));
             for (size_t p = 0; p < pieces; ++p) unb64_into(bytes, f->str("b" + std::to_string(p)));
+            const uint64_t t_unb = mono_ns(); const uint64_t sent_us = uint64_t(f->num("w")), now_us = wall_ns() / 1000; const size_t rec_bytes = bytes.size();
             const bool request = f->str("k") == "q"; const uint64_t id = uint64_t(f->num("i")); const std::string from = f->str("f");
             const size_t total = size_t(f->num("t")), which = size_t(f->num("p"));
-            if (total > 1) {                          // one record of several: the message is whole when all are here
+            const int rc = total > 1 ? 2 : size_class(rec_bytes);      // a record of several belongs to a message larger than one record
+            meter(rc, M_IN_DECODE_ROW, t_dec - t_row); meter(rc, M_IN_UNB64, t_unb - t_dec);
+            if (sent_us && now_us > sent_us) meter(rc, M_IN_TRANSIT_FROM_SENDERS_WRITE, (now_us - sent_us) * 1000);
+            struct Row { uint64_t t0; int c; ~Row() { meter(c, M_IN_ROW_TOTAL, mono_ns() - t0); } } row{t_row, rc};
+            if (total > 1) {
+                const uint64_t t_join = mono_ns(); struct Join { uint64_t t0; ~Join() { meter(2, M_IN_JOIN_RECORDS, mono_ns() - t0); } } join{t_join};                          // one record of several: the message is whole when all are here
                 std::lock_guard<std::mutex> g(s->m);
                 auto& part = s->parts[{from, id | (request ? 1 : 0)}];
                 if (part.recs.size() != total) part.recs.assign(total, std::string());
@@ -335,16 +383,20 @@ std::string name_of(const sockaddr* a) {
 void put(Sock* s, const std::string& topic, bool request, uint64_t id, uint64_t slot, const std::string& bytes) {
     // A message is one cell, or several when it is over RECORD bytes; each cell carries its bytes as fields b0..b<c-1>
     // of at most PIECE bytes. p: which record this is; t: how many there are.
-    const size_t recs = (bytes.size() + RECORD - 1) / RECORD;
+    const size_t recs = (bytes.size() + RECORD - 1) / RECORD; const int mc = size_class(bytes.size());
     for (size_t r = 0; r < recs; ++r) {
+        const uint64_t t_rec = mono_ns(); uint64_t t_b64 = 0;
         const char* part = bytes.data() + r * RECORD; const size_t part_size = std::min(RECORD, bytes.size() - r * RECORD);
         const size_t pieces = (part_size + PIECE - 1) / PIECE;
         std::string bag; bag.reserve(part_size / 3 * 4 + 16 * pieces + 256); bag = "{";
         for (size_t p = 0; p < pieces; ++p) { bag += "\"b" + std::to_string(p) + "\":\"";
-            b64_into(bag, part + p * PIECE, std::min(PIECE, part_size - p * PIECE)); bag += "\","; }
+            const uint64_t t0 = mono_ns(); b64_into(bag, part + p * PIECE, std::min(PIECE, part_size - p * PIECE)); t_b64 += mono_ns() - t0; bag += "\","; }
         bag += "\"c\":" + std::to_string(pieces) + ",\"f\":\"" + s->name + "\",\"i\":" + std::to_string(id) + ",\"k\":\"" + (request ? "q" : "r") +
-               "\",\"p\":" + std::to_string(r) + ",\"s\":" + std::to_string(slot) + ",\"t\":" + std::to_string(recs) + "}";
+               "\",\"p\":" + std::to_string(r) + ",\"s\":" + std::to_string(slot) + ",\"t\":" + std::to_string(recs) + ",\"w\":" + std::to_string(wall_ns() / 1000) + "}";
+        const uint64_t t_built = mono_ns();
         s->sp->write("homa", topic, s->name + "." + std::to_string(slot) + "." + std::to_string(r), bag);
+        const uint64_t t_done = mono_ns();
+        meter(mc, M_SEND_B64, t_b64); meter(mc, M_SEND_BUILD_CELL, t_built - t_rec - t_b64); meter(mc, M_SEND_MEMORY_WRITE, t_done - t_built);
         if (DEBUG) fprintf(stderr, "[SOFTHOMA-DEBUG] %.3f wrote %s id=%llu record %zu of %zu (%zu bytes) to %s\n", now_ms(), request ? "request" : "reply", (unsigned long long)id, r + 1, recs, part_size, topic.c_str());
     }
 }
@@ -508,8 +560,11 @@ ssize_t sendmsg(int fd, const msghdr* h, int flags) try {
     if (!a || !h->msg_name) { errno = EINVAL; return -1; }
     size_t total = 0; for (size_t i = 0; i < size_t(h->msg_iovlen); ++i) total += h->msg_iov[i].iov_len;
     if (total == 0 || total > HOMA_MAX_MESSAGE_LENGTH) { errno = EINVAL; return -1; }
+    const uint64_t t_send = mono_ns(); const int mc = size_class(total);
+    struct Whole { uint64_t t0; int c; size_t b; ~Whole() { meter(c, M_SEND_TOTAL, mono_ns() - t0); went_through(b); } } whole{t_send, mc, total};
     std::string bytes; bytes.reserve(total);
     for (size_t i = 0; i < size_t(h->msg_iovlen); ++i) bytes.append(static_cast<const char*>(h->msg_iov[i].iov_base), h->msg_iov[i].iov_len);
+    meter(mc, M_SEND_COPY_IN, mono_ns() - t_send);
     if (s->name.empty()) name_socket(s, 0, my_ip);
     { std::lock_guard<std::mutex> g(s->m); if (s->down_err) { errno = s->down_err; return -1; } }
     if (a->id == 0) {                                 // a request: one write into this socket's own cells
@@ -522,6 +577,7 @@ ssize_t sendmsg(int fd, const msghdr* h, int flags) try {
         a->id = id;
         bool gone, known; { std::lock_guard<std::mutex> g(G); gone = not_there.count(to) != 0; known = gone || there.count(to) != 0; }
         if (!known) {                                 // nothing has been heard of it yet: ask the memory, once, whether its capability cell is there
+            struct Check { uint64_t t0; int c; ~Check() { meter(c, M_SEND_PEER_CHECK, mono_ns() - t0); } } check{mono_ns(), mc};
             std::string build;
             for (auto& r : s->sp->read("homa", "can", to)) if (!r.gone && !r.fields()->num("closed")) build = r.fields()->str("build");
             gone = build.empty();
@@ -557,12 +613,16 @@ ssize_t recvmsg(int fd, msghdr* h, int flags) try {
     const uint64_t want = a->id;                      // nonzero: that RPC's response and no other
     auto pick = [&] { for (auto it = s->inbox.begin(); it != s->inbox.end(); ++it) if (!want || it->second.id == want) return it; return s->inbox.end(); };
     auto it = pick();
+    const uint64_t t_enter = mono_ns();
     while (it == s->inbox.end()) {
         if (s->down) { errno = s->down_err ? s->down_err : ESHUTDOWN; return -1; }
         if (flags & MSG_DONTWAIT) { errno = EAGAIN; return -1; }
         s->cv.wait(g); it = pick();
     }
     Msg msg = std::move(it->second); s->inbox.erase(it);
+    const uint64_t t_took = mono_ns(); const int mc = size_class(msg.bytes.size());
+    meter(mc, M_RECV_BLOCKED_NOTHING_TO_TAKE, t_took - t_enter);
+    if (msg.whole_at && t_took > msg.whole_at) meter(mc, M_RECV_WAITED_IN_INBOX, t_took - msg.whole_at);
     uint64_t one; if (libc().read(s->fd, &one, 8) != 8) {}
     a->id = msg.id; a->completion_cookie = 0; a->num_bpages = 0;
     if (!msg.request) {
@@ -578,6 +638,7 @@ ssize_t recvmsg(int fd, msghdr* h, int flags) try {
     if (msg.err) { errno = msg.err; return -1; }
     const size_t need = (msg.bytes.size() + HOMA_BPAGE_SIZE - 1) >> HOMA_BPAGE_SHIFT;
     if (s->free_pages.size() < need) { s->inbox.emplace(msg.bytes.size(), std::move(msg)); wake(s); errno = ENOMEM; return -1; }
+    const uint64_t t_copy = mono_ns();
     for (size_t p = 0; p < need; ++p) {
         uint32_t page = *s->free_pages.begin(); s->free_pages.erase(s->free_pages.begin());
         size_t off = p << HOMA_BPAGE_SHIFT, n = std::min<size_t>(HOMA_BPAGE_SIZE, msg.bytes.size() - off);
@@ -585,6 +646,8 @@ ssize_t recvmsg(int fd, msghdr* h, int flags) try {
         a->bpage_offsets[a->num_bpages++] = page << HOMA_BPAGE_SHIFT;
     }
     ++s->n_recv;
+    { const uint64_t t_end = mono_ns(); meter(mc, M_RECV_COPY_OUT, t_end - t_copy); meter(mc, M_RECV_TOTAL_NOT_BLOCKED, t_end - t_took); }
+    went_through(msg.bytes.size());
     return ssize_t(msg.bytes.size());
 } catch (const std::exception& e) { return went("recvmsg", e); }
 
@@ -621,6 +684,7 @@ int close(int fd) try {
     if (s->server && !memory_went) s->sp->write("homa", "can", s->name, "{\"build\":\"" + std::string(BUILD) + "\",\"closed\":1}");
     fprintf(stderr, "[SOFTHOMA] socket %s closed: sent=%llu received=%llu ended-by-a-peer-leaving=%llu\n", s->name.empty() ? "(unnamed)" : s->name.c_str(),
             (unsigned long long)s->n_sent, (unsigned long long)s->n_recv, (unsigned long long)s->n_gone);
+    say_metrics("a socket closed");
     is_homa[fd].store(false, std::memory_order_release);
     { std::lock_guard<std::mutex> g(G); socks.erase(fd); }   // the Sock stays: its standing read may still be handing it rows
     return libc().close(fd);
