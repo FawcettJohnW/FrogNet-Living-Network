@@ -1159,6 +1159,23 @@ these metrics do not reach into: that code is not mine to mark without John's wo
 Not measured the same way: the TCP driver (existing code, not authorized), so there is no stage-by-stage table for
 TCP to set beside this one yet. The whole-process sampling profiler is also still owed.
 
+### 18 Nov 00:45 to 02:30: `auto` and the per-RAM setting across the range
+
+Same code (library `softhoma-v13-20261118c`, driver `homa-transport-v6-20261118c`), perfect links, batteries (a),
+(c), (d), (b), all 20 topologies each:
+
+| setting | topologies passing | checkpoints | failures |
+|---|---|---|---|
+| `tcp` | 20 of 20 | (run before the metrics were added) | 0 |
+| `softhoma` | 20 of 20 | 1,574 | 0 |
+| `auto` | 20 of 20 | 1,574 | 0 |
+| `softhoma`, with `databasehost_control.frognet tcp` (soft Homa for the node, TCP to the ControlRam) | 20 of 20 | 1,574 | 0 |
+
+Results and each topology's metrics: `/home/claude/logs/final/{tcp__none,softhoma__none,auto__none,softhoma_databasehost_control_frognet_tcp__none}/`.
+Two runs were cut off by my own outer time limit in the middle of a topology and by John interrupting; each
+incomplete result file was deleted and that topology run again from the start. Not yet run: shaped links on the
+final code.
+
 ## 4. The interventions: what was said, why it was noticed, what had not been considered
 
 John, 17 Nov, of the first version of this file: "It is not just the order. It is what I asked and why I asked it.
