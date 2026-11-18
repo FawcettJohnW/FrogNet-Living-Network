@@ -45,7 +45,7 @@ import sys
 import threading
 from typing import List, NamedTuple, Optional, Tuple
 
-BUILD = "homa-transport-v7-20261118d"
+BUILD = "homa-transport-v8-20261118e"
 HOMA_PINNED_COMMIT = "07ce63ef153207a953c42a749ee2429fb5282f55"
 
 IPPROTO_HOMA = 146
@@ -164,181 +164,16 @@ def sysctls() -> dict:
     return out
 
 
-# [THE_DRIVER_LOADS_ITS_OWN_HOMA_V1] John 2026-11-17: "The driver should be independent and able to run alongside the
-# existing drivers. There should be no risk to existing systems at all." Soft Homa is a library (the Homa API interface,
-# ribbit/examples/homa libsofthoma.so). This driver opens that library itself and calls it, and only this driver's
-# socket goes through it. It is NOT put into the process with LD_PRELOAD: that would stand it in front of every
-# socket in the process, the TCP driver's included. (LD_PRELOAD is for a program that cannot be changed, his cp_node.)
-# Where the library is: FROGNET_SOFTHOMA_LIB, else the one line of SOFTHOMA_LIB_FILE. Neither: there is no soft Homa
-# here, the library is never loaded, and Homa means the kernel module.
-SOFTHOMA_LIB_FILE = os.environ.get("FROGNET_SOFTHOMA_LIB_FILE", "/etc/frognet/softhoma_library")
-_soft_lib = None
-_soft_lib_asked = False
-_soft_lib_lock = threading.Lock()
-
-
-def soft_homa_library():
-    """[WE_OWN_THE_WIRE_V1] None, always: FrogNet's wire does not run on the soft Homa library any more. Soft Homa under
-    the wire is Homa's frames on a connection the driver holds open (core/homa_frames.py). The library
-    (ribbit/examples/homa: his API for his own unchanged programs, on a memory process) is not opened by a proxy or a
-    daemon. Everything below this line, and every caller's "soft" branch, is what carried the wire through that
-    memory until 18 Nov; it is unreachable and is taken out once the range has passed without it."""
-    return None
-    global _soft_lib, _soft_lib_asked
-    with _soft_lib_lock:
-        if _soft_lib_asked:
-            return _soft_lib
-        path, src = os.environ.get("FROGNET_SOFTHOMA_LIB", "").strip(), "FROGNET_SOFTHOMA_LIB"
-        if not path:
-            try:
-                with open(SOFTHOMA_LIB_FILE) as f:
-                    path, src = f.read().strip(), SOFTHOMA_LIB_FILE
-            except FileNotFoundError:
-                path = ""
-        if path:
-            try:
-                _soft_lib = ctypes.CDLL(path, use_errno=True)       # this handle only: nothing else in the process sees it
-                _soft_lib.softhoma_build.restype = ctypes.c_char_p
-                _soft_lib.softhoma_record_bytes.restype = ctypes.c_size_t
-                _soft_lib.softhoma_await.argtypes = [ctypes.c_char_p, ctypes.c_double]
-                _soft_lib.softhoma_wait_servers.argtypes = [ctypes.c_uint64]
-                _soft_lib.softhoma_wait_servers.restype = ctypes.c_uint64
-            except (OSError, AttributeError) as e:
-                raise HomaUnavailable("%s names the soft Homa library %r and it could not be used: %s: %s. This process "
-                                      "does not use another Homa in its place." % (src, path, type(e).__name__, e)) from e
-            print("[HOMA] [THE_DRIVER_LOADS_ITS_OWN_HOMA_V1] soft Homa %s opened from %s (%s) by the Homa driver; no "
-                  "other socket in this process goes through it" % (_soft_lib.softhoma_build().decode(), path, src), flush=True)
-        _soft_lib_asked = True
-        return _soft_lib
-
-
-# [THE_MEMORY_IS_WHERE_THE_ROLE_IS_V1] John 2026-11-17: "You know it can change address during a run. Right?" Soft Homa's
-# memory is on the machine that holds the SystemRam role, on soft Homa's own port. The role is elected and it moves when
-# the network splits or merges; a node's own address can change too. So no address is kept in any setting: both are
-# asked for when a socket is opened and again at every network event (the drivers' hosts-file watcher), and when either
-# has changed the library is told (softhoma_memory): its sockets on the old memory go down, the sessions on them end,
-# and the next socket opens on the memory where it is now.
-SOFTHOMA_ROLE = "databasehost.frognet"                       # the SystemRam, as the hosts file names it
-SOFTHOMA_PORT = int(os.environ.get("FROGNET_SOFTHOMA_PORT", "9131"))
-_soft_told: Optional[Tuple[str, str]] = None
-_soft_named = threading.Event()                              # set each time the library is told where the memory is
-
-
-def soft_memory_now() -> Tuple[str, str]:
-    """(HOST:PORT of soft Homa's memory, this node's own address), both as they are NOW. A test replaces this function.
-
-    [ONE_INPUT_ONE_RULE_V1] John 2026-11-17: "the calculation of the ram host ip address is deterministic. One option is
-    to just set it to databasehost.frognet". The address is the one the hosts file gives that name: the file the merge's
-    election writes and the drivers' watcher watches (frognet_held.HOSTS), read here, not asked of a resolver, which
-    could answer from somewhere else or from before. Every node applies the same rule to its own copy of that file, so
-    two nodes whose files agree get the same address, and a node whose file has not changed yet is the case
-    [A_PEER_IS_THERE_WHEN_ITS_CELL_IS_V1] covers. No line for the name: there is no memory to name, and it is said."""
-    from core import frognet_tuples
-    d = os.path.dirname(os.path.abspath(frognet_tuples.__file__))       # [CORE_ON_THE_PATH_V1] as homa_liveness does
-    if d not in sys.path:
-        sys.path.append(d)
-    import frognet_held
-    found = []
-    with open(frognet_held.HOSTS) as f:
-        for line in f:
-            p = line.split("#", 1)[0].split()
-            if len(p) >= 2 and SOFTHOMA_ROLE in p[1:]:
-                found.append(p[0])
-    if len(set(found)) != 1:
-        raise LookupError("%s has %s for %s; the role must be named by exactly one address"
-                          % (frognet_held.HOSTS, "no line" if not found else "the addresses %s" % ", ".join(sorted(set(found))), SOFTHOMA_ROLE))
-    return "%s:%d" % (found[0], SOFTHOMA_PORT), frognet_tuples.my_ip()
-
-
-def soft_memory_tell(why: str, event: bool = False) -> bool:
-    """Ask where the memory and this node are now and, if either changed, tell the library. True when it was told.
-    Raises HomaUnavailable when it cannot be said where they are: nothing is guessed and nothing kept from before."""
-    global _soft_told
-    lib = soft_homa_library()
-    if lib is None:
-        return False
-    try:
-        now = soft_memory_now()
-    except Exception as e:
-        raise HomaUnavailable("soft Homa's memory is on the machine %s names and it cannot be said where that is now "
-                              "(%s: %s); no address from before is used" % (SOFTHOMA_ROLE, type(e).__name__, e)) from e
-    with _soft_lib_lock:
-        if now == _soft_told:
-            if event:
-                # [THE_MEMORY_CAN_COME_BACK_WHERE_IT_WAS_V1] nothing moved, and it is a network event: a library whose
-                # memory went (its machine restarted where it was) connects again at its next socket. Said by the library.
-                lib.softhoma_memory(now[0].encode(), now[1].encode())
-            return False
-        was, _soft_told = _soft_told, now
-    down = lib.softhoma_memory(now[0].encode(), now[1].encode())
-    _soft_named.set()
-    print("[HOMA] [THE_MEMORY_IS_WHERE_THE_ROLE_IS_V1] %s: soft Homa's memory is at %s and this node is %s (before: %s); "
-          "%d socket(s) on the memory before went down" % (why, now[0], now[1], "%s, node %s" % was if was else "nothing", down), flush=True)
-    return True
-
-
-def soft_peer_there(dest: Tuple[str, int], wait_s: float) -> bool:
-    """[A_PEER_IS_THERE_WHEN_ITS_CELL_IS_V1] Whether a Homa listener is bound at `dest` in the memory this process is on
-    now; with wait_s > 0, one held read on its capability cell for up to that long. On kernel Homa there is no such
-    thing to ask and the answer is True."""
-    lib = soft_homa_library()
-    if lib is None:
-        return True
-    soft_memory_tell("a peer is being looked for")
-    return lib.softhoma_await(("%s:%d" % (dest[0], int(dest[1]))).encode(), ctypes.c_double(float(wait_s))) == 1
-
-
-def soft_on_servers_change(tell, who: str) -> None:
-    """[A_SERVER_ARRIVING_IS_AN_EVENT_V1] Call tell() each time a server arrives in or leaves soft Homa's memory, or the
-    memory itself changes. One thread, held in the library on the standing read on the capability cells. A driver's
-    end gives it its liveness's wake(): a hold that could not be taken because the ControlRam's machine was not in the
-    memory yet is taken when that machine arrives, which is the network event it was waiting for. Nothing on kernel
-    Homa."""
-    lib = soft_homa_library()
-    if lib is None:
-        return
-
-    def held():
-        seen = 0
-        while True:
-            try:
-                if _soft_told is None:
-                    soft_memory_tell("%s is waiting for servers to arrive" % who)
-                seen = lib.softhoma_wait_servers(seen)
-            except HomaUnavailable as e:
-                print("[HOMA] %s: %s; servers arriving are waited for once the memory can be named" % (who, e), flush=True)
-                _soft_named.wait(); _soft_named.clear()
-                continue
-            try:
-                tell()
-            except Exception as e:
-                print("[HOMA] %s: the handler for a server arriving raised %s: %r" % (who, type(e).__name__, e), flush=True)
-    threading.Thread(target=held, daemon=True, name="softhoma-servers").start()
-
-
-def soft_homa_loaded() -> Optional[str]:
-    """Soft Homa's build if this node was told of a soft Homa library (soft_homa_library), else None."""
-    lib = soft_homa_library()
-    return lib.softhoma_build().decode() if lib is not None else None
-
-
 def max_message() -> int:
-    """[FRAMES_GO_IN_PIECES_V1] The largest message this process's Homa carries as ONE message on its fast path: Homa's
-    own limit under the kernel module, and one cell (softhoma_record_bytes) under soft Homa. The driver cuts a frame
-    into pieces of this size. A soft Homa that cannot say is refused: there is no guessing its record size."""
-    lib = soft_homa_library()
-    return HOMA_MAX_MESSAGE_LENGTH if lib is None else int(lib.softhoma_record_bytes())
+    """[FRAMES_GO_IN_PIECES_V1] The largest message the kernel module's Homa carries as ONE message: Homa's own limit.
+    The driver cuts a frame into pieces of this size. (Soft Homa, core/homa_frames.py, cuts for itself and says so in
+    its carrier's max_message.)"""
+    return HOMA_MAX_MESSAGE_LENGTH
 
 
 def startup_line(who: str) -> str:
     """[DIAGNOSTICS_SAY_IT_V1] One log line that says what this process is running on, so nobody runs a command to find
     out: build, kernel, the pinned Homa commit this file's layouts are from, and every Homa sysctl."""
-    soft = soft_homa_loaded()
-    if soft:                                    # [SOFT_HOMA_CARRIER_V1] no module, so no sysctls: it has no timers to set
-        return ("[HOMA] %s build=%s kernel=%s homa_h=%s on SOFT HOMA %s (Homa's calls on shared memory, memory at %s, "
-                "this machine named %s): no kernel module, no Homa sysctls"
-                % (who, BUILD, os.uname().release, HOMA_PINNED_COMMIT[:7], soft,
-                   _soft_told[0] if _soft_told else "(not asked yet)", _soft_told[1] if _soft_told else "(not asked yet)"))
     s = sysctls()
     keys = ("timeout_ticks", "resend_ticks", "resend_interval", "request_ack_ticks", "unsched_bytes", "hijack_tcp",
             "max_gso_size", "link_mbps", "max_overcommit", "num_priorities")
@@ -356,21 +191,14 @@ class HomaSocket:
     REGION_MESSAGES = 64
 
     def __init__(self, bind_ip: str = "0.0.0.0", server_port: Optional[int] = None):
-        # [THE_DRIVER_LOADS_ITS_OWN_HOMA_V1] every call this socket makes goes to one place: the soft Homa library
-        # this node was told of, or else the system's own calls (the kernel module's socket). The socket is a bare
-        # descriptor so that no call on it can go anywhere else.
-        soft = soft_homa_library()
-        if soft is not None:
-            soft_memory_tell("a Homa socket is being opened", event=True)   # the driver opens one only at an event
-        self._libc = soft if soft is not None else ctypes.CDLL(None, use_errno=True)
+        # the kernel module's socket, by the system's own calls on a bare descriptor
+        self._libc = ctypes.CDLL(None, use_errno=True)
         self._fd = self._libc.socket(socket.AF_INET, socket.SOCK_DGRAM, IPPROTO_HOMA)
         if self._fd < 0:
             e = ctypes.get_errno()
             raise HomaUnavailable("socket(AF_INET, SOCK_DGRAM, IPPROTO_HOMA=146) failed on kernel %s: errno=%s (%s). %s; "
                                   "this process does not use another transport."
-                                  % (os.uname().release, e, os.strerror(e),
-                                     "Soft Homa could not open it (is SOFTHOMA_RAM set and its memory there?)" if soft is not None
-                                     else "The Homa module is not loaded here"))
+                                  % (os.uname().release, e, os.strerror(e), "The Homa module is not loaded here"))
         self._closed = False
         self._tls = threading.local()            # per thread: the bpages of its last message, to hand back
         self.region_len = self.REGION_MESSAGES * HOMA_MAX_BPAGES * HOMA_BPAGE_SIZE
@@ -458,9 +286,6 @@ class HomaSocket:
             self._tls.owed = [int(args.bpage_offsets[i]) for i in range(int(args.num_bpages))]
             if self._closed or e in (errno.EBADF, errno.ESHUTDOWN):
                 raise CarrierClosed("homa socket closed")
-            if e == errno.ENETDOWN and soft_homa_library() is not None:
-                # [THE_MEMORY_IS_WHERE_THE_ROLE_IS_V1] soft Homa: the memory under this socket is gone, or has moved
-                raise CarrierClosed("the memory under this soft Homa socket is gone or has moved")
             if int(args.id) != 0:
                 self.n_failed += 1
                 raise RpcFailed(int(args.id), int(args.completion_cookie), e)

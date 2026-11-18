@@ -55,25 +55,22 @@ class _Liveness:
 
 
 def main():
-    missing = [p for p in (LIB, RAM) if not os.path.exists(p)]
-    if missing:
-        print("RESULT FAIL: soft Homa is not built (%s): make -C %s HOMA=<HomaModule checkout>"
-              % (", ".join(missing), os.path.dirname(BUILT)))
-        return 1
+    # [WE_OWN_THE_WIRE_V1] soft Homa is Homa's frames on a TCP connection the driver holds open (core/homa_frames.py):
+    # nothing is built, loaded or started for it
     os.environ["FROGNET_SEM_TRANSPORT"] = "softhoma"
-    os.environ["FROGNET_SOFTHOMA_LIB"] = LIB                    # the driver opens it; nothing is preloaded
     os.environ.pop("LD_PRELOAD", None)
     sys.path.insert(0, HERE)
     import door_semantic_tier as D
-    memory = subprocess.Popen([RAM, MEMORY], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
-    time.sleep(0.7)
     ran = []                                                    # per scenario: what the driver carried
 
     def hop(TS, origin, origin_store):
-        from core import homa_socket as HS
+        from core import homa_frames as HF, homa_transport as HT
         from proxy import transport_homa as TH
         from daemon.engine import server_homa as SH
-        HS.soft_memory_now = lambda: (MEMORY, ASKING)      # the simulator's answer to "where is the role now"
+        class OnThisHost(HF.HomaFramesOnTcp):                   # STOOD IN FOR: the origin node's address. One host is both
+            def send_request(self, dest, payload, cookie):      # nodes here, so the connection to 10.77.77.1 is made to
+                return super().send_request(("127.0.0.1", dest[1]), payload, cookie)     # this host; the frames are the same
+        TH._client_carrier = lambda: OnThisHost()
         TH._peer_liveness = lambda on_gone, on_event: _Liveness()
         tcp = []
         init = TS._DaemonWorker.__init__
@@ -87,17 +84,19 @@ def main():
         srv = SH.MsgDaemonServer(ORIGIN, TS._DAEMON_PORT, None)
         srv._http_client = origin
         srv._peer_liveness = lambda: _Liveness()
-        srv._memory_child = lambda: None                        # this tier started the memory
+        srv._server_carrier = lambda: HF.HomaFramesOnTcp(bind_ip="127.0.0.1", server_port=TS._DAEMON_PORT)
         srv._writer_gone = lambda ip: None
         threading.Thread(target=srv.run, daemon=True, name="homa-door-daemon").start()
-        there = HS.soft_peer_there((ORIGIN, TS._DAEMON_PORT), 20.0)   # one held read on its capability cell
-        if not there:
-            raise RuntimeError("the daemon's Homa listener did not arrive in soft Homa's memory at %s" % MEMORY)
+        t_end = time.time() + 20
+        while srv._carrier is None and time.time() < t_end:    # the listener thread opens its port
+            time.sleep(0.02)
+        if srv._carrier is None:
+            raise RuntimeError("the daemon's Homa listener did not open on %s" % ORIGIN)
 
         def end():
             mux = TH._get_mux()
             w = [x.stats() for x in TS._WORKERS.values()]
-            ran.append({"soft": HS.soft_homa_loaded(), "carrier": type(mux.carrier).__name__,
+            ran.append({"soft": HT._soft_homa_loaded(), "carrier": type(mux.carrier).__name__,
                         "frames": sum(x.get("sent", 0) for x in w), "replies": sum(x.get("replies", 0) for x in w),
                         "sessions": len(srv._sessions), "homa_requests": mux.carrier.n_req_out,
                         "homa_replies": mux.carrier.n_rep_in, "tcp_workers": len(tcp),
@@ -113,9 +112,9 @@ def main():
     try:
         fails = D.run(ROOT)
     finally:
-        memory.kill(); memory.wait()
+        pass
     for name, r in zip([n for n, _s in D.SCENARIOS], ran):
-        ok = (r["soft"] and r["carrier"] == "HomaSocket" and r["frames"] > 0 and r["frames"] == r["replies"]
+        ok = (r["soft"] and r["carrier"] == "OnThisHost" and r["frames"] > 0 and r["frames"] == r["replies"]
               and r["homa_requests"] >= r["frames"] and r["sessions"] == 1 and r["tcp_workers"] == 0 and not r["preloaded"])
         print(" %s  %s: on soft Homa %s, %d frames and %d replies in %d Homa requests on %d session, %d TCP workers"
               % ("ok   " if ok else "WRONG", name, r["soft"], r["frames"], r["replies"], r["homa_requests"], r["sessions"],

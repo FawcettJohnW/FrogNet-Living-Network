@@ -179,14 +179,7 @@ class _ClientMux:
         self._workers: set = set()                     # the sessions that have not ended
         self.n_peers_gone = self.n_network_events = 0
         self.liveness = _peer_liveness(self._peer_gone, self._network_event)
-        # [THE_MEMORY_IS_WHERE_THE_ROLE_IS_V1] soft Homa's memory is where a role is, and the role moves. At each
-        # network event the driver asks where it is now; if it moved, the library puts this socket down, the receiver
-        # below ends and the sessions with it, and the next message the wire manager has opens a new socket there.
-        self.liveness.on_hosts_change = self._hosts_changed
-        if hasattr(self.liveness, "wake"):
-            homa_socket.soft_on_servers_change(self.liveness.wake, "proxy semantic wire")   # [A_SERVER_ARRIVING_IS_AN_EVENT_V1]
-        self.carrier_down = ""                         # why the socket is down, when it is
-        self.n_reopened = 0
+        self.carrier_down = ""                         # why the socket is down, once it is: it is not opened again
         print("[SEM-HOMA] [LIVENESS_IS_A_HELD_READ_V1] a peer leaving is learned from the held read on (homa, can) and "
               "the hosts block; Homa's per-RPC timeout is not relied on", flush=True)
         self.wire = WireManager("sem-homa-wire", self._put)      # [THE_WIRE_MANAGER_SENDS_V1]
@@ -233,32 +226,6 @@ class _ClientMux:
         print("[SEM-HOMA] network event: the ControlRam was rebuilt and this end wrote its own tuple again; sessions "
               "with peers that are still there carry on", flush=True)
 
-    def _hosts_changed(self) -> None:
-        try:
-            homa_socket.soft_memory_tell("the hosts file changed", event=True)
-        except homa_socket.HomaUnavailable as e:
-            print("[SEM-HOMA] %s" % e, flush=True)
-
-    def _reopen(self) -> Optional[BaseException]:
-        """The wire manager's thread, with a message to send and the socket down: open one where the memory is now.
-        Not tried on a timer: it is tried when there is something to send."""
-        try:
-            old, self.carrier = self.carrier, _client_carrier()
-        except BaseException as e:
-            return e
-        try:
-            old.close()
-        except Exception as e:
-            print("[SEM-HOMA] closing the socket that went down: %r" % (e,), flush=True)
-        self.max_message = int(getattr(self.carrier, "max_message", 0) or homa_socket.max_message())
-        self.n_reopened += 1
-        print("[SEM-HOMA] [THE_MEMORY_IS_WHERE_THE_ROLE_IS_V1] the client socket was down (%s); a new one is open (%d so "
-              "far) and sessions open on it" % (self.carrier_down, self.n_reopened), flush=True)
-        self.carrier_down = ""
-        self._rx = threading.Thread(target=self._receive, daemon=True, name="sem-homa-rx")
-        self._rx.start()
-        return None
-
     def send(self, worker: "_MsgWorker", rpc, wire: bytes) -> None:
         """Called on the thread that has the frame: its wire bytes go on the wire manager's queue."""
         self.wire.give((worker, rpc, wire), wire[:4] == PIECE_MAGIC)
@@ -270,10 +237,8 @@ class _ClientMux:
         tr = worker._tr.get(rpc)
         WM.mark(tr, "wm_took.first", first=True); WM.mark(tr, "wm_took.last")
         if self.carrier_down and not worker._stopped.is_set():
-            err = self._reopen()
-            if err is not None:
-                worker._broken(err)
-                return
+            worker._broken(ConnectionError("the semantic wire's Homa socket is down (%s); nothing is used in its place" % self.carrier_down))
+            return
         with worker._lock:
             if worker._stopped.is_set():
                 return
@@ -398,13 +363,6 @@ class _MsgWorker:
         self.max_out = self.max_early = 0
         print("[SEM-HOMA] session %s to %s:%d set=%d opened" % (self.session.hex(), host, self.port, set_id), flush=True)
         self._mux.attach(self)
-        # [A_PEER_IS_THERE_WHEN_ITS_CELL_IS_V1] soft Homa: after the memory moves, a peer arrives in the new one when its
-        # own hosts file changes and can be behind this node. A session to a peer that is not there is not opened: it
-        # ends here with that reason, its caller is told, and the next request looks again.
-        if not homa_socket.soft_peer_there((host, self.port), 0):
-            self._broken(PeerGone("peer %s:%d has no Homa listener in soft Homa's memory where it is now; it arrives "
-                                  "there when its own hosts file changes" % (host, self.port)))
-            return
         self._submit(wrap_hello(TS._get_local_gw()), None, hello=True)     # frame 0 of the session, as on TCP; its reply is in order
 
     # -- what the registry (_get_worker) asks of a worker

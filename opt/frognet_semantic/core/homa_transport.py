@@ -254,15 +254,6 @@ def _peer_carriers(node: str) -> Optional[Tuple[str, ...]]:
     return TH._get_mux().liveness.carriers_of(node)
 
 
-def _peer_in_soft_memory(host: str) -> bool:
-    """[A_PEER_IS_THERE_WHEN_ITS_CELL_IS_V1] Whether `host`'s daemon has its Homa listener in soft Homa's memory where
-    that memory is NOW. After the role moves, each node arrives in the new memory when its own hosts file changes, so
-    a peer can be behind this node. The library answers from its standing read on the capability cells; it asks the
-    memory only about a peer it has not heard of. A test replaces this function."""
-    from core import homa_socket
-    return homa_socket.soft_peer_there((host, int(os.environ.get("FROGNET_DAEMON_PORT", "9009"))), 0)
-
-
 def carrier_for(host: str) -> str:
     """The driver a NEW session to `host` opens on: "homa" (the Homa driver, on kernel Homa or soft Homa, whichever
     this process has) or "tcp". See the module docstring for the rule."""
@@ -279,14 +270,6 @@ def carrier_for(host: str) -> str:
     node = node_of(host)
     theirs = _peer_carriers(node)
     common = [c for c in WALK if c in mine and c in (theirs if theirs is not None else ("tcp",))]
-    if "softhoma" in common and not _peer_in_soft_memory(host):
-        # [A_PEER_IS_THERE_WHEN_ITS_CELL_IS_V1] it has soft Homa but is not in the memory where that is now: for this
-        # session the two ends do not have soft Homa in common
-        common.remove("softhoma")
-        with _lock:
-            if _picked.get(node) not in (None, "tcp"):
-                print("[SEM-TRANSPORT] [CARRIER_PER_HOP_V1] %s is not in soft Homa's memory where it is now: sessions "
-                      "to it do not open on softhoma until it is" % node, flush=True)
     if not common:
         raise ConnectionError("peer %s carries the semantic wire on %s and this node on %s: no carrier in common"
                               % (node, ", ".join(theirs or ()), ", ".join(mine)))
