@@ -153,6 +153,16 @@ Each is John's, quoted where the words matter. They are the constraints everythi
     `core/homa_transport.py` (its list of words, `VALID`, is fixed today), and the interface must be declared in
     code, not only described.
 
+48. (20:32) "Give me a document describing the custom driver capability and how it can be applied to secure any comms
+    using whatever means. This is for spooks and military and corporations and families and all those things, who
+    want not the illusion of custom, secure communications, but the reality, because it's their own protocol."
+    Written as a doc for John (title "Your Own Protocol: Custom Transport Drivers in FrogNet"), outside the repo. It
+    states the capability, the calls and the seven promises, what a driver may do with the payload, who would use
+    it, what the design gives and what stays the owner's job (key delivery, the strength of their own protocol,
+    the visible carrier, the machines), the steps to build one, and the status: two drivers proven, three things
+    owed before a third party can install one unaided (the interface declared in code, driver names registered
+    instead of listed, HELLO and the ping handled above the drivers).
+
 ## 2a. The stages, and each time the work went back a stage
 
 John, 17 Nov: "The record should also show the progression through the stages, and the times we had to roll back.
