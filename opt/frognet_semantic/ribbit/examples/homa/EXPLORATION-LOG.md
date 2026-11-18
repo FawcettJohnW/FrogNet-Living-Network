@@ -1353,6 +1353,14 @@ each. 13 of 13 gates. The range is run again from the start on this code.
 Open, and possibly the same thing seen from the other side: the one unexplained failure of 17 Nov on
 `topo_asym_lan2_wg_lan3` (a returned machine's peer holding its sessions as "PeerGone").
 
+### 18 Nov 06:30 to 07:15: the range on soft Homa as Homa's frames, second pass
+
+Library none, carrier `homa-frames-on-tcp-v3-20261118c`, driver `homa-transport-v7-20261118d`, perfect links,
+batteries (a), (c), (d), (b): **20 of 20 topologies pass, 1,574 checkpoints, 0 failures**
+(`/home/claude/logs/final/softhoma__none/`; the first pass, 19 of 20, is kept in `softhoma-frames-first-pass/`).
+TCP on the same code: 20 of 20, 1,516 checkpoints. `auto` in this sandbox is TCP (no Homa in the kernel), so its
+range is TCP's. Not yet run on this code: the per-RAM setting, and shaped links.
+
 ## 4. The interventions: what was said, why it was noticed, what had not been considered
 
 John, 17 Nov, of the first version of this file: "It is not just the order. It is what I asked and why I asked it.
