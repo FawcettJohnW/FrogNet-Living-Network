@@ -2095,13 +2095,35 @@ class _DaemonWorker:
                 f"retired ({self.stopped_reason()}) "
                 f"{time.time() - self._stopped_at:.0f}s ago - not enqueueing")
 
+        # [A_SESSION_STARTING_IS_NOT_DEAD_V1] John, 2026-11-17: "That is a bug." and "If the machine is in a known
+        # startup state, it's up to the app to decide what to do."
+        # A session is two connections: the send socket, then the daemon's return connection, which registers the
+        # reader. Between the two the reader is not alive YET. This guard read that as dead and refused every
+        # request that arrived in the window (about 0.4 s between machines in the simulator) with "reader dead",
+        # its own trace saying sock_age_s=0 ever_had_reader=False. The request that opened the session was not
+        # refused, only the ones behind it, so the caller saw 503s on a healthy peer. Found by
+        # simulation/wire_between_machines_tier.py: tcp 2 of 5 runs on topo_pair, auto 5 of 8 on
+        # topo_pond_with_workers (ribbit/examples/homa/EXPLORATION-LOG.md, 17 Nov 14:09 to 15:35).
+        # The cleanup thread already knows this state and how long it may last ([FIRST_CONNECT_GRACE_V1]:
+        # _RPC_TIMEOUT_SEC for a peer that has never called back, 5 s for one that has); past that it closes the
+        # session and fails what is pending. So a request that arrives while the session is STARTING is enqueued
+        # like the one that opened it, under the same clock, and the caller's own wait decides. It is refused here
+        # only when the session is past the grace the cleanup thread gives it: that is a dead reader.
         if not self._reader_alive and self._send_sock_at > 0:
-            _rpc_trace("reader_dead_refuse", host=self.host,
-                       send_sock_at=f"{self._send_sock_at:.0f}",
-                       sock_age_s=f"{time.time() - self._send_sock_at:.0f}",
+            sock_age = time.time() - self._send_sock_at
+            dead_thresh = 5.0 if self._ever_had_reader else _RPC_TIMEOUT_SEC
+            if sock_age > dead_thresh:
+                _rpc_trace("reader_dead_refuse", host=self.host,
+                           send_sock_at=f"{self._send_sock_at:.0f}",
+                           sock_age_s=f"{sock_age:.0f}",
+                           dead_thresh_s=f"{dead_thresh:.0f}",
+                           ever_had_reader=self._ever_had_reader)
+                raise RuntimeError(
+                    f"peer {self.host}: reader dead")
+            _rpc_trace("session_starting_enqueue", host=self.host,
+                       sock_age_s=f"{sock_age:.2f}",
+                       dead_thresh_s=f"{dead_thresh:.0f}",
                        ever_had_reader=self._ever_had_reader)
-            raise RuntimeError(
-                f"peer {self.host}: reader dead")
 
         rpc = _Rpc(packet, max_attempts=_TRANSPORT_MAX_ATTEMPTS, gate=gate)
         self.q.put(rpc)
