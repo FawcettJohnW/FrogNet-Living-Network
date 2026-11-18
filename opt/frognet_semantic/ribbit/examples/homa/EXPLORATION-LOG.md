@@ -1455,6 +1455,34 @@ ended at the driver's budget, "failed after 1 attempts (18.7s, budget 18.1s)", a
 `topo_asym_lan2_wg_lan3` 72 pass; `topo_asym_ring_wg_lan` 123 pass. The rest of the range, and soft Homa, are
 running at this entry; a topology takes 7 to 17 minutes.
 
+### 18 Nov, John's nodes: four workloads on each transport, Seattle5 to the SystemRam
+
+John ran `pipe_workload.py databasehost.frognet <echo|mb|telem|chat> 400` from Seattle5 with the setting present
+(`tcp` / `databasehost.frognet softhoma`), then removed the file, restarted, and ran the four again on TCP. His
+hosts file: `databasehost.frognet` 10.188.188.1 (BAMacBook), `databasehost_control.frognet` 10.251.251.1
+(Seattle3B). 0 failures in all eight runs.
+
+| workload | measure | soft Homa | TCP |
+|---|---|---|---|
+| echo (50 B) | serial P50 / average | 99 / 171 ms | 98 / 99 ms |
+| | 50 at a time | 108 ms, 232.5 req/s | 103 ms, 248.5 req/s |
+| | burst of 400 | 1.3 s, 308.2 req/s | 1.3 s, 303.5 req/s |
+| mb (1,077 KB body) | serial P50 / average | 392 / 440 ms | 408 / 429 ms |
+| | 50 at a time | 407 ms, 72.0 req/s | 496 ms, 71.3 req/s |
+| | burst of 400 | 5.1 s, 78.0 req/s | 5.2 s, 77.5 req/s |
+| telem (26 KB) | serial P50 / average | 128 / 133 ms | 128 / 125 ms |
+| | 50 at a time | 127 ms, 203.4 req/s | 142 ms, 192.9 req/s |
+| | burst of 400 | 1.7 s, 240.7 req/s | 2.2 s, 181.9 req/s |
+| chat (13 KB) | serial P50 / average | 121 / 125 ms | 125 / 126 ms |
+| | 50 at a time | 145 ms, 191.2 req/s | 159 ms, 181.2 req/s |
+| | burst of 400 | 2.0 s, 198.0 req/s | 1.6 s, 248.5 req/s |
+
+On a real link of about 95 ms the two are level. One run each; the differences on the bursts are inside the spread
+between runs (soft Homa's echo burst was 153.6 req/s an hour earlier and 308.2 here). Not the transport: soft Homa
+ran first and taught the templates (its bootstraps say BOOTSTRAP, 1,103,555 bytes for mb; TCP's say DIFF, 91,351),
+which is also why its mb serial phase shows 94,788 bytes sent against TCP's 3,509. Not explained: soft Homa's echo
+serial phase has P95 404 ms against P50 99 (at least two of 25 slow).
+
 ## 4. The interventions: what was said, why it was noticed, what had not been considered
 
 John, 17 Nov, of the first version of this file: "It is not just the order. It is what I asked and why I asked it.
