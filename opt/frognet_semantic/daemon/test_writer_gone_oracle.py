@@ -83,7 +83,14 @@ def call(path):
 def wait_for(pred, limit=15.0):
     t0 = time.time()
     while time.time() - t0 < limit:
-        if pred(): return True
+        # [WAITING_FOR_A_LISTENER_IS_NOT_A_FAILURE_V1] 2026-11-17: main() waits for the daemon's listener with a
+        # connect, and a connect made before the listener is up is refused. That refusal used to leave this function
+        # as an exception and end the oracle (about one run in four, "ConnectionRefusedError" at its first line of
+        # work), which is the thing this function exists to wait through.
+        try:
+            if pred(): return True
+        except OSError:
+            pass
         time.sleep(0.05)
     return False
 

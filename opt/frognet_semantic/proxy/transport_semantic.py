@@ -535,7 +535,25 @@ _inflight: Dict[Tuple[str, bytes], _InflightRPC] = {}
 _inflight_lock = threading.RLock()
 
 
-def _coalesced_rpc(target_ip: str, req_hash: bytes, worker, wire_req: bytes) -> Tuple[bytes, bool]:
+# [A_RETRY_AFTER_A_MISS_IS_ITS_OWN_FRAME_V1] 2026-11-17. Found by simulation/wire_between_machines_tier.py: about
+# one read in a few thousand answered 503 "REQ_MISS from daemon; exhausted retries", on the TCP driver and on the
+# Homa driver alike, in the first concurrent burst to a peer that did not yet hold the template.
+#
+# The request hash names the ANSWER wanted (target, path, opcode, the merged values), so a REQ_FULL, a REQ_DIFF and
+# a REQ_REPEAT for the same values all have the same hash, and coalescing joins a caller to whatever frame with
+# that hash is in flight. That is right while the frame can be answered. It is wrong for the frame a caller sends
+# BECAUSE the daemon just said REQ_MISS: that frame exists to give the daemon what it lacks (the full values, or
+# the raw request). Joined to another caller's in-flight REQ_DIFF or REQ_REPEAT of the same hash, it is never sent;
+# the caller inherits that frame's REQ_MISS as its own second miss and has no attempts left. The proxy's own log
+# shows it, line after line: "REQ_MISS ... retrying as REQ_FULL (attempt 1)", "REQ_FULL ... hash=b2468d66",
+# "COALESCE: waiting on in-flight RPC ... hash=b2468d66", "REQ_MISS ..., no retries left".
+#
+# So a retry after a miss is sent as its own frame (alone=True): it joins nothing. It does not take the hash's
+# in-flight slot from a frame that holds it, and an entry is released only by the caller that registered it.
+# What opens the window at all (a reference committed as the frame leaves is read by other callers before the
+# daemon has said whether it took it) is left as it is: with this, a miss costs one resend, not a failure.
+
+def _coalesced_rpc(target_ip: str, req_hash: bytes, worker, wire_req: bytes, alone: bool = False) -> Tuple[bytes, bool]:
     """
     Send wire_req to target via worker, coalescing duplicate in-flight requests.
 
@@ -546,12 +564,15 @@ def _coalesced_rpc(target_ip: str, req_hash: bytes, worker, wire_req: bytes) -> 
     key = (target_ip, req_hash)
 
     with _inflight_lock:
-        existing = _inflight.get(key)
+        existing = None if alone else _inflight.get(key)
         if existing is not None:
             _debug(f"COALESCE: waiting on in-flight RPC to {target_ip} hash={req_hash.hex()}")
         else:
             entry = _InflightRPC()
-            _inflight[key] = entry
+            if key not in _inflight:           # [A_RETRY_AFTER_A_MISS_IS_ITS_OWN_FRAME_V1] never take a held slot
+                _inflight[key] = entry
+            else:
+                _debug(f"ALONE: a retry after REQ_MISS to {target_ip} hash={req_hash.hex()} is its own frame")
 
     # Second caller - wait for the in-flight RPC
     if existing is not None:
@@ -586,7 +607,8 @@ def _coalesced_rpc(target_ip: str, req_hash: bytes, worker, wire_req: bytes) -> 
     finally:
         entry.event.set()
         with _inflight_lock:
-            _inflight.pop(key, None)
+            if _inflight.get(key) is entry:
+                _inflight.pop(key, None)
 
 
 class _Dispatch:
@@ -598,7 +620,7 @@ class _Dispatch:
         self.entry, self.rpc, self.sem, self.owner = entry, rpc, sem, owner
 
 
-def _dispatch_begin(target_ip: str, req_hash: bytes, worker, wire_req: bytes, path: str, gate) -> _Dispatch:
+def _dispatch_begin(target_ip: str, req_hash: bytes, worker, wire_req: bytes, path: str, gate, alone: bool = False) -> _Dispatch:
     """[REFERENCES_MOVE_IN_WIRE_ORDER_V1] The enqueue half of _dispatch_rpc: the caller holds _ref_lock across this so
     its reference commit and its place in the writer's queue are one step. Never blocks on the network."""
     trace_enter('transport_semantic._dispatch_begin', target_ip=repr(target_ip), req_hash=repr(req_hash), path=repr(path))
@@ -611,19 +633,23 @@ def _dispatch_begin(target_ip: str, req_hash: bytes, worker, wire_req: bytes, pa
     key = (target_ip, req_hash)
     try:
         with _inflight_lock:
-            existing = _inflight.get(key)
+            existing = None if alone else _inflight.get(key)      # [A_RETRY_AFTER_A_MISS_IS_ITS_OWN_FRAME_V1]
             if existing is not None:
                 _debug(f"COALESCE: waiting on in-flight RPC to {target_ip} hash={req_hash.hex()}")
                 return _Dispatch(target_ip, req_hash, worker, existing, existing.rpc, sem, False)
             entry = _InflightRPC()
-            _inflight[key] = entry
+            if key not in _inflight:
+                _inflight[key] = entry
+            else:
+                _debug(f"ALONE: a retry after REQ_MISS to {target_ip} hash={req_hash.hex()} is its own frame")
         try:
             entry.rpc = worker.submit(wire_req, gate)
         except BaseException as e:
             entry.error = e
             entry.event.set()
             with _inflight_lock:
-                _inflight.pop(key, None)
+                if _inflight.get(key) is entry:
+                    _inflight.pop(key, None)
             raise
         return _Dispatch(target_ip, req_hash, worker, entry, entry.rpc, sem, True)
     except BaseException as exc:
@@ -659,7 +685,8 @@ def _dispatch_end(d: _Dispatch) -> Tuple[bytes, bool]:
         finally:
             d.entry.event.set()
             with _inflight_lock:
-                _inflight.pop((d.target_ip, d.req_hash), None)
+                if _inflight.get((d.target_ip, d.req_hash)) is d.entry:
+                    _inflight.pop((d.target_ip, d.req_hash), None)
     finally:
         try:
             d.sem.release()
@@ -2399,7 +2426,7 @@ def _get_target_sem(target_ip: str) -> threading.BoundedSemaphore:
         return sem
 
 
-def _dispatch_rpc(target_ip: str, req_hash: bytes, worker, wire_req: bytes, path: str) -> Tuple[bytes, bool]:
+def _dispatch_rpc(target_ip: str, req_hash: bytes, worker, wire_req: bytes, path: str, alone: bool = False) -> Tuple[bytes, bool]:
     """
     All RPCs go through coalescing.  Duplicate in-flight requests to the
     same (target_ip, req_hash) wait on the first caller's result.  This
@@ -2433,7 +2460,7 @@ def _dispatch_rpc(target_ip: str, req_hash: bytes, worker, wire_req: bytes, path
         raise RuntimeError(
             f"per-target limit ({_PER_TARGET_MAX}) exceeded for {target_ip}")
     try:
-        _r = _coalesced_rpc(target_ip, req_hash, worker, wire_req)
+        _r = _coalesced_rpc(target_ip, req_hash, worker, wire_req, alone=alone)
         # [THREE_STRIKES_V1] A completed RPC is the strongest evidence there is
         # that this host is fine. Reset the streak here as well as on connect --
         # a peer that connects but whose RPCs fail, or one that answers this
@@ -2653,7 +2680,7 @@ def _handle_semantic_request(
                 _debug(f"REQ_DIFF to {target_ip} hash={req_hash.hex()} ({len(sem_req)}B diff)")
             t0 = time.time()
             try:
-                dispatch = _dispatch_begin(target_ip, req_hash, worker, wire_req, path, gate)
+                dispatch = _dispatch_begin(target_ip, req_hash, worker, wire_req, path, gate, alone=force_full)
             except Exception as e:
                 dispatch = None
                 dispatch_exc = e
@@ -2927,8 +2954,11 @@ def _handle_raw_and_learn(
     # peer had never received, then 503. It is now re-read per attempt, which
     # is what makes "retrying as REQ_RAW" true rather than merely logged.
 
+    after_miss = False
     for attempt in range(_MAX_ATTEMPTS):
-        use_repeat = semcache_db.is_req_seen(target_ip, req_hash)
+        # [A_RETRY_AFTER_A_MISS_IS_ITS_OWN_FRAME_V1] after a miss the retry is the raw request itself, whatever another
+        # caller has marked seen in the meantime, and it joins no frame in flight.
+        use_repeat = (not after_miss) and semcache_db.is_req_seen(target_ip, req_hash)
         if use_repeat:
             wire_req = wrap_req_repeat(req_hash)
             req_type = "REQ_REPEAT"
@@ -2940,7 +2970,7 @@ def _handle_raw_and_learn(
 
         t0 = time.time()
         try:
-            wire_reply, was_coalesced = _dispatch_rpc(target_ip, req_hash, worker, wire_req, path)
+            wire_reply, was_coalesced = _dispatch_rpc(target_ip, req_hash, worker, wire_req, path, alone=after_miss)
         except Exception as e:
             _debug(f"BOOTSTRAP: RPC failed to {target_ip}: {e!r}")
             # [PEER_LINK_QUALITY_V1 2026-05-25] Same shape as the
@@ -2991,6 +3021,7 @@ def _handle_raw_and_learn(
                 # REQ_MISS)") and what the REQ_REPEAT path at the other miss
                 # branch already does.
                 semcache_db.clear_req_seen(target_ip, req_hash)
+                after_miss = True
                 _debug(f"BOOTSTRAP: REQ_MISS from {target_ip}, cleared seen, retrying as REQ_RAW (attempt {attempt+1})")
                 continue
             else:

@@ -163,6 +163,8 @@ Each is John's, quoted where the words matter. They are the constraints everythi
     owed before a third party can install one unaided (the interface declared in code, driver names registered
     instead of listed, HELLO and the ping handled above the drivers).
 
+49. (20:35) "Now continue and don't stop until you're complete unless you have a blocker."
+
 ## 2a. The stages, and each time the work went back a stage
 
 John, 17 Nov: "The record should also show the progression through the stages, and the times we had to roll back.
@@ -850,6 +852,51 @@ is missing for a third party to use it: the set of driver words is a fixed list 
 (`VALID`), so a new driver cannot be added without editing it; and both ends must be given the same driver and
 its keys by some means that is not the wire it protects.
 
+### 17 Nov 20:35 to 21:20: the engine's 503 REQ_MISS, found and fixed
+
+The failure that had been in the record since 12:53 as "the existing system's, recorded, not changed", then
+"counted, not judged", then (ruling 40) a failure: one read in a few thousand answered 503 "REQ_MISS from daemon;
+exhausted retries", on either driver, in the first concurrent burst to a peer.
+
+**Cause, from the proxy's own log** (`logs/sim2/kept_reqmiss_softhoma/Seattle5/proxy.log`, four consecutive lines of
+one request):
+
+    REQ_MISS from 10.123.123.1, retrying as REQ_FULL (attempt 1)
+    REQ_FULL to 10.123.123.1 hash=b2468d66ba0875286edea32c4694666f (69B sem)
+    COALESCE: waiting on in-flight RPC to 10.123.123.1 hash=b2468d66ba0875286edea32c4694666f
+    REQ_MISS from 10.123.123.1, no retries left
+
+The request hash names the answer wanted (target, path, opcode, the merged values), so a REQ_FULL, a REQ_DIFF and
+a REQ_REPEAT for the same values have the same hash, and coalescing (`_dispatch_begin`, `_coalesced_rpc`) joins a
+caller to whatever frame with that hash is in flight. The frame a caller sends because the daemon just answered
+REQ_MISS exists to give the daemon what it lacks. Joined to another caller's in-flight REQ_DIFF of the same hash,
+it was never sent; the caller inherited that frame's REQ_MISS as its own second miss, and two attempts is the
+budget. The bootstrap path (`_handle_raw_and_learn`) had the same shape with REQ_REPEAT and REQ_RAW.
+
+Why a miss happens at all in that burst: the proxy commits an instance's reference as the frame leaves
+(`[REFERENCES_MOVE_IN_WIRE_ORDER_V1]`), and when the peer does not yet hold the template it answers "no templates
+for opcode" and takes no reference. Until that answer arrives, other callers read the committed reference and send
+differences against something the daemon never took. That is why it was always the first burst to a machine the
+proxy had a template for and the daemon did not (the first source's SECOND target). That window is left as it is.
+
+**Fix** (`proxy/transport_semantic.py`, `[A_RETRY_AFTER_A_MISS_IS_ITS_OWN_FRAME_V1]`; John, 20:12, of finding and
+fixing both faults: "DO that"): a retry after a miss is sent as its own frame and joins nothing; it does not take
+the hash's in-flight slot from a frame that holds it; an in-flight entry is released only by the caller that
+registered it; on the bootstrap path the retry is the raw request whatever another caller has since marked seen.
+With it a miss costs one resend.
+
+Before: 503 in 7 of 20 topologies on TCP and 6 of 20 on soft Homa. After: `topo_asym_lan2_wg_lan3`, both batteries,
+3 runs on each driver, 0 failures of any kind. The run across all 20 on all three settings follows.
+
+**How long it took and why.** Nine hours in the record as somebody else's problem; forty minutes to find once I
+read the log for the one request that failed. The lines that state the cause were in the first kept log, from
+13:22. I had read that log for driver events and, finding none, stopped.
+
+**The writer-gone oracle's one-in-four failure** (section 7), also explained: `daemon/test_writer_gone_oracle.py`
+waits for the daemon's listener with a connect inside `wait_for`, which did not catch the refusal of a connect made
+before the listener was up. Fixed in the oracle (`[WAITING_FOR_A_LISTENER_IS_NOT_A_FAILURE_V1]`). It was never the
+TCP driver.
+
 ## 4. The interventions: what was said, why it was noticed, what had not been considered
 
 John, 17 Nov, of the first version of this file: "It is not just the order. It is what I asked and why I asked it.
@@ -1126,6 +1173,16 @@ a summary of it and say so.
 **23. "Roll back FrogTorch"** (20:12). See the entry for 20:04 to 20:30. A summary of one commit, carried for a day,
 against six commits and a results document that came after it.
 
+**24. "Recorded, not changed"** (12:53 to 20:35)
+
+- *What I did*: met a 503 on the TCP control, wrote it down as the existing system's, and built on. When it showed
+  on Homa I gave it a name and a line in the tier's output that kept it out of the result.
+- *Who caught it*: John, twice: "If it is a legitimate failure, it is a legitimate failure", and "find and fix: DO
+  that".
+- *Not considered or recalled, and why*: "not mine to change" had turned into "not mine to understand". Reading
+  why it fails changes nothing in his code and was allowed all along. The answer was four adjacent lines in a log
+  I already had.
+
 ### What the cases have in common
 
 - **The fault was in a sentence I offered as plain description or as a reason.** "Listens", "because", "setting",
@@ -1228,13 +1285,10 @@ Nothing here may be reported as working.
    except through its own hosts file (the ControlRam tells a holder through the wire). John's ruling 36: not a
    realistic case, because a machine going is a merge. With `auto`, or with the ControlRam's connection on tcp in
    BOTH directions, it does not arise. Recorded, not built for.
-0a. **One read in a few thousand between machines is answered 503 "REQ_MISS from daemon; exhausted retries"**, on
-   TCP (2 of 13 runs) and on soft Homa (4 of 15), always in the first burst from the first machine to its second
-   target. It is in the semantic engine above both drivers. What the logs show and what is missing to settle it
-   are in section 3, 13:14 to 14:05. Not instrumented and not changed. The tier counts it and does not judge it.
-0c. **The TCP driver refuses requests during its own session setup** ("reader dead", `ever_had_reader=False`), for
-   about 0.4 s after a new session's send socket connects. It fails `auto` (whose first contact is TCP) and
-   sometimes the TCP control. Section 3, 14:09 to 15:35. Not changed; John's call.
+0a. (closed 17 Nov 21:20) The 503 "REQ_MISS from daemon; exhausted retries": a retry after a miss was coalesced
+   onto another caller's in-flight frame of the same hash. Fixed, `[A_RETRY_AFTER_A_MISS_IS_ITS_OWN_FRAME_V1]`.
+   Still as it was: a reference committed as a frame leaves is read by other callers before the daemon has said
+   whether it took it; that costs a resend during a cold burst and no longer a failure.
 0b. **Two named RAMs with different words on one machine**: that session is not opened. See section 3, the same
    entry. John has not ruled on it.
 1. **The simulator, by ruling 32.** The driver activated between machines on the topology, the full battery over it.
@@ -1415,3 +1469,4 @@ here; where this work did one late or wrong, it says so.
 | `1c67a529` | 17 Nov 13:05 | The stages and the rollbacks |
 | (this commit) | 17 Nov 14:05 | A word per RAM connection; a machine leaving and returning; the library cannot end its proxy; `auto` |
 | (this commit) | 17 Nov 15:45 | The driver between machines across all 20 hardware topologies; the TCP driver's setup window |
+| (this commit) | 17 Nov 21:20 | The engine's 503 REQ_MISS found and fixed; the writer-gone oracle's wait |
