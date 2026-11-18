@@ -659,12 +659,28 @@ def battery_large(machines, check):
     in pieces and comes back on spares. Each machine asks the next one in the topology's order."""
     import hashlib
     import door_origin
+    import slowlink
     ok_all = True
     nonce = "%d" % (time.time() * 1000)
+    # [A_FRAME_THE_LINK_CAN_CARRY_V1] John, 18 Nov, asked whether a frame a link cannot carry in the driver's budget is
+    # a driver failure or the right answer when the app is told: the right answer. So on shaped links a pair is sent
+    # only the sizes its link carries in FITS_S seconds (the narrower of the two machines' uplinks; TCP's own budget
+    # for an RPC is 30 s), and ONE pair per topology whose link cannot carry 3,000,000 characters in that time is sent
+    # it anyway, to see it end with a said error and not with wrong data or silence.
+    FITS_S, over_done = 20.0, False
+
+    def rate_of(a, b):
+        links = [slowlink.profile(m.link) for m in (a, b) if getattr(m, "link", None)]
+        return min(l.rate_Bps for l in links) if links else None
     ring = [(machines[i], machines[(i + 1) % len(machines)]) for i in range(len(machines))] if len(machines) > 1 else []
     for a, b in ring:
         rows, fine = [], True
-        for size in (1000, 100000, 300000, 1000000, 3000000):
+        rate = rate_of(a, b)
+        sizes = [n for n in (1000, 100000, 300000, 1000000, 3000000) if rate is None or n / rate <= FITS_S]
+        if len(sizes) < 5:
+            rows.append("this pair's link carries %.0f kb/s, so sizes over %s are not sent (they need more than %.0f s)" % (
+                rate * 8 / 1e3, format(sizes[-1], ","), FITS_S))
+        for size in sizes:
             seed = "%s-%s-%d-%s" % (a.name, b.name, size, nonce)
             g = a.ask("req", wait_s=300, target=b.ip, method="GET", path="/dc/ram.php?op=blob&n=%d&seed=%s" % (size, seed))
             try:
@@ -696,10 +712,11 @@ def battery_large(machines, check):
         # a short frame while a long one is in flight: one program fetching 3,000,000 characters, four asking small things
         seed = "%s-%s-long-%s" % (a.name, b.name, nonce)
         small = {"target": b.ip, "method": "GET", "path": "/dc/ram.php?op=rams&app=openeoc"}
-        lists = [[{"target": b.ip, "method": "GET", "path": "/dc/ram.php?op=blob&n=3000000&seed=" + seed}]] + [[small] * 8 for _ in range(4)]
+        longest = sizes[-1]
+        lists = [[{"target": b.ip, "method": "GET", "path": "/dc/ram.php?op=blob&n=%d&seed=%s" % (longest, seed)}]] + [[small] * 8 for _ in range(4)]
         out = a.ask("streams", wait_s=300, lists=lists)
         try:
-            long_ok = out[0][0]["status"] == 200 and json.loads(out[0][0]["body"])["data"] == door_origin.parts(3000000, seed)
+            long_ok = out[0][0]["status"] == 200 and json.loads(out[0][0]["body"])["data"] == door_origin.parts(longest, seed)
             shorts = [r for l in out[1:] for r in l]
             short_ok = all(r["status"] == 200 and json.loads(r["body"]).get("ok") is True for r in shorts)
             long_ms, short_ms = out[0][0]["ms"], sorted(r["ms"] for r in shorts)
@@ -707,9 +724,26 @@ def battery_large(machines, check):
         except (ValueError, KeyError, TypeError, IndexError):
             long_ok = short_ok = first = False; long_ms, short_ms = -1, [-1]
         fine = fine and long_ok and short_ok and first
-        check(fine, "(c) %s -> %s: frames of 1,000 to 3,000,000 characters each way, contents recomputed and hashed at the far end [%s]; "
-                    "and 32 short requests during one of 3,000,000: all exact, the long one %.0f ms, the short ones %.0f ms median, "
-                    "the first of them back in %.0f ms" % (a.name, b.name, "; ".join(rows), long_ms, short_ms[len(short_ms) // 2], short_ms[0]))
+        check(fine, "(c) %s -> %s: frames of 1,000 to %s characters each way, contents recomputed and hashed at the far end [%s]; "
+                    "and 32 short requests during one of %s: all exact, the long one %.0f ms, the short ones %.0f ms median, "
+                    "the first of them back in %.0f ms" % (a.name, b.name, format(longest, ","), "; ".join(rows), format(longest, ","),
+                                                           long_ms, short_ms[len(short_ms) // 2], short_ms[0]))
+        if rate is not None and 3000000 / rate > FITS_S and not over_done:
+            over_done = True
+            seed = "%s-%s-over-%s" % (a.name, b.name, nonce)
+            t0 = time.time()
+            g = a.ask("req", wait_s=300, target=b.ip, method="GET", path="/dc/ram.php?op=blob&n=3000000&seed=%s" % seed)
+            took = time.time() - t0
+            try:
+                exact = g.get("status") == 200 and json.loads(g["body"]).get("data") == door_origin.parts(3000000, seed)
+            except (ValueError, KeyError, TypeError):
+                exact = False
+            said = g.get("status") == 503 and any(w in str(g.get("body")) for w in ("Timeout", "budget", "no reply in"))
+            check(exact or said, "(c) %s -> %s: 3,000,000 characters over a link of %.0f kb/s, which needs %.0f s or more: %s in %.0f s"
+                  % (a.name, b.name, rate * 8 / 1e3, 3000000 / rate,
+                     "it arrived exact" if exact else "the driver ended it and said so (%s)" % str(g.get("body"))[:140] if said
+                     else "WRONG: neither exact nor a said time limit (%s %s)" % (g.get("status"), str(g.get("body"))[:200]), took))
+            time.sleep(max(0.0, 3000000 * 1.4 / rate - took))    # what was abandoned is still on the link: let it pass before the next pair
         ok_all = ok_all and fine
     return ok_all
 

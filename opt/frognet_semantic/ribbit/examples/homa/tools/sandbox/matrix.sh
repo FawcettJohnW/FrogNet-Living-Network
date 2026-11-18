@@ -12,7 +12,7 @@ for f in simulation/baselines/topo_*.json; do
   k=$(basename "$f" .json)
   [ -s "$out/$k.txt" ] && grep -q "^RESULT" "$out/$k.txt" && continue
   [ $(( $(date +%s) - start )) -gt "$BUDGET" ] && { echo "budget used; more to run"; break; }
-  timeout 900 $PY simulation/wire_between_machines_tier.py --transport "$T" --links "$L" --topology "$k" --keep > "$out/$k.txt" 2>&1
+  timeout 2400 $PY simulation/wire_between_machines_tier.py --transport "$T" --links "$L" --topology "$k" --keep > "$out/$k.txt" 2>&1
   # [WHERE_THE_TIME_GOES_V1] the machines' logs are kept until what they say of where the time went is copied out
   kept=$(sed -n 's/^kept: \([^;]*\);.*/\1/p' "$out/$k.txt" | tail -1)
   if [ -n "$kept" ] && [ -d "$kept" ]; then
