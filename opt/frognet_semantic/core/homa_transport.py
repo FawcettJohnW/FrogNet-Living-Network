@@ -160,9 +160,17 @@ def on_homa_driver() -> bool:
 
 
 def _soft_homa_loaded() -> Optional[str]:
-    """Soft Homa's build if this node was told of a soft Homa library, else None. A test replaces this function."""
-    from core import homa_socket
-    return homa_socket.soft_homa_loaded()
+    """[WE_OWN_THE_WIRE_V1] Whether the Homa this node's driver runs on is soft Homa (Homa's frames on TCP connections
+    the driver holds open, core/homa_frames.py), and if so its build: only when a word of the node's setting says
+    softhoma. It needs nothing but TCP, so it could always be had; it is not taken unless asked for. A node left on
+    auto with no Homa in its kernel is on TCP exactly as it was (John, 17 Nov: "There should be no risk to existing
+    systems at all")."""
+    words = {semantic_transport()} | set(_ram_words.values())
+    if "softhoma" in words:
+        from core import homa_frames
+        return homa_frames.BUILD
+    return None
+
 
 
 def homa_name() -> str:
@@ -196,11 +204,6 @@ def carriers_here(mode: Optional[str] = None) -> Tuple[str, ...]:
                 if mode == "homa" and soft:
                     raise SystemExit("[SEM-TRANSPORT] this node was told homa, and it was also told of a soft Homa library "
                                      "(%s): the Homa its driver would open is soft Homa. The word for that is softhoma." % soft)
-                if mode == "softhoma" and not soft:
-                    from core import homa_socket
-                    raise SystemExit("[SEM-TRANSPORT] this node was told softhoma, and it was not told where the soft Homa "
-                                     "library is (FROGNET_SOFTHOMA_LIB, or the one line of %s, names libsofthoma.so; "
-                                     "SOFTHOMA_RAM names its memory)." % homa_socket.SOFTHOMA_LIB_FILE)
                 _here[mode] = (mode,)
             else:
                 soft = _soft_homa_loaded()
@@ -209,7 +212,7 @@ def carriers_here(mode: Optional[str] = None) -> Tuple[str, ...]:
                 # Homa's memory cannot be named yet, the socket did not open, and "auto" was tcp for the life of the
                 # process on every node. Soft Homa is had when this node was told of its library; where its memory is
                 # comes and goes with the role, and the listener follows it. Kernel Homa is still had when its socket opens.
-                ok, why = (True, "this node was told of the soft Homa library") if soft else _kernel_homa_opens()
+                ok, why = (True, "a word of this node's setting says softhoma") if soft else _kernel_homa_opens()
                 _here[mode] = (homa_name(), "tcp") if ok else ("tcp",)
                 print("[SEM-TRANSPORT] [CARRIER_PER_HOP_V1] carriers here: %s (%s: %s)"
                       % (", ".join(_here[mode]), "soft Homa %s" % soft if soft else "kernel Homa", why), flush=True)
@@ -344,6 +347,17 @@ def open_homa_socket(who: str, bind_ip: str = "0.0.0.0", server_port=None):
         from core import homa_sim
         s = homa_sim.HomaSimSocket(bind_ip=bind_ip, server_port=server_port)
         print(homa_sim.startup_line(who, s), flush=True)
+        return s
+    if _soft_homa_loaded():                        # [WE_OWN_THE_WIRE_V1] Homa's frames on connections the driver holds open
+        from core import homa_frames, frognet_tuples
+        try:
+            src = frognet_tuples.my_ip()
+        except Exception as e:
+            src = ""
+            print("[HOMA] %s: this node's own address could not be said (%s: %s); soft Homa's connections leave by "
+                  "whatever address the kernel picks" % (who, type(e).__name__, e), flush=True)
+        s = homa_frames.HomaFramesOnTcp(bind_ip=bind_ip, server_port=server_port, src=src)
+        print(homa_frames.startup_line(who, s), flush=True)
         return s
     from core import homa_socket
     s = homa_socket.HomaSocket(bind_ip=bind_ip, server_port=server_port)

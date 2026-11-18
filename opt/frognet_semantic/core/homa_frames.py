@@ -36,7 +36,7 @@ from typing import Dict, List, Optional, Tuple
 from core.homa_socket import Msg, RpcFailed, CarrierClosed, HomaUnavailable
 from core.transport_driver import TransportDriver, ConnectionGone
 
-BUILD = "homa-frames-on-tcp-v1-20261118a"
+BUILD = "homa-frames-on-tcp-v2-20261118b"
 PORT = 9131                          # soft Homa's port (the firewall already has it)
 SEGMENT = 240000                     # no unit on the connection carries more of a message than this
 DATA = 0x10                          # homa_wire.h: enum homa_packet_type
@@ -316,6 +316,10 @@ class HomaFramesOnTcp:
             return
         self._closed = True
         if self._ls is not None:
+            try:
+                self._ls.shutdown(socket.SHUT_RDWR)   # wakes the thread in accept(); without it the port goes on taking connections nobody reads
+            except OSError:
+                pass
             self._ls.close()
         with self._lock:
             conns = list(self._conns.values()) + list(self._accepted)

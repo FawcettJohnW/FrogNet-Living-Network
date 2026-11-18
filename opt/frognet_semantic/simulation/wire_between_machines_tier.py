@@ -261,8 +261,6 @@ class Machine:
         """This machine's daemon and proxy (the processes a node runs, as its units start them) told the transport
         `word`, and a client on the machine."""
         env = dict(self.env, FROGNET_SEM_TRANSPORT=word)
-        if word != "tcp":                    # any setting that names a Homa: told where the library is
-            env["FROGNET_SOFTHOMA_LIB"] = os.path.join(SOFT_BUILT, "libsofthoma.so")   # the driver opens it; nothing preloaded
         self.daemon_log = os.path.join(self.dir, "daemon.log")
         self.daemon = self.run([PY, os.path.join(SEM, "daemon", "daemon_main.py"), "--listen", "0.0.0.0:9009"], env=env, cwd=SEM,
                                stdout=open(self.daemon_log, "w"), stderr=subprocess.STDOUT)
@@ -805,16 +803,7 @@ def battery_restart(net, machines, system, setting, check):
     before = {m.name: listens(m) for m in machines}
     gone = system.stop_wire()
     time.sleep(1.0)
-    if homa:
-        def down(m):
-            log = open(m.daemon_log, errors="replace").read()
-            return "the Homa listener ended" in log or "the Homa listener is NOT listening" in log.split(LISTENING)[-1]
-        downs = {m.name: down(m) for m in others}
-        check(len(gone) >= 3 and all(downs.values()),
-              "(b) %s (the SystemRam) is killed where it stands (%d processes); soft Homa's memory went with it and every "
-              "other machine's daemon says its Homa listener went down (%s)" % (system.name, len(gone), downs))
-    else:
-        check(len(gone) >= 3, "(b) %s (the SystemRam) is killed where it stands (%d processes)" % (system.name, len(gone)))
+    check(len(gone) >= 2, "(b) %s (the SystemRam) is killed where it stands (%d processes)" % (system.name, len(gone)))
     the_merge(net, machines, others, "%s left" % system.name)
     named = [m.exec(["getent", "hosts", SYSTEM_RAM]).stdout.split()[:1] == [m.system.ip] and m.system is not system
              and system.ip not in open(m.hosts).read() for m in others]
@@ -823,9 +812,10 @@ def battery_restart(net, machines, system, setting, check):
                       "SystemRam that is there (%d block%s: %s)" % (system.name, len(blocks), "" if len(blocks) == 1 else "s",
                       "; ".join("%s, SystemRam %s" % ("+".join(b), next(m for m in others if m.name == b[0]).system.name) for b in blocks)))
     if homa:
-        there = wait_for_listeners(others, more_than=before)
-        check(all(there.values()), "(b) every remaining machine's daemon is listening on Homa again, in the memory where its "
-                                   "block's role is now, after its own hosts file was rewritten, with nothing restarted (%s)" % there)
+        # [WE_OWN_THE_WIRE_V1] a machine leaving ends the connections to it and nothing else: no listener closes
+        there = {m.name: listens(m) == before.get(m.name) and listens(m) >= 1 for m in others}
+        check(all(there.values()), "(b) every remaining machine's daemon is still listening on Homa as it was: a machine "
+                                   "leaving closed no listener and nothing was restarted (%s)" % there)
     alive = all(m.daemon.poll() is None and m.proxy_main.poll() is None for m in others)
     check(alive, "(b) no daemon or proxy on a remaining machine has ended")
     pairs = [(a, b) for a in others for b in others if a is not b and b in a.block]
@@ -856,11 +846,8 @@ def battery_restart(net, machines, system, setting, check):
     check(whole, "(b) the merge ran with %s back: every machine knows all %d again and names %s as the SystemRam" % (
         system.name, len(machines), machines[0].system.name))
     if homa:
-        again = [m for m in machines if m is system or moved.get(m.name) is not m.system]
-        before[system.name] = 0
-        there = wait_for_listeners(again, more_than=before)
-        check(all(there.values()), "(b) %s's daemon, and each machine whose SystemRam changed at this merge, is listening on Homa "
-                                   "in the memory at %s (%s)" % (system.name, machines[0].system.name, there))
+        there = wait_for_listeners([system])
+        check(all(there.values()), "(b) %s's daemon is listening on Homa (%s)" % (system.name, there))
     alive = all(m.daemon.poll() is None and m.proxy_main.poll() is None for m in machines)
     check(alive, "(b) no daemon or proxy on any machine has ended")
     pairs = [(o, system) for o in others] + [(system, o) for o in others]
@@ -940,8 +927,6 @@ def main():
         print("  [%s] %s" % ("PASS" if cond else "FAIL", msg), flush=True)
 
     need = missing()
-    if a.transport != "tcp" and not os.path.exists(os.path.join(SOFT_BUILT, "libsofthoma.so")):
-        need.append("soft Homa built (make -C ribbit/examples/homa HOMA=<HomaModule checkout>)")
     if need:
         print("RESULT FAIL: this tier needs " + "; ".join(need))
         return 1
@@ -1003,8 +988,7 @@ def main():
               "highest .1) as the ControlRam" % (len(machines), system.ip, system.name, machines[0].control.ip, machines[0].control.name))
         if a.transport != "tcp":
             there = wait_for_listeners(machines)
-            check(all(there.values()), "every machine's daemon opened its Homa listener in soft Homa's memory after its own hosts "
-                                       "file changed, with nothing restarted (%s)" % there)
+            check(all(there.values()), "every machine's daemon is listening on Homa (%s)" % there)
 
         ok = battery_fanout(machines, check) and ok
         ok = battery_carried(machines, a.transport, check) and ok

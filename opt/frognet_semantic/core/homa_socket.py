@@ -45,7 +45,7 @@ import sys
 import threading
 from typing import List, NamedTuple, Optional, Tuple
 
-BUILD = "homa-transport-v6-20261118c"
+BUILD = "homa-transport-v7-20261118d"
 HOMA_PINNED_COMMIT = "07ce63ef153207a953c42a749ee2429fb5282f55"
 
 IPPROTO_HOMA = 146
@@ -168,7 +168,12 @@ _soft_lib_lock = threading.Lock()
 
 
 def soft_homa_library():
-    """The soft Homa library this node was told to use, opened once, or None when it was told of none."""
+    """[WE_OWN_THE_WIRE_V1] None, always: FrogNet's wire does not run on the soft Homa library any more. Soft Homa under
+    the wire is Homa's frames on a connection the driver holds open (core/homa_frames.py). The library
+    (ribbit/examples/homa: his API for his own unchanged programs, on a memory process) is not opened by a proxy or a
+    daemon. Everything below this line, and every caller's "soft" branch, is what carried the wire through that
+    memory until 18 Nov; it is unreachable and is taken out once the range has passed without it."""
+    return None
     global _soft_lib, _soft_lib_asked
     with _soft_lib_lock:
         if _soft_lib_asked:

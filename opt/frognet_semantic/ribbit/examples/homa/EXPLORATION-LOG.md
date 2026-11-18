@@ -1276,7 +1276,7 @@ the wait for the RETURN connection (`connect`), a request numbered by its place 
 4-byte number and the frame (`unpack`, `pack`). `SemanticSession` is the two joined, with the same constructor and
 the same bytes on the wire; its read and write loops now call the driver. The Homa listener's session derives from
 `EngineSession`. Checked: 13 of 13 gates; `door_semantic_tier` and `return_channel_tier` pass; and the range on
-`tcp`, all four batteries: 20 of 20 topologies, 1,514 checkpoints, 0 failures
+`tcp`, all four batteries: 20 of 20 topologies, 1,516 checkpoints, 0 failures
 (`/home/claude/logs/final/tcp__none/`; the results from before the split are in `before-the-driver-split/`).
 
 **Step 3, begun: `core/homa_frames.py`.** Soft Homa as John stated it: Homa's own DATA frame (the common header as

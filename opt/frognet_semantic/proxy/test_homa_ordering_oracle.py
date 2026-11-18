@@ -68,7 +68,7 @@ import time
 MODE = sys.argv[1] if len(sys.argv) > 1 else "all"
 SIM = MODE in ("sim", "simheld")
 os.environ["FROGNET_LOCAL_GW"] = "10.88.88.1"     # the .1 each end names itself by in its HELLO (one process, both ends)
-os.environ["FROGNET_SEM_TRANSPORT"] = "homasim" if SIM else "softhoma" if MODE in ("soft", "softmoved") else "homa"
+os.environ["FROGNET_SEM_TRANSPORT"] = "homasim" if SIM else "softhoma" if MODE == "soft" else "homa"
 if SIM:
     os.environ.setdefault("FROGNET_HOMASIM_LOSS", "0.02")
 if MODE == "simheld":
@@ -226,15 +226,8 @@ def run(mode):
         print(f"  [{'PASS' if cond else 'FAIL'}] {msg}", flush=True)
 
     hub = Hub(seed=int(os.environ.get("HOMA_ORACLE_SEED", "20261116")), jitter_s=float(os.environ.get("HOMA_ORACLE_JITTER_MS", "4")) / 1000.0)
-    soft = mode in ("soft", "softmoved")
-    sim = mode in ("sim", "simheld", "soft", "softmoved")       # no substitution: the driver's own socket
-    if soft:
-        # [THE_MEMORY_IS_WHERE_THE_ROLE_IS_V1] where the memory and this node are is asked of FrogNet; here the oracle
-        # answers (the launcher started the memory and says where in SOFTHOMA_RAM), and can move it (mode softmoved)
-        from core import homa_socket as _HS
-        memory = {"at": os.environ["SOFTHOMA_RAM"]}
-        _HS.soft_memory_now = lambda: (memory["at"], os.environ["SOFTHOMA_IP"])
-        SH.MsgDaemonServer._memory_child = lambda self: None
+    soft = mode == "soft"                          # [WE_OWN_THE_WIRE_V1] Homa's frames on a TCP connection the driver holds open
+    sim = mode in ("sim", "simheld", "soft")       # no substitution: the driver's own socket
     if mode == "pieces":                           # [FRAMES_GO_IN_PIECES_V1] the ordered run on a carrier whose messages are small
         hub.max_message = 64
     if not sim:
@@ -397,7 +390,10 @@ def run(mode):
     check(sess and all(x.order == list(range(len(x.order))) for x in sess),
           f"contract 2: the daemon's engine was handed every frame in the order the proxy's engine submitted it ({sum(len(x.order) for x in sess)} frames, {len(sess)} session)")
     early_d, early_p = sum(x.n_early for x in sess), sum(w["replies_arrived_early"] for w in ws)
-    check(early_d > 0 and early_p > 0, f"the driver did the work: {early_d} requests and {early_p} replies arrived ahead of their turn and were held for it")
+    if soft:                                       # one connection, held open: what it is given in order arrives in order
+        check(early_d == 0 and early_p == 0, f"soft Homa's connection kept the order itself: {early_d} requests and {early_p} replies arrived ahead of their turn")
+    else:
+        check(early_d > 0 and early_p > 0, f"the driver did the work: {early_d} requests and {early_p} replies arrived ahead of their turn and were held for it")
     check(worst["n"] > 1, f"contract 3: nothing was held back from the wire: up to {worst['n']} frames of one instance in flight together")
     if mode == "pieces":
         now = [w.stats() for w in TS._WORKERS.values()]         # read now: a request was made since `ws` was taken
@@ -417,57 +413,6 @@ def run(mode):
     if not sim:
         check(hub.not_fnw1 == 0, "every message was the driver's header followed by one whole FNW1 frame, or a piece of one")
     check(not tcp_workers, "no TCP worker was made")
-    if mode == "softmoved":
-        # ---- [THE_MEMORY_IS_WHERE_THE_ROLE_IS_V1] the role moves in the middle of a run: soft Homa's memory is now on
-        # another machine (a second memory process the launcher started). Both ends learn it the way they do on a
-        # node, from the hosts file changing; here the oracle moves the answer and fires that event.
-        from core import homa_socket as _HS
-        mux = TH._get_mux()
-        hold.clear()
-        got = []
-        ths = [threading.Thread(target=lambda i=i: got.append(F.call("GET", rpath("A" if i % 2 else "B", 1 + i % 5)))) for i in range(6)]
-        for th in ths: th.start()
-        w0 = [w for w in TS._WORKERS.values() if not w.is_stopped()][0]
-        t_end = time.time() + 10
-        while len(w0._out) < 6 and time.time() < t_end:
-            time.sleep(0.01)
-        first, s0 = memory["at"], [x.sid for x in srv._sessions.values()]
-        check(len(w0._out) == 6 and len(s0) == 1, f"6 requests are outstanding on the memory at {first}")
-        memory["at"] = os.environ["SOFTHOMA_RAM2"]
-        # the daemon's node learns of the move later than the proxy's (each node's hosts file changes in its own
-        # time): until the oracle lets it, its listener does not open in the new memory
-        real_carrier, behind = srv._server_carrier, threading.Event()
-        def not_yet():
-            if not behind.is_set():
-                raise _HS.HomaUnavailable("the oracle: this node's hosts file has not changed yet")
-            return real_carrier()
-        srv._server_carrier = not_yet
-        t0 = time.time()
-        mux._hosts_changed()
-        for th in ths: th.join(20)
-        dt = time.time() - t0
-        hold.set()
-        check([g[0] for g in got] == [503] * 6 and dt < 3.0,
-              f"the memory moved to {memory['at']}: every one of the 6 outstanding ended (503) in {dt * 1000:.0f} ms, none waited and none was sent again ({got[0][1][:110]!r})")
-        check(w0.is_stopped() and _HS._soft_told[0] == memory["at"], f"the session on the old memory is ended with the reason ({w0.stopped_reason()[:90]}) and the library was told the new place")
-        t0 = time.time()
-        st, body = F.call("GET", rpath("A", 3))
-        dt = time.time() - t0
-        check(st == 503 and "no Homa listener in soft Homa's memory where it is now" in body and dt < 1.0,
-              f"[A_PEER_IS_THERE_WHEN_ITS_CELL_IS_V1] a request to a peer that has not arrived in the new memory is told so at once ({st} in {dt * 1000:.0f} ms): no session is opened to it and nothing waits")
-        behind.set(); srv._hosts_changed()                      # now the daemon's node learns of the move
-        arrived = _HS.soft_peer_there((F.DAEMON_IP, F.PORT), 10.0)   # one held read on its capability cell
-        t0 = time.time()
-        st, body = F.call("GET", rpath("A", 3))
-        dt = time.time() - t0
-        s1 = [x.sid for x in srv._sessions.values()]
-        check(arrived and st == 200 and len(json.loads(body)["rows"]) == 3, f"once the daemon's listener is in the new memory the next request is answered exactly, in {dt * 1000:.0f} ms")
-        check(mux.n_reopened == 1 and len(s1) == 1 and s1 != s0, f"each end opened one new socket there (proxy reopened {mux.n_reopened}) and the request ran on a new session")
-        st2 = [F.call("GET", rpath("B", 2))[0] for _ in range(20)]
-        check(st2 == [200] * 20, "and 20 more after it")
-        check(not tcp_workers, "no TCP worker was made: nothing was used in Homa's place while the memory moved")
-        return ok
-
     # ---- contract 5 by liveness. From here on the carrier reports nothing unless the mode is Homa as shipped.
     hub.dead_after_s = 3600.0
     mux = TH._get_mux()
@@ -516,10 +461,10 @@ def run(mode):
         del hub.ends[(F.DAEMON_IP, F.PORT)]
     got, ths = burst()
     if soft:
-        # soft Homa: the daemon's socket closed, its capability cell says so, and the memory tells those it owed
+        # soft Homa: the daemon closed, the connection to it ended, and what was outstanding on it ended with it
         for th in ths: th.join(20)
         dt = time.time() - t0
-        check([g[0] for g in got] == [503] * 6 and dt < 1.0, f"contract 5 on soft Homa: the daemon's socket closed with 6 requests outstanding; every one was failed (503) in {dt * 1000:.0f} ms by its capability cell saying closed, no timer, none re-sent ({[g[0] for g in got]}, {got[0][1][:90]!r})")
+        check([g[0] for g in got] == [503] * 6 and dt < 1.0, f"contract 5 on soft Homa: the daemon's socket closed with 6 requests outstanding; every one was failed (503) in {dt * 1000:.0f} ms by its connection ending, no timer, none re-sent ({[g[0] for g in got]}, {got[0][1][:90]!r})")
         check(not tcp_workers, "and still no TCP worker")
         return ok
     if mode == "sim":
@@ -571,25 +516,9 @@ def main():
     import tempfile
     kept = os.path.join(tempfile.gettempdir(), "homa_ordering_oracle.last.txt")
     open(kept, "w").close()
-    for m in ("free", "ordered", "pieces", "gone", "sim", "simheld", "soft", "softmoved"):
+    for m in ("free", "ordered", "pieces", "gone", "sim", "simheld", "soft"):
         print(f"=== {m} ===", flush=True)
         env, ram, ram2 = dict(os.environ), None, None
-        if m in ("soft", "softmoved"):
-            built = os.path.join(os.path.dirname(HERE), "ribbit", "examples", "homa", "build")
-            lib, host = os.path.join(built, "libsofthoma.so"), os.path.join(built, "softhoma-ram")
-            if not (os.path.exists(lib) and os.path.exists(host)):
-                print(f"  [FAIL] soft Homa is not built: make -C {os.path.dirname(built)} HOMA=<HomaModule checkout>", flush=True)
-                rcs[m] = 1
-                continue
-            where = "127.0.0.1:%s" % os.environ.get("SOFTHOMA_ORACLE_PORT", "9151")
-            ram = subprocess.Popen([host, where], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
-            time.sleep(0.7)
-            env.update(FROGNET_SOFTHOMA_LIB=lib, SOFTHOMA_RAM=where, SOFTHOMA_IP="10.77.77.2")   # no LD_PRELOAD: the driver opens it
-            if m == "softmoved":                 # a second memory, for the role to move to
-                where2 = "127.0.0.1:%d" % (int(where.rsplit(":", 1)[1]) + 1)
-                ram2 = subprocess.Popen([host, where2], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
-                time.sleep(0.7)
-                env.update(SOFTHOMA_RAM2=where2)
         try:
             r = subprocess.run([sys.executable, os.path.abspath(__file__), m], capture_output=True, text=True, timeout=900, env=env)
         finally:

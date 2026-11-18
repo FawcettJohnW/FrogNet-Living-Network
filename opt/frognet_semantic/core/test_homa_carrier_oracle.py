@@ -164,11 +164,8 @@ def main():
     check(HT.carriers_here() == ("softhoma",) and HT.carrier_for(P) == "homa" and HT.on_homa_driver(), "told softhoma with soft Homa loaded: Homa only, on soft Homa")
     HT._soft_homa_loaded = lambda: None
     fresh("softhoma")
-    try:
-        HT.carrier_for(P); stopped = False
-    except SystemExit as e:
-        stopped = "not told where the soft Homa library is" in str(e)
-    check(stopped, "told softhoma without it: the process stops and says so; nothing else is opened")
+    # [WE_OWN_THE_WIRE_V1] soft Homa is Homa's frames on TCP the driver holds open: it needs no library told
+    check(HT.carriers_here() == ("softhoma",) and HT.carrier_for(P) == "homa", "told softhoma and nothing else: Homa only; soft Homa needs nothing told but the word")
     # [A_WORD_PER_RAM_CONNECTION_V1] John 2026-11-17: "It is a Setting per ram connection, which may be on different machines"
     SYS, CTL = "databasehost.frognet", "databasehost_control.frognet"
     where = {SYS: "10.2.2.1", CTL: "10.3.3.1"}
@@ -203,11 +200,8 @@ def main():
         check(stopped, "%s stops the process with the line in the message" % what)
     HT._soft_homa_loaded = lambda: None
     fresh("tcp,%s softhoma" % SYS)
-    try:
-        HT.semantic_transport(); stopped = False
-    except SystemExit as e:
-        stopped = "not told where the soft Homa library is" in str(e)
-    check(stopped, "a RAM's word this process cannot keep (softhoma, no library) stops it at the start, not at the first session")
+    check(HT.semantic_transport() == "tcp" and HT.carriers_here("softhoma") == ("softhoma",),
+          "a RAM's word softhoma is kept with nothing else told: the node's word is tcp and that RAM's connection is on soft Homa")
     HT._rams_at = real_at
     import tempfile, frognet_held
     hf = tempfile.NamedTemporaryFile("w", suffix=".hosts", delete=False)
