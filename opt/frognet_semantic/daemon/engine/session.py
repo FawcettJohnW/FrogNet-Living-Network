@@ -47,6 +47,7 @@ import time
 import threading
 from concurrent.futures import ThreadPoolExecutor
 from typing import Tuple, Optional, Dict, Any, List
+from core.transport_driver import TransportDriver
 
 from daemon.daemon_metrics import bump_daemon_cache, bump_semantic, bump_daemon_coalesce
 from daemon.daemon_metrics import bump_link_quality
@@ -565,162 +566,26 @@ class _Emitter:
 _NO_EMIT = _Emitter()
 
 
-class SemanticSession:
-    """
-    _recv_sock: accepted connection from proxy (proxy->daemon).
-                Reader thread reads from this exclusively.
-    _send_sock: connection daemon opens back to proxy:9010.
-                Writer thread drains reply queue onto this exclusively.
+class EngineSession:
+    """[WE_OWN_THE_WIRE_V1] The engine's side of one peer's session: everything ABOVE the transport driver. It is
+    handed frames (_submit_frame) and puts each reply, with the number of the frame it answers, on _reply_q. It opens
+    no connection, reads no socket and writes none: that is the driver's (core/transport_driver.py). John, 18 Nov:
+    "connection, send, and receive must be part of the driver"; of splitting this class from the TCP sockets it used
+    to hold: "Of course. It is the right thing."
 
-    Worker pool submits (seq, reply, wire_in) tuples to _reply_q.
-    Writer thread: _reply_q.get() -> _send_frame on _send_sock.
-    Reader thread: _recv_frame on _recv_sock -> executor.submit(_process_frame).
-    """
+    Worker pool submits (seq, reply, wire_in) tuples to _reply_q; whoever runs the driver drains it."""
 
-    def __init__(self, recv_sock: socket.socket, peer_ip: str, resolver, http_client=None, return_ip=None):
+    def __init__(self, peer_ip: str, resolver, http_client=None):
         self._encode_lock = threading.Lock()             # [REFERENCES_MOVE_IN_WIRE_ORDER_V1]
         self.peer_ip = peer_ip
-        self.established = False      # [WRITER_GONE_V1] set once the RETURN channel is up (the permanent socket pair)
+        self.established = False      # [WRITER_GONE_V1] set once the permanent connection is up
         self.on_established = None    # the server's count of live sessions per peer
         self.resolver = resolver
-        self._recv_sock = recv_sock
-        self._send_sock: Optional[socket.socket] = None
-        self._return_ip = return_ip
-        self._send_sock_event = threading.Event()
         self._http_client = http_client or _get_http_client()
         self.engine = ExecutionEngine(resolver=self.resolver, http_client=self._http_client)
         self._request_seq = 0
         self._reply_q: queue.Queue[Tuple[int, bytes, int]] = queue.Queue()
         self._alive = True
-        # [LINK_POTENTIAL_PING_V1 2026-05-25] The server reads one
-        # extra frame past the ping phase (the first non-ping frame
-        # = first session frame) before constructing this session.
-        # That frame is handed in via set_preread_frame() so the
-        # read_loop processes it before pulling more frames from the
-        # socket.  Stays None when the proxy sent no app traffic
-        # before the read timeout fired in the server.
-        self._preread_frame: Optional[bytes] = None
-
-        # [NO_FALLBACK_V1] Same class as the keepalive block in
-        # daemon/engine/server.py. A refused TCP_NODELAY means every reply on
-        # this session is subject to Nagle - measurable latency on small FNWP
-        # frames, attributed to the link rather than to a socket option nobody
-        # knows was refused.
-        try:
-            self._recv_sock.setsockopt(socket.IPPROTO_TCP, socket.TCP_NODELAY, 1)
-        except OSError as e:
-            print(f"[DAEMON-SESSION] TCP_NODELAY refused on recv sock for "
-                  f"{self.peer_ip}: {type(e).__name__} errno={e.errno} "
-                  f"({e.strerror}) - small frames on this session will be "
-                  f"delayed by Nagle", flush=True)
-
-    def set_preread_frame(self, frame: bytes) -> None:
-        """[LINK_POTENTIAL_PING_V1] Hand the session a frame that the
-        server already read off the socket during the ping phase.  The
-        read_loop will consume this frame as if it had just been read,
-        BEFORE calling _recv_frame() for the first time.
-
-        Must be called BEFORE session.run() starts the read_loop -
-        currently that means between __init__ and the thread start in
-        DaemonServer._run_session, which is the case at the only call
-        site."""
-        self._preread_frame = frame
-
-    # ---- two-socket setup: callback with proxy-initiated fallback ----
-
-    def set_send_sock(self, sock):
-        """Called by DaemonServer when proxy opens a RETURN connection.
-
-        The proxy opens a second TCP connection to daemon:9009 with
-        HELLO body 'RETURN:<ip>'.  The server routes it here.  This
-        eliminates the need for the daemon to connect BACK to the proxy,
-        which fails under WiFi client isolation.
-        """
-        try:
-            sock.setsockopt(socket.IPPROTO_TCP, socket.TCP_NODELAY, 1)
-        except OSError as e:
-            print(f"[DAEMON-SESSION] TCP_NODELAY refused on RETURN send sock "
-                  f"for {self._return_ip}: {type(e).__name__} errno={e.errno} "
-                  f"({e.strerror}) - every reply on this return channel will "
-                  f"be delayed by Nagle", flush=True)
-        self._send_sock = sock
-        # Send our HELLO so the proxy knows the return channel is live
-        hello = wrap_hello(_get_local_gw())
-        _send_frame(sock, hello)
-        self._send_sock_event.set()
-        print(f"[DAEMON-SESSION] send_sock delivered by proxy for "
-              f"{self._return_ip} fd={sock.fileno()}", flush=True)
-
-    def _open_send_sock(self):
-        """[RETURN_ONLY_V1] Wait for proxy to deliver a RETURN channel.
-
-        The proxy opens a second TCP connection to daemon:9009 with
-        HELLO body 'RETURN:<gw>'.  DaemonServer routes it here via
-        set_send_sock().  No outbound callback - that path fails
-        through firewalls / WiFi client isolation.
-        """
-        connect_ip = self._return_ip or self.peer_ip
-        trace(f"[Daemon] [RETURN_ONLY_V1] waiting for RETURN from {connect_ip}")
-        if self._send_sock_event.wait(timeout=15.0) and self._send_sock is not None:
-            return self._send_sock
-        raise RuntimeError(
-            f"no RETURN connection from {connect_ip} after 15s")
-    # ---- END two-socket setup ----
-
-    def run(self) -> None:
-        start = time.time()
-        trace(f"[Daemon] session start peer={self.peer_ip}")
-
-        # [SAME_IS_BACK_V1] The semcache table must exist before the first
-        # upsert. Not fatal if it fails -- the node still serves, it just never
-        # answers RESP_SAME -- but it says so rather than failing every write in
-        # silence.
-        try:
-            semcache_db.ensure_table()
-        except Exception as e:
-            print(f"[Daemon] semcache ensure_table failed: {e!r} -- this node "
-                  f"will answer RESP_DIFF only", flush=True)
-
-        # [RETURN_ONLY_V1] Wait for RETURN channel before starting threads.
-        try:
-            self._send_sock = self._open_send_sock()
-            # [WRITER_GONE_V1] the permanent socket pair is up: this peer is on the network through us
-            self.established = True
-            if self.on_established is not None:
-                self.on_established()
-        except Exception as e:
-            trace(f"[Daemon] [RETURN_ONLY_V1] no RETURN from {self.peer_ip}: {e!r}")
-            try:
-                self._recv_sock.close()
-            except Exception:
-                pass
-            return
-
-        # Start writer thread
-        writer = threading.Thread(target=self._write_loop, daemon=True,
-                                  name=f"daemon-writer-{self.peer_ip}")
-        writer.start()
-
-        # Reader loop runs in this thread
-        try:
-            self._read_loop()
-        finally:
-            self._alive = False
-            # Sentinel to unblock writer
-            self._reply_q.put((-1, b"", 0))
-            try:
-                self._recv_sock.close()
-            except Exception:
-                pass
-            try:
-                if self._send_sock:
-                    self._send_sock.close()
-            except Exception:
-                pass
-            trace(
-                f"[Daemon] session closed peer={self.peer_ip} "
-                f"dt_ms={(time.time()-start)*1000.0:.1f}"
-            )
 
     def _submit_frame(self, frame: bytes, seq: int, wire_in: int,
                       fast_exec, db_exec) -> None:
@@ -762,105 +627,6 @@ class SemanticSession:
         (fast_exec if fast else db_exec).submit(
             self._process_frame, frame, seq, wire_in, prepared)
 
-    def _read_loop(self) -> None:
-        """Reads request frames from _recv_sock, routes to executor.
-
-        Two pools:
-          fast_exec (256 threads): echo, discovery -- no database, instant.
-          db_exec   (4*cores threads): sensor data -- MySQL-bound, limited
-                                   to what the hardware can sustain.
-
-        Dashboard stampede puts 200 sensor queries into db_exec where they
-        queue behind each other instead of saturating all 256 threads.
-        Echo arrives, goes to fast_exec, responds in milliseconds."""
-        fast_exec = _get_executor()
-        db_exec = _get_db_executor()
-        try:
-            # [LINK_POTENTIAL_PING_V1 2026-05-25] If the server pre-
-            # read a frame for us (the first non-ping frame after
-            # HELLO + ping phase), process it before reading more.
-            if self._preread_frame is not None and self._alive:
-                frame = self._preread_frame
-                self._preread_frame = None
-                wire_in = len(frame)
-                seq = self._request_seq
-                self._request_seq += 1
-                self._submit_frame(frame, seq, wire_in, fast_exec, db_exec)
-
-            while self._alive:
-                try:
-                    frame = _recv_frame(self._recv_sock)
-                except Exception as e:
-                    _debug(f"recv error from {self.peer_ip}: {e!r}")
-                    break
-
-                wire_in = len(frame)
-                seq = self._request_seq
-                self._request_seq += 1
-
-                self._submit_frame(frame, seq, wire_in, fast_exec, db_exec)
-
-        except Exception as e:
-            # [READER_EXIT_REASON_V1] This was `_debug(...)`, which is gated on
-            # FROGNET_DEBUG and therefore invisible on every production node.
-            # A read loop that dies takes the whole session's request path with
-            # it; that must never be a silent event.
-            print(f"[DAEMON-SESSION] read_loop for {self.peer_ip} exited on "
-                  f"exception: {type(e).__name__}: {e!r} "
-                  f"seq={self._request_seq} alive={self._alive}", flush=True)
-
-    def _write_loop(self) -> None:
-        """Drains _reply_q, sends tagged frames on _send_sock."""
-        print(f"[DAEMON-WRITER] started for {self.peer_ip}", flush=True)
-        try:
-            while True:
-                try:
-                    seq, reply, wire_in = self._reply_q.get(timeout=1.0)
-                except queue.Empty:
-                    if not self._alive:
-                        break
-                    continue
-
-                # Sentinel
-                if seq == -1:
-                    break
-
-                try:
-                    tagged = struct.pack("!I", seq) + reply
-                    _send_frame(self._send_sock, tagged)
-                    bump_semantic(peer_ip=self.peer_ip, wire_in=wire_in, wire_out=len(reply))
-                    print(f"[DAEMON-WRITER] SENT seq={seq} {len(reply)}B to {self.peer_ip}", flush=True)
-                except Exception as e:
-                    # [NO_SILENT_SEND_FAILURE_V1]
-                    # This logged at _debug level and broke the loop. _debug is
-                    # off unless FROGNET_DEBUG=1, so at normal log level a reply
-                    # that could not be sent produced NOTHING -- the session
-                    # died, the writer exited, and the only trace was a
-                    # "[DAEMON-WRITER] exited" line indistinguishable from a
-                    # clean shutdown. The peer's proxy then waited for a
-                    # callback that would never arrive and reported a timeout,
-                    # so the visible symptom was 503 on the requester and
-                    # silence on the responder.
-                    #
-                    # A failure that kills a session is not debug information.
-                    # It prints unconditionally, with everything needed to act
-                    # on it: peer, seq, byte count, exception.
-                    print(f"[DAEMON-WRITER] SEND FAILED seq={seq} "
-                          f"{len(reply)}B to {self.peer_ip}: "
-                          f"{type(e).__name__}: {e!r} — session is dead, the "
-                          f"peer will get no reply for this request",
-                          flush=True)
-                    self._alive = False
-                    raise
-        except Exception as e:
-            # Same rule for the outer guard: it swallowed queue and framing
-            # errors at debug level and let the thread end quietly.
-            print(f"[DAEMON-WRITER] ABORTED for {self.peer_ip}: "
-                  f"{type(e).__name__}: {e!r}", flush=True)
-            self._alive = False
-            raise
-        finally:
-            print(f"[DAEMON-WRITER] exited for {self.peer_ip}", flush=True)
 
     def _process_frame(self, frame: bytes, seq: int, wire_in: int, prepared=None) -> None:
         """Called in executor thread.  Posts result to _reply_q - never raises."""
@@ -1792,3 +1558,278 @@ class SemanticSession:
 # ---- DEPLOYMENT MARKER ----
 # v2026-04-06: priority executor -- fast unlimited, db throttled to hardware
 # (a fixed "BUILD=2026-03-24-v1" stamp was printed here; the service start line names the base build [BASE_BUILD_V1])
+
+
+class TcpDaemonEnd(TransportDriver):
+    """[WE_OWN_THE_WIRE_V1] The TCP driver's daemon end, as the six calls of core/transport_driver.py. Its permanent
+    connection is a pair of TCP connections the proxy opens: one the proxy sends requests on (given here when this
+    object is made), one the daemon sends replies on (the RETURN connection, delivered by the listener when it
+    arrives). Its packing: a request is the frame as it is, numbered by its place in arrival order; a reply is the
+    4-byte number of the request it answers and then the frame. A 4-byte length goes in front of every unit on the
+    socket (_send_frame / _recv_frame). This is the code that was inside SemanticSession, unchanged in what it
+    puts on the wire."""
+
+    name = "tcp"
+
+    def __init__(self, recv_sock: socket.socket, peer_ip: str, return_ip=None):
+        self.peer_ip = peer_ip
+        self._recv_sock = recv_sock
+        self._send_sock: Optional[socket.socket] = None
+        self._return_ip = return_ip
+        self._send_sock_event = threading.Event()
+        self._n = 0                                      # requests are numbered by arrival
+        # [LINK_POTENTIAL_PING_V1 2026-05-25] The server reads one
+        # extra frame past the ping phase (the first non-ping frame
+        # = first session frame) before the session exists.
+        # That frame is handed in via preread() so receive() gives it
+        # before pulling more frames from the socket.
+        self._preread_frame: Optional[bytes] = None
+
+        # [NO_FALLBACK_V1] Same class as the keepalive block in
+        # daemon/engine/server.py. A refused TCP_NODELAY means every reply on
+        # this session is subject to Nagle - measurable latency on small FNWP
+        # frames, attributed to the link rather than to a socket option nobody
+        # knows was refused.
+        try:
+            self._recv_sock.setsockopt(socket.IPPROTO_TCP, socket.TCP_NODELAY, 1)
+        except OSError as e:
+            print(f"[DAEMON-SESSION] TCP_NODELAY refused on recv sock for "
+                  f"{self.peer_ip}: {type(e).__name__} errno={e.errno} "
+                  f"({e.strerror}) - small frames on this session will be "
+                  f"delayed by Nagle", flush=True)
+
+    def preread(self, frame: bytes) -> None:
+        self._preread_frame = frame
+
+    def deliver_send_sock(self, sock) -> None:
+        """The listener's call when the proxy opens the RETURN connection: the other half of this permanent connection.
+
+        The proxy opens a second TCP connection to daemon:9009 with
+        HELLO body 'RETURN:<ip>'.  The server routes it here.  This
+        eliminates the need for the daemon to connect BACK to the proxy,
+        which fails under WiFi client isolation.
+        """
+        try:
+            sock.setsockopt(socket.IPPROTO_TCP, socket.TCP_NODELAY, 1)
+        except OSError as e:
+            print(f"[DAEMON-SESSION] TCP_NODELAY refused on RETURN send sock "
+                  f"for {self._return_ip}: {type(e).__name__} errno={e.errno} "
+                  f"({e.strerror}) - every reply on this return channel will "
+                  f"be delayed by Nagle", flush=True)
+        self._send_sock = sock
+        # Send our HELLO so the proxy knows the return channel is live
+        hello = wrap_hello(_get_local_gw())
+        _send_frame(sock, hello)
+        self._send_sock_event.set()
+        print(f"[DAEMON-SESSION] send_sock delivered by proxy for "
+              f"{self._return_ip} fd={sock.fileno()}", flush=True)
+
+    def connect(self) -> None:
+        """[RETURN_ONLY_V1] Wait for proxy to deliver a RETURN channel.
+
+        The proxy opens a second TCP connection to daemon:9009 with
+        HELLO body 'RETURN:<gw>'.  DaemonServer routes it here via
+        deliver_send_sock().  No outbound callback - that path fails
+        through firewalls / WiFi client isolation.
+        """
+        connect_ip = self._return_ip or self.peer_ip
+        trace(f"[Daemon] [RETURN_ONLY_V1] waiting for RETURN from {connect_ip}")
+        if self._send_sock_event.wait(timeout=15.0) and self._send_sock is not None:
+            return
+        raise RuntimeError(
+            f"no RETURN connection from {connect_ip} after 15s")
+
+    def send(self, data: bytes) -> None:
+        _send_frame(self._send_sock, data)
+
+    def receive(self) -> bytes:
+        if self._preread_frame is not None:
+            frame, self._preread_frame = self._preread_frame, None
+            return frame
+        return _recv_frame(self._recv_sock)
+
+    def pack(self, n: int, frame: bytes) -> List[bytes]:
+        return [struct.pack("!I", n) + frame]
+
+    def unpack(self, data: bytes) -> Optional[Tuple[int, bytes]]:
+        n = self._n
+        self._n += 1
+        return n, data
+
+    def close(self) -> None:
+        try:
+            self._recv_sock.close()
+        except Exception:
+            pass
+        try:
+            if self._send_sock:
+                self._send_sock.close()
+        except Exception:
+            pass
+
+
+class SemanticSession(EngineSession):
+    """The engine's session on the TCP driver. The driver (TcpDaemonEnd) holds the two sockets; this class is the
+    engine's session plus the two threads that move frames between it and the driver's calls:
+
+    Reader thread: driver.receive() -> driver.unpack() -> executor.submit(_process_frame).
+    Writer thread: _reply_q.get() -> driver.pack() -> driver.send().
+    """
+
+    def __init__(self, recv_sock: socket.socket, peer_ip: str, resolver, http_client=None, return_ip=None):
+        EngineSession.__init__(self, peer_ip, resolver, http_client)
+        self._return_ip = return_ip
+        self.driver = TcpDaemonEnd(recv_sock, peer_ip, return_ip)
+
+    # the sockets are the driver's; these names are kept for what reads them (tests, tiers)
+    @property
+    def _recv_sock(self):
+        return self.driver._recv_sock
+
+    @property
+    def _send_sock(self):
+        return self.driver._send_sock
+
+    def set_preread_frame(self, frame: bytes) -> None:
+        """[LINK_POTENTIAL_PING_V1] Hand the session a frame that the
+        server already read off the socket during the ping phase: the
+        driver's receive() gives it before any other. Called before run()."""
+        self.driver.preread(frame)
+
+    def set_send_sock(self, sock):
+        """Called by DaemonServer when proxy opens a RETURN connection: it is the driver's."""
+        self.driver.deliver_send_sock(sock)
+
+
+    def run(self) -> None:
+        start = time.time()
+        trace(f"[Daemon] session start peer={self.peer_ip}")
+
+        # [SAME_IS_BACK_V1] The semcache table must exist before the first
+        # upsert. Not fatal if it fails -- the node still serves, it just never
+        # answers RESP_SAME -- but it says so rather than failing every write in
+        # silence.
+        try:
+            semcache_db.ensure_table()
+        except Exception as e:
+            print(f"[Daemon] semcache ensure_table failed: {e!r} -- this node "
+                  f"will answer RESP_DIFF only", flush=True)
+
+        # [RETURN_ONLY_V1] Wait for RETURN channel before starting threads.
+        try:
+            self.driver.connect()
+            # [WRITER_GONE_V1] the permanent socket pair is up: this peer is on the network through us
+            self.established = True
+            if self.on_established is not None:
+                self.on_established()
+        except Exception as e:
+            trace(f"[Daemon] [RETURN_ONLY_V1] no RETURN from {self.peer_ip}: {e!r}")
+            self.driver.close()
+            return
+
+        # Start writer thread
+        writer = threading.Thread(target=self._write_loop, daemon=True,
+                                  name=f"daemon-writer-{self.peer_ip}")
+        writer.start()
+
+        # Reader loop runs in this thread
+        try:
+            self._read_loop()
+        finally:
+            self._alive = False
+            # Sentinel to unblock writer
+            self._reply_q.put((-1, b"", 0))
+            self.driver.close()
+            trace(
+                f"[Daemon] session closed peer={self.peer_ip} "
+                f"dt_ms={(time.time()-start)*1000.0:.1f}"
+            )
+
+    def _read_loop(self) -> None:
+        """Takes request frames from the driver, routes to executor.
+
+        Two pools:
+          fast_exec (256 threads): echo, discovery -- no database, instant.
+          db_exec   (4*cores threads): sensor data -- MySQL-bound, limited
+                                   to what the hardware can sustain.
+
+        Dashboard stampede puts 200 sensor queries into db_exec where they
+        queue behind each other instead of saturating all 256 threads.
+        Echo arrives, goes to fast_exec, responds in milliseconds."""
+        fast_exec = _get_executor()
+        db_exec = _get_db_executor()
+        try:
+            while self._alive:
+                try:
+                    data = self.driver.receive()
+                except Exception as e:
+                    _debug(f"recv error from {self.peer_ip}: {e!r}")
+                    break
+                got = self.driver.unpack(data)
+                if got is None:
+                    continue
+                seq, frame = got
+                self._request_seq = seq + 1
+                self._submit_frame(frame, seq, len(frame), fast_exec, db_exec)
+
+        except Exception as e:
+            # [READER_EXIT_REASON_V1] This was `_debug(...)`, which is gated on
+            # FROGNET_DEBUG and therefore invisible on every production node.
+            # A read loop that dies takes the whole session's request path with
+            # it; that must never be a silent event.
+            print(f"[DAEMON-SESSION] read_loop for {self.peer_ip} exited on "
+                  f"exception: {type(e).__name__}: {e!r} "
+                  f"seq={self._request_seq} alive={self._alive}", flush=True)
+
+    def _write_loop(self) -> None:
+        """Drains _reply_q; the driver packs each reply and sends it."""
+        print(f"[DAEMON-WRITER] started for {self.peer_ip}", flush=True)
+        try:
+            while True:
+                try:
+                    seq, reply, wire_in = self._reply_q.get(timeout=1.0)
+                except queue.Empty:
+                    if not self._alive:
+                        break
+                    continue
+
+                # Sentinel
+                if seq == -1:
+                    break
+
+                try:
+                    for unit in self.driver.pack(seq, reply):
+                        self.driver.send(unit)
+                    bump_semantic(peer_ip=self.peer_ip, wire_in=wire_in, wire_out=len(reply))
+                    print(f"[DAEMON-WRITER] SENT seq={seq} {len(reply)}B to {self.peer_ip}", flush=True)
+                except Exception as e:
+                    # [NO_SILENT_SEND_FAILURE_V1]
+                    # This logged at _debug level and broke the loop. _debug is
+                    # off unless FROGNET_DEBUG=1, so at normal log level a reply
+                    # that could not be sent produced NOTHING -- the session
+                    # died, the writer exited, and the only trace was a
+                    # "[DAEMON-WRITER] exited" line indistinguishable from a
+                    # clean shutdown. The peer's proxy then waited for a
+                    # callback that would never arrive and reported a timeout,
+                    # so the visible symptom was 503 on the requester and
+                    # silence on the responder.
+                    #
+                    # A failure that kills a session is not debug information.
+                    # It prints unconditionally, with everything needed to act
+                    # on it: peer, seq, byte count, exception.
+                    print(f"[DAEMON-WRITER] SEND FAILED seq={seq} "
+                          f"{len(reply)}B to {self.peer_ip}: "
+                          f"{type(e).__name__}: {e!r} — session is dead, the "
+                          f"peer will get no reply for this request",
+                          flush=True)
+                    self._alive = False
+                    raise
+        except Exception as e:
+            # Same rule for the outer guard: it swallowed queue and framing
+            # errors at debug level and let the thread end quietly.
+            print(f"[DAEMON-WRITER] ABORTED for {self.peer_ip}: "
+                  f"{type(e).__name__}: {e!r}", flush=True)
+            self._alive = False
+            raise
+        finally:
+            print(f"[DAEMON-WRITER] exited for {self.peer_ip}", flush=True)

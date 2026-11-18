@@ -72,33 +72,20 @@ class _StampedQueue(queue.Queue):
         super().put(item, *a, **k)
 
 
-class _MsgSession(S.SemanticSession):
-    """SemanticSession with the Homa driver in place of its two sockets. Everything from _submit_frame up is inherited."""
+class _MsgSession(S.EngineSession):
+    """The engine's session (EngineSession) on the Homa driver. Everything from _submit_frame up is inherited."""
 
     #: [DRIVER_KEEPS_WIRE_ORDER_V1] True is the driver. The ordering oracle sets it False to show what it is for.
     KEEP_ORDER = True
     keep_order_record = False        # the ordering oracle turns this on to read `order`
 
     def __init__(self, peer: Tuple[str, int], sid: bytes, resolver, http_client, carrier, fast_exec, db_exec):
-        # the fields SemanticSession.__init__ sets, less the two sockets and their options
-        self._encode_lock = threading.Lock()             # [REFERENCES_MOVE_IN_WIRE_ORDER_V1]
-        self.peer_ip = peer[0]
+        S.EngineSession.__init__(self, peer[0], resolver, http_client)      # the engine's side; no socket is its
         self.established = True
-        self.on_established = None
-        self.resolver = resolver
-        self._recv_sock = None
-        self._send_sock = None
-        self._return_ip = None
-        self._send_sock_event = threading.Event()
-        self._http_client = http_client
-        self.engine = ExecutionEngine(resolver=self.resolver, http_client=self._http_client)
-        self._request_seq = 0
         self._reply_q: "queue.Queue[Tuple[int, bytes, int]]" = _StampedQueue()
         self._tr_seq: Dict[int, object] = {}              # [WHERE_THE_TIME_GOES_V1] request seq -> its trail, until it goes to the engine
         self._tr: Dict[int, object] = {}                  # rpc id -> its trail, until the writer has its reply
         self._tr_out: Dict[int, tuple] = {}               # rpc id -> (trail, is the reply's last message), until it is sent
-        self._alive = True
-        self._preread_frame = None
         # the driver's
         self.sid = sid
         self.gw = ""
