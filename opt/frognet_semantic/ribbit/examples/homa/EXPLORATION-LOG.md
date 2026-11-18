@@ -1483,6 +1483,44 @@ ran first and taught the templates (its bootstraps say BOOTSTRAP, 1,103,555 byte
 which is also why its mb serial phase shows 94,788 bytes sent against TCP's 3,509. Not explained: soft Homa's echo
 serial phase has P95 404 ms against P50 99 (at least two of 25 slow).
 
+### 18 Nov 10:30 to 16:10: the range over shaped links, both drivers
+
+`--links mixed` (each machine given one of lan, wifi, 4g, halow 600 kb/s, wan-100ms, 4g-lossy; a connection shaped
+by both machines' links; battery (c) sized to each pair's link), all four batteries, 20 topologies each, code as in
+the node tarball (`ae7b3791`):
+
+| setting | topologies passing | checkpoints | failures |
+|---|---|---|---|
+| `tcp` | 20 of 20 | 1,542 | 0 |
+| `softhoma` | 20 of 20 | 1,600 | 0 |
+
+(Soft Homa has 58 more checkpoints: its listener checks.) Results: `/home/claude/logs/final/{tcp,softhoma}__mixed/`.
+
+Side by side over shaped links, medians (500 machine pairs for small requests; 94 pairs a size, 82 at 3,000,000
+because pairs on a 600 kb/s link are not sent it):
+
+| | TCP | soft Homa |
+|---|---|---|
+| small requests | 128.5 ms | 126.8 ms |
+| 1,000 characters, reply / request | 240 / 223 ms | 239 / 227 ms |
+| 100,000 | 278 / 280 | 286 / 282 |
+| 300,000 | 384 / 461 | 411 / 453 |
+| 1,000,000 | 1,036 / 1,110 | 1,022 / 1,070 |
+| 3,000,000 | 2,764 / 2,972 | 2,760 / 2,923 |
+
+Level, as on perfect links and as on John's nodes.
+
+**The one place they differ: a frame the link cannot carry in the budget.** In the six topologies with a 600 kb/s
+machine, 3,000,000 characters were sent over that link on purpose. TCP's driver ended it at its own budget each
+time (15 to 19 s) with a said error. Soft Homa's driver has no such budget and delivered it exact each time, in
+40 s. Both are a pass by the checkpoint (exact, or a said time limit; never wrong data or silence). Which is right
+for an application is the application's to say; the two drivers do not behave the same here, and that is recorded
+as a difference, not settled.
+
+**A mistake of mine that cost two hours.** I ended a turn with the shaped run going in the background and told John
+it would carry on. A background run in this sandbox stops soon after the turn ends. It stopped at 5 of 20 on TCP;
+the finished topologies were kept and it was restarted from the sixth.
+
 ## 4. The interventions: what was said, why it was noticed, what had not been considered
 
 John, 17 Nov, of the first version of this file: "It is not just the order. It is what I asked and why I asked it.

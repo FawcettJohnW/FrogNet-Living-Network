@@ -33,8 +33,13 @@ Tested in the simulator: 20 topologies, perfect links, four batteries each (fan-
   softhoma                                        20 of 20   1,574
   softhoma, with databasehost_control.frognet tcp 20 of 20   1,574
   tcp, with databasehost.frognet softhoma         20 of 20   1,536   (the setting given above)
-and 13 driver gates. NOT tested: on real nodes; kernel Homa on a real machine; shaped (slow, lossy) links on this
-code.
+and 13 driver gates. Over shaped links (each machine on one of lan, wifi, 4g, 600 kb/s, 100 ms wan, lossy 4g):
+  tcp                                             20 of 20   1,542
+  softhoma                                        20 of 20   1,600
+On real nodes: John's pipe_workload.py from Seattle5 to the SystemRam (BAMacBook, about 95 ms away), echo, mb,
+telem and chat, on each transport: 0 failures, the two level. NOT tested: kernel Homa on a real machine.
+One difference between the drivers: tcp ends an RPC at its own time budget and says so; softhoma has no such budget
+and carries the frame however long the link takes.
 
 Files
   opt/frognet_semantic/core/AI_README.md
