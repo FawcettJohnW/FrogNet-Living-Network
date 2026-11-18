@@ -1255,6 +1255,39 @@ path from "fast" to "work": `softhoma` as built (through `libsofthoma.so` and `s
 FrogNet's wire. The Homa API interface remains what it was first built as, his API for his own unchanged programs.
 Nothing is changed in code at this entry; head is `54ea3241` plus this record.
 
+### 18 Nov 02:50 to 04:30: the driver is six calls; the engine's session comes off the TCP sockets
+
+**John, on what follows from "we own the wire"** (02:51): "So that means that things like connection, send, and
+receive must be part of the driver, doesnt it?" Yes. Checked against the code: on the proxy end both drivers already
+own their connection, sends and receiving thread; on the daemon end the engine's session class opened and read the
+TCP sockets itself, and the Homa listener worked around that by subclassing it and blanking the sockets. Asked for
+his word to split it (existing code). John (02:54): "Of course. it is the right thing." and of the kernel module:
+"the contract will be the same, but those functions are now done in hardware and use real Homa frames instead of
+tcp hijack frames". Then (02:57): "Go ahead. Do not stop until you are done or hit a blocker. Write artifacts and
+report progress".
+
+**The interface, in code:** `core/transport_driver.py` (`[WE_OWN_THE_WIRE_V1]`): `connect`, `send`, `receive`,
+`pack`, `unpack`, `close`, and `listen` on the end that is connected to. The number that lets a reply find its
+request is given by the layer above; HELLO, the RTT ping, hand-up order and liveness are above the driver.
+
+**Step 1, done: `daemon/engine/session.py` split.** `EngineSession` is the engine above the driver (frames in,
+numbered replies out, no socket). `TcpDaemonEnd` is the TCP driver's daemon end as the six calls: the two sockets,
+the wait for the RETURN connection (`connect`), a request numbered by its place in arrival order and a reply as the
+4-byte number and the frame (`unpack`, `pack`). `SemanticSession` is the two joined, with the same constructor and
+the same bytes on the wire; its read and write loops now call the driver. The Homa listener's session derives from
+`EngineSession`. Checked: 13 of 13 gates; `door_semantic_tier` and `return_channel_tier` pass; and the range on
+`tcp`, all four batteries: 20 of 20 topologies, 1,514 checkpoints, 0 failures
+(`/home/claude/logs/final/tcp__none/`; the results from before the split are in `before-the-driver-split/`).
+
+**Step 3, begun: `core/homa_frames.py`.** Soft Homa as John stated it: Homa's own DATA frame (the common header as
+his TCP hijacking lays it over TCP's, flags 6 and urgent 0xb97d; then the data header with the message's length and
+the segment's offset), segments of at most 240,000 bytes, on one TCP connection per daemon that the driver opens
+when it first has something to send and holds open; the RPC id in the header is the number, a reply's is its
+request's plus one. `_Conn` is one end as the six calls; `HomaFramesOnTcp` gives the Homa driver's two ends the same
+calls the kernel module's socket does. Tried on its own: messages of 0 to 3,000,000 bytes there and back exact. Not
+yet wired in; the memory process, the cells and the imitation socket are still what `softhoma` runs on at this
+commit.
+
 ## 4. The interventions: what was said, why it was noticed, what had not been considered
 
 John, 17 Nov, of the first version of this file: "It is not just the order. It is what I asked and why I asked it.
