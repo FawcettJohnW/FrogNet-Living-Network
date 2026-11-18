@@ -143,3 +143,11 @@ its role, never by an address. `core/homa_transport.py` `[A_WORD_PER_RAM_CONNECT
 
 `core/TRANSPORT-DRIVER-INTERFACE.md`: the contract, the calls on each side, where the driver sits (below semantic
 compression), and the five places the code does not keep to it yet. Read it before writing or changing a driver.
+
+## A semantic request says which field order it was encoded in (18 Nov 2026)
+
+`core/template_order.py`, `[THE_FRAME_SAYS_ITS_FIELD_ORDER_V1]`. Values travel by position and each machine learns
+its own templates, so two machines can hold different field orders under one opcode. Every REQ_FULL, REQ_DIFF and
+REQ_REPEAT ends with the asker's request-template and reply-template fingerprints. A daemon whose request order
+differs does not decode or run the request (the proxy then sends it raw); one whose reply order differs answers
+raw. Do not add a positional encode or decode path that skips this comparison.

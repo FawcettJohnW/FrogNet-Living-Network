@@ -820,6 +820,10 @@ def battery_restart(net, machines, system, setting, check):
     system.block = [system]
     system.system = None
     write_hosts(system, hosts_text(system, roles=False))
+    for name in ("daemon.log", "proxy.log"):              # what it said before it left is kept: its new life starts new logs
+        old = os.path.join(system.dir, name)
+        if os.path.exists(old):
+            shutil.copyfile(old, old + ".before-it-left")
     system.start_wire(setting)
     up = system.ask(None, wait_s=60)
     t_end, ready = time.time() + 60, False

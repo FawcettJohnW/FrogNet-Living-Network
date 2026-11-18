@@ -746,6 +746,7 @@ class SemanticSession:
         prepared = None
         try:
             msg = try_parse(frame)
+            self.engine.asker_says(getattr(msg, "order", None))      # [THE_FRAME_SAYS_ITS_FIELD_ORDER_V1] for begin()
             if msg is not None and msg.op in (OP_REQ_FULL, OP_REQ_DIFF) and msg.payload and len(msg.payload) >= SEM_HDR_V1_LEN:
                 _o, _d, normalized = extract_origin_dest_and_normalize_packet(packet=msg.payload, peer_ip=self.peer_ip)
                 prepared = self.engine.begin(normalized_packet=normalized, peer_ip=self.peer_ip,
@@ -962,6 +963,7 @@ class SemanticSession:
         op_name = {OP_REQ_REPEAT: "REQ_REPEAT", OP_REQ_FULL: "REQ_FULL",
                    OP_REQ_DIFF: "REQ_DIFF", OP_REQ_RAW: "REQ_RAW"}.get(msg.op, f"OP_{msg.op:#04x}")
         print(f"[DAEMON-DISPATCH] {op_name} hash={msg.req_hash.hex()[:8] if msg.req_hash else 'none'} peer={self.peer_ip}", flush=True)
+        self.engine.asker_says(getattr(msg, "order", None))          # [THE_FRAME_SAYS_ITS_FIELD_ORDER_V1] for execute()
         if msg.op == OP_REQ_REPEAT:
             return self._handle_req_repeat(msg.req_hash, emit, prepared)
         elif msg.op == OP_REQ_FULL:

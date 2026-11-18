@@ -165,6 +165,9 @@ Each is John's, quoted where the words matter. They are the constraints everythi
 
 49. (20:35) "Now continue and don't stop until you're complete unless you have a blocker."
 
+50. (21:35, to the two fixes for the reply decoded against the wrong field order: a fingerprint in the frame, or a
+    check with no wire change) "Fingerprint or hash, either one".
+
 ## 2a. The stages, and each time the work went back a stage
 
 John, 17 Nov: "The record should also show the progression through the stages, and the times we had to roll back.
@@ -971,6 +974,40 @@ answers as it does for any template mismatch (raw, and learn) -- exact, and a ch
 have; (b) no wire change: a decode that does not consume the payload exactly, or runs out of it, is a template
 mismatch -- catches this case and any other where the counts differ, but not two orders of the same length.
 
+### 17 Nov 23:10 to 18 Nov 00:05: the frame says its field order
+
+John chose the fingerprint. Built as `[THE_FRAME_SAYS_ITS_FIELD_ORDER_V1]` (`core/template_order.py`).
+
+**The design, and why the asker says it and not the answerer.** My first statement of the fix put the fingerprint
+on the reply, checked by the decoder. Reading the daemon's cache showed what that would cost: an answer the proxy
+cannot decode would have to be fetched again, and for a semantic answer the daemon keeps the values, not the body,
+so it could only send the same positional values again or run the request a second time. So the ASKER says it, on
+the request: every REQ_FULL, REQ_DIFF and REQ_REPEAT ends with two 8-byte fingerprints, of the asker's request
+template (the order this request was encoded in) and of its reply template (the order it will decode the answer
+in). The daemon compares each with its own:
+
+- request order differs: not decoded, not run; answered as an opcode this side has no template for, so the proxy
+  sends the raw request and both learn (the path that already existed for that);
+- reply order differs: run, and the answer goes back raw with its own status, headers and body, which the daemon
+  has in hand at that moment; the proxy learns from it (the path that already existed for an answer the template
+  cannot hold).
+
+Nothing is run twice and no round trip is added. The trailer follows the payload, which the parser has always read
+by its length, so a node without this code ignores it, and a frame without it is handled as before, unchecked. The
+C++ engine in `ribbit_cpp/` does not send it yet.
+
+**Result.** The case that failed 7 of 7: the daemon's log says, once, "the asker's REPLY field order ... is not
+this side's ...; the answer goes raw", the proxy logs RESP_RAW and learns from 3,000,806 bytes, and battery (c)
+passes in both directions on TCP and on soft Homa. All 13 driver gates and both door tiers pass.
+
+**A machine's logs are kept across its restart.** The first three runs showed the fix working and no log line for
+it. Battery (b) restarts the origin machine and `start_wire` opens its logs anew, so the line was gone. The tier now
+copies a machine's logs to `<log>.before-it-left` before it comes back.
+
+**Found on the way, not from this work:** `proxy/test_instance_references_oracle.py` fails with "semcodec: a delta
+outside a difference" at the branch's base commit `948b435c` (run in a separate checkout of it), in the oracle's
+own `explicit_fields` helper. It is not in the gate set I had been running. Not changed.
+
 ## 4. The interventions: what was said, why it was noticed, what had not been considered
 
 John, 17 Nov, of the first version of this file: "It is not just the order. It is what I asked and why I asked it.
@@ -1363,8 +1400,10 @@ Nothing here may be reported as working.
    onto another caller's in-flight frame of the same hash. Fixed, `[A_RETRY_AFTER_A_MISS_IS_ITS_OWN_FRAME_V1]`.
    Still as it was: a reference committed as a frame leaves is read by other callers before the daemon has said
    whether it took it; that costs a resend during a cold burst and no longer a failure.
-0d. **BLOCKER: a reply decoded against another machine's field order is answered 200 with its values in the wrong
-   fields.** The semantic engine, both drivers. Section 3, 21:20 to 23:10. Waits for John's choice of fix.
+0d. (closed 18 Nov 00:05) A reply decoded against another machine's field order. Fixed: the asker says its field
+   orders on the request (`[THE_FRAME_SAYS_ITS_FIELD_ORDER_V1]`). Left: the C++ engine (`ribbit_cpp/`) does not
+   send the trailer; two machines whose learned shapes for one path keep alternating will exchange that path raw.
+0d2. `proxy/test_instance_references_oracle.py` fails at the base commit, before any of this work. Not changed.
 0e. **A single string field over 65,535 bytes is refused by the semantic codec** (502 or 500 with the reason). Stated
    by the code, found by the large-frame battery. Whether that limit is wanted is John's.
 0f. **Large frames on soft Homa are slower than on TCP** over a 4g link (20 to 50 percent) and for a 1,000,000-character
@@ -1551,3 +1590,4 @@ here; where this work did one late or wrong, it says so.
 | (this commit) | 17 Nov 15:45 | The driver between machines across all 20 hardware topologies; the TCP driver's setup window |
 | (this commit) | 17 Nov 21:20 | The engine's 503 REQ_MISS found and fixed; the writer-gone oracle's wait |
 | (this commit) | 17 Nov 23:10 | Shaped links; the door and large frames between machines; a daemon listening is what "back" means; the blocker |
+| (this commit) | 18 Nov 00:05 | The frame says its field order; a machine's logs kept across its restart |

@@ -54,6 +54,7 @@ from typing import Any, Dict, List, Tuple, Optional
 
 from core.codec import SemanticCodec
 from core import tuple_key as _tuple_key    # [INSTANCE_REFERENCES_V1] the instance location, one definition
+from core.template_order import order_print  # [THE_FRAME_SAYS_ITS_FIELD_ORDER_V1]
 from core.tokens import TokenStore
 from core.semcache_wire import wrap_resp_raw
 
@@ -168,9 +169,25 @@ class Prepared:
 class ExecutionEngine:
     def __init__(self, resolver=None, http_client=None) -> None:
         self.codec = SemanticCodec()
+        # [THE_FRAME_SAYS_ITS_FIELD_ORDER_V1] the asker's (request, reply) field-order fingerprints for the frame this
+        # thread is handling, set by the session around begin() and around a handler; None when the frame had none.
+        self._asker = threading.local()
         self.loader = TemplateLoader()
         self.resolver = resolver if resolver is not None else DestinationResolver()
         self.http = http_client if http_client is not None else HttpClient()
+
+    def asker_says(self, order):
+        """[THE_FRAME_SAYS_ITS_FIELD_ORDER_V1] The frame this thread is about to handle carried these fingerprints
+        (None: it carried none). Set by the session; read by begin() and execute() on the same thread."""
+        self._asker.order = order
+
+    def _reply_order_differs(self, resp_tpl, opcode, peer_ip) -> bool:
+        _ord = getattr(self._asker, "order", None)
+        if _ord is None or _ord[1] == order_print(resp_tpl):
+            return False
+        print(f"[THE_FRAME_SAYS_ITS_FIELD_ORDER_V1] opcode={opcode} peer={peer_ip}: the asker's REPLY field order "
+              f"{_ord[1].hex()} is not this side's {order_print(resp_tpl).hex()}; the answer goes raw", flush=True)
+        return True
 
     def begin(self, *, normalized_packet: bytes, peer_ip: str, require_reference: bool = False) -> "Prepared":
         """[REFERENCES_MOVE_IN_WIRE_ORDER_V1] The decode half of execute(): template lookup, the explicit fields,
@@ -207,6 +224,16 @@ class ExecutionEngine:
             trace(f"[DAEMON DECODE ERROR] opcode={opcode} instance err={e!r}")
             rep = self.codec.encode_error_reply(400, f"decode error: {e}")
             return early((rep, 400, len(rep), opcode, None, None, None))
+        # [THE_FRAME_SAYS_ITS_FIELD_ORDER_V1] The asker encoded this request in ITS request template's field order. If
+        # that is not this side's, the values would be read into the wrong fields: it is not decoded and not run,
+        # and the answer is the one for an opcode this side has no template for, so the proxy sends the raw request
+        # and both learn from it. (The explicit fields read above for the instance are the location only.)
+        _ord = getattr(self._asker, "order", None)
+        if _ord is not None and _ord[0] != order_print(req_tpl):
+            print(f"[THE_FRAME_SAYS_ITS_FIELD_ORDER_V1] opcode={opcode} peer={peer_ip}: the asker's REQUEST field order "
+                  f"{_ord[0].hex()} is not this side's {order_print(req_tpl).hex()}; not decoded, not run", flush=True)
+            rep = self.codec.encode_error_reply(503, f"no templates for opcode={opcode} (the asker's request field order is not this side's)")
+            return early((rep, 503, len(rep), opcode, None, None, None))
         # The codec marks every request FLAG_DIFF (a first send is a diff against nothing), so the wire op -- which the
         # session knows -- says whether a reference is required: REQ_DIFF passes require_reference=True.
         if require_reference and _get_request_ref(peer_ip, opcode, inst) is None:
@@ -354,6 +381,8 @@ class ExecutionEngine:
                 resp_vals = resp_tpl.extract_dynamic(_cached)
                 if resp_vals and not _reply_proven(resp_tpl, resp_vals, _cached):   # [REPLY_EXTRACTION_PROVEN_V1]
                     raise ValueError("the cached answer is not the template's shape")
+                if self._reply_order_differs(resp_tpl, opcode, peer_ip):           # [THE_FRAME_SAYS_ITS_FIELD_ORDER_V1]
+                    raise ValueError("the asker's reply field order is not this side's")
                 resp_pairs = [(k, v) for k, v in (resp_vals or [])]
                 sem_reply = self.codec.encode_reply(
                     opcode=opcode,
@@ -436,6 +465,17 @@ class ExecutionEngine:
                 }
                 return b"", int(status), raw_info, opcode, None, None, inst
 
+            # [THE_FRAME_SAYS_ITS_FIELD_ORDER_V1] The asker will read this answer's values by ITS reply template's field
+            # order. If that is not this side's, the answer goes raw, with its own status, headers and body, and the
+            # asker learns from it. Never positional values it would put in the wrong fields.
+            if self._reply_order_differs(resp_tpl, opcode, peer_ip):
+                raw_info = {
+                    "raw":           True,
+                    "status":        int(status),
+                    "headers_bytes": _serialize_headers(resp_headers if isinstance(resp_headers, dict) else {}),
+                    "body":          resp_body_bytes,
+                }
+                return b"", int(status), raw_info, opcode, None, None, inst
 
             sem_reply = self.codec.encode_reply(
                 opcode=int(resp_tpl.opcode),

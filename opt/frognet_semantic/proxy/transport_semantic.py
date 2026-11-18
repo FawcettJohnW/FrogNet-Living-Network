@@ -96,6 +96,7 @@ from typing import Any, Dict, List, Tuple, Optional
 from proxy.origin import inject_origin_into_semantic_request
 from proxy.templates import get_template_store, learn_templates_from_real, extract_dynamic_query_vals
 from core import tuple_key as _tuple_key    # [INSTANCE_REFERENCES_V1] the instance location, one definition
+from core import template_order as _template_order   # [THE_FRAME_SAYS_ITS_FIELD_ORDER_V1]
 from proxy.proxy_metrics import bump_sem
 from proxy.proxy_metrics import bump_cache
 from proxy.proxy_metrics import bump_coalesce, bump_lru, bump_link, bump_template
@@ -2666,16 +2667,17 @@ def _handle_semantic_request(
                 )
             # ---- Three-way request type decision ---- ([SAME_IS_BACK_V1]: is_identical is the FIRST branch; a
             # static endpoint's reference never changes and REQ_REPEAT is the only op that can produce RESP_SAME)
+            _order = _template_order.trailer(req_tpl, resp_tpl)   # [THE_FRAME_SAYS_ITS_FIELD_ORDER_V1]
             if is_identical:
-                wire_req = wrap_req_repeat(req_hash)
+                wire_req = wrap_req_repeat(req_hash, _order)
                 req_type = "REQ_REPEAT"
                 _debug(f"REQ_REPEAT to {target_ip} hash={req_hash.hex()} (identical)")
             elif reference is None:
-                wire_req = wrap_req_full(req_hash, sem_req)
+                wire_req = wrap_req_full(req_hash, sem_req, _order)
                 req_type = "REQ_FULL"
                 _debug(f"REQ_FULL to {target_ip} hash={req_hash.hex()} ({len(sem_req)}B sem)")
             else:
-                wire_req = wrap_req_diff(req_hash, sem_req)
+                wire_req = wrap_req_diff(req_hash, sem_req, _order)
                 req_type = "REQ_DIFF"
                 _debug(f"REQ_DIFF to {target_ip} hash={req_hash.hex()} ({len(sem_req)}B diff)")
             t0 = time.time()

@@ -109,6 +109,9 @@ class WireMsg:
     req_hash: Optional[bytes] = None
     same_id: Optional[bytes] = None
     payload: Optional[bytes] = None
+    # [THE_FRAME_SAYS_ITS_FIELD_ORDER_V1] (asker's request-template fingerprint, asker's reply-template fingerprint)
+    # from the end of a REQ_FULL, REQ_DIFF or REQ_REPEAT; None when the frame does not carry them. core/template_order.py
+    order: Optional[tuple] = None
     # For RESP_RAW
     status: Optional[int] = None
     headers: Optional[bytes] = None
@@ -130,18 +133,18 @@ def is_fnw1(frame: bytes) -> bool:
     return len(frame) >= 5 and frame[:4] == MAGIC
 
 
-def wrap_req_full(req_hash: bytes, payload: bytes) -> bytes:
-    """Wrap a full semantic request."""
+def wrap_req_full(req_hash: bytes, payload: bytes, order: bytes = b"") -> bytes:
+    """Wrap a full semantic request. order: core/template_order.trailer(...), [THE_FRAME_SAYS_ITS_FIELD_ORDER_V1]."""
     if len(req_hash) != REQ_HASH_LEN:
         raise ValueError(f"req_hash must be {REQ_HASH_LEN} bytes, got {len(req_hash)}")
-    return MAGIC + bytes([OP_REQ_FULL]) + req_hash + struct.pack("!I", len(payload)) + payload
+    return MAGIC + bytes([OP_REQ_FULL]) + req_hash + struct.pack("!I", len(payload)) + payload + order
 
 
-def wrap_req_repeat(req_hash: bytes) -> bytes:
-    """Wrap a repeat request (just the hash, no payload)."""
+def wrap_req_repeat(req_hash: bytes, order: bytes = b"") -> bytes:
+    """Wrap a repeat request (just the hash, no payload). order: as wrap_req_full."""
     if len(req_hash) != REQ_HASH_LEN:
         raise ValueError(f"req_hash must be {REQ_HASH_LEN} bytes, got {len(req_hash)}")
-    return MAGIC + bytes([OP_REQ_REPEAT]) + req_hash
+    return MAGIC + bytes([OP_REQ_REPEAT]) + req_hash + order
 
 
 def wrap_req_raw(req_hash: bytes, http_request: bytes) -> bytes:
@@ -151,11 +154,11 @@ def wrap_req_raw(req_hash: bytes, http_request: bytes) -> bytes:
     return MAGIC + bytes([OP_REQ_RAW]) + req_hash + struct.pack("!I", len(http_request)) + http_request
 
 
-def wrap_req_diff(req_hash: bytes, diff_payload: bytes) -> bytes:
-    """Wrap a diff-encoded semantic request (changed fields only)."""
+def wrap_req_diff(req_hash: bytes, diff_payload: bytes, order: bytes = b"") -> bytes:
+    """Wrap a diff-encoded semantic request (changed fields only). order: as wrap_req_full."""
     if len(req_hash) != REQ_HASH_LEN:
         raise ValueError(f"req_hash must be {REQ_HASH_LEN} bytes, got {len(req_hash)}")
-    return MAGIC + bytes([OP_REQ_DIFF]) + req_hash + struct.pack("!I", len(diff_payload)) + diff_payload
+    return MAGIC + bytes([OP_REQ_DIFF]) + req_hash + struct.pack("!I", len(diff_payload)) + diff_payload + order
 
 
 def wrap_resp_same(same_id: bytes) -> bytes:
@@ -305,6 +308,12 @@ def wrap_rtt_loop() -> bytes:
 # ---- END LOOP_DETECT_9009_V1 ----
 
 
+def _order(rest: bytes):
+    """[THE_FRAME_SAYS_ITS_FIELD_ORDER_V1] the asker's two fingerprints after a frame's payload, or None."""
+    from core.template_order import read_trailer
+    return read_trailer(rest)
+
+
 def try_parse(frame: bytes) -> Optional[WireMsg]:
     """
     Try to parse a wire frame.
@@ -324,7 +333,7 @@ def try_parse(frame: bytes) -> Optional[WireMsg]:
     if op == OP_REQ_REPEAT:
         if len(frame) < off + H:
             raise ValueError("short REQ_REPEAT frame")
-        return WireMsg(op=op, req_hash=frame[off:off+H])
+        return WireMsg(op=op, req_hash=frame[off:off+H], order=_order(frame[off+H:]))
 
     if op == OP_REQ_FULL:
         if len(frame) < off + H + 4:
@@ -333,7 +342,7 @@ def try_parse(frame: bytes) -> Optional[WireMsg]:
         (payload_len,) = struct.unpack("!I", frame[off:off+4]); off += 4
         if len(frame) < off + payload_len:
             raise ValueError(f"short REQ_FULL payload: expected {payload_len}, got {len(frame) - off}")
-        return WireMsg(op=op, req_hash=req_hash, payload=frame[off:off+payload_len])
+        return WireMsg(op=op, req_hash=req_hash, payload=frame[off:off+payload_len], order=_order(frame[off+payload_len:]))
 
     if op == OP_REQ_RAW:
         if len(frame) < off + H + 4:
@@ -351,7 +360,7 @@ def try_parse(frame: bytes) -> Optional[WireMsg]:
         (payload_len,) = struct.unpack("!I", frame[off:off+4]); off += 4
         if len(frame) < off + payload_len:
             raise ValueError(f"short REQ_DIFF payload: expected {payload_len}, got {len(frame) - off}")
-        return WireMsg(op=op, req_hash=req_hash, payload=frame[off:off+payload_len])
+        return WireMsg(op=op, req_hash=req_hash, payload=frame[off:off+payload_len], order=_order(frame[off+payload_len:]))
 
     if op == OP_RESP_SAME:
         if len(frame) < off + SAME_ID_LEN:
