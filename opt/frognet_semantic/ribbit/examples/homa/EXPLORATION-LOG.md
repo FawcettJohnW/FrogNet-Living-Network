@@ -1422,6 +1422,39 @@ the link or check that a frame the link cannot carry in the budget fails with a 
 `opt/frognet_semantic/TRANSPORT-DRIVERS-BUILD.txt` inside saying what it is, how to turn soft Homa on and off, what
 the logs say, and what has and has not been tested. Not tested on a real node.
 
+### 18 Nov, John's nodes: the driver carries traffic between two real machines for the first time
+
+John installed `frognet-transport-drivers-20261118-ae7b3791.tgz` and ran his own `pipe_workload.py 10.188.188.1 echo
+400` from Seattle5 to BAMacBook (10.188.188.1, the SystemRam on that network; about 95 ms away by ping), once with no
+setting file and once with `tcp` / `databasehost.frognet softhoma`.
+
+First, with the setting on Seattle5 only: `Semantic RPC failed: ConnectionGone('no connection to 10.188.188.1:9131:
+[Errno 111] Connection refused')`. The far machine was not yet listening on soft Homa's port; there is no fallback,
+and the error said which machine and port. After BAMacBook had the code and the setting it worked.
+
+Seattle5's proxy log: 08:02:26 `carriers here: tcp` (setting absent); 08:05:56 `[SEM-HOMA] session ... to
+10.188.188.1:9009 set=0 opened` and `[SOFTHOMA] homa-frames-on-tcp-v3-20261118c the connection to 10.188.188.1:9131
+is open; it is held open`. John: "It looks like it's switching between the protocols without error."
+
+One run each, both straight after a restart, 0 failures in either:
+
+| | TCP | soft Homa |
+|---|---|---|
+| serial hot, P50 | 98 ms | 98 ms |
+| serial hot, average of 25 | 99 ms | 147 ms (one slow request, most likely the first opening its session) |
+| ramp, 1 at a time, P50 | 299 ms | 103 ms |
+| ramp, 50 at a time | 710 ms, 61.9 req/s | 106 ms, 246.1 req/s |
+| burst of 400 | 1.9 s, 212.9 req/s, P50 1,712 ms | 2.6 s, 153.6 req/s, P50 2,461 ms |
+
+Not to be quoted as a result yet: one run each, and the two disagree with each other (soft Homa four times better on
+the ramp, worse on the burst). They need repeating.
+
+**Shaped links, first results on the final code** (`--links mixed`, both ends shaped, frames sized to the link):
+`tcp`: `topo_asym_chain_wg_star` 123 checkpoints pass (it has a 600 kb/s machine; the frame the link cannot carry
+ended at the driver's budget, "failed after 1 attempts (18.7s, budget 18.1s)", and the checkpoint for it passes);
+`topo_asym_lan2_wg_lan3` 72 pass; `topo_asym_ring_wg_lan` 123 pass. The rest of the range, and soft Homa, are
+running at this entry; a topology takes 7 to 17 minutes.
+
 ## 4. The interventions: what was said, why it was noticed, what had not been considered
 
 John, 17 Nov, of the first version of this file: "It is not just the order. It is what I asked and why I asked it.
