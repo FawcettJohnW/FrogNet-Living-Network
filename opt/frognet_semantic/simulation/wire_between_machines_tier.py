@@ -492,6 +492,13 @@ def bring_up(machines, dbc, net):
         # Until 17 Nov 20:40 every machine shared the simulator host's one file, so one machine's mark was all of theirs.
         m.env["FROGNET_SENTINEL_DIR"] = os.path.join(os.path.dirname(m.hosts), "sentinels")
         os.makedirs(m.env["FROGNET_SENTINEL_DIR"], exist_ok=True)
+        # [THE_DOOR_ON_A_MACHINE_V1] the door tier's door where a node's door is: /dc/ram.php in the web root, served by
+        # php on 8080, which hands each request to simulation/door_origin.py on this machine
+        import door_origin
+        os.mkdir(os.path.join(web, "dc"))
+        open(os.path.join(web, "dc", "ram.php"), "w").write(door_origin.RAM_PHP % DOOR_PORT)
+        m.run([PY, os.path.join(HERE, "door_origin.py"), str(DOOR_PORT)], env=m.env,
+              stdout=open(os.path.join(m.dir, "door.log"), "w"), stderr=subprocess.STDOUT)
         # its api.php where a node's is, on port 8080; port 80 is the node's proxy
         m.run(["php", "-S", "0.0.0.0:8080", "-t", web], env=dict(m.env, PHP_CLI_SERVER_WORKERS="16"),
               stdout=open(os.path.join(m.dir, "php.log"), "w"), stderr=subprocess.STDOUT)
@@ -580,6 +587,164 @@ def battery_fanout(machines, check, pairs=None, tag=""):
 # did not hold it against the pair, because it is the semantic engine's and happens on TCP as on Homa. A request
 # that went in and came back 503 failed, whoever's fault. It fails the pair again. It is still counted by name, so
 # the result says how many of the failures were this one (EXPLORATION-LOG.md section 7, item 0a).
+DOOR_PORT = 8091
+LINK_PORT = 9700
+TCP_LISTENING = "[RETURN_ONLY_V1] listening on"
+
+
+def shape_links(machines, links, check):
+    """[SHAPED_LINKS_BETWEEN_MACHINES_V1] John, 2026-11-17: "Wire in the shaped links." Each machine's uplink is given
+    a bearer's delay, jitter, bandwidth and loss by simulation/shaped_link.py (the simulator's own shaper,
+    slowlink.py, on every TCP connection the machine makes to another machine). `links` is a profile's name for
+    every machine, or "mixed" for one drawn per machine. Before any daemon or proxy starts."""
+    import shaped_link
+    said = {}
+    for m in machines:
+        m.link = shaped_link.profile_for(links, m.n)
+        log = os.path.join(m.dir, "link.log")
+        m.run([PY, os.path.join(HERE, "shaped_link.py"), "--port", str(LINK_PORT), "--src", m.ip, "--profile", m.link,
+               "--seed", str(m.n)], env=m.env, stdout=open(log, "w"), stderr=subprocess.STDOUT)
+        t_end = time.time() + 20
+        while "[SHAPED-LINK]" not in open(log).read() and time.time() < t_end:
+            time.sleep(0.1)
+        said[m.name] = "[SHAPED-LINK]" in open(log).read()
+        for rule in (["-A", "OUTPUT", "-m", "mark", "--mark", "2", "-j", "RETURN"],
+                     ["-A", "OUTPUT", "-p", "tcp", "-d", m.ip + "/32", "!", "--dport", "80", "-j", "RETURN"],
+                     ["-A", "OUTPUT", "-p", "tcp", "-d", "10.0.0.0/8", "!", "--dport", "80", "-j", "REDIRECT", "--to-ports", str(LINK_PORT)]):
+            r = m.exec(["iptables", "-t", "nat"] + rule)
+            if r.returncode != 0:
+                raise RuntimeError("iptables %s in %s: %s" % (" ".join(rule), m.ns, r.stderr.strip()))
+    import slowlink
+    check(all(said.values()), "shaped links: every machine's TCP to another machine goes through its own uplink: %s" % "; ".join(
+        "%s %s (%s)" % (m.name, m.link, slowlink.profile(m.link).label()) for m in machines))
+
+
+def wait_daemons(machines, setting, wait_s=60):
+    """A machine is there when its daemon is LISTENING, by the daemon's own log line, not when its proxy answers.
+    Found 17 Nov 21:50: a returned machine answered itself through its proxy (which needs no daemon) while its
+    daemon was still starting, the tier called it back, and the next machine's requests to it were refused."""
+    words = set([words_of(setting)[0]]) | set(words_of(setting)[1].values())
+    if not (words & {"tcp", "auto"}):
+        return {m.name: True for m in machines}          # no TCP listener is told to exist; the Homa one is waited for by name
+    t_end, there = time.time() + wait_s, {}
+    while time.time() < t_end:
+        there = {m.name: TCP_LISTENING in open(m.daemon_log, errors="replace").read() for m in machines}
+        if all(there.values()):
+            break
+        time.sleep(0.2)
+    return there
+
+
+def battery_large(machines, check):
+    """(c) Large frames, each way, with contents that change and do not compress, and a short frame while a long one
+    is in flight. The origin is the door on the target machine (simulation/door_origin.py): op=blob returns n hex
+    characters this side can recompute from the seed; op=echo returns the length and SHA-256 of what the origin
+    was GIVEN, in canonical form (the wire carries JSON by its values). A large frame is many fields of 50,000
+    characters: the semantic codec's string field holds 65,535 bytes and refuses a longer one with that reason
+    (found here, 17 Nov 22:10, with one field of 100,000). Sizes cross the Homa driver's message limit (240,000 bytes on soft Homa), so above it a frame goes
+    in pieces and comes back on spares. Each machine asks the next one in the topology's order."""
+    import hashlib
+    import door_origin
+    ok_all = True
+    nonce = "%d" % (time.time() * 1000)
+    ring = [(machines[i], machines[(i + 1) % len(machines)]) for i in range(len(machines))] if len(machines) > 1 else []
+    for a, b in ring:
+        rows, fine = [], True
+        for size in (1000, 100000, 300000, 1000000, 3000000):
+            seed = "%s-%s-%d-%s" % (a.name, b.name, size, nonce)
+            g = a.ask("req", wait_s=300, target=b.ip, method="GET", path="/dc/ram.php?op=blob&n=%d&seed=%s" % (size, seed))
+            try:
+                got_down = json.loads(g["body"])
+                down = g["status"] == 200 and got_down.get("data") == door_origin.parts(size, seed)
+            except (ValueError, KeyError, TypeError):
+                got_down, down = {}, False
+            body = json.dumps({"pad": door_origin.parts(size, "up-" + seed)})
+            canon = door_origin.canonical(body)
+            p = a.ask("req", wait_s=300, target=b.ip, method="POST", path="/dc/ram.php?op=echo", body=body)
+            try:
+                got = json.loads(p["body"])
+                up = p["status"] == 200 and got.get("n") == len(canon) and got.get("sha") == hashlib.sha256(canon.encode()).hexdigest()
+            except (ValueError, KeyError, TypeError):
+                up = False
+            if not down and g.get("status") == 200:
+                # which answer is it, then? (the seed and size it says it is, and how many of its fields are not this request's)
+                try:
+                    w = door_origin.parts(size, seed); d = got_down.get("data") or {}
+                    bad = [k for k in sorted(w) if d.get(k) != w[k]]
+                    g = dict(g, body="says seed=%s (asked %s) n=%s; %d fields (want %d); %d fields not this request's: %s; the first of them is "
+                                     "%d characters, starts %s, want %s" % (got_down.get("seed"), seed, got_down.get("n"), len(d), len(w), len(bad), bad[:6],
+                                     len(d.get(bad[0], "")) if bad else 0, (d.get(bad[0]) or "")[:12] if bad else "", w[bad[0]][:12] if bad else ""))
+                except Exception as e:
+                    g = dict(g, body="unreadable: %r" % e)
+            rows.append("%d: reply %s %.0f ms, request %s %.0f ms" % (size, "exact" if down else "WRONG (%s %s)" % (g.get("status"), str(g.get("body"))[:420]),
+                                                                    g.get("ms", -1), "exact" if up else "WRONG (%s %s)" % (p.get("status"), str(p.get("body"))[:80]), p.get("ms", -1)))
+            fine = fine and down and up
+        # a short frame while a long one is in flight: one program fetching 3,000,000 characters, four asking small things
+        seed = "%s-%s-long-%s" % (a.name, b.name, nonce)
+        small = {"target": b.ip, "method": "GET", "path": "/dc/ram.php?op=rams&app=openeoc"}
+        lists = [[{"target": b.ip, "method": "GET", "path": "/dc/ram.php?op=blob&n=3000000&seed=" + seed}]] + [[small] * 8 for _ in range(4)]
+        out = a.ask("streams", wait_s=300, lists=lists)
+        try:
+            long_ok = out[0][0]["status"] == 200 and json.loads(out[0][0]["body"])["data"] == door_origin.parts(3000000, seed)
+            shorts = [r for l in out[1:] for r in l]
+            short_ok = all(r["status"] == 200 and json.loads(r["body"]).get("ok") is True for r in shorts)
+            long_ms, short_ms = out[0][0]["ms"], sorted(r["ms"] for r in shorts)
+            first = short_ms[0] < long_ms
+        except (ValueError, KeyError, TypeError, IndexError):
+            long_ok = short_ok = first = False; long_ms, short_ms = -1, [-1]
+        fine = fine and long_ok and short_ok and first
+        check(fine, "(c) %s -> %s: frames of 1,000 to 3,000,000 characters each way, contents recomputed and hashed at the far end [%s]; "
+                    "and 32 short requests during one of 3,000,000: all exact, the long one %.0f ms, the short ones %.0f ms median, "
+                    "the first of them back in %.0f ms" % (a.name, b.name, "; ".join(rows), long_ms, short_ms[len(short_ms) // 2], short_ms[0]))
+        ok_all = ok_all and fine
+    return ok_all
+
+
+def battery_door(machines, check):
+    """(d) The door tier's scenarios (simulation/door_semantic_tier.py SCENARIOS, unchanged), between machines: the
+    asking machine is the phone's node, the origin machine has the door behind its web server. Every answer through
+    the wire must equal the door's own answer (door_semantic_tier.door on the same configuration), and the door
+    must have been GIVEN exactly the logins and enrolments that were sent, in order. A call marked LOCAL in a
+    scenario is made on the origin machine itself, through its own proxy, as in the door tier."""
+    import door_semantic_tier as D
+    ok_all = True
+    pairs = [(machines[0], machines[1])] + ([(machines[-1], machines[0])] if len(machines) > 2 else [])
+    for asking, origin in pairs:
+        for name, seq in D.SCENARIOS:
+            D.CONFIG.clear(); D.CONFIG.update(json.loads(json.dumps(D.CONFIG0)))
+            origin.ask("local", method="GET", path="/dc/ram.php?__door=reset")
+            sent, wrong, n = [], [], 0
+            for c in seq():
+                if c[0] == "CONFIG":
+                    c[1]()                                                       # this side's copy of the door's configuration
+                    origin.ask("local", method="GET", path="/dc/ram.php?__door=add_role&name=" + c[2].split()[1])
+                    continue
+                local = c[0] == "LOCAL"
+                method, q, body = c[1:] if local else c
+                path = "/dc/ram.php?" + q
+                raw = json.dumps(body) if body is not None else None
+                want_st, want = D.door(method, path, raw or "")
+                if body is not None:
+                    sent.append([q.split("&")[0][3:], body["user"], body["password"]])
+                g = (origin if local else asking).ask("req", target=origin.ip, method=method, path=path, body=raw)
+                n += 1
+                try:
+                    same = json.loads(g["body"]) == json.loads(want)
+                except (ValueError, KeyError, TypeError):
+                    same = False
+                if not (same and g.get("status") == want_st):
+                    wrong.append("%d %s %s%s: HTTP %s %s (the door says %s %s)" % (n, method, q.split("&")[0], " on the origin itself" if local else "",
+                                                                                  g.get("status"), str(g.get("body"))[:120], want_st, want[:120]))
+            given = json.loads(origin.ask("local", method="GET", path="/dc/ram.php?__door=received")["body"])
+            fine = not wrong and given == sent
+            check(fine, "(d) %s asks %s's door, \"%s\": %d calls, every answer the door's own, and the door was given the %d logins "
+                        "and enrolments that were sent, in order%s" % (asking.name, origin.name, name, n, len(sent),
+                        "" if fine else " -- WRONG: %s; sent %d, given %d%s" % ("; ".join(wrong[:3]) or "answers right", len(sent), len(given),
+                        "" if given == sent else ", first difference %s" % next(((s_, g_) for s_, g_ in zip(sent, given) if s_ != g_), (sent[len(given):][:1], given[len(sent):][:1])))))
+            ok_all = ok_all and fine
+    return ok_all
+
+
 REQ_MISS = "REQ_MISS from daemon; exhausted retries"
 REQ_MISSES = []
 
@@ -661,7 +826,9 @@ def battery_restart(net, machines, system, setting, check):
     while not ready and time.time() < t_end:
         ready = system.ask("req", target=system.ip, method="GET", path=RPATH % ("none", 1)).get("status") == 200
         time.sleep(0.3)
-    check(up.get("ready") and ready, "(b) %s is back: its daemon and proxy are up and it answers itself through its own proxy" % system.name)
+    heard = wait_daemons([system], setting)
+    check(up.get("ready") and ready and all(heard.values()),
+          "(b) %s is back: its daemon is listening, its proxy is up and it answers itself through its own proxy" % system.name)
     before = {m.name: listens(m) for m in machines}
     moved = {m.name: m.system for m in others}
     the_merge(net, machines, machines, "%s returned" % system.name)
@@ -705,13 +872,13 @@ def battery_carried(machines, word, check):
     return good
 
 
-def every_topology(setting):
+def every_topology(setting, links="none"):
     """Each of the simulator's topologies in a run of its own (a process of its own: nothing of one is left for the
     next), and one line for each at the end."""
     rows, t_all = [], time.time()
     for key in simulator_topologies():
         t0 = time.time()
-        r = subprocess.run([PY, os.path.abspath(__file__), "--transport", setting, "--topology", key], capture_output=True, text=True)
+        r = subprocess.run([PY, os.path.abspath(__file__), "--transport", setting, "--topology", key, "--links", links], capture_output=True, text=True)
         out = r.stdout
         res = ([l for l in out.splitlines() if l.startswith("RESULT")] or ["RESULT FAIL (no result: %s)" % (r.stderr.strip()[-200:] or out[-200:])])[-1]
         meds = [float(x) for x in re.findall(r"\(median ([\d.]+) ms\)", out) if float(x) >= 0]
@@ -723,7 +890,7 @@ def every_topology(setting):
             if "[FAIL]" in l:
                 print("      " + l.strip()[:400], flush=True)
     good = sum(1 for r in rows if r[1] == "RESULT PASS")
-    print("TOPOLOGIES %d of %d PASS on %s (%.0fs)" % (good, len(rows), setting, time.time() - t_all))
+    print("TOPOLOGIES %d of %d PASS on %s, links %s (%.0fs)" % (good, len(rows), setting, links, time.time() - t_all))
     print("RESULT", "PASS" if good == len(rows) else "FAIL")
     return 0 if good == len(rows) else 1
 
@@ -738,10 +905,13 @@ def main():
     ap.add_argument("--topology", default="trial3", choices=sorted(TOPOLOGIES) + simulator_topologies() + ["all"],
                     help="trial3, one of the simulator's topologies with a hardware baseline, or all (every one of them, each "
                          "in a run of its own)")
+    ap.add_argument("--links", default="none",
+                    help="each machine's uplink: none (a perfect link), a profile of simulation/slowlink.py (lan, wifi, 4g, halow, "
+                         "geo, wan-100ms, 4g-lossy, wifi-lossy, halow-lossy, jammed), or mixed (one drawn per machine)")
     ap.add_argument("--keep", action="store_true", help="leave the namespaces and their files up at the end")
     a = ap.parse_args()
     if a.topology == "all":
-        return every_topology(a.transport)
+        return every_topology(a.transport, a.links)
     ok = True
 
     def check(cond, msg):
@@ -765,6 +935,8 @@ def main():
         print("   %s%s" % (net["says"], "; left out (they serve no /24 and run no proxy or daemon): %s" % ", ".join(net["left_out"])
                                      if net["left_out"] else ""), flush=True)
         bring_up(machines, dbc, net)
+        if a.links != "none":
+            shape_links(machines, a.links, check)
         the_merge(net, machines, machines, "the machines found each other; no election yet", roles=False, pause=0)
         time.sleep(1.5)
         # ---- 0. the machines are machines
@@ -794,9 +966,11 @@ def main():
         ready = answering()
         while not all(ready) and time.time() < t_end:
             time.sleep(0.5); ready = answering()
-        check(all(u.get("ready") for u in up) and all(m.daemon.poll() is None and m.proxy_main.poll() is None for m in machines) and all(ready),
-              "every machine's daemon (daemon_main.py) and proxy (proxy_main) are up, told %s, and each answers a request to "
-              "itself through its own proxy by the node's port-80 rule (%s)" % (a.transport, ready))
+        heard = wait_daemons(machines, a.transport)
+        check(all(u.get("ready") for u in up) and all(m.daemon.poll() is None and m.proxy_main.poll() is None for m in machines) and all(ready)
+              and all(heard.values()),
+              "every machine's daemon (daemon_main.py) is listening and its proxy (proxy_main) is up, told %s, and each answers a "
+              "request to itself through its own proxy by the node's port-80 rule (%s)" % (a.transport, ready))
 
         # ---- the merge: the election's role lines reach the machines' hosts files one machine at a time, as on a
         # network (each node's file changes in its own time). The watcher in each driver takes it as its event.
@@ -814,6 +988,9 @@ def main():
 
         ok = battery_fanout(machines, check) and ok
         ok = battery_carried(machines, a.transport, check) and ok
+        ok = battery_large(machines, check) and ok
+        if len(machines) > 1:
+            ok = battery_door(machines, check) and ok
         if len(machines) > 1:
             ok = battery_restart(net, machines, system, a.transport, check) and ok
     finally:

@@ -897,6 +897,80 @@ waits for the daemon's listener with a connect inside `wait_for`, which did not 
 before the listener was up. Fixed in the oracle (`[WAITING_FOR_A_LISTENER_IS_NOT_A_FAILURE_V1]`). It was never the
 TCP driver.
 
+### 17 Nov 21:20 to 23:10: the full run; a returned machine; shaped links; the door and large frames between machines
+
+**The run across all 20 on TCP with every fix: 18 of 20.** The engine's 503 is gone from all of them. The two
+failures were one thing, on the two pond topologies: after a machine returned, the first requests to it were
+refused ("Connection refused"). The tier had called the machine back when its proxy answered a request to itself,
+which needs no daemon; its daemon was still starting. A machine is there when its daemon is listening. The tier
+now waits for the daemon's own line (`wait_daemons`), at first boot and after a return. The Homa and `auto` runs of
+that pass were stopped to fix this and build what follows; the full matrix is to be run once on the final code.
+
+**Shaped links, wired in** (`simulation/shaped_link.py`, `--links`, `[SHAPED_LINKS_BETWEEN_MACHINES_V1]`; John:
+"Wire in the shaped links"). The kernel here has no netem, and the simulator already has its own shaper
+(`slowlink.py`: delay, jitter, bandwidth, loss, outages, on the real bytes of a TCP session). `shaped_link.py` runs
+it on each machine as that machine's uplink: three rules in the machine's nat OUTPUT chain send every TCP
+connection to another machine (except port 80, which is the node's own rule to its proxy) through it; it reads
+where each connection was going and relays it from the machine's own .1. Both drivers cross it: the TCP driver's
+two connections, and soft Homa's session with its memory. `--links` takes a profile's name or `mixed`.
+
+**The door's scenarios between machines** (battery (d), `simulation/door_origin.py`,
+`[THE_DOOR_ON_A_MACHINE_V1]`; John: "If there are scenarios that have not been run, then we are not done"). The
+door is `door_semantic_tier.door()` itself, on the origin machine, behind that machine's php at `/dc/ram.php` on
+8080. The four scenarios, unchanged, run from the asking machine through the wire: every answer must equal the
+door's own, and the door must have been given exactly the logins and enrolments sent, in order. They passed on the
+first run on both drivers (82 calls, 44 logins and enrolments).
+
+**Large frames between machines** (battery (c)). Each machine asks the next for replies of 1,000 to 3,000,000
+characters whose contents it can recompute, and sends requests of the same sizes whose values the origin hashes;
+then 32 short requests while a 3,000,000-character one is in flight. Three things were learned before it ran:
+
+1. *The semantic codec's string field holds 65,535 bytes.* One field of 100,000 is refused with "TYPE_STR over
+   65535-byte wire field" (502 from the daemon for a reply, 500 from the proxy for a request). A large frame is
+   therefore many fields, as a large reply from a node is many rows. The battery uses fields of 50,000.
+2. *The wire carries JSON by its values, not its bytes.* A request body sent as `{"pad": ...}` reached the origin as
+   `{"pad":...}`, one byte shorter, once a template existed. The battery compares canonical forms.
+3. Above 240,000 the Homa driver cuts frames into pieces and uses its spare RPCs. That path, built and tested in
+   one process on 16 November, carried 3,000,000-character frames between machines with exact contents.
+
+| A pair of machines | 1,000 | 100,000 | 300,000 | 1,000,000 | 3,000,000 | short during long |
+|---|---|---|---|---|---|---|
+| TCP, perfect links: reply / request, ms | 9 / 9 | 18 / 36 | 46 / 88 | 152 / 202 | 276 / 531 | 22 median, first 5 |
+| Soft Homa, perfect links | 11 / 9 | 20 / 35 | 45 / 71 | 105 / 751 | 312 / 757 | 29 median, first 3 |
+| TCP, 4g (40 ms, 10 Mb/s) | 116 / 105 | 192 / 206 | 358 / 393 | 969 / 1084 | 2759 / 3065 | 110 median, first 94 |
+| Soft Homa, 4g | 111 / 107 | 218 / 236 | 538 / 479 | 1251 / 1321 | 3477 / 3719 | 109 median, first 91 |
+
+Small requests on 4g (180 reads and 90 writes at once): TCP 110.8 and 107.7 ms median, soft Homa 106.5 and 105.5.
+On large frames over 4g soft Homa is 20 to 50 percent slower than TCP; on perfect links its 1,000,000-character
+request takes 751 ms against 202. Neither is explained yet. One run of each; these are first numbers, not a result.
+
+**A BLOCKER, in the engine, on both drivers: a reply decoded against the wrong field order, answered 200.** In
+battery (c), second direction (IronBox asks BlackBox), the 3,000,000-character reply came back HTTP 200 with its
+values in the wrong fields (the field `seed` held hex from a data field; the proxy logged "DIFF: 1150235B
+reconstructed" from a 3,000,391-byte frame). Reproduced 7 of 7 runs: TCP, soft Homa, perfect and shaped links.
+
+What the two machines' own template stores show (kept: `logs/sim6/kept_field_order/`):
+
+    opcode 3270465467  /dc/ram.php?op=blob&__dyn=n,seed
+    BlackBox (the origin's daemon encodes with this)   field_order: 63 fields (data.p000 .. data.p059, n, ok, seed)
+    IronBox  (the asking proxy decodes with this)      field_order: 23 fields (data.p000 .. data.p019, n, ok, seed)
+
+The opcode is the path's. Each machine has one template store, used by its proxy and its daemon, and each learned
+the reply's fields from what it had seen: BlackBox, as the asker in the first direction, up to 60 data fields;
+IronBox, asking in the second, had reached 20. The daemon encoded 63 values by position and the proxy read them by
+its own 23 positions. Nothing in the frame says which field order it was encoded with, and the decoder did not
+object to 1.85 million bytes left over. For the smaller sizes in the same direction the proxy was sent the raw
+reply and re-learned ("Proxy TRAIN learning ... resp_body=..." at each size); at 60 fields it was not.
+
+This is the door tier's fourth scenario's subject ("field names that are data differ between the two stores under
+one opcode"), which passes at the size it tests.
+
+Not fixed. The two fixes I can see are John's to choose between, because one changes the wire format:
+(a) the frame carries a fingerprint of the field order it was encoded with, and a decoder whose own differs
+answers as it does for any template mismatch (raw, and learn) -- exact, and a change to FNW1 that every node must
+have; (b) no wire change: a decode that does not consume the payload exactly, or runs out of it, is a template
+mismatch -- catches this case and any other where the counts differ, but not two orders of the same length.
+
 ## 4. The interventions: what was said, why it was noticed, what had not been considered
 
 John, 17 Nov, of the first version of this file: "It is not just the order. It is what I asked and why I asked it.
@@ -1289,6 +1363,12 @@ Nothing here may be reported as working.
    onto another caller's in-flight frame of the same hash. Fixed, `[A_RETRY_AFTER_A_MISS_IS_ITS_OWN_FRAME_V1]`.
    Still as it was: a reference committed as a frame leaves is read by other callers before the daemon has said
    whether it took it; that costs a resend during a cold burst and no longer a failure.
+0d. **BLOCKER: a reply decoded against another machine's field order is answered 200 with its values in the wrong
+   fields.** The semantic engine, both drivers. Section 3, 21:20 to 23:10. Waits for John's choice of fix.
+0e. **A single string field over 65,535 bytes is refused by the semantic codec** (502 or 500 with the reason). Stated
+   by the code, found by the large-frame battery. Whether that limit is wanted is John's.
+0f. **Large frames on soft Homa are slower than on TCP** over a 4g link (20 to 50 percent) and for a 1,000,000-character
+   request on perfect links (751 ms against 202). One run each. Not explained.
 0b. **Two named RAMs with different words on one machine**: that session is not opened. See section 3, the same
    entry. John has not ruled on it.
 1. **The simulator, by ruling 32.** The driver activated between machines on the topology, the full battery over it.
@@ -1470,3 +1550,4 @@ here; where this work did one late or wrong, it says so.
 | (this commit) | 17 Nov 14:05 | A word per RAM connection; a machine leaving and returning; the library cannot end its proxy; `auto` |
 | (this commit) | 17 Nov 15:45 | The driver between machines across all 20 hardware topologies; the TCP driver's setup window |
 | (this commit) | 17 Nov 21:20 | The engine's 503 REQ_MISS found and fixed; the writer-gone oracle's wait |
+| (this commit) | 17 Nov 23:10 | Shaped links; the door and large frames between machines; a daemon listening is what "back" means; the blocker |

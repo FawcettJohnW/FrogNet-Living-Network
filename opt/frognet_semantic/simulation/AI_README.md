@@ -88,3 +88,14 @@ every other on the transport given. Run it with `--transport tcp` first: that is
   `core/not_frognet` marks that `runMerge.bash` begins with, then `frognet_sim.discover_routes` over the topology as
   it is now. Routes, hosts blocks and roles come from it. Do not write a hosts file or install a route by hand.
   Each machine has its own sentinel directory.
+
+- `--links <profile|mixed>` shapes every machine's uplink with `simulation/shaped_link.py` (slowlink.py on each TCP
+  connection to another machine). A machine is "up" or "back" when its daemon says it is listening, not when its
+  proxy answers.
+- Batteries now: (a) fan-out, (c) large frames each way and a short frame during a long one, (d) the door tier's
+  four scenarios with `simulation/door_origin.py` as the origin's door at /dc/ram.php, (b) the SystemRam's machine
+  leaving and returning with the merge run at each event.
+- A large frame is many fields: one string field over 65,535 bytes is refused by the codec. JSON is compared by
+  value (canonical form), because the wire carries values.
+- OPEN, the engine's: (c) fails in its second direction at 60 fields because the two machines' template stores hold
+  different field orders for one opcode and the reply is decoded by position. See the Homa record, section 7 0d.
