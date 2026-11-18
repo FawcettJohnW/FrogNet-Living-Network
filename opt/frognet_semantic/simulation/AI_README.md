@@ -83,3 +83,8 @@ every other on the transport given. Run it with `--transport tcp` first: that is
 - The simulator's one database server stands for every machine: the tier raises its `max_connections`.
 - Known and not excused: the TCP driver refuses requests for about 0.4 s while a new session's return connection
   is being set up ("reader dead"). It fails `auto` and sometimes `tcp`. See the Homa record, section 7, item 0c.
+
+- Every network event in `wire_between_machines_tier.py` runs the merge (`the_merge`): the flush of
+  `core/not_frognet` marks that `runMerge.bash` begins with, then `frognet_sim.discover_routes` over the topology as
+  it is now. Routes, hosts blocks and roles come from it. Do not write a hosts file or install a route by hand.
+  Each machine has its own sentinel directory.

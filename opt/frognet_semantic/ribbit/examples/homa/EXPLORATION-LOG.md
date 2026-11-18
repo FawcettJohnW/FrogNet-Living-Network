@@ -135,6 +135,14 @@ Each is John's, quoted where the words matter. They are the constraints everythi
     a rollback? I thought what we had in there now was working performant. Why would I give that up?" Of kernel Homa
     on the Pi: "That should be part of the test script. Run the simulator; run the real."
 
+44. (20:17) "Now that you have two examples, you should be able to define the abstract interface required for a
+    transport. These are the calls each driver must implement for the system to work. Verify that this is correct."
+45. (20:19) "Also verify that the transport is below the semantic compression layer, so normal operations don't know
+    or care that it is there."
+46. (20:22) "Do you see what I am getting at here? This is the absolute ultimate in security! Your data frame is TCP,
+    but the payload is whatever the driver says the payload is, which makes custom security protocols, including
+    transient or OTP protocols, possible on a per-ram basis."
+
 ## 2a. The stages, and each time the work went back a stage
 
 John, 17 Nov: "The record should also show the progression through the stages, and the times we had to roll back.
@@ -775,6 +783,52 @@ from a summary of one commit without reading what came after it. What is needed 
 its own connection between ranks, so the semantic wire's driver never carries it; it is to ride the proxy to daemon
 wire (his ruling of 12 Nov: "keep the permanent socket and use FNWP"), starting from the working code and measured
 against its present numbers.
+
+### 17 Nov 20:17 to 20:50: the merge at every event; the interface a driver must implement
+
+**The tier runs the merge at every network event** (`the_merge`, `[A_NETWORK_EVENT_RUNS_THE_MERGE_V1]`). First
+boot, a machine leaving, a machine returning: each runs the simulator's merge (`frognet_sim.discover_routes`:
+every node's observe, plan and commit until nothing changes) over the topology as it is at that moment. Each
+machine's routes are that node's committed routes, its hosts block is that node's known hosts, the ControlRam is
+the elector's rule over its block (highest .1), and the SystemRam stays with a holder that is there (the tier's
+rule; it does not run the election). The baseline's recorded routes are no longer installed by hand. Battery (b)
+therefore runs on every topology, and a machine that was the only way between two others leaves them in separate
+blocks with their own roles.
+
+What running the merge found, which writing its result by hand had hidden:
+
+1. *After the machine returned, every request to it was answered 500*: "10.80.1.1 cached non-FrogNet this
+   session; no worker built". While it was away each node's proxy had marked its address not-FrogNet
+   (`core/not_frognet.py`). On a node the merge begins by flushing those marks (`usr/local/bin/runMerge.bash`,
+   `flush_not_frognet`); mine did not, because mine was not the merge. `the_merge` now runs the same flush on each
+   machine first.
+2. *Every machine shared one sentinel file*, the simulator host's `/etc/sentinels/not_frognet.tsv`, so one
+   machine's mark was every machine's. Each machine now has its own directory.
+3. My edit that put this in deleted three helpers and two constants from the tier (a slice bounded by the next
+   "def " in the text). Restored from the commit; nothing else was lost (top-level names compared with the commit).
+
+After it: `topo_chain_3` passes on `tcp` and `softhoma`; `topo_asym_lan2_wg_lan3` (five machines, two LANs joined by
+a tunnel) passes on `tcp`, and on `softhoma` fails on one thing, the engine's 503 REQ_MISS. The run across all 20
+is to be repeated on this code.
+
+**The interface a driver must implement**: `core/TRANSPORT-DRIVER-INTERFACE.md`. Derived from the two drivers and
+checked against the code by reading every call the engine makes on a session and by introspection of the four
+classes. Result: the proxy-side session is seven calls (`submit`, `wait`, `call`, `stop`, `is_stopped`,
+`stopped_reason`, and the constructor) and three things the engine reads as private fields today (latency budget,
+when it stopped, whether anything is outstanding); the daemon side is a listener with `run()` and a session that
+hands frames up in order and delivers each reply to its request. The contract is seven statements.
+
+**Below compression: verified.** The request path finishes the frame (templates, references, SAME/DIFF) before it
+calls the session, at four call sites, and the daemon's engine starts at `_submit_frame`, which both drivers
+share. No file above the seam names a carrier. Five things are not clean and are listed in the file: nothing is
+declared; the engine reads private fields; the Homa driver uses engine internals; on the daemon side the TCP
+session and the engine are one class; and each driver parses HELLO and RTT_PING itself.
+
+**John's point about security** (ruling 46) follows from three facts now in the code: the session's payload is
+opaque to everything above the driver; the driver is chosen per RAM connection; and the word follows the RAM. What
+is missing for a third party to use it: the set of driver words is a fixed list in `core/homa_transport.py`
+(`VALID`), so a new driver cannot be added without editing it; and both ends must be given the same driver and
+its keys by some means that is not the wire it protects.
 
 ## 4. The interventions: what was said, why it was noticed, what had not been considered
 

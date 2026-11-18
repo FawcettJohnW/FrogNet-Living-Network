@@ -138,3 +138,8 @@ its role, never by an address. `core/homa_transport.py` `[A_WORD_PER_RAM_CONNECT
   messaging to event driven."
 - A held read returns when what it holds changes. Writing the same tuple again wakes nobody.
 - Before changing what handles an event, log which event it was.
+
+## What a transport driver must implement
+
+`core/TRANSPORT-DRIVER-INTERFACE.md`: the contract, the calls on each side, where the driver sits (below semantic
+compression), and the five places the code does not keep to it yet. Read it before writing or changing a driver.

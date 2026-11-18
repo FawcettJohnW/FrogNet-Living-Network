@@ -101,8 +101,8 @@ def net_of(key):
     or daemon and is left out, and said."""
     if key in TOPOLOGIES:
         t = TOPOLOGIES[key]
-        return {"machines": [(n, ip, tuple(r), [("eth0", ip + "/8")]) for n, ip, r in t],
-                "segments": [[(n, "eth0") for n, _ip, _r in t]], "routes": {}, "left_out": [], "says": "one L2 segment"}
+        return {"key": key, "machines": [(n, ip, tuple(r), [("eth0", ip + "/8")]) for n, ip, r in t],
+                "segments": [[(n, "eth0") for n, _ip, _r in t]], "left_out": [], "says": "one L2 segment"}
     import frognet_sim as H
     topo = getattr(H, key)()
     H.assign_identities(topo)
@@ -110,24 +110,85 @@ def net_of(key):
     serves = [n for n, x in topo.nodes.items() if x.frognet_ip and x.frognet_ip.endswith(".1") and x.frognet_ip.startswith("10.")]
     machines = [(n, topo.nodes[n].frognet_ip, (), [(i.name, i.addr_cidr) for i in topo.nodes[n].ifaces.values()]) for n in serves]
     segments = [[(n, i) for n, i in seg if n in serves] for seg in topo.segments]
-    return {"machines": machines, "segments": [g for g in segments if len(g) > 1],
-            "routes": {n: base["committed_routes"].get(n, []) for n in serves},
+    return {"key": key, "machines": machines, "segments": [g for g in segments if len(g) > 1],
             "left_out": [n for n in topo.nodes if n not in serves],
             "says": "%s; baseline recorded on %s: %d of %d pairs reachable" % (
                 topo.label, base.get("source"), base["reachability"]["pairs_ok"], base["reachability"]["pairs_total"])}
 
 
-def place_roles(machines):
-    """The roles, as this tier writes the merge's result. The ControlRam by the elector's own rule (the highest .1).
-    The SystemRam is the election's choice among capabilities, which this tier does not run: where the topology's
-    table names one it is that machine, else the first machine that is not the ControlRam's (so that the two RAMs
-    are on different machines wherever there are two machines)."""
-    ctl = control_holder(machines)
-    if not any("databasehost" in m.roles for m in machines):
-        first = [m for m in machines if m is not ctl] or [ctl]
-        first[0].roles = tuple(first[0].roles) + ("databasehost",)
-    ctl.roles = tuple(ctl.roles) + ("databasehost_control",)
-    return [m for m in machines if "databasehost" in m.roles][0]
+def the_merge(net, machines, alive, why, roles=True, pause=0.4):
+    """[A_NETWORK_EVENT_RUNS_THE_MERGE_V1] John, 2026-11-17: "Why doesn't the machine leaving run the merge? Isn't it
+    a network event? Those automatically run the merge." and "The simulator needs to trigger the merge, just like
+    the real thing."
+
+    Every network event in this tier (the first boot, a machine leaving, a machine returning) runs the merge over
+    the network AS IT IS NOW, and what the merge gives is what the machines get. Nothing is written by hand:
+
+      what a node forgets  runMerge.bash begins by flushing core/not_frognet's marks; so does this, on each machine.
+      routes and blocks  the simulator's merge, frognet_sim.discover_routes, over the topology with the machines
+                         that are not there taken out of it: each node's observe, plan and commit until nothing
+                         changes. A machine's routes are that node's committed routes; its hosts block is that
+                         node's known hosts (so a machine cut off from another does not have it in its block).
+                         trial3 is one segment: every machine there knows every other, and there are no routes.
+      the ControlRam     the elector's own rule over the machine's block: the highest .1.
+      the SystemRam      the election chooses among capabilities, and this tier does not run the election. Its
+                         rule here: the role stays with its holder while the holder is in the block; when it is
+                         not, the first machine of the block (the topology's order) that is not the ControlRam's.
+
+    Then each machine's routes are replaced and its hosts file rewritten, one machine at a time, the SystemRam's
+    own machine last, as a network's files change each in its own time. The drivers take the rewrite as their
+    event. Returns nothing; each machine has .block, .system, .control and .roles after it."""
+    names = {m.name for m in alive}
+    routes = {m.name: [] for m in alive}
+    if net["key"] in TOPOLOGIES:
+        for m in alive:
+            m.block = list(alive)
+    else:
+        import contextlib, io
+        import frognet_sim as H
+        topo = getattr(H, net["key"])()
+        gone = {m.name for m in machines} - names
+        for n in gone:
+            del topo.nodes[n]
+        topo.segments = [[(n, i) for n, i in seg if n not in gone] for seg in topo.segments]
+        with contextlib.redirect_stdout(io.StringIO()):
+            H.discover_routes(topo)
+        for m in alive:
+            node = topo.nodes[m.name]
+            m.block = [o for o in alive if o is m or o.ip in node.known_hosts]
+            routes[m.name] = [(r.dest, r.via, r.dev, r.metric) for r in node.routes if r.via]
+    for m in machines:
+        m.roles = ()
+    held = {m.name: getattr(m, "system", None) for m in alive}
+    for m in alive:                                       # one election in a block: every member of it names the same two
+        m.control = control_holder(m.block)
+        still = [held[o.name] for o in m.block if held[o.name] is not None and held[o.name] in m.block]
+        rest = [o for o in m.block if o is not m.control] or [m.control]
+        m.system = still[0] if still else rest[0]         # the role stays with a holder that is there
+    for m in alive:
+        m.roles = tuple(r for r, holder in (("databasehost", m.system), ("databasehost_control", m.control)) if holder is m)
+    order = sorted(alive, key=lambda m: (m is m.system, -machines.index(m)))     # the SystemRam's own machine last
+    for m in order:
+        # the first thing a node's merge does (usr/local/bin/runMerge.bash, flush_not_frognet): forget which addresses
+        # it had found not to be FrogNet. A machine that was away is one of them on every node that tried it.
+        r = m.exec([PY, "-m", "core.not_frognet", "flush"], env=dict(m.env, PYTHONPATH=SEM))
+        if r.returncode != 0:
+            raise RuntimeError("the merge's flush of not_frognet on %s: %s" % (m.name, (r.stderr or r.stdout).strip()[-300:]))
+        for l in m.exec(["ip", "-4", "route", "show"]).stdout.splitlines():
+            w = l.split()
+            if "via" in w:
+                m.exec(["ip", "route", "del", w[0], "via", w[w.index("via") + 1], "dev", w[w.index("dev") + 1]])
+        for dest, via, dev, metric in routes[m.name]:
+            # "via <the far machine's .1> dev wgN" is not on the link's own /30: WireGuard hands it to the peer; on an
+            # ordinary link the kernel is told the same with onlink and the peer answers for what it routes onward.
+            # src: a node's installed route carries its identity (discovery.Discovery.dev_src; promote() stamps it).
+            r = m.exec(["ip", "route", "add", dest, "via", via, "dev", dev, "onlink", "metric", str(metric), "src", m.ip])
+            if r.returncode != 0 and "File exists" not in r.stderr:
+                raise RuntimeError("the merge's route %s via %s dev %s on %s: %s" % (dest, via, dev, m.name, r.stderr.strip()))
+        write_hosts(m, hosts_text(m, roles))
+        time.sleep(pause)
+    print("   the merge (%s): %s" % (why, "; ".join("%s knows %d, SystemRam %s, ControlRam %s" % (
+        m.name, len(m.block), m.system.name, m.control.name) for m in alive)), flush=True)
 
 
 def control_holder(machines):
@@ -297,14 +358,14 @@ def agent():
         print(MARK + json.dumps(r), flush=True)
 
 
-def hosts_text(machines, roles=True):
-    """A node's hosts file: every machine in the block and, once the merge's election has run, the role lines."""
+def hosts_text(m, roles=True):
+    """A node's hosts file after a merge: every machine in ITS block and, once the election has run, the role lines."""
     out = ["127.0.0.1 localhost"]
-    for m in machines:
-        out.append("%s FrogNetHost.%s %s" % (m.ip, m.name, m.name))
-    for m in machines:
-        for r in m.roles if roles else ():
-            out.append("%s %s.frognet" % (m.ip, r))
+    for o in m.block:
+        out.append("%s FrogNetHost.%s %s" % (o.ip, o.name, o.name))
+    if roles:
+        out.append("%s databasehost.frognet" % m.system.ip)
+        out.append("%s databasehost_control.frognet" % m.control.ip)
     return "\n".join(out) + "\n"
 
 
@@ -378,7 +439,8 @@ def bring_up(machines, dbc, net):
     for m in machines:
         os.makedirs(m.dir)
         os.makedirs("/etc/netns/%s" % m.ns, exist_ok=True)
-        write_hosts(m, hosts_text(machines, roles=False))    # booted; the merge has not run: no role is named yet
+        m.block = [m]
+        write_hosts(m, hosts_text(m, roles=False))           # booted; no merge has run: it knows itself and no role
         sh(["ip", "netns", "add", m.ns], check=True)
         cmds = [["ip", "link", "set", "lo", "up"], ["sysctl", "-qw", "net.ipv4.ip_forward=1"],
                 ["sysctl", "-qw", "net.ipv4.conf.all.rp_filter=0"], ["sysctl", "-qw", "net.ipv4.conf.default.rp_filter=0"]]
@@ -426,6 +488,10 @@ def bring_up(machines, dbc, net):
         m.env = dict(os.environ, FROGNET_DB_CONFIG=cfg, FROGNET_HOSTS=m.hosts, FROGNET_HELD_DIR=held,
                      FROGNET_BLOB_ROOT=os.path.join(m.dir, "blobs"), PYTHONDONTWRITEBYTECODE="1")
         m.env.pop("LD_PRELOAD", None)
+        # each machine's own /etc/sentinels (core/not_frognet.py's list of addresses it found not to be FrogNet).
+        # Until 17 Nov 20:40 every machine shared the simulator host's one file, so one machine's mark was all of theirs.
+        m.env["FROGNET_SENTINEL_DIR"] = os.path.join(os.path.dirname(m.hosts), "sentinels")
+        os.makedirs(m.env["FROGNET_SENTINEL_DIR"], exist_ok=True)
         # its api.php where a node's is, on port 8080; port 80 is the node's proxy
         m.run(["php", "-S", "0.0.0.0:8080", "-t", web], env=dict(m.env, PHP_CLI_SERVER_WORKERS="16"),
               stdout=open(os.path.join(m.dir, "php.log"), "w"), stderr=subprocess.STDOUT)
@@ -437,21 +503,6 @@ def bring_up(machines, dbc, net):
             r = m.exec(["iptables", "-t", "nat"] + rule)
             if r.returncode != 0:
                 raise RuntimeError("iptables %s in %s: %s" % (" ".join(rule), m.ns, r.stderr.strip()))
-    # the routes the baseline recorded on hardware for this topology, now that every device exists. "via X dev wgN"
-    # names a next hop that is not on the link's own /30 (WireGuard needs no neighbour); on an ordinary link the
-    # kernel is told the same thing with onlink, and the next machine answers for the address it holds.
-    for m in machines:
-        for line in net["routes"].get(m.name, []):
-            w = line.split()
-            if "via" not in w:
-                continue                                     # a connected route: the address put it there
-            # src: a node's installed route carries its identity (discovery.Discovery.dev_src gives the node's .1 for
-            # every device, and promote() stamps it), so what it sends to another machine's /24 comes from its .1 and
-            # can be answered. The baseline's lines do not print it; a transit /30 is known only to its two ends.
-            r = m.exec(["ip", "route", "add", w[0], "via", w[w.index("via") + 1], "dev", w[w.index("dev") + 1], "onlink",
-                        "metric", w[w.index("metric") + 1], "src", m.ip])
-            if r.returncode != 0 and "File exists" not in r.stderr:
-                raise RuntimeError("route %r on %s: %s" % (line, m.name, r.stderr.strip()))
 
 
 RPATH = "/api.php?entity=sensors&action=values&SensorType=%s&limit=%d&order=SensorID&parse=1"
@@ -552,23 +603,24 @@ def wait_for_listeners(machines, wait_s=30, more_than=None):
     return there
 
 
-def battery_restart(machines, system, setting, check):
+def battery_restart(net, machines, system, setting, check):
     """(b) The SystemRam's machine leaves the network and comes back. John, 2026-11-17: "If the system restarted that
-    is a network event that everything else on the network will see". What the network does at that event is the
-    merge: the machine is out of the hosts block and the election gives its role to a machine that is there (this
-    tier writes the merge's result; it does not run the election: the role goes to the next machine in the table).
-    On soft Homa the memory went with the machine, so every other machine's Homa socket went down; each must be
-    listening again, in the memory where the role is now, after its own hosts file is rewritten, with nothing
-    restarted, and the wire must carry the same work between the machines that are there. Then the machine comes
-    back, the merge puts it in the block again (the role stays where it is), and the wire carries the same work to
-    and from it.
+    is a network event that everything else on the network will see", and of this battery: "Isn't it a network
+    event? Those automatically run the merge."
 
-    The first version of this battery (17 Nov 13:35) killed the machine and brought it back with every hosts file
-    still naming it as the SystemRam, which is not what a network does, and John had said so ("possible ... but not
-    realistic"). It is kept in the record, with what it found (EXPLORATION-LOG.md section 3)."""
+    The machine is killed where it stands. That is a network event, so the merge runs over the network without it
+    (the_merge): the routes are the merge's for the topology that is left, each remaining machine's block is what
+    it can still reach, and the role goes to a machine that is there. Where the machine was the only way between
+    two others, they are in different blocks afterwards, each with its own roles, and are not asked to reach each
+    other. On soft Homa the memory went with the machine, so every other machine's Homa socket went down; each must
+    be listening again, in the memory where ITS block's role is now, with nothing restarted, and the wire must
+    carry the same work inside each block. Then the machine comes back, which is a network event, the merge runs
+    over the whole network, and the wire carries the same work to and from it.
+
+    History: the first version (17 Nov 13:35) kept every hosts file naming the dead machine; the second (13:50)
+    wrote the merge's result by hand and so could run on one flat topology only. EXPLORATION-LOG.md section 3."""
     homa = words_of(setting)[0] != "tcp"
     others = [m for m in machines if m is not system]
-    heir = others[0]
     before = {m.name: listens(m) for m in machines}
     gone = system.stop_wire()
     time.sleep(1.0)
@@ -582,23 +634,27 @@ def battery_restart(machines, system, setting, check):
               "other machine's daemon says its Homa listener went down (%s)" % (system.name, len(gone), downs))
     else:
         check(len(gone) >= 3, "(b) %s (the SystemRam) is killed where it stands (%d processes)" % (system.name, len(gone)))
-    # the merge without it: it is out of the block and its role is the heir's
-    system.roles = tuple(r for r in system.roles if r != "databasehost")
-    heir.roles = tuple(heir.roles) + ("databasehost",)
-    for m in reversed(others):                            # the role's new machine learns it last
-        write_hosts(m, hosts_text(others))
-        time.sleep(0.4)
-    named = [m.exec(["getent", "hosts", SYSTEM_RAM]).stdout.split()[:1] == [heir.ip] and system.ip not in open(m.hosts).read() for m in others]
-    check(all(named), "(b) the merge: %s is out of every remaining machine's hosts block and %s (%s) is the SystemRam" % (system.name, heir.ip, heir.name))
+    the_merge(net, machines, others, "%s left" % system.name)
+    named = [m.exec(["getent", "hosts", SYSTEM_RAM]).stdout.split()[:1] == [m.system.ip] and m.system is not system
+             and system.ip not in open(m.hosts).read() for m in others]
+    blocks = sorted(set(tuple(o.name for o in m.block) for m in others))
+    check(all(named), "(b) the merge ran without %s: it is out of every remaining machine's hosts block, and each block has a "
+                      "SystemRam that is there (%d block%s: %s)" % (system.name, len(blocks), "" if len(blocks) == 1 else "s",
+                      "; ".join("%s, SystemRam %s" % ("+".join(b), next(m for m in others if m.name == b[0]).system.name) for b in blocks)))
     if homa:
         there = wait_for_listeners(others, more_than=before)
-        check(all(there.values()), "(b) every remaining machine's daemon is listening on Homa again, in the memory where the role is "
-                                   "now, after its own hosts file was rewritten, with nothing restarted (%s)" % there)
+        check(all(there.values()), "(b) every remaining machine's daemon is listening on Homa again, in the memory where its "
+                                   "block's role is now, after its own hosts file was rewritten, with nothing restarted (%s)" % there)
     alive = all(m.daemon.poll() is None and m.proxy_main.poll() is None for m in others)
     check(alive, "(b) no daemon or proxy on a remaining machine has ended")
-    good = battery_fanout(machines, check, pairs=[(others[0], others[1]), (others[1], others[0])], tag="(b) without %s, " % system.name) and alive
-    # it comes back: it starts with the hosts file a node has before the merge reaches it (itself, no roles)
-    write_hosts(system, hosts_text([system], roles=False))
+    pairs = [(a, b) for a in others for b in others if a is not b and b in a.block]
+    good = alive
+    if pairs:
+        good = battery_fanout(machines, check, pairs=pairs, tag="(b) without %s, " % system.name) and good
+    # it comes back: it starts as a node does before any merge reaches it (it knows itself, and no role)
+    system.block = [system]
+    system.system = None
+    write_hosts(system, hosts_text(system, roles=False))
     system.start_wire(setting)
     up = system.ask(None, wait_s=60)
     t_end, ready = time.time() + 60, False
@@ -606,12 +662,18 @@ def battery_restart(machines, system, setting, check):
         ready = system.ask("req", target=system.ip, method="GET", path=RPATH % ("none", 1)).get("status") == 200
         time.sleep(0.3)
     check(up.get("ready") and ready, "(b) %s is back: its daemon and proxy are up and it answers itself through its own proxy" % system.name)
-    for m in reversed(machines):                          # the merge with it: every file rewritten, the role where it is
-        write_hosts(m, hosts_text(machines))
-        time.sleep(0.4)
+    before = {m.name: listens(m) for m in machines}
+    moved = {m.name: m.system for m in others}
+    the_merge(net, machines, machines, "%s returned" % system.name)
+    whole = all(len(m.block) == len(machines) and m.system is machines[0].system for m in machines)
+    check(whole, "(b) the merge ran with %s back: every machine knows all %d again and names %s as the SystemRam" % (
+        system.name, len(machines), machines[0].system.name))
     if homa:
-        there = wait_for_listeners([system])
-        check(all(there.values()), "(b) %s's daemon is listening on Homa in the memory at %s after the merge reached it (%s)" % (system.name, heir.name, there))
+        again = [m for m in machines if m is system or moved.get(m.name) is not m.system]
+        before[system.name] = 0
+        there = wait_for_listeners(again, more_than=before)
+        check(all(there.values()), "(b) %s's daemon, and each machine whose SystemRam changed at this merge, is listening on Homa "
+                                   "in the memory at %s (%s)" % (system.name, machines[0].system.name, there))
     alive = all(m.daemon.poll() is None and m.proxy_main.poll() is None for m in machines)
     check(alive, "(b) no daemon or proxy on any machine has ended")
     pairs = [(o, system) for o in others] + [(system, o) for o in others]
@@ -697,14 +759,13 @@ def main():
     tmp = tempfile.mkdtemp(prefix="wire-machines-")
     net = net_of(a.topology)
     machines = [Machine(i, name, ip, roles, tmp, ifaces) for i, (name, ip, roles, ifaces) in enumerate(net["machines"])]
-    system = place_roles(machines)
     tear_down(machines)                                   # what an earlier run that was killed left behind
     print("== %s, transport %s: %s" % (a.topology, a.transport, ", ".join("%s %s" % (m.name, m.ip) for m in machines)), flush=True)
     try:
-        print("   %s%s. SystemRam %s, ControlRam %s (the highest .1)" % (
-            net["says"], "; left out (they serve no /24 and run no proxy or daemon): %s" % ", ".join(net["left_out"]) if net["left_out"] else "",
-            system.name, control_holder(machines).name), flush=True)
+        print("   %s%s" % (net["says"], "; left out (they serve no /24 and run no proxy or daemon): %s" % ", ".join(net["left_out"])
+                                     if net["left_out"] else ""), flush=True)
         bring_up(machines, dbc, net)
+        the_merge(net, machines, machines, "the machines found each other; no election yet", roles=False, pause=0)
         time.sleep(1.5)
         # ---- 0. the machines are machines
         for m in machines:
@@ -739,13 +800,13 @@ def main():
 
         # ---- the merge: the election's role lines reach the machines' hosts files one machine at a time, as on a
         # network (each node's file changes in its own time). The watcher in each driver takes it as its event.
-        for m in reversed(machines):                      # the role's own machine learns it last
-            write_hosts(m, hosts_text(machines))
-            time.sleep(0.4)
-        named = [m.exec(["getent", "hosts", SYSTEM_RAM]).stdout.split()[:1] == [system.ip]
-                 and m.exec(["getent", "hosts", CONTROL_RAM]).stdout.split()[:1] == [control_holder(machines).ip] for m in machines]
-        check(all(named), "the merge wrote the role lines: every machine's hosts file names %s (%s) as the SystemRam and %s (%s, the "
-                          "highest .1) as the ControlRam" % (system.ip, system.name, control_holder(machines).ip, control_holder(machines).name))
+        the_merge(net, machines, machines, "the election ran")
+        system = machines[0].system
+        named = [m.exec(["getent", "hosts", SYSTEM_RAM]).stdout.split()[:1] == [m.system.ip]
+                 and m.exec(["getent", "hosts", CONTROL_RAM]).stdout.split()[:1] == [m.control.ip] for m in machines]
+        check(all(named) and all(m.system is system and len(m.block) == len(machines) for m in machines),
+              "the merge ran: every machine knows all %d and its hosts file names %s (%s) as the SystemRam and %s (%s, the "
+              "highest .1) as the ControlRam" % (len(machines), system.ip, system.name, machines[0].control.ip, machines[0].control.name))
         if a.transport != "tcp":
             there = wait_for_listeners(machines)
             check(all(there.values()), "every machine's daemon opened its Homa listener in soft Homa's memory after its own hosts "
@@ -753,11 +814,8 @@ def main():
 
         ok = battery_fanout(machines, check) and ok
         ok = battery_carried(machines, a.transport, check) and ok
-        if a.topology in TOPOLOGIES and len(machines) > 2:
-            ok = battery_restart(machines, system, a.transport, check) and ok
-        else:
-            print("  [NOT RUN] (b) a machine leaving: on this topology the routes without the machine are the merge's to "
-                  "compute, and this tier writes the merge's result, it does not run the merge", flush=True)
+        if len(machines) > 1:
+            ok = battery_restart(net, machines, system, a.transport, check) and ok
     finally:
         if a.keep:
             print("kept: %s; namespaces %s" % (tmp, ", ".join(m.ns for m in machines)))
