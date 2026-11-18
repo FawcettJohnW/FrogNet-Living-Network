@@ -4,6 +4,31 @@ Written 2026-11-16 by Claude for John Fawcett. This file stands on its own. Stat
 John's decisions of 16 November 2026; everything about code names a file. Homa is John Ousterhout's transport
 (`https://github.com/PlatformLab/HomaModule`, read at commit `07ce63ef`).
 
+## 0. Read this first: what changed on 18 November 2026
+
+There are two things in this directory's history that were both called "soft Homa", and they are now separate.
+
+1. **Soft Homa under FrogNet's own wire** is no longer anything in this directory. It is Homa's DATA frames on a TCP
+   connection the transport driver holds open: `core/homa_frames.py`, described in
+   `core/TRANSPORT-DRIVER-INTERFACE.md`. John: "We own the wire ... The packing and unpacking methods are part of
+   the driver." Nothing below (sections 4, 5 and 5a, where they speak of the memory, cells, records, the memory
+   moving with the SystemRam role, or a node's memory child) describes FrogNet's wire any more. Those sections are
+   the design as it stood until then; they are kept because they are the record of what was built and measured.
+2. **The Homa API interface** (`libsofthoma.so`, with its memory process `softhoma-ram`) is what this directory still
+   holds: his socket calls for his own unchanged programs (`cp_node`), on a memory process. No proxy or daemon
+   opens it.
+
+Why: carrying FrogNet's frames as Homa RPCs carried as cells through a memory process was three message systems
+stacked, and the wire a node uses to reach its RAM host was going through a second memory on that RAM host. John,
+18 Nov: "You are trying to mimic a message passing system. Dont do that". Measured on the same code and session
+after the change (perfect links, 94 machine pairs): 1,000,000 characters, reply / request, TCP 115 / 204 ms, soft
+Homa 122 / 194 ms; on the memory it had been 153 / 250. `EXPLORATION-LOG.md`, the entries of 18 November, has all
+of it.
+
+Known and not fixed in the Homa API interface: on the machine that holds the memory, a cell over about 60,000
+characters takes 40 ms or more (131 ms at 240,000) where another machine takes 2 ms. Measured in isolation; the
+likely cause (the platform's 32 KB send buffer against a machine's 64 KB segments to itself) is not proven.
+
 ## 1. What is being built, and why
 
 Two things, and they are different.

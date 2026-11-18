@@ -1361,6 +1361,43 @@ batteries (a), (c), (d), (b): **20 of 20 topologies pass, 1,574 checkpoints, 0 f
 TCP on the same code: 20 of 20, 1,516 checkpoints. `auto` in this sandbox is TCP (no Homa in the kernel), so its
 range is TCP's. Not yet run on this code: the per-RAM setting, and shaped links.
 
+### 18 Nov 07:15 to 08:10: the memory-based soft Homa is taken out of the driver
+
+With the range passing on Homa's frames, what carried the wire through the memory was removed, not left unreachable:
+`core/homa_socket.py` is the kernel module's socket again and nothing else (the library loader, "where is the
+memory", telling the library, the server-arrival wait, their settings); `daemon/engine/server_homa.py` loses the
+memory child and the listener's reopen loop; `proxy/transport_homa.py` loses its reopen and its check that a peer is
+in the memory; `core/homa_transport.py` loses its soft-memory test. Those four files: 356 lines removed, 16 added
+(2,086 lines before, 1,746 after). `simulation/homa_door_tier.py` runs the door's 23 scenarios on Homa's frames;
+the origin node's address is stood in for there (one host is both nodes) and the file says so. 13 of 13 gates; the
+Homa door tier passes.
+
+Documents brought to the code: `core/TRANSPORT-DRIVER-INTERFACE.md` (rewritten around the six calls, the rules
+every driver keeps, the three drivers, and where the code does not keep to it yet), `core/AI_README.md` (soft Homa,
+and a DO NOT for putting a memory under the wire), `DESIGN.md` here (section 0: what changed and which of its
+sections are now history).
+
+Not done: HELLO and the RTT ping above the drivers; the kernel driver and the two Homa ends restated as the six
+calls (they still use the kernel socket's names and carry the pieces and spare RPCs that kernel Homa's message limit
+needs); the per-RAM setting and shaped links on this code; the driver on real nodes.
+
+### 18 Nov 08:10 to 08:55: the range again on the code after the removal; two things checked for a node
+
+`softhoma`, perfect links, all four batteries, on the code with the memory-based soft Homa removed: 20 of 20
+topologies, 1,574 checkpoints, 0 failures (`/home/claude/logs/final/softhoma__none/`).
+
+John (05:43 his time): "Do the per ram stuff and the rest and give me something i can deploy."
+
+Checked before packaging for nodes:
+
+- **A node on this code and a node on the code before it read each other's frames.** The field-order trailer adds 18
+  bytes to REQ_REPEAT, REQ_FULL and REQ_DIFF. The parser of the base commit (`948b435c`) reads a new frame the same
+  as an old one, and the new parser reads an old frame (no order said). So nodes can be upgraded one at a time.
+- **A claim of mine that was false.** `core/homa_frames.py` said of port 9131 "the firewall already has it". It does
+  not: `usr/local/bin/ham_guardrail.sh` lets TCP 9009 through on ham links and drops the rest. Soft Homa on 9131
+  does not cross a ham link until that file is given the port. The comment now says so. That file is not mine to
+  change without John's word.
+
 ## 4. The interventions: what was said, why it was noticed, what had not been considered
 
 John, 17 Nov, of the first version of this file: "It is not just the order. It is what I asked and why I asked it.

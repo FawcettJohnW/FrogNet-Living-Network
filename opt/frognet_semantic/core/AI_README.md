@@ -94,29 +94,31 @@ The parts every node runs. 38 Python files, no subdirectories.
   (`docs/spec/spec-05-routing.md` 4.1). Nothing is preferred by kind. A node with no Homa is exactly as it was.
   Detection is not a fallback: a session whose carrier fails ends. A node told `homa` without the module stops with
   `HomaUnavailable`. Gate: `test_homa_carrier_oracle.py`.
-- **Soft Homa is its own carrier, `softhoma`** (`[SOFT_HOMA_CARRIER_V1]`). Homa's calls on shared memory
-  (`ribbit/examples/homa`, read its DESIGN.md), a library the Homa driver opens ITSELF
-  (`[THE_DRIVER_LOADS_ITS_OWN_HOMA_V1]`, `homa_socket.soft_homa_library()`): the node is told where it is by
-  `FROGNET_SOFTHOMA_LIB` or the one line of `/etc/frognet/softhoma_library`, and with neither the library is never
-  loaded. Every call the driver's socket makes goes through that one handle and nothing else in the process does.
-  NEVER put it into a proxy or daemon with LD_PRELOAD: that stands it in front of every socket in the process, the
-  TCP driver's included (John: "There should be no risk to existing systems at all"). LD_PRELOAD is only for a
-  program that cannot be changed, his `cp_node`. The driver is the same on kernel Homa and soft Homa. `homa_transport.homa_name()` says which Homa this process has; kernel and soft Homa are not
-  one wire, so each end's capability tuple says `homa` or `softhoma` and the two find TCP in common. Words:
-  `softhoma` (must be loaded or the process stops); `homa` with soft Homa loaded stops.
+- **`[WE_OWN_THE_WIRE_V1]` a transport driver is six calls** (`core/transport_driver.py`, read it): `connect`,
+  `send`, `receive`, `pack`, `unpack`, `close`, and `listen` on the end that is connected to. John, 18 Nov: "We own
+  the wire. It is whatever connection the driver chooses to make, but it is a permanently open connection ... The
+  data on the socket is exactly that -- data ... The packing and unpacking methods are part of the driver."
+  Nothing above a driver touches a socket; nothing below it knows what the bytes are. The engine's side of a session
+  is `daemon/engine/session.EngineSession` (no socket); the TCP driver's daemon end is `TcpDaemonEnd` in the same file.
+- **Soft Homa is its own carrier, `softhoma`: Homa's frames on a connection the driver holds open**
+  (`core/homa_frames.py`). Homa's DATA frame as his TCP hijacking lays it over TCP's header, segments of at most
+  240,000 bytes, one TCP connection per daemon on port 9131, opened when there is first something to send and held
+  open. It needs nothing built, loaded or told but the word `softhoma`, and it is NOT taken on `auto`: a node left on
+  `auto` without Homa in its kernel is on TCP exactly as it was. **A session ends with its connection, at both ends**
+  (`[A_SESSION_ENDS_WITH_ITS_CONNECTION_V1]`). DO NOT put a memory process, cells or an imitation socket under
+  FrogNet's wire: that was built first (17 Nov), measured, and taken out on John's word ("You are trying to mimic a
+  message passing system. Dont do that"); `ribbit/examples/homa/EXPLORATION-LOG.md` has what it cost and why. The
+  library in `ribbit/examples/homa` (`libsofthoma.so`, `softhoma-ram`) is his API for his own unchanged programs
+  (`cp_node`) and no proxy or daemon opens it. With the kernel module the contract is the same and "those functions
+  are now done in hardware and use real Homa frames instead of tcp hijack frames".
 - **`[FRAMES_GO_IN_PIECES_V1]` a frame larger than one message goes in pieces.** The driver
   (`proxy/transport_homa.py`, `daemon/engine/server_homa.py`) asks the carrier what one message may be
-  (`homa_socket.max_message()`: 1,000,000 on kernel Homa, one cell on soft Homa) and cuts a larger frame or reply
+  (`homa_socket.max_message()`: 1,000,000 on kernel Homa; soft Homa's carrier cuts for itself) and cuts a larger frame or reply
   into numbered pieces, each a whole Homa message, rebuilt before the engine sees it. Nothing is refused for size
   and nothing is shed. The format and the gate are in `ribbit/examples/homa/DESIGN.md` section 5. Do not put a
   size limit back above the driver.
-- **`[THE_MEMORY_IS_WHERE_THE_ROLE_IS_V1]` no address of soft Homa's memory is kept anywhere.** It is on the machine
-  `databasehost.frognet` names, and that moves. `homa_socket.soft_memory_tell()` asks where it and this node are when
-  a socket opens and at every hosts change (`PeerLiveness.on_hosts_change`); when either changed the library is told,
-  the sockets on the old memory go down, the sessions end, the proxy opens a new socket when it next has something to
-  send and the daemon's listener opens again (`MsgDaemonServer.run`). A peer that is not yet in the new memory
-  (`[A_PEER_IS_THERE_WHEN_ITS_CELL_IS_V1]`, `homa_transport._peer_in_soft_memory`) gets no soft Homa session. Never
-  put an address, a RAM host or a node's own address in a setting or an environment variable for a service.
+- **No address is kept in a setting.** Never put an address, a RAM host or a node's own address in a setting or an
+  environment variable for a service: roles move. A driver connects to the address the hosts file gives a name now.
 - **Adding another transport: read `ribbit/examples/homa/EXPLORATION-LOG.md` first**, section 9 for the procedure
   and section 4 for the mistakes already made once. It is the record of how the Homa driver was brought up, wrong
   turns included.

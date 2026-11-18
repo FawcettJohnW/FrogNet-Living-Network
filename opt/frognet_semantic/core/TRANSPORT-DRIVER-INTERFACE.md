@@ -1,112 +1,70 @@
-# What a transport driver for the semantic wire must implement
+# What a transport driver is
 
-17 November 2026. Derived from the two drivers that exist: TCP (`proxy/transport_semantic.py` `_DaemonWorker`,
-`daemon/engine/server.py` `DaemonServer`, `daemon/engine/session.py` `SemanticSession`) and Homa
-(`proxy/transport_homa.py` `_MsgWorker`, `daemon/engine/server_homa.py` `MsgDaemonServer` and `_MsgSession`).
-John asked for it: "Now that you have two examples, you should be able to define the abstract interface required
-for a transport. These are the calls each driver must implement for the system to work. Verify that this is
-correct."
+John Fawcett, 18 November 2026: "We own the wire. It is whatever connection the driver chooses to make, but it is a
+permanently open connection where we control what is sent and received on the socket. The data on the socket is
+exactly that -- data, and the transport doesnt need to know anything about it. It was provided by the packing method
+of the driver and on the other end will be handed unchanged to the unpacking method. The packing and unpacking
+methods are part of the driver." And: "things like connection, send, and receive must be part of the driver".
 
-This file states the interface as the code uses it today, what was checked, and where the code does not yet keep
-to it. It is a description. No abstract class exists in the tree yet; section 5 says what declaring one would
-change.
+The interface is in code: `core/transport_driver.py`. This file says what it means and where each driver stands.
 
-## 1. Where the driver sits
+## 1. Where a driver sits
 
-The driver is below the semantic compression layer. Checked in the code:
+Below the semantic engine and above the network. The proxy's engine makes a frame (FNW1: a templated request, a
+difference, a reference); the driver carries it to the daemon on the RAM host; the daemon's engine gets the same
+bytes. Compression, templates, references, fan-out and fan-in are all above the driver and do not know which driver
+is under them. The transport word is a setting per RAM connection (`/etc/frognet/semantic_transport`).
 
-- The proxy's request path (`_handle_semantic_request` and what it calls) builds a finished frame: REQ_RAW,
-  REQ_FULL, REQ_DIFF, REQ_REPEAT, REQ_SAME_MISS, with templates, instance references and SAME/DIFF already
-  applied. It then calls `worker.call(frame)`, or `worker.submit(frame, gate)` and later `worker.wait(rpc)`. Those
-  are the only calls it makes with a frame (4 call sites). What comes back is a finished reply frame, which the
-  same layer decodes.
-- The daemon's engine receives a whole frame through `SemanticSession._submit_frame(frame, seq, wire_in)` and puts
-  a whole reply frame on the session's reply queue. Everything from `_submit_frame` up is one body of code for
-  both drivers (`_MsgSession` inherits it and replaces only `__init__` and `_write_loop`).
-- Nothing above the seam names a carrier. `daemon/engine/session.py`, `daemon/engine/execution.py`,
-  `daemon/engine/server.py`, `core/semcache_wire.py` and `proxy/proxy_main.py` contain no mention of Homa or of a
-  carrier. In `proxy/transport_semantic.py` the only mentions are the seam in `_get_worker` and one import.
+## 2. The calls
 
-So normal operations do not know which driver carried a frame, and cannot find out.
+| call | what it must do |
+|---|---|
+| `connect()` | Open this end's permanently open connection, by whatever means the driver chooses. Called again at a network event, or when there is next something to send, if the connection has gone. Never on a timer. |
+| `send(data)` | Put one packed unit on the connection, exactly as `pack()` returned it. |
+| `receive()` | The next packed unit, exactly as the other end's `send()` was given it. Blocks until one is there: a held read, not a poll. |
+| `pack(n, frame)` | The driver's own framing of one frame. Returns one unit, or several when the driver cuts a frame. |
+| `unpack(data)` | One received unit in; `(n, frame)` out when a frame is whole, the frame byte for byte what `pack()` was given. |
+| `close()` | End the connection for good. |
+| `listen()` | The end that is connected to: a driver object for each permanent connection as it arrives. |
 
-## 2. The contract (what the engine assumes of any driver)
+`n` is the number that lets a reply find its request. What a driver may do with it is its own business (TCP counts
+arrivals; Homa uses its RPC id).
 
-1. **Whole frames.** A frame handed in arrives as that frame or not at all. Size is the driver's problem (the Homa
-   driver cuts a frame larger than its carrier's message into pieces and rejoins them; TCP streams).
-2. **In order, each way, within a session.** Frames reach the daemon's engine in the order the proxy submitted
-   them. Replies may complete in any order.
-3. **Many in flight.** Any number of requests outstanding on one session at once.
-4. **A reply finds its request.** `wait(rpc)` returns the reply to that request and no other.
-5. **Broken is broken.** When the session ends, every outstanding request fails with the reason, and the session
-   is not quietly remade under a request. The next request opens a new session.
-6. **A session that is starting is not dead.** A request that arrives while the session is being set up is queued
-   under the driver's own clock for that state; the caller's wait decides. (The TCP driver broke this until
-   17 November: `[A_SESSION_STARTING_IS_NOT_DEAD_V1]`.)
-7. **Each end says who it is.** The first frame of a session is HELLO carrying the sender's own .1, and the reply
-   to it carries the other end's.
+## 3. What is not a driver's
 
-## 3. Proxy side: a session to one peer machine
+Which frame answers which; the order frames are handed up; HELLO and the RTT ping (frames like any other); who is
+alive (a held read on the capability tuple in the ControlRam); the contents of a frame.
 
-One object for each (peer machine, port, channel set). The engine gets it from `_get_worker(host, port, set_id)`.
+## 4. Rules every driver keeps
 
-| The engine uses | Meaning | TCP | Homa |
+1. **A session ends with its connection**, at both ends, whether or not anything was outstanding. The next request
+   opens a new connection and a new session. (Found 18 Nov on soft Homa: a proxy that kept its session across a
+   reconnect talked to a new daemon that was waiting for that session's first frames.)
+2. **Gone is gone.** What was outstanding on a connection that ended fails, is said, and is not sent again by the
+   driver. Nothing is used in a driver's place.
+3. **Nothing on a timer.** A connection is opened when there is something to send or at a network event.
+4. **No machine talks to anything but the RAM host** on the wire. An event reaches a node through its held read.
+5. **A node that was not told a driver's word does not run it.** `auto` on a node without Homa in its kernel is TCP.
+
+## 5. The drivers
+
+| word | connection | packing | where |
 |---|---|---|---|
-| `Driver(host, port, set_id)` | Open (or begin opening) the session | yes | yes |
-| `submit(frame, gate=None) -> rpc` | Queue a frame; returns the handle of that request | yes | yes |
-| `wait(rpc) -> bytes` | Block until that request's reply frame, or raise why not | yes | yes |
-| `call(frame) -> bytes` | `submit` then `wait` | yes | yes |
-| `stop(err=None)` | End the session; outstanding requests fail with `err` | yes | yes |
-| `is_stopped() -> bool` | The session has ended | yes | yes |
-| `stopped_reason() -> str` | Why, for the log | yes | yes |
-| `_stopped_at` | When it ended (the engine prints its age) | yes | yes |
-| `_peer_latency.retry_budget()` | How long the engine may wait on this peer | yes | yes |
-| nothing outstanding? | Whether the session may be retired | `_pending`, `q` | `_out` |
-| `carrier` | The driver's name | absent (read as "tcp") | `"homa"` |
+| `tcp` | two TCP connections the proxy opens, one each way, held open | a 4-byte length; a reply carries the 4-byte number of its request | proxy end: `proxy/transport_semantic._DaemonWorker`; daemon end: `daemon/engine/session.TcpDaemonEnd` |
+| `softhoma` | one TCP connection to the daemon on port 9131, held open | Homa's DATA frame as his TCP hijacking puts it on the wire; segments of at most 240,000 bytes | `core/homa_frames.py` (`_Conn` is the six calls), under `proxy/transport_homa.py` and `daemon/engine/server_homa.py` |
+| `homa` | one Homa socket (the kernel module) | the module's own: real Homa frames; it cuts, paces and resends | `core/homa_socket.HomaSocket`, under the same two files |
 
-The handle `rpc` is the engine's own `_Rpc`; `gate` is the engine's fan-out gate, stamped by the driver when the
-frame is taken for the wire.
+## 6. Where the code does not keep to this yet
 
-## 4. Daemon side: a listener, and a session for each peer
+1. The proxy end of the TCP driver (`_DaemonWorker`) is not written as the six calls; it does the same things under
+   its own names. It is existing code and has not been restated.
+2. HELLO and the RTT ping are handled once in each driver's session code, not once above the drivers.
+3. The two Homa ends (`transport_homa.py`, `server_homa.py`) still call their carrier by the kernel socket's names
+   (`send_request`, `send_reply`, `recv`) and still carry the machinery kernel Homa's message limit needs (pieces,
+   spare RPCs). Soft Homa's carrier sets its message limit high, so on soft Homa that machinery does not run.
+4. The words a setting may use are a fixed list in `core/homa_transport.py`; a driver cannot yet register its own.
 
-| The system uses | Meaning | TCP | Homa |
-|---|---|---|---|
-| `Listener(host, port, resolver)` | Made by `daemon_main` | `DaemonServer` | `MsgDaemonServer` |
-| `run()` | Listen and serve until the process ends | yes | yes |
-| hand a frame up | `_submit_frame(frame, seq, wire_in)`, in the order the proxy submitted | `_read_loop` | `arrive`, `piece`, `_hand_up` |
-| send a reply down | take `(request, reply frame)` from the session's reply queue and deliver it to that request | `_write_loop` | `_write_loop` |
-| HELLO | learn the peer's .1, answer with this end's | in the session | in `_hand_up` |
-| RTT_PING | answer with RTT_PONG and the two times | in the session | in `_hand_up` |
-| a peer is gone | end its session and tell the engine (`_writer_gone`) | socket closes | liveness (`core/homa_liveness.py`) |
+## 7. Adding a driver
 
-Beside the two there is the choice of driver, which is not a driver's call: `core/homa_transport.py`
-`carrier_for(host)` (which driver a session to that machine opens on, from the setting per RAM connection) and
-`daemon_server(...)` (a listener on every carrier the setting names).
-
-## 5. Where the code does not keep to this yet
-
-Found while verifying. None of it changes what a request sees; all of it is why this is not yet an interface a
-third driver could be written against without reading the other two.
-
-1. **It is not declared.** Both proxy-side classes have the same method names by copying, not by a base class.
-   Introspection on 17 November: `call`, `submit`, `wait`, `stop`, `is_stopped`, `stopped_reason` are on both with
-   matching signatures; `stats` is on Homa only; `carrier` is on Homa only.
-2. **The engine reads private fields of the session:** `_peer_latency`, `_stopped_at`, and for "nothing
-   outstanding" `core/homa_transport.worker_idle` looks at `_out` on one driver and `_pending` and `q` on the
-   other. These should be three calls: `retry_budget()`, `stopped_at()`, `idle()`.
-3. **The Homa driver reaches into the engine:** `TS._Rpc`, `TS._PeerLatency`, `TS._BUDGET_FLOOR`, `_BUDGET_MULT`,
-   `_BUDGET_CEILING`, `TS._gate_stamp`, `TS._get_local_gw`; on the daemon side it subclasses `SemanticSession`
-   and uses its private fields (`_reply_q`, `_recv_sock`, `_send_sock`, `_preread_frame`, `_request_seq`,
-   `_encode_lock`), plus `S._get_executor`, `S._get_db_executor`, `S._is_fast_frame`, `S.bump_semantic`.
-4. **On the daemon side TCP is not a driver.** `SemanticSession` is the engine and the TCP session in one class:
-   its two sockets, `_read_loop` and `_write_loop` are built in. The Homa session exists by subclassing it and
-   replacing the socket parts. A clean cut would leave an engine session that knows no socket and two drivers
-   that feed it.
-5. **Each driver looks inside a frame in three places:** HELLO, RTT_PING (daemon side), and the error wrapper for a
-   malformed frame. These are the session's control frames, not compression, but they are parsed in each driver
-   separately (`proxy/transport_homa.py` line 471, `daemon/engine/server_homa.py` lines 195 to 213). One place
-   above the drivers would remove the drivers' need to know the frame format at all.
-
-Declaring it means: two abstract classes (a proxy-side session, a daemon-side listener with its session), the
-three private reads in item 2 turned into calls, the engine session split from the TCP sockets (item 4), and HELLO
-and RTT_PING handled once above the drivers (item 5). Items 2, 4 and 5 change the TCP driver and
-`daemon/engine/session.py`, which are working code, so they wait for John's word.
+Read `ribbit/examples/homa/EXPLORATION-LOG.md`: section 9 for the procedure, section 4 for what went wrong the first
+time, and the entries of 18 November for a driver built as an imitation of something else and then taken out.

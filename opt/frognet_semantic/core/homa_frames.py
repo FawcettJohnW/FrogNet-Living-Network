@@ -37,7 +37,9 @@ from core.homa_socket import Msg, RpcFailed, CarrierClosed, HomaUnavailable, Pee
 from core.transport_driver import TransportDriver, ConnectionGone
 
 BUILD = "homa-frames-on-tcp-v3-20261118c"
-PORT = 9131                          # soft Homa's port (the firewall already has it)
+PORT = 9131                          # soft Homa's port. A link that filters by port must let TCP 9131 through:
+                                     # usr/local/bin/ham_guardrail.sh lets only 9009 through on ham links, so soft Homa
+                                     # does not cross a ham link until that file is given this port.
 SEGMENT = 240000                     # no unit on the connection carries more of a message than this
 DATA = 0x10                          # homa_wire.h: enum homa_packet_type
 HIJACK_FLAGS, HIJACK_URGENT = 6, 0xb97d      # homa_hijack.h: what marks a TCP frame as Homa's
