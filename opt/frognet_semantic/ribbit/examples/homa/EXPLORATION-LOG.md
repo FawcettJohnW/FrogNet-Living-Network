@@ -121,6 +121,12 @@ Each is John's, quoted where the words matter. They are the constraints everythi
 38. (14:08) "Perf". Answered with the two measured tables in section 6.
 39. (14:09) "The simulator should be able to run it across the entire range of topologies."
 
+40. (20:04, to my question whether to change the TCP driver's "reader dead" check or have the tier report it) "If it
+    is a legitimate failure, it is a legitimate failure and needs to be treated as such. If the machine is in a
+    known startup state, it's up to the app to decide what to do."
+41. (20:04, to "the tier does not run the merge") "Why doesn't the machine leaving run the merge? Isn't it a network
+    event? Those automatically run the merge."
+
 ## 2a. The stages, and each time the work went back a stage
 
 John, 17 Nov: "The record should also show the progression through the stages, and the times we had to roll back.
@@ -175,6 +181,9 @@ the work went back. "Withdrawn" means the thing was proposed or begun and droppe
 | 17 Nov 14:00 | work (`auto`) | work | the first run of `auto` between machines: no Homa listener anywhere | `auto` decided what a node has by opening a socket at start, before any role is named, so on soft Homa it was always tcp. Soft Homa is now had when its library is told (`[SOFT_HOMA_IS_HAD_WHEN_ITS_LIBRARY_IS_V1]`). |
 
 | 17 Nov 14:20 | work on one topology I had drawn | work on the simulator's own range | John, ruling 39 | Nothing undone. The tier's network was one flat segment for three machines. It now builds any of the simulator's 20 topologies with a hardware baseline: their devices, segments and recorded routes. |
+
+| 17 Nov 20:04 | the tier excusing a failure | the tier failing it | John, ruling 40 | From 14:00 I had the tier count the engine's 503 REQ_MISS and not fail for it. Undone: it fails the pair. By that rule the earlier results were TCP 13 of 20 topologies and soft Homa 14 of 20, not 20 and 20. |
+| 17 Nov 20:04 | "the tier writes the merge's result" | the tier runs the merge | John, ruling 41 | Owed in code. I wrote hosts files and installed recorded routes by hand, so a machine leaving could not be tested off the flat topology. A network event runs the merge; the simulator already runs the real discovery code (s_topo_tier). The tier is to run it at every event. |
 
 ### What the rollbacks have in common
 

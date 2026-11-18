@@ -494,7 +494,7 @@ def battery_fanout(machines, check, pairs=None, tag=""):
             bad, miss = [], 0
             for q, g in zip(reqs, got):
                 if g["status"] == 503 and g["body"].startswith(REQ_MISS):
-                    miss += 1; REQ_MISSES.append("%s -> %s %s" % (a.name, b.name, q["path"][-44:])); continue
+                    miss += 1; REQ_MISSES.append("%s -> %s %s" % (a.name, b.name, q["path"][-44:]))   # counted, and it FAILS (below)
                 if g["status"] != 200:
                     bad.append((q["path"][-40:], g["status"], g["body"][:120])); continue
                 d = json.loads(g["body"])
@@ -518,20 +518,17 @@ def battery_fanout(machines, check, pairs=None, tag=""):
             check(fine, tag + "%s -> %s: %d concurrent reads and %d writes in %.1fs (median %.1f ms): every read answered its own "
                         "rows, every write acknowledged, %s holds each writer's last value, and a read through the wire "
                         "equals %s's own api.php%s%s" % (a.name, b.name, R * N, W * N, dt, ms[len(ms) // 2] if ms else -1, b.name, b.name,
-                                                       "" if not miss else " [NOT JUDGED: %d of the reads answered 503 %r, the semantic "
-                                                       "engine's own fault above either driver, seen on TCP at the same place]" % (miss, REQ_MISS),
+                                                       "" if not miss else " [%d of the failures are 503 %r, the semantic engine's]" % (miss, REQ_MISS),
                                                        "" if fine else " -- WRONG: warm %s; %d bad %s; same=%s; last=%s" % (
                                                            [w.get("status") for w in warm], len(bad), bad[:3], same, {n: last.get(n) for n in mine})))
     return good
 
 
-# [THE_ENGINE_S_MISS_IS_NOT_THE_WIRE_S_V1] Between machines, about one run in three has ONE read, always in the first
-# burst from the first machine to its second target, answered 503 with this reason. It is the semantic engine's
-# (proxy/transport_semantic.py and daemon/engine/execution.py: an instance reference the proxy believes the peer
-# holds and the peer does not, twice in a row for one request while other streams are doing the same). It is above
-# both drivers and happens on TCP as on Homa (ribbit/examples/homa/EXPLORATION-LOG.md section 7, item 0a). This tier
-# judges the transport, so such a read is counted and said on its own line and in the result, and is not held
-# against the pair. Nothing else is excused: any other status, any wrong row, any lost write fails the pair.
+# [A_FAILURE_IS_A_FAILURE_V1] John, 2026-11-17: "If it is a legitimate failure, it is a legitimate failure and needs to
+# be treated as such." From 14:00 to 20:04 that day this tier counted a read answered 503 with the reason below and
+# did not hold it against the pair, because it is the semantic engine's and happens on TCP as on Homa. A request
+# that went in and came back 503 failed, whoever's fault. It fails the pair again. It is still counted by name, so
+# the result says how many of the failures were this one (EXPLORATION-LOG.md section 7, item 0a).
 REQ_MISS = "REQ_MISS from daemon; exhausted retries"
 REQ_MISSES = []
 
@@ -657,7 +654,7 @@ def every_topology(setting):
         res = ([l for l in out.splitlines() if l.startswith("RESULT")] or ["RESULT FAIL (no result: %s)" % (r.stderr.strip()[-200:] or out[-200:])])[-1]
         meds = [float(x) for x in re.findall(r"\(median ([\d.]+) ms\)", out) if float(x) >= 0]
         rows.append((key, res, out.count("[PASS]"), out.count("[FAIL]"), len(re.findall(r"concurrent reads", out)),
-                     sum(meds) / len(meds) if meds else -1, len(re.findall(r"^NOT JUDGED", out, re.M)), time.time() - t0))
+                     sum(meds) / len(meds) if meds else -1, len(re.findall(r"^OF THE FAILURES", out, re.M)), time.time() - t0))
         print("%-34s %s  pass %d fail %d  pairs %d  mean of pair medians %.1f ms  %s%.0fs" % (
             key, res, rows[-1][2], rows[-1][3], rows[-1][4], rows[-1][5], "engine REQ_MISS seen  " if rows[-1][6] else "", rows[-1][7]), flush=True)
         for l in out.splitlines():
@@ -768,7 +765,7 @@ def main():
             tear_down(machines)
             shutil.rmtree(tmp, ignore_errors=True)
     if REQ_MISSES:
-        print("NOT JUDGED: %d read(s) answered 503 %r (the semantic engine's, on either driver): %s" % (len(REQ_MISSES), REQ_MISS, "; ".join(REQ_MISSES)))
+        print("OF THE FAILURES: %d read(s) answered 503 %r (the semantic engine's, on either driver): %s" % (len(REQ_MISSES), REQ_MISS, "; ".join(REQ_MISSES)))
     print("RESULT", "PASS" if ok else "FAIL")
     return 0 if ok else 1
 
