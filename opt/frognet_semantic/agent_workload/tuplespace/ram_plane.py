@@ -59,11 +59,11 @@ def cell_name(host: str, number: int, name: str) -> str:
 def _open(what: str):
     """A new session with the one RAM, for `what` alone: (driver end, (host, port))."""
     hp = R.ram().control()
+    end = D.end_for(*hp)
     try:
-        end = D.end_for(*hp)
         end.connect()
     except D.ConnectionGone as e:
-        raise ConnectionError("%s: cannot reach the RAM host at %s:%d (%s)" % (what, hp[0], hp[1], e)) from e
+        raise ConnectionError("%s: %s" % (what, D.unreachable(end, hp[0], hp[1], e))) from e
     R._say_driver(hp[0], hp[1], end)
     return end, hp
 

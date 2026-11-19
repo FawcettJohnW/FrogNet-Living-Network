@@ -1521,6 +1521,99 @@ as a difference, not settled.
 it would carry on. A background run in this sandbox stops soon after the turn ends. It stopped at 5 of 20 on TCP;
 the finished topologies were kept and it was restarted from the sixth.
 
+### 19 Nov 04:17 to 05:40: PyTorch on the drivers, steps 1 and 2 (`0e9a56f9`, `bbf1235e`, `dfd2c2f1`, and this commit)
+
+John attached `agent_workload/PYTORCH-ON-THE-DRIVERS-PRIMER.md` with no other word; it was taken as "pick this up".
+He did not intervene during this stretch, so there is no case for section 4.1; my own mistakes are at the end.
+
+**The sandbox first.** The primer says the sandbox it was written in had no torch. This one was given torch 2.15 and
+lz4 (the stream's LZ4 is on by default and a rank without the module fails every round with the reason said).
+On the tree as found (`e53c79e7`): `test_regions_collectives` and `test_regions_ddp` pass (gloo `339b138499889daa`,
+shard `1299476b225f2d9a`, faithful `8293546b6b4e8c48`, held-out 0.487819), and **`simulation/collective_tier.py`
+fails 21 of 65**. It was last changed on 12 Nov 08:50 (`5b79b445`) for the 11 Nov design; the September backends
+were revived 42 minutes later (`09388fa5`) on John's ruling and the tier was not run again, because it needs torch
+and `run_all.py` has not run it since 16 October. Eighteen of the 21 asserted the design that was set aside
+(`_gather`, `_read_owner_into`, "no rank writes tensors into a RAM host", names that must be absent). Three are
+his standing rule and are true of the revived code: nine wait loops sleep between re-asks.
+
+**Step 1: the rank's session with the FrogTorch RAM is a driver's connection.**
+`agent_workload/tuplespace/frogtorch_ram_drivers.py`: `TcpEnd`, `SoftHomaEnd` (it is `core/homa_frames._Conn`), a
+listener for each. `_Session` and `RamServer` call connect, pack, send, receive, unpack, close and listen, and open
+no socket. Decisions, each because the alternative was worse:
+- *The port.* A RAM announces one port. Announcing a second, or telling the driver from a connection's first
+  bytes (a probe), were the alternatives. One rule instead: tcp on P, softhoma on P + 1.
+- *What the RAM listens with.* Every driver a word of its node's setting names, as a daemon does.
+- *`tcp` keeps today's bytes.* So a frame is handed to `pack()` as its parts and the tcp end sends the last part
+  as it is; a tensor is not copied to be framed. Compared byte for byte in the tier.
+- *The socket timeout is gone.* The driver has no timer. A held read returns at the deadline its request names
+  (the RAM answers then with what is there) or when its connection ends.
+- *`homa`.* Not written; a session told it stops and names the primer's step 4.
+Both tests pass on both words with the shas above, and the softhoma run's sessions are on port P + 1 by its log.
+
+**Step 2: PyTorch's tensors are cells in the RAM.** The seam in the September code is three classes
+(`TensorServer.publish`, `StreamSubscription.take/expect/request`, `TensorClient.read/read_into`), so
+`agent_workload/tuplespace/ram_plane.py` has three with the same calls and the backends make those instead; nothing
+in the reduction was edited. In the RAM (`frogtorch_ram.py`): `tsub` holds a read on a family (regular expressions
+over names) and every matching cell answers it as its owner writes it, cells already there first; `twant` one named
+cell once; `tdel`; `readers=k` on a write retires the cell after its k-th answer. A writer's thread puts an answer on
+the reader's queue and goes on; the reader's session has its own sender, so a slow reader does not hold a writer.
+- *Whose cell.* On the old path a reader connected to the owner's address, which kept two groups and two runs
+  apart. In one memory the names would collide (the hooks' cells are `h0.hb...` in every run). The owner's
+  identity, which every read is already handed, goes in front of the name: `<host>:<number>/<name>`.
+- *Lifetime.* The cells are held by the owner's session, so they go when its process goes, as before. `life="data"`
+  would have left every run's tensors in a service that never restarts.
+- *The first failure.* `test_regions_ddp` hung, then: "r0 does not publish 'gc5fab812faec.4.bc.3' at all". The
+  root's bytes go to the RAM on its tensor session and the descriptor on its control session; the RAM can take the
+  descriptor first, and a reader that asks at once with no wait is told the cell was never published. When the
+  bytes were in the owner's process that order could not happen. Not fixed with an acknowledgement (a write is not
+  a conversation) or a ready flag (ruled out 12 Nov): a named read is held for the write
+  (`[A_READ_IS_HELD_UNTIL_THE_WRITE_V1]`), to the group's timeout.
+Then, on tcp and on softhoma: both tests pass with the shas of the tree as found; `meshfeed.py` (now making
+`RamPlane` and `RamStream`) gives `e815acd8ca31c698` at k=1 before and after and equals its oracle.
+
+**The standard workload, in the sandbox** (`ddpbench.py`, 4 ranks on one machine, hidden 1024, 40 steps, warmup 8,
+bucket-view 0; one run each):
+
+| arm | tree as found (tcp sockets, rank to rank) | this work, `tcp` | this work, `softhoma` |
+|---|---|---|---|
+| gloo | `3541e1807be7f016`, 0.493987 | `3541e1807be7f016`, 0.493987 | (not a FrogTorch path) |
+| Psychedelic shard | `6d84cfed6441a54f`, 0.493987 | `6d84cfed6441a54f`, 0.493987 | `6d84cfed6441a54f`, 0.493987 |
+| Psychedelic, faithful hook | `d1d97066cbba6e15`, 0.493987 | `d1d97066cbba6e15`, 0.493987 | `d1d97066cbba6e15`, 0.493987 |
+
+Every rank agreed in every cell. Held-out is the 0.4940 of September; the shard sha here is not September's
+`df67ff9ce033941b` on either tree (torch 2.15 on this x86-64), so the acceptance on the nodes is still to be run.
+No time is in the table: four ranks share two cores, and whichever arm first runs a tree pays about 22 s for the
+native shim's rebuild (below).
+
+**The tier.** `simulation/collective_tier.py`: the 18 checks of the set-aside design are replaced, each with a
+comment saying what it was and why it went, and three planes are added that run real things: 4 (a real RAM, each
+driver: a read held on a family is answered by the owner's write, exact and into its tensor; a cell for one reader
+is gone after it; another owner's cell of the same name is not delivered; a cell written first answers at once; a
+named read is held for the write; a rank's cells go with its session), 4a (tcp's bytes equal the old framing;
+softhoma connects to P + 1 and sends Homa's DATA frame; a word per RAM through a hosts map, one memory read over
+both drivers; a session ends with its connection; `homa` stops and says why), 4b (three ranks as processes: from
+`/proc/net/tcp`, no rank listens and every connection a rank has goes to the RAM's port; the same bits on both
+drivers). Run against the tree as found, 4b says each rank listens on one port and is connected to the others, 4a's
+softhoma check is refused, and the source checks name `TensorServer`, `StreamSubscription`, `TensorClient`: the
+checks fail on the old code. Now: **91 pass, 3 fail**. The three are the sleeps and are left failing (section 7).
+
+**For the nodes.** `usr/local/frognet-ai/transportrun.sh` and `transport_report.py`: the tier, what the RAM listens
+with, then seven arms behind `gate.py`'s barrier, the word given to each arm's processes alone; each rank writes
+its result into the RAM and every node prints the same three matrices and ratios from one held read. Run whole on
+one machine as three nodes with the RAM listening with both drivers and `databasehost.frognet softhoma` resolved
+through a hosts file: seven arms, every rank `ok`, the three nodes' reports identical.
+
+**Mistakes of mine in this stretch.**
+- A shell function assigned `T` and `A` (sh has no locals), so three runs labelled "new tree" ran the old one, and
+  their shas "matched". Seen because their logs still had rank-to-rank `[DIAG-STREAM] LINK` lines. Rerun with the
+  trees kept apart; the comparison above is from the rerun. The rule: a before-and-after comparison prints, from
+  the run itself, something only one of the two trees can print.
+- I took a 20 to 25 s gap at the start of some shard arms for a stall in the backend. It was the log line
+  "native Work shim loaded in 22.5 s": torch rebuilds `frognet_work.cpp` when the tree's path changes, and I was
+  alternating two trees. Read the log before forming a theory.
+- The first session-ends check closed the main thread's session and expected a read held on another thread's to
+  fail. A rank's data session is its thread's own.
+
 ## 4. The interventions: what was said, why it was noticed, what had not been considered
 
 John, 17 Nov, of the first version of this file: "It is not just the order. It is what I asked and why I asked it.
@@ -1927,9 +2020,20 @@ Nothing here may be reported as working.
 2. **Any of the driver on a node.** Pieces, spares, the wire manager, the library opened by the driver, the memory
    following the role, `softhoma-ram` started by the daemon: none has run outside the sandbox. Only his `cp_node`
    on soft Homa has run on nodes.
-3. **FrogTorch.** Still as built on 12 Nov (ranks listen). Not reverted to the 11 Nov design; its RAM host session
-   is not on the FNWP wire. No Torch run has been made on Homa.
-4. **Stock PyTorch on Homa.** No design under ruling 20.
+3. **FrogTorch.** (changed 19 Nov) For PyTorch (`psychedelic_backend.py`, `ddp_hook.py`, `meshfeed.py`) no rank
+   listens, the tensors are cells in the RAM and every session is a driver's connection, `tcp` or `softhoma`; run in
+   the sandbox only (section 3, 19 Nov). **Nothing of it has run on a node**, and the September acceptance
+   (`df67ff9ce033941b`, 0.4940) has not been run there. Not done: kernel Homa under the RAM session; `frogtorch.py`
+   and `frogtrain.py` (still `MemoryPlane`, a rank listening); AIConnect's bulk path (its own TCP sockets to the
+   RAM's port: refused on a node whose only word is `softhoma`).
+3a. **Nine wait loops of the September backends sleep between re-asks** (`psychedelic_backend.py`
+   `_await_consumers`, `_gather_tensors`, `broadcast`; `torch_backend.py` `_gather_cells`, `broadcast`, `scatter`,
+   `recv`, `recv_anysource`; `ddp_hook.py` `linger`). `simulation/collective_tier.py` fails three checks on them and
+   has since 12 Nov. Not changed on 19 Nov.
+3b. **The path through the RAM has had no performance work**, and what the rank-to-rank link did on the wire (LZ4,
+   block DIFF/SAME, sized records, channel sets) is not on it. No number for it exists off one machine.
+4. **Stock PyTorch on Homa.** No design under ruling 20. `transportrun.sh` runs stock DDP on gloo as the control,
+   on gloo's own sockets.
 5. **A payload that changes**, at any size, on soft Homa or through the driver.
 6. **The 1,000,000-byte row.** `cp_node` calls the socket itself, so the driver's pieces do not help it. The fix is
    inside the Homa API interface: make a record of a large message take the path a whole message takes. Not done.
@@ -2104,3 +2208,7 @@ here; where this work did one late or wrong, it says so.
 | (this commit) | 17 Nov 21:20 | The engine's 503 REQ_MISS found and fixed; the writer-gone oracle's wait |
 | (this commit) | 17 Nov 23:10 | Shaped links; the door and large frames between machines; a daemon listening is what "back" means; the blocker |
 | (this commit) | 18 Nov 00:05 | The frame says its field order; a machine's logs kept across its restart |
+| `0e9a56f9` | 19 Nov 04:45 | FrogTorch: the rank's session with the RAM is a transport driver's connection |
+| `bbf1235e` | 19 Nov 05:00 | Psychedelic: PyTorch's tensors are cells in the FrogTorch RAM, read by held read; no rank listens |
+| `dfd2c2f1` | 19 Nov 05:20 | meshfeed's minibatches in the RAM; the collective tier checks the design the tree has |
+| (this commit) | 19 Nov 05:40 | transportrun.sh and its report through the RAM; the primer, AI_READ_FIRST and this record brought up to date |

@@ -480,12 +480,12 @@ which carrier to open. Everything else that talks between nodes opens its own TC
 
 | What | Where it dials or listens for itself |
 |---|---|
-| FrogTorch's tensor link (owner's memory to reader) | `agent_workload/tuplespace/tensor_plane.py` 1194, 1590, 2315; `memory_plane.py` 70 |
-| FrogTorch's control (the frogtorch-ram) | `agent_workload/tuplespace/frogtorch_ram_client.py` 110; `frogtorch_ram.py` 288 |
+| FrogTorch's tensor link (owner's memory to reader) | CLOSED 19 Nov for PyTorch (`psychedelic_backend.py`, `ddp_hook.py`, `meshfeed.py`): tensors are cells in the RAM, `agent_workload/tuplespace/ram_plane.py`, on a driver's connection. Still open: `frogtorch.py`, `frogtrain.py` (`memory_plane.py` 70) |
+| FrogTorch's control (the frogtorch-ram) | CLOSED 19 Nov: `frogtorch_ram_drivers.py`; `tcp` or `softhoma` by the per-RAM word. Kernel Homa not yet |
 | AIConnect | `agent_workload/aiconnect/producer.py` 191, 216, 249, 381 |
 | Every C++ Ribbit session (three sockets each) and the RAM host's listener | `ribbit/cpp/src/frogram.cpp` `dial()` 443, 449, 452, 1058; `ram_client.cpp` 13; `ram_host.cpp` 1361 |
 
-So a PyTorch or FrogTorch run today puts nothing on Homa whatever the node's carrier word says. Done means: one
+(As this stood on 17 Nov: a PyTorch or FrogTorch run put nothing on Homa whatever the node's carrier word said. Since 19 Nov a Psychedelic run's every byte between machines is on the driver the setting names for the RAM: `agent_workload/PYTORCH-ON-THE-DRIVERS-PRIMER.md`.) Done means: one
 place opens a link to a peer, for Python and for C++, every one of the above goes through it, and it hands back
 the bus the engine is already held to (whole frames, in order each way, many in flight, the reply finds its
 request, broken is broken) on whichever carrier the hop has. Then the carrier is a property of the hop and nothing

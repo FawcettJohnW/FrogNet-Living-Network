@@ -748,33 +748,47 @@ reconciled. The procedure is in `opt/fdf/docs/APP-SETUP-AND-OPERATION.md`.
 Passwords are never stored or logged, only their verifiers. A machine with no FrogNet 10/8 address cannot hold (it
 has nowhere to be fired at); it says so.
 
-## 10b. FrogTorch: one RAM for references, the bits stay in each rank's memory
+## 10b. FrogTorch: one RAM; PyTorch's tensors are cells in it; every session is a transport driver's connection
 
-FrogTorch (PyTorch distributed on FrogNet, `agent_workload/tuplespace`):
+FrogTorch (PyTorch distributed on FrogNet, `agent_workload/tuplespace`). As of 19 November 2026; where it stands and
+what is next is `opt/frognet_semantic/agent_workload/PYTORCH-ON-THE-DRIVERS-PRIMER.md`.
 
 - **One RAM for all PyTorch work** (`[ONE_RAM_V1]`): the `frogtorch-ram` region on the machine `databasehost.frognet`
-  resolves to (`control()`). It holds membership, the rendezvous store, the gate, the hook bags -- and each rank's
-  REFERENCE: where that rank's memory is, written once at join (`Placement`, member cell `{ip, port}`). No rank uses
-  any other machine's frogtorch-ram.
-- **The bits stay where they are** (`[THE_BITS_STAY_WHERE_THEY_ARE_V1]`, John 2026-11-12: "You do not copy bits from
-  one machine to another. You leave them where they were and use references."): a rank's tensors stay in its own
-  process, in its `MemoryPlane` (`memory_plane.py`). A reader holds a read directly on the owner's memory for
-  (name, generation), held until the owner stores it; the bytes then go once, owner's memory -> link -> the
-  reader's tensor (`TensorClient.read_into`, payload received straight into the destination). Nothing is staged in
-  any host. The shard all-reduce's phase-1 slices are the bucket itself (`copy=False`); a store that must outlive
-  the caller's tensor is one copy. The digest is off unless `FROGNET_PSY_VERIFY=1`.
-- **A rank stays until its peers are done** (`linger`): its done cell beside its member cell, one held read until
-  every rank is done or gone.
-- **No acks, no retries, no caps** (`[A_WRITE_IS_NOT_A_CONVERSATION_V1]`, `[HELD_FOR_THE_CALLERS_DEADLINE_V1]`).
-- **Nothing waits in the caller** (`[THE_CALLER_DOES_NOT_WAIT_FOR_THE_MEMORY_V1]`): all_reduce returns its Work at
-  once and runs on the backend's collective thread in call order; the DDP hooks hold every peer's read at once
-  (`[EVERY_PEER_AT_ONCE_V1]`); their bags arrive on one held read (`[THE_BAGS_ARE_READ_BY_A_HELD_READ_V1]`).
-- **Slot-named cells** where hot (shard `ars.<k>`/`arr`, hook buckets by step parity, faithful read by identity:
-  `[A_STEP_IS_READ_AS_THAT_STEP_V1]`); the algorithm's own dependency makes overwriting safe.
+  resolves to (`control()`). It holds membership, the rendezvous store, the gate, the hook bags, and the tensors.
+- **The tensors are in the RAM and no rank listens** (`[THE_TENSORS_ARE_IN_THE_RAM_V1]`, John 2026-11-17: "The
+  tensor should not be listening at all -- it should be using held reads, and when another node needs a tensor it
+  does not ask the other node for it. It gets it from tuple space"; "the bits are in tuple space ... Tuple space IS
+  the RAM host"). `ram_plane.py`: `RamPlane.publish` writes the owner's cell into the RAM once; `RamStream` is one
+  read held in the RAM on the family of cells a peer writes for this rank, answered by each write (no ready flag);
+  `RamTensorClient` reads one named cell, held until its owner writes it. They have the calls `TensorServer`,
+  `StreamSubscription` and `TensorClient` had, so `psychedelic_backend.py`, `ddp_hook.py` and `meshfeed.py` only
+  make a different class; the reduction is the September code, unchanged. A rank's cells are named
+  `<host>:<its number>/<name>` (`[A_REFERENCE_SAYS_WHERE_V1]`), are held by its session and go when its process
+  goes; a cell written for k readers goes when the k-th has it.
+- **Every session with the RAM is a transport driver's connection** (`[THE_RAM_SESSION_IS_A_DRIVERS_CONNECTION_V1]`,
+  John 2026-11-17: "The connection to the RAM host is expected and should be transport transparent").
+  `frogtorch_ram_drivers.py`: the six calls of `core/transport_driver.py`; `tcp` (the bytes this session has
+  always sent, `<!Q length><payload>`) or `softhoma` (`core/homa_frames._Conn`), by the word
+  `/etc/frognet/semantic_transport` gives for that RAM. A RAM has one port P: tcp listens on P, softhoma on P + 1.
+  Nothing in `frogtorch_ram.py`, `frogtorch_ram_client.py` or `ram_plane.py` opens a socket. Kernel Homa under
+  this session is not written (the primer's step 4): a session told `homa` says so and stops.
+- **A session ends with its connection** (`[A_SESSION_ENDS_WITH_ITS_CONNECTION_V1]`); **a named read is held until
+  the write** (`[A_READ_IS_HELD_UNTIL_THE_WRITE_V1]`: a cell and the descriptor that names it reach the RAM on
+  different sessions, so the read waits for the write and is not refused).
+- **A rank stays until its peers are done** (`linger`), **no acks** (`[A_WRITE_IS_NOT_A_CONVERSATION_V1]`),
+  **held for the caller's deadline** (`[HELD_FOR_THE_CALLERS_DEADLINE_V1]`), **nothing waits in the caller**
+  (`[THE_CALLER_DOES_NOT_WAIT_FOR_THE_MEMORY_V1]`).
+- **The gate for this code** is `simulation/collective_tier.py` (needs torch and lz4; `run_all.py` does not run it),
+  `agent_workload/tests/test_regions_collectives.py` and `test_regions_ddp.py`, and
+  `simulation/test_aiconnect_ramp_oracle.py`. On nodes: `usr/local/frognet-ai/transportrun.sh`.
 
-Do not reintroduce: a RAM host per machine holding tensors (2026-11-11/12: every byte staged in a host process --
-"pretty much the same as doing straight messaging all around the network"), writes into another rank's memory,
-acks, a placement fallback, or a re-asking loop.
+Not brought to this yet, and said in the primer: nine wait loops of the September backends still sleep between
+re-asks (the tier fails on them); `frogtorch.py` and `frogtrain.py` still keep their tensors in `MemoryPlane`
+(`memory_plane.py`, a rank listening); AIConnect's bulk writes and reads open their own TCP sockets to a RAM's port.
+
+Do not reintroduce: a rank listening for readers, a connection from one rank to another, a RAM host per machine
+holding tensors (2026-11-11/12: "pretty much the same as doing straight messaging all around the network"), writes
+into another rank's cells, acks, a ready flag, a placement fallback, or a socket opened outside a driver.
 
 AIConnect (`agent_workload/aiconnect`) still uses a frogtorch-ram region on each RECEIVER machine: a receiver is a
 session-held cell `(AIConnect, receiver, <machine>)` there, a producer writes each object into it unanswered, and

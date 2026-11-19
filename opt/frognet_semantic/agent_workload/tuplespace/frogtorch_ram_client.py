@@ -30,9 +30,9 @@ Two things, and nothing else:
               write memory exactly as before -- only the memory is FrogTorch's own. A read with wait_s and min_rows
               is HELD by the region until enough cells are there; it is never re-asked.
 
-Tensors are not here ([THE_BITS_STAY_WHERE_THEY_ARE_V1]): they stay in the memory of the rank that made them
-(memory_plane.MemoryPlane, in its own process). The one RAM -- the region on the machine `databasehost.frognet`
-resolves to, control() -- holds membership and each rank's reference (where its memory is); Placement reads them.
+PyTorch's tensors are cells in the same one RAM ([THE_TENSORS_ARE_IN_THE_RAM_V1], ram_plane.py): the RAM on the
+machine `databasehost.frognet` resolves to, control(). (From 12 to 19 Nov 2026 they stayed in the memory of the rank
+that made them and this RAM held only where that memory was; Placement still reads those member cells.)
 
 No fallbacks. A region that cannot be reached raises; a held read that runs out of time returns what is there and the
 caller decides it has failed.
@@ -117,11 +117,11 @@ class _Session:
         self.host, self.port = host, port
         self.ended: Optional[str] = None
         self._n = 0                        # a request's number is even; the RAM answers with that number plus one
+        self.end = D.end_for(host, port)
         try:
-            self.end = D.end_for(host, port)
             self.end.connect()
         except D.ConnectionGone as e:
-            raise ConnectionError("frogtorch: cannot reach the RAM host at %s:%d (%s)" % (host, port, e)) from e
+            raise ConnectionError("frogtorch: " + D.unreachable(self.end, host, port, e)) from e
         _say_driver(host, port, self.end)
 
     def _put(self, frame) -> None:

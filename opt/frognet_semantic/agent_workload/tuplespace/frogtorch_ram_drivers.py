@@ -243,6 +243,13 @@ def listeners_for(bind: str, ram_port: int) -> Dict[str, TransportListener]:
             # any port was asked for and the one above the port the system gave is taken: ask for another
 
 
+def unreachable(end: TransportDriver, host: str, ram_port: int, e: BaseException) -> str:
+    """What to say when a session's connection to a RAM could not be opened."""
+    return ("cannot reach the RAM host at %s:%d on the %s driver (%s). A FrogTorch RAM listens with the drivers its own "
+            "node's transport setting names when frogtorch-ram starts (tcp on its port, softhoma on its port plus one)"
+            % (host, ram_port, end.name, e))
+
+
 def ram_port_of(listeners: Dict[str, TransportListener]) -> int:
     """P, from the listeners that are open."""
     if "tcp" in listeners:

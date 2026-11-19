@@ -54,6 +54,19 @@ alive (a held read on the capability tuple in the ControlRam); the contents of a
 | `softhoma` | one TCP connection to the daemon on port 9131, held open | Homa's DATA frame as his TCP hijacking puts it on the wire; segments of at most 240,000 bytes | `core/homa_frames.py` (`_Conn` is the six calls), under `proxy/transport_homa.py` and `daemon/engine/server_homa.py` |
 | `homa` | one Homa socket (the kernel module) | the module's own: real Homa frames; it cuts, paces and resends | `core/homa_socket.HomaSocket`, under the same two files |
 
+The same interface carries a second wire since 19 November: a rank's session with the FrogTorch RAM
+(`agent_workload/tuplespace/frogtorch_ram_drivers.py`). There the proxy and daemon are not involved; the rank's end
+connects and the RAM's end listens, with the same six calls and the same per-RAM word.
+
+| word | connection | packing | where |
+|---|---|---|---|
+| `tcp` (and `auto`) | one TCP connection to the RAM's port P, held open | an 8-byte length and the frame: the bytes that session has always sent | `TcpEnd`, `TcpListener` |
+| `softhoma` | one TCP connection to P + 1, held open | Homa's DATA frames, as above | `SoftHomaEnd` (it is `core/homa_frames._Conn`), `SoftHomaListener` |
+| `homa` | not written | | a session told this word says so and stops |
+
+There a frame may be handed to `pack()` as a tuple of parts that are the frame in order, so a tensor is not copied to
+have its header put in front of it; `unpack()` gives one bytes-like frame back.
+
 ## 6. Where the code does not keep to this yet
 
 1. The proxy end of the TCP driver (`_DaemonWorker`) is not written as the six calls; it does the same things under

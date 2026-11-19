@@ -2324,6 +2324,13 @@ class PsychedelicBackend(_base.FrogNetBackend):
                 # the peer's readiness taken out of it.
                 "MB_per_s": round((d["bytes"] / 1e6) / xs, 2) if xs else None,
             }
+        # [THE_TENSORS_ARE_IN_THE_RAM_V1] and the reads held in the RAM on each
+        # peer's family, which is where a DDP step's bytes come from: cells,
+        # megabytes, and where a cell's time went (the owner's write into the
+        # RAM, in the RAM, the RAM's send to this rank), each per cell and
+        # each on one machine's clock.
+        for p_, s_ in sorted(getattr(self, "_streams", {}).items()):
+            res["r%d|held" % p_] = s_.stats()
         return res
 
     def timing_stats(self) -> Dict[str, Any]:
