@@ -22,6 +22,9 @@ Two things, and nothing else:
   Regions     which FrogTorch RAM hosts exist, in one deterministic order every rank computes the same way.
               From the capability family in the SystemRam (each frogtorch_ram service writes its own), or from
               FROGTORCH_RAMS="host:port,host:port" when the regions are configured rather than discovered.
+  sessions    a rank's permanent connection to a RAM is a transport driver's ([THE_RAM_SESSION_IS_A_DRIVERS_
+              CONNECTION_V1], frogtorch_ram_drivers.py): tcp or softhoma, as /etc/frognet/semantic_transport says for
+              that RAM. Nothing here or above knows which.
   cells       put / get_all / get / remove on the one RAM, control(): the same calls, arguments and
               row shape (var, scope, value, id, age_s, ts_env) as core.frognet_tuples, so the backends read and
               write memory exactly as before -- only the memory is FrogTorch's own. A read with wait_s and min_rows
@@ -44,13 +47,13 @@ import threading
 import time
 from typing import Any, Dict, List, Optional, Tuple
 
-from .tensor_plane import REPLY_GONE, _recv_frame, _send_frame
+from . import frogtorch_ram_drivers as D
+from .tensor_plane import REPLY_GONE
 
 DEFAULT_DBHOST = "frogtorch"           # accepted and ignored: callers pass the dbhost they always passed
 SD_PREFIX = ""
 SYSTEM_RAM = os.environ.get("FROGTORCH_SYSTEM_RAM", "databasehost.frognet")
 REGIONS_WAIT_S = float(os.environ.get("FROGTORCH_REGIONS_WAIT_S", "300"))
-CALL_TIMEOUT_S = float(os.environ.get("FROGTORCH_CALL_TIMEOUT_S", "330"))
 
 
 def system_ram_tuples():
@@ -102,49 +105,85 @@ def discover_regions() -> List[Tuple[str, int]]:
 
 # ---------------------------------------------------------------------------------------------------- sessions
 class _Session:
-    """One permanent connection to one region, used by one thread at a time."""
+    """One permanent connection to one region, used by one thread at a time.
+
+    [THE_RAM_SESSION_IS_A_DRIVERS_CONNECTION_V1] The connection is a transport driver's (frogtorch_ram_drivers.py): the
+    one the transport setting names for this node's connection to the RAM on that machine. This class calls connect,
+    pack, send, receive, unpack and close and never touches a socket, so it does not know which driver is under it.
+    [A_SESSION_ENDS_WITH_ITS_CONNECTION_V1] When the connection ends the session has ended (`ended` says why) and
+    every call on it raises; Ram opens a new session for the next request."""
 
     def __init__(self, host: str, port: int):
         self.host, self.port = host, port
+        self.ended: Optional[str] = None
+        self._n = 0                        # a request's number is even; the RAM answers with that number plus one
         try:
-            self.sk = socket.create_connection((host, port), timeout=CALL_TIMEOUT_S)
-        except OSError as e:
+            self.end = D.end_for(host, port)
+            self.end.connect()
+        except D.ConnectionGone as e:
             raise ConnectionError("frogtorch: cannot reach the RAM host at %s:%d (%s)" % (host, port, e)) from e
-        self.sk.settimeout(CALL_TIMEOUT_S)
-        self.sk.setsockopt(socket.IPPROTO_TCP, socket.TCP_NODELAY, 1)
+        _say_driver(host, port, self.end)
+
+    def _put(self, frame) -> None:
+        self._n += 2
+        for unit in self.end.pack(self._n, frame):
+            self.end.send(unit)
+
+    def _gone(self, e: BaseException):
+        self.ended = str(e)
+        self.end.close()
+        return ConnectionError("frogtorch: the session with the RAM host at %s:%d has ended with its connection (%s)"
+                               % (self.host, self.port, e))
 
     def send(self, head: Dict[str, Any], payload=None) -> None:
         """A request nobody answers: written to the connection and done. A failure shows as the connection failing."""
-        _send_frame(self.sk, json.dumps(head).encode())
-        if payload is not None:
-            _send_frame(self.sk, payload)
+        if self.ended is not None:
+            raise ConnectionError("frogtorch: the session with the RAM host at %s:%d ended (%s)"
+                                  % (self.host, self.port, self.ended))
+        try:
+            self._put(json.dumps(head).encode())
+            if payload is not None:
+                self._put(payload)
+        except D.ConnectionGone as e:
+            raise self._gone(e) from e
 
     def call(self, head: Dict[str, Any], payload=None):
-        # the connection must outlast the hold this request asks for ([HELD_FOR_THE_CALLERS_DEADLINE_V1])
-        self.sk.settimeout(max(CALL_TIMEOUT_S, float(head.get("wait_s") or 0.0) + 30.0))
-        if payload is None:
-            _send_frame(self.sk, json.dumps(head).encode())
-        else:
-            _send_frame(self.sk, json.dumps(head).encode())
-            _send_frame(self.sk, payload)
-        reply = bytes(_recv_frame(self.sk))
-        tag, body = reply[:4], reply[4:]
+        # [HELD_FOR_THE_CALLERS_DEADLINE_V1] the RAM holds the read for the wait_s the request names and answers at
+        # that deadline with what is there; this end holds its receive until that answer or the connection's end.
+        self.send(head, payload)
+        try:
+            got = None
+            while got is None:                 # a driver that cuts a frame gives None until it is whole
+                got = self.end.unpack(self.end.receive())
+        except D.ConnectionGone as e:
+            raise self._gone(e) from e
+        reply = got[1]
+        tag, body = bytes(reply[:4]), bytes(reply[4:])
         if tag == REPLY_GONE:
             raise ConnectionError("frogtorch: RAM host %s:%d refused %s: %s"
                                   % (self.host, self.port, head.get("op"), body[:200]))
         return json.loads(body.decode()) if body else {}
 
     def close(self) -> None:
-        """Ends the session; a read held on it in another thread returns with an error at once (shutdown, then
-        close -- close alone does not wake a thread blocked in recv)."""
-        try:
-            self.sk.shutdown(socket.SHUT_RDWR)
-        except OSError:
-            pass
-        try:
-            self.sk.close()
-        except OSError:
-            pass
+        """Ends the session; a read held on it in another thread returns with an error at once."""
+        if self.ended is None:
+            self.ended = "closed here"
+        self.end.close()
+
+
+_SAID: set = set()
+_SAID_LOCK = threading.Lock()
+
+
+def _say_driver(host: str, port: int, end) -> None:
+    """Once per RAM and driver in a process: which driver this process's sessions with that RAM are on."""
+    k = (host, port, end.name)
+    with _SAID_LOCK:
+        if k in _SAID:
+            return
+        _SAID.add(k)
+    print("[frogtorch] %s sessions with the RAM host %s:%d are on the %s driver (%s:%d; the setting's word for that "
+          "machine is %s)" % (D.BUILD, host, port, end.name, end.far[0], end.far[1], D.word_for(host)), flush=True)
 
 
 class Ram:
@@ -187,7 +226,7 @@ class Ram:
         if d is None:
             d = self._local.s = {}
         s = d.get(hp)
-        if s is None:
+        if s is None or s.ended is not None:     # [A_SESSION_ENDS_WITH_ITS_CONNECTION_V1] the next request, a new session
             s = d[hp] = _Session(*hp)
         return s
 

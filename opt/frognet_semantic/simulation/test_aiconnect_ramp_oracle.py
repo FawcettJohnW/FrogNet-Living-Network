@@ -115,7 +115,7 @@ class _Region:
 
     def close(self):
         if self.held:
-            self.held.sk.close()
+            self.held.close()
         self.srv.close()
 
 
@@ -1032,8 +1032,8 @@ def test_receivers_come_from_memory():
               set(got) == {"127.0.0.1", "127.0.0.9"} and time.time() - t0 < 5, "%r in %.1fs"
               % (sorted(got), time.time() - t0))
         for s_ in late:
-            s_.sk.close()
-        rx.held.sk.close()
+            s_.close()
+        rx.held.close()
         rx.held = None
         _dl = time.time() + 5
         while time.time() < _dl and producer.Receivers([rx.hp], 5.0, me="10.0.0.1").receivers():
@@ -1053,7 +1053,11 @@ def test_the_service_holds_its_cell():
         p = subprocess.Popen([sys.executable, "-m", "agent_workload.aiconnect.service", "--region",
                               "127.0.0.1:%d" % srv.port, "--machine", "127.0.0.5"], cwd=_PARENT,
                              stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True)
+        # the service's own line. Since 19 Nov the lines before it are the transport setting's and the RAM session's
+        # driver ([THE_RAM_SESSION_IS_A_DRIVERS_CONNECTION_V1]), said when the session opens.
         line = p.stdout.readline()
+        while line and not line.startswith("[AIConnect]"):
+            line = p.stdout.readline()
         rows = srv.region.cget(service.SERVICE, service.VAR_RECEIVER, 1, 5.0)
         check("it writes its receiver cell", len(rows) == 1 and rows[0]["value"]["machine"] == "127.0.0.5"
               and rows[0]["life"] == "session", "%r / %r" % (line, rows))

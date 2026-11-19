@@ -38,7 +38,10 @@ Which regions exist is a ROLE question (frogtorch_ram_client.Regions): every mac
 its capability tuple; every rank reads the capability family and applies the same deterministic placement, so every
 rank reaches the same answer with no vote and no messages.
 
-Wire: the framing tensor_plane already speaks (<!Q len><payload>), so TensorClient reads a region unchanged.
+Wire: a session is a transport driver's connection ([THE_RAM_SESSION_IS_A_DRIVERS_CONNECTION_V1],
+frogtorch_ram_drivers.py). On the tcp driver the bytes are the framing tensor_plane already speaks
+(<!Q len><payload>), so TensorClient reads a region on its tcp port unchanged. Each request and each answer below is
+one frame handed to the driver (a tensor write is two: the request, then the bytes).
 
   tensor read   {name, gen, mode, have, want, inc, wait_s, verify}            -> SAME|DATA|GONE, as TensorServer
                 (the digest is computed only when the reader asks to verify, or names a digest)
@@ -73,10 +76,11 @@ from typing import Any, Dict, List, Optional
 
 from agent_workload.aiconnect.service import BULK_LEN_FMT
 
+from . import frogtorch_ram_drivers as D
 from .tensor_plane import (GONE_NEVER_PUBLISHED, GONE_SUPERSEDED, GONE_WAIT_EXPIRED,
-                           READ_BY_IDENTITY, REPLY_DATA, REPLY_GONE, REPLY_SAME, _digest, _recv_frame, _send_frame)
+                           READ_BY_IDENTITY, REPLY_DATA, REPLY_GONE, REPLY_SAME, _digest)
 
-BUILD = ("frogtorch_ram 20261112-r6 [ALL_IN_THE_REGION_V1] [SESSION_TENSORS_V1] [THE_ANNOUNCEMENT_IS_READ_BACK_V1] "
+BUILD = ("frogtorch_ram 20261119-r7 [THE_RAM_SESSION_IS_A_DRIVERS_CONNECTION_V1] [ALL_IN_THE_REGION_V1] [SESSION_TENSORS_V1] [THE_ANNOUNCEMENT_IS_READ_BACK_V1] "
          "[HELD_FOR_THE_CALLERS_DEADLINE_V1] [DELIVERY_IS_COUNTED_WHERE_IT_LANDS_V1]")
 #: Capability tuples live in the SystemRam (AI_READ_FIRST 10): every election reads capability there.
 SYSTEM_RAM = os.environ.get("FROGTORCH_SYSTEM_RAM", "databasehost.frognet")
@@ -281,83 +285,106 @@ class Region:
 
 
 class RamServer:
-    """One region on one port. A thread per client session; sessions are permanent connections."""
+    """One region on one port. A thread per client session; sessions are permanent connections.
+
+    [THE_RAM_SESSION_IS_A_DRIVERS_CONNECTION_V1] The connections are transport drivers' (frogtorch_ram_drivers.py). The
+    RAM listens with every driver a word of this node's transport setting names: tcp on its port, softhoma on its port
+    plus one. A session is served through the driver's calls and this class never touches a socket, so nothing in the
+    region or in the requests knows which driver carried them."""
 
     def __init__(self, bind: str = "0.0.0.0", port: int = 0):
         self.region = Region()
-        self.sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-        self.sock.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
-        self.sock.bind((bind, port))
-        self.sock.listen(1024)
-        self.port = self.sock.getsockname()[1]
+        self.listeners = D.listeners_for(bind, port)
+        self.port = D.ram_port_of(self.listeners)
         self.accepts = 0          # connections ever accepted
         self.sessions = 0         # connections open now
-        self._t = threading.Thread(target=self._accept, daemon=True, name="frogtorch-ram-%d" % self.port)
-        self._t.start()
+        for name, lis in self.listeners.items():
+            threading.Thread(target=self._accept, args=(lis,), daemon=True,
+                             name="frogtorch-ram-%d-%s" % (self.port, name)).start()
 
-    def _accept(self):
+    def listening(self) -> str:
+        return ", ".join("%s on port %d" % (n, l.port) for n, l in self.listeners.items())
+
+    def _accept(self, lis):
         while True:
             try:
-                conn, peer = self.sock.accept()
-            except OSError:
+                end = lis.listen()
+            except D.ConnectionGone:
                 return
-            conn.setsockopt(socket.IPPROTO_TCP, socket.TCP_NODELAY, 1)
             self.accepts += 1
-            threading.Thread(target=self._serve, args=(conn, peer), daemon=True).start()
+            threading.Thread(target=self._serve, args=(end,), daemon=True).start()
 
-    def _serve(self, conn, peer):
-        session = "%s:%d#%d" % (peer[0], peer[1], id(conn))
+    @staticmethod
+    def _next(end):
+        """The next whole frame of a session and its number. Held until one is there."""
+        while True:
+            got = end.unpack(end.receive())
+            if got is not None:
+                return got
+
+    @staticmethod
+    def _reply(end, n: int, *parts) -> None:
+        """The answer to request n: the parts are one frame, numbered n + 1."""
+        for unit in end.pack(n + 1, parts):
+            end.send(unit)
+
+    def _serve(self, end):
+        session = "%s:%d#%d" % (end.far[0], end.far[1], id(end))
         R = self.region
+        reply = self._reply
         self.sessions += 1
         try:
             while True:
-                req = json.loads(bytes(_recv_frame(conn)).decode())
+                n, frame = self._next(end)
+                req = json.loads(bytes(frame).decode())
                 op = req.get("op")
                 if op is None:
-                    self._tensor_read(conn, req)
+                    self._tensor_read(end, n, req)
                 elif op == "tput":
                     # the frame's own buffer, kept as it is: bytes() here was one more full copy of every write
-                    blob = _recv_frame(conn)
+                    n, blob = self._next(end)
                     R.tput(req["name"], req["gen"], blob, req.get("inc"), req.get("life", "data"), session,
                            req.get("acct"))
                     # [A_WRITE_IS_NOT_A_CONVERSATION_V1] a write is answered only if the writer asked to be told;
                     # FrogTorch's tensor writes stream, and the readers are what the cell landing releases
                     if req.get("ack", True):
-                        _send_frame(conn, REPLY_OKAY, json.dumps({"gen": req["gen"]}).encode())
+                        reply(end, n, REPLY_OKAY, json.dumps({"gen": req["gen"]}).encode())
                 elif op == "cput":
                     i = R.cput(req["service"], req["var"], req["scope"], req.get("value"),
                                req.get("life", "data"), session)
                     if req.get("ack", True):                # [A_WRITE_IS_NOT_A_CONVERSATION_V1]
-                        _send_frame(conn, REPLY_OKAY, json.dumps({"id": i}).encode())
+                        reply(end, n, REPLY_OKAY, json.dumps({"id": i}).encode())
                 elif op == "cget":
                     rows = R.cget(req["service"], req.get("var"), int(req.get("min_rows", 0)),
                                   float(req.get("wait_s", 0.0)), int(req.get("after", -1)), req.get("unlike"))
-                    _send_frame(conn, REPLY_OKAY, json.dumps({"rows": rows}).encode())
+                    reply(end, n, REPLY_OKAY, json.dumps({"rows": rows}).encode())
                 elif op == "cdel":
-                    _send_frame(conn, REPLY_OKAY, json.dumps({"removed": R.cdel(int(req["id"]))}).encode())
+                    reply(end, n, REPLY_OKAY, json.dumps({"removed": R.cdel(int(req["id"]))}).encode())
                 elif op == "ccas":
                     v = R.ccas(req["service"], req["var"], req.get("expected"), req.get("desired"), session,
                                req.get("life", "data"))
-                    _send_frame(conn, REPLY_OKAY, json.dumps({"value": v}).encode())
+                    reply(end, n, REPLY_OKAY, json.dumps({"value": v}).encode())
                 elif op == "cdelvar":
-                    _send_frame(conn, REPLY_OKAY,
-                                json.dumps({"removed": R.cdelvar(req["service"], req["var"])}).encode())
+                    reply(end, n, REPLY_OKAY,
+                          json.dumps({"removed": R.cdelvar(req["service"], req["var"])}).encode())
                 elif op == "qpush":
                     i = R.qpush(req["service"], req["var"], req.get("value"), session)
                     if req.get("ack", True):                # [A_WRITE_IS_NOT_A_CONVERSATION_V1]
-                        _send_frame(conn, REPLY_OKAY, json.dumps({"id": i}).encode())
+                        reply(end, n, REPLY_OKAY, json.dumps({"id": i}).encode())
                 elif op == "qpop":
                     v, ok = R.qpop(req["service"], req["var"], float(req.get("wait_s", 0.0)))
-                    _send_frame(conn, REPLY_OKAY, json.dumps({"value": v, "ok": ok}).encode())
+                    reply(end, n, REPLY_OKAY, json.dumps({"value": v, "ok": ok}).encode())
                 elif op == "qlen":
-                    _send_frame(conn, REPLY_OKAY, json.dumps({"n": R.qlen(req["service"], req["var"])}).encode())
+                    reply(end, n, REPLY_OKAY, json.dumps({"n": R.qlen(req["service"], req["var"])}).encode())
                 elif op == "stats":
                     st = R.stats()
                     st["sessions"] = self.sessions
                     st["accepts"] = self.accepts
-                    _send_frame(conn, REPLY_OKAY, json.dumps(st).encode())
+                    st["listening"] = {name: lis.port for name, lis in self.listeners.items()}
+                    reply(end, n, REPLY_OKAY, json.dumps(st).encode())
                 elif op == "version":
-                    _send_frame(conn, REPLY_OKAY, json.dumps({"build": BUILD}).encode())
+                    reply(end, n, REPLY_OKAY, json.dumps({"build": BUILD, "drivers": D.BUILD,
+                                                          "driver": end.name}).encode())
                 else:
                     raise ValueError("unknown op %r" % op)
         except (ConnectionError, OSError):
@@ -366,13 +393,10 @@ class RamServer:
             print("[frogtorch-ram] session %s ended: %s" % (session, e), flush=True)
         finally:
             self.sessions -= 1
-            R.session_gone(session)
-            try:
-                conn.close()
-            except OSError:
-                pass
+            R.session_gone(session)                # [A_SESSION_ENDS_WITH_ITS_CONNECTION_V1]
+            end.close()
 
-    def _tensor_read(self, conn, req):
+    def _tensor_read(self, end, n, req):
         """TensorServer's read contract, answered from the region."""
         R = self.region
         name, want_gen, mode = req.get("name"), req.get("gen"), req.get("mode", READ_BY_IDENTITY)
@@ -380,10 +404,10 @@ class RamServer:
         _t0 = time.monotonic()
         v, ok = R.tget(name, want_gen, float(req.get("wait_s") or 0.0))
         if v is None and not ok and float(req.get("wait_s") or 0.0) <= 0:
-            _send_frame(conn, REPLY_GONE, json.dumps({"reason": GONE_NEVER_PUBLISHED}).encode())
+            self._reply(end, n, REPLY_GONE, json.dumps({"reason": GONE_NEVER_PUBLISHED}).encode())
             return
         if not ok:
-            _send_frame(conn, REPLY_GONE, json.dumps({"reason": GONE_WAIT_EXPIRED,
+            self._reply(end, n, REPLY_GONE, json.dumps({"reason": GONE_WAIT_EXPIRED,
                                                       "gen": None if v is None else v[0],
                                                       "want_gen": want_gen,
                                                       "waited_s": time.monotonic() - _t0}).encode())
@@ -393,23 +417,21 @@ class RamServer:
         if mode == READ_BY_IDENTITY and ((want_inc is not None and inc is not None and want_inc != inc)
                                          or (want_digest is not None and want_digest != digest)
                                          or (want_gen is not None and int(want_gen) != int(gen))):
-            _send_frame(conn, REPLY_GONE, json.dumps({"reason": GONE_SUPERSEDED, "gen": gen,
+            self._reply(end, n, REPLY_GONE, json.dumps({"reason": GONE_SUPERSEDED, "gen": gen,
                                                       "digest": digest, "inc": inc}).encode())
             return
         if have is not None and have == digest:
             R.same_replies += 1
-            _send_frame(conn, REPLY_SAME, json.dumps({"gen": gen, "digest": digest, "inc": inc}).encode())
+            self._reply(end, n, REPLY_SAME, json.dumps({"gen": gen, "digest": digest, "inc": inc}).encode())
             return
         R.data_replies += 1
         R.bytes_out += len(blob)
         head = json.dumps({"gen": gen, "digest": digest, "inc": inc}).encode()
-        _send_frame(conn, REPLY_DATA, struct.pack(BULK_LEN_FMT, len(head)), head, blob)
+        self._reply(end, n, REPLY_DATA, struct.pack(BULK_LEN_FMT, len(head)), head, blob)
 
     def close(self):
-        try:
-            self.sock.close()
-        except OSError:
-            pass
+        for lis in self.listeners.values():
+            lis.close()
 
 
 def _announce(port: int) -> None:
@@ -444,7 +466,8 @@ def main(argv=None) -> int:
                     help="do not write the capability tuple (a test runs its regions from FROGTORCH_RAMS)")
     a = ap.parse_args(argv)
     srv = RamServer(a.bind, a.port)
-    print("[frogtorch-ram] %s listening on %s:%d" % (BUILD, a.bind, srv.port), flush=True)
+    print("[frogtorch-ram] %s RAM port %d on %s; listening: %s (%s)" % (BUILD, srv.port, a.bind, srv.listening(),
+                                                                         D.BUILD), flush=True)
     if not a.no_announce:
         _announce(srv.port)
     threading.Event().wait()
