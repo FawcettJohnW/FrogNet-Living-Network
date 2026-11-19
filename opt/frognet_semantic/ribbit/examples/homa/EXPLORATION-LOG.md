@@ -2303,3 +2303,5 @@ here; where this work did one late or wrong, it says so.
 | `a707ad9e`, `a59a380a` | 19 Nov 05:35 | transportrun's softhoma word as the nodes' file has it; the build note that goes to nodes |
 | `5b90a6a6` | 19 Nov 07:10 | A wait is one held read: nine waits; the tier passes all 94 |
 | (this commit) | 19 Nov 07:15 | The build note and record for `frogtorch-on-drivers-20261119-5b90a6a6.tgz` (42 files; replaces `...-a59a380a.tgz`), run as extracted over the base |
+| `369cc10e` | 19 Nov 07:25 | MemoryPlane is gone: Worker and Trainer keep their tensors in the RAM; the tier passes all 99 |
+| (this commit) | 19 Nov 07:28 | The build note and record for `frogtorch-on-drivers-20261119-369cc10e.tgz` (44 files; replaces the two before it), run as extracted over the base |

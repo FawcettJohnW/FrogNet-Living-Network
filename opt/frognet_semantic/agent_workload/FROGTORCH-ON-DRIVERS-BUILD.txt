@@ -1,6 +1,6 @@
 FrogTorch on the transport drivers, build of 19 November 2026
-branch homa-under-croakos-20261116, code as of commit 5b90a6a6 (base 948b435c)
-It replaces frogtorch-on-drivers-20261119-a59a380a.tgz, whose waits still slept between held reads.
+branch homa-under-croakos-20261116, code as of commit 369cc10e (base 948b435c)
+It replaces frogtorch-on-drivers-20261119-a59a380a.tgz and -5b90a6a6.tgz.
 
 What this is
   PyTorch on FrogNet with the transport under it a driver: a rank's session with the FrogTorch RAM is a transport
@@ -15,7 +15,10 @@ This one tarball is everything a node needs, whatever it has now.
   next restarted, and until /etc/frognet/semantic_transport is there the node runs on TCP as it did.
 
 After untarring, on EVERY node
+  rm -f /opt/frognet_semantic/agent_workload/tuplespace/memory_plane.py
   systemctl restart frogtorch-ram
+  (memory_plane.py is deleted in this build: frogtorch.py and frogtrain.py kept their tensors in it, in a process
+  that listened. Nothing imports it; a tarball cannot remove a file.)
   The RAM of the old build does not know the tensor reads this build holds, and ranks of different builds refuse to
   form a group and say which rank runs what.
   For soft Homa, /etc/frognet/semantic_transport is the file TRANSPORT-DRIVERS-BUILD.txt gives (tcp, then
@@ -43,7 +46,7 @@ Tested, on one machine only (four ranks; torch 2.15, x86-64), on tcp and on soft
   the same sha the tree before this work gives on that machine (6d84cfed6441a54f).
   meshfeed k=1: the same sha before and after, equal to its oracle.
   transportrun.sh whole, as three nodes: seven arms, every rank ok, the three reports identical.
-  simulation/collective_tier.py: all 94 pass. Every wait in the backends is one read held in the RAM
+  simulation/collective_tier.py: all 99 pass. Every wait in the backends is one read held in the RAM
   ([A_WAIT_IS_ONE_HELD_READ_V1]): no sleep, no cap, no asking again.
 NOT tested: anything on a real node. The acceptance on nodes is shard df67ff9ce033941b and held-out 0.4940.
 NOT in this build: kernel Homa under the FrogTorch RAM's sessions (a session told homa says so and stops).
@@ -53,9 +56,11 @@ Files
   opt/frognet_semantic/agent_workload/FROGTORCH-ON-DRIVERS-BUILD.txt
   opt/frognet_semantic/agent_workload/PYTORCH-ON-THE-DRIVERS-PRIMER.md
   opt/frognet_semantic/agent_workload/tuplespace/ddp_hook.py
+  opt/frognet_semantic/agent_workload/tuplespace/frogtorch.py
   opt/frognet_semantic/agent_workload/tuplespace/frogtorch_ram.py
   opt/frognet_semantic/agent_workload/tuplespace/frogtorch_ram_client.py
   opt/frognet_semantic/agent_workload/tuplespace/frogtorch_ram_drivers.py
+  opt/frognet_semantic/agent_workload/tuplespace/frogtrain.py
   opt/frognet_semantic/agent_workload/tuplespace/psychedelic_backend.py
   opt/frognet_semantic/agent_workload/tuplespace/ram_plane.py
   opt/frognet_semantic/agent_workload/tuplespace/tensor_plane.py
