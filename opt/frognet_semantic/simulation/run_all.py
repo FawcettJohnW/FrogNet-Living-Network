@@ -574,7 +574,7 @@ def main():
                              ["simulation/wire_between_machines_tier.py", "--transport", "softhoma", "--topology", "all"], retry=False))
     # [CHANNEL_SWAP_TIER_V1] the channel's setting is a capability tuple (core/channel_setting.py): its driver and key
     # changed ten times under a running workload between machines, with nothing failed, nothing wrong and nothing
-    # restarted. About 100 seconds. Needs what the tier above needs and the Python module cryptography (setup.sh).
+    # restarted. About 100 seconds. Needs what the tier above needs.
     results.append(_run_proc("the channel's setting changed under load between machines (channel_swap_tier)",
                              ["simulation/channel_swap_tier.py"], retry=False))
     results.append(_run_proc("transport factory self-test (sim+loopback+netem, 12)",

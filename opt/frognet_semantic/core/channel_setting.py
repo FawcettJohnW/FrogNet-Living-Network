@@ -19,11 +19,19 @@ capability tuple. You do realize we have full control over the contents of the j
 not need to be standard in any way." And: "You can also introduce other capability tuples. There is not a fixed form,
 and the consumer is the thing that wrote it."
 
+[A_SETTING_PER_RAM_CONNECTION_V1] Beside it there may be a tuple (channel, setting, <a RAM's role name>), for example
+(channel, setting, databasehost.frognet): the setting of every node's connection to the machine that RAM is on NOW
+(this node's hosts file says where, read at each hosts event, so the setting follows the RAM when the role moves). It
+holds the same JSON. Where there is one, it is the setting of that connection in place of (channel, setting,
+semantic): on the nodes that open the connection, and on the RAM's machine for what arrives. An empty JSON says
+nothing for that RAM. Two RAMs on one machine with tuples of their own: the first by name is used.
+
 The tuple is (channel, setting, semantic) in the ControlRam, where the capability tuples live. Its JSON is this
 module's and nobody else's: this module writes it (write(), the owner's act) and this module reads it (the held read
 below). What it holds today:
 
-    driver    "tcp" or "softhoma": the driver a NEW session opens on. Absent: the node's own word decides, as before.
+    driver    a word a driver registered (core/homa_transport.register_driver; "tcp" and "softhoma" are in the tree):
+              the driver a NEW session opens on. Absent: the node's own word decides, as before.
     key       the NAME of the key a message is sent under. Absent or "": messages are sent as the driver packs them.
     accept    the names of the keys a message may arrive under. Absent: only `key`.
 
@@ -33,6 +41,9 @@ The key itself is never in the tuple. The tuple crosses the wire; a key is a fil
 A process learns of a change through its held read on the tuple (frognet_held.wait_change). Nothing polls and nothing
 runs on a timer. When the hold is not taken, it is held again at the next network event (the hosts file is rewritten).
 A process with no such tuple in its ControlRam behaves exactly as it did before this file existed.
+
+    protection  the NAME of what is done to a message under a key (core/channel_protection.py, where one is
+                registered). Absent: aes-256-gcm, through the machine's own libcrypto.
 
 Protection, when a key is named: AES-256-GCM over the whole frame, before the driver cuts it into its units. A
 protected message carries its key's name in the clear, a 12-byte nonce and the ciphertext; the message's number is
@@ -56,9 +67,12 @@ _lock = threading.Lock()
 _cur: Optional[dict] = None             # the tuple's JSON as last read (without its ts), None when there is none
 _started = False
 _listeners: List[Callable[[Optional[dict]], None]] = []
-_keys = {}                               # name -> AESGCM
+_keys = {}                               # name -> the key's 32 bytes
 _kick = threading.Event()
 _parked = False
+_rams: dict = {}                         # [A_SETTING_PER_RAM_CONNECTION_V1] a RAM's role name -> its tuple's JSON
+_at: dict = {}                           # a RAM's role name -> the one address this node's hosts file puts it at now
+_me: Optional[str] = None
 
 
 class KeyRefused(Exception):
@@ -74,10 +88,11 @@ def _tuples():
     return frognet_tuples, frognet_held
 
 
-def write(value: dict, dbhost: str = CONTROL_RAM) -> bool:
-    """The owner's act: set the channel. own=False: the tuple outlives the process that wrote it."""
+def write(value: dict, dbhost: str = CONTROL_RAM, ram: Optional[str] = None) -> bool:
+    """The owner's act: set the channel, or with `ram` (a RAM's role name) the connection to that RAM's machine.
+    own=False: the tuple outlives the process that wrote it."""
     T, _ = _tuples()
-    return bool(T.put(SERVICE, VAR, SCOPE, dict(value), dbhost=dbhost, own=False))
+    return bool(T.put(SERVICE, VAR, (ram or SCOPE).lower(), dict(value), dbhost=dbhost, own=False))
 
 
 def _value_of(rows) -> Optional[dict]:
@@ -92,18 +107,91 @@ def _value_of(rows) -> Optional[dict]:
     return None
 
 
-def _take(v: Optional[dict], how: str) -> None:
-    global _cur
+def _rams_of(rows) -> dict:
+    """[A_SETTING_PER_RAM_CONNECTION_V1] every (channel, setting, <role name>) tuple that says something."""
+    T, _ = _tuples()
+    pre, out = T.var_name(VAR, ""), {}
+    for r in rows or []:
+        n = str(r.get("SensorName") or r.get("name") or "")
+        scope = n[len(pre):] if n.startswith(pre) else (str(r.get("scope") or "") if r.get("var") == VAR else "")
+        v = r.get("data") if isinstance(r.get("data"), dict) else r.get("value")
+        if scope and scope != SCOPE and isinstance(v, dict):
+            v = dict(v); v.pop("ts", None)
+            if v:
+                out[scope.lower()] = v
+    return out
+
+
+def _where() -> None:
+    """Where this node's hosts file puts each RAM that has a tuple of its own. Read at a change of the tuples and at
+    each hosts event, never per message."""
+    global _at
+    if not _rams:
+        _at = {}
+        return
+    _, H = _tuples()
+    at: dict = {}
+    try:
+        with open(H.HOSTS) as f:
+            for line in f:
+                p = line.split("#", 1)[0].split()
+                for name in p[1:]:
+                    if name.lower() in _rams:
+                        at.setdefault(name.lower(), set()).add(p[0])
+    except OSError as e:
+        print("[CHANNEL-SETTING] this node's hosts file could not be read (%s): no RAM's own setting is used" % e, flush=True)
+    _at = {n: next(iter(a)) for n, a in at.items() if len(a) == 1}       # a role with two addresses is at neither
+
+
+def setting_for(host: Optional[str]) -> Optional[dict]:
+    """The setting of this node's connection to `host`: the tuple of a RAM that is there now, else the channel's."""
+    s = current()
+    if _rams and host:
+        for role in sorted(_rams):
+            if _at.get(role) == host:
+                return _rams[role]
+    return s
+
+
+def here() -> Optional[dict]:
+    """The setting of what ARRIVES at this machine: the tuple of a RAM that is here, else the channel's."""
+    global _me
+    if not _rams:
+        return current()
+    if _me is None:
+        T, _ = _tuples()
+        _me = T.my_ip()
+    return setting_for(_me)
+
+
+def read_here() -> Optional[dict]:
+    read_now()
+    return here()
+
+
+def _take(v: Optional[dict], how: str, rams: Optional[dict] = None) -> None:
+    global _cur, _rams
     with _lock:
-        if v == _cur:
+        new_rams = rams is not None and rams != _rams
+        if v == _cur and not new_rams:
             return
+        if new_rams:
+            _rams = rams
+            _where()
+            print("[CHANNEL-SETTING] %.6f %s %s: [A_SETTING_PER_RAM_CONNECTION_V1] RAMs with a setting of their own: %s; at %s"
+                  % (time.time(), BUILD, how, json.dumps(_rams, sort_keys=True) if _rams else "none", json.dumps(_at, sort_keys=True)), flush=True)
+        changed = v != _cur
         _cur = v
         hear = list(_listeners)
-    print("[CHANNEL-SETTING] %.6f %s %s: the channel is now %s" % (time.time(), BUILD, how, json.dumps(v, sort_keys=True)), flush=True)
+    if changed:
+        print("[CHANNEL-SETTING] %.6f %s %s: the channel is now %s" % (time.time(), BUILD, how, json.dumps(v, sort_keys=True)), flush=True)
     # [A_KEY_IS_READY_BEFORE_ITS_FIRST_MESSAGE_V1] the keys this setting names are loaded here, on this thread, when the
     # setting is read: the first message under a key does not wait for the cipher to be loaded (19 Nov: one run had no
     # answer for 766 ms at the first message under a key; the others 42 to 59 ms).
-    for name in sorted(set(_accepted(v)) | {str((v or {}).get("key") or "")}):
+    named = set()
+    for x in [v] + list(_rams.values()):
+        named |= set(_accepted(x)) | {str((x or {}).get("key") or "")}
+    for name in sorted(named):
         if name:
             try:
                 _aes(name)
@@ -123,6 +211,8 @@ def _hosts_watch() -> None:
     ino = H._Inotify(os.path.dirname(H.HOSTS) or "/")
     while True:
         if os.path.basename(H.HOSTS) in ino.names():     # names() blocks in read()
+            with _lock:
+                _where()                                 # [A_SETTING_PER_RAM_CONNECTION_V1] a role may have moved
             _kick.set()
 
 
@@ -133,7 +223,7 @@ def _say_where_i_am(v: Optional[dict]) -> None:
     try:
         T, _ = _tuples()
         ok = T.put(SERVICE, "at", "%s:%s.%d" % (T.my_ip(), os.path.basename(sys.argv[0]) or "py", os.getpid()),
-                   {"is": v}, dbhost=CONTROL_RAM, own=True)
+                   dict({"is": v}, **({"rams": _rams} if _rams else {})), dbhost=CONTROL_RAM, own=True)
         if not ok:
             print("[CHANNEL-SETTING] this end's own tuple (what it runs) was not taken by the ControlRam", flush=True)
     except Exception as e:
@@ -159,7 +249,7 @@ def _run() -> None:
             _kick.wait()
             _parked = False
             continue
-        _take(_value_of(rows), "the held read returned")
+        _take(_value_of(rows), "the held read returned", _rams_of(rows))
 
 
 def start() -> None:
@@ -206,18 +296,32 @@ def read_now() -> Optional[dict]:
             if isinstance(v, dict):
                 v = dict(v); v.pop("ts", None)
     if v is not None:
-        _take(v, "a read made at an arrival")
+        _take(v, "a read made at an arrival", _rams_of(rows))
     return _cur
 
 
-def driver() -> Optional[str]:
-    s = current()
-    d = (s or {}).get("driver")
-    return d if d in ("tcp", "softhoma") else None
+def driver(host: Optional[str] = None) -> Optional[str]:
+    """The driver the tuple names for a session to `host`, when it is a word a driver has registered
+    ([A_DRIVER_REGISTERS_ITS_WORD_V1], core/homa_transport.DRIVERS). A word nobody registered is said, and is no word."""
+    from core import homa_transport
+    d = (setting_for(host) or {}).get("driver")
+    if d is None:
+        return None
+    if d in homa_transport.DRIVERS and d not in ("auto", "homasim"):
+        return d
+    global _said_bad
+    if d != _said_bad:
+        _said_bad = d
+        print("[CHANNEL-SETTING] the channel's tuple names the driver %r and no driver has registered that word (this build "
+              "has %s): the node's own word decides" % (d, ", ".join(sorted(homa_transport.DRIVERS))), flush=True)
+    return None
 
 
-def sending_key() -> str:
-    return str((current() or {}).get("key") or "")
+_said_bad = None
+
+
+def sending_key(host: Optional[str] = None) -> str:
+    return str((setting_for(host) or {}).get("key") or "")
 
 
 def _accepted(s: Optional[dict]) -> Tuple[str, ...]:
@@ -238,7 +342,6 @@ def _aes(name: str):
     with _lock:
         k = _keys.get(name)
     if k is None:
-        from cryptography.hazmat.primitives.ciphers.aead import AESGCM
         try:
             with open(os.path.join(KEYS, name), "rb") as f:
                 raw = f.read()
@@ -246,29 +349,44 @@ def _aes(name: str):
             raise KeyRefused("this machine does not hold the key %r (%s)" % (name, e))
         if len(raw) != 32:
             raise KeyRefused("the key %r on this machine is %d bytes, not 32" % (name, len(raw)))
-        k = AESGCM(raw)
+        k = raw
         with _lock:
             _keys[name] = k
     return k
 
 
-def protect(n: int, frame: bytes, name: str) -> bytes:
-    """frame under the key `name`: the name's length and the name, a nonce, the ciphertext."""
+def _protection(s: Optional[dict]):
+    """[A_PROTECTION_IS_REGISTERED_V1] (seal, open) for the protection the channel's tuple names: "protection", and
+    aes-256-gcm when it names none. core/channel_protection.register_protection adds one."""
+    from core import channel_protection
+    name = str((s or {}).get("protection") or "aes-256-gcm")
+    p = channel_protection.PROTECTIONS.get(name)
+    if p is None:
+        raise KeyRefused("the channel names the protection %r and this build has %s"
+                         % (name, ", ".join(sorted(channel_protection.PROTECTIONS))))
+    return p
+
+
+def protect(n: int, frame: bytes, name: str, far: Optional[str] = None) -> bytes:
+    """frame under the key `name`: the name's length and the name, a nonce, the sealed frame. A request (n even) is
+    under the setting of the connection to `far`; a reply under the setting of what arrives here."""
     nb = name.encode()
     nonce = os.urandom(12)
-    return bytes([len(nb)]) + nb + nonce + _aes(name).encrypt(nonce, bytes(frame), struct.pack("!Q", n & ~1) + nb)
+    s = here() if n & 1 else setting_for(far)
+    return bytes([len(nb)]) + nb + nonce + _protection(s)[0](_aes(name), nonce, struct.pack("!Q", n & ~1) + nb, bytes(frame))
 
 
-def unprotect(n: int, blob: bytes, is_request: bool) -> Tuple[bytes, str]:
+def unprotect(n: int, blob: bytes, is_request: bool, far: Optional[str] = None) -> Tuple[bytes, str]:
     """(the frame, the key's name). A request must be under a key the channel accepts; a reply is under the key its
     request went out under, which this end chose."""
     ln = blob[0]
     name = blob[1:1 + ln].decode()
-    if is_request and name not in _accepted(current()) and name not in _accepted(read_now()):
-        raise KeyRefused("a request arrived under the key %r and the channel accepts %s" % (name, list(_accepted(_cur)) or "none"))
+    if is_request and name not in _accepted(here()) and name not in _accepted(read_here()):
+        raise KeyRefused("a request arrived under the key %r and the channel accepts %s" % (name, list(_accepted(here())) or "none"))
     nonce, ct = blob[1 + ln:13 + ln], blob[13 + ln:]
     try:
-        return _aes(name).decrypt(nonce, bytes(ct), struct.pack("!Q", n & ~1) + name.encode()), name
+        s = here() if is_request else setting_for(far)
+        return _protection(s)[1](_aes(name), nonce, struct.pack("!Q", n & ~1) + name.encode(), bytes(ct)), name
     except KeyRefused:
         raise
     except Exception as e:

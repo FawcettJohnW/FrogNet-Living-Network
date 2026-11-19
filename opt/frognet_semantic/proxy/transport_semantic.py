@@ -2319,7 +2319,7 @@ def _get_worker(host: str, port: int, set_id: int = 0) -> _DaemonWorker:
                 print(f"[CHANNEL-SETTING] {time.time():.6f} the session to {dk[0]}:{dk[1]} set={dk[2]} on "
                       f"{getattr(dw, 'carrier', 'tcp')} has nothing outstanding: ended", flush=True)
         from core import channel_setting as _cs
-        if w is not None and getattr(w, "carrier", "tcp") != kind and _cs.driver() is not None:
+        if w is not None and getattr(w, "carrier", "tcp") != kind and _cs.driver(host) is not None:
             # the channel's tuple changed the driver: new requests open a new session now, and this one finishes
             # what it has and ends once the new one is up.
             print(f"[CHANNEL-SETTING] {time.time():.6f} {host}:{port} set={set_id}: the channel's tuple says {kind}; the "

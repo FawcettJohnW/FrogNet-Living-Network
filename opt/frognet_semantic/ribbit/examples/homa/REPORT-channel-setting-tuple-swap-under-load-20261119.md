@@ -96,7 +96,8 @@ Run it with `python3 simulation/channel_swap_tier.py [--links wan-100ms | radio-
 ## Decisions that are John's
 
 - The tuple carries the key's name, never the key.
-- AES-256-GCM for the test, and the Python module `cryptography` to do it. The nodes may not have that module.
+- AES-256-GCM for the test. (It was first done with the Python module `cryptography`; it is now the machine's
+  libcrypto, see "Added the same day".)
 - The `accept` list and the accept, send, retire order.
 - Each end's (channel, at, ...) tuple and the owner waiting on them.
 - Only the soft Homa driver is keyed. The TCP driver carries no key in this build.
@@ -109,6 +110,57 @@ Run it with `python3 simulation/channel_swap_tier.py [--links wan-100ms | radio-
   failing runs ("a request arrived under the key 'A' and the channel accepts none"), but no check asserts it.
 - Every pair of machines under load at once. The workload ran from New-York-1 to Seattle5.
 - Real nodes, and kernel Homa.
+
+## Added the same day, 11:45: four pieces from a second build of the same handoff
+
+A second thread built the same handoff separately, on `46075258`, with a different design (one write per change, the
+proxy closing the old connection and failing what was in flight). John chose to keep this build and add to it what
+the other had and this did not. That build's own code is not on the branch; its patch is
+`channel-setting-in-tuple-20261119-0845.patch`.
+
+| Piece | What it is here | Where |
+|---|---|---|
+| The machine's libcrypto, not the Python module `cryptography` | AES-256-GCM through OpenSSL's libcrypto by ctypes. The nodes have libcrypto and do not have the module. The sealed bytes are the same for the same key, nonce and associated data (compared). `setup.sh` no longer installs the module. | `core/channel_protection.py` |
+| A protection is registered by name | Two functions and a name; the tuple's `protection` names the one used (absent: aes-256-gcm). | `core/channel_protection.register_protection`, `channel_setting._protection` |
+| A driver registers its word | `DRIVERS` and `register_driver(word, session kind)`; the file's word and the tuple's `driver` are checked against it. `VALID` is no longer the gate. | `core/homa_transport.py`, `channel_setting.driver` |
+| One RAM's connection has a setting of its own | The tuple (channel, setting, <RAM's role name>) is the setting of every node's connection to the machine that RAM is on, in place of the channel's. | `core/channel_setting.py` (`setting_for`, `here`, `write(value, ram=...)`), `core/homa_frames.py` |
+
+The other build's fifth piece, a rule that a daemon takes no more frames from a node's old session once its new one
+is there, was NOT brought over. It cured a fault that build made for itself: its proxy failed what was in flight and
+the caller's next write went out on the new connection while the failed one was still on a 4,800 baud link, arrived
+second, and was executed as a difference against the wrong reference (the far machine held a number nobody sent).
+This build fails nothing, so a writer's next write waits for the answer to its last. To look for the fault here
+anyway, two checks were added to the tier and run:
+
+- Every writer's row on the far machine, read from that machine's own api.php after each change, is the last write
+  that writer was answered 200 for: its number and its text (`[WHAT_IS_HELD_IS_THE_LAST_WRITE_V1]`). Before this the
+  tier compared a read through the wire with the far machine's own read, which agree whatever is held.
+- `--shared`: the programs come in pairs sending the SAME requests (two readers of one read, two writers of one
+  row), so requests of one instance are outstanding together when the driver changes; run at 4,800 baud, four
+  changes of driver.
+
+Neither found anything wrong: 0 failed and 0 wrong in every run below. That is four changes of driver under the
+shared workload, not a proof; requests of one instance sent by two programs at once do travel on two sessions for
+a moment at a change of driver, and nothing orders them across the two.
+
+### Results with the four pieces in
+
+| Run | Changes | Requests | Failed | Wrong | Restarted | Asking proxy learned of a change | Longest time with no answer, 2 s before | Same, 2 s after |
+|---|---|---|---|---|---|---|---|---|
+| Perfect link | 14 | 41,644 | 0 | 0 | none | 87 to 188 ms | at most 31 ms | at most 55 ms |
+| 4,800 baud on every uplink (`--links radio-4800 --light --seconds 40`) | 14 | 1,527 | 0 | 0 | none | 2,097 to 4,716 ms | at most 676 ms | at most 565 ms |
+| 4,800 baud, shared requests (`--links radio-4800 --shared --seconds 60`) | 4 | 934 | 0 | 0 | none | 2,506 to 4,660 ms | at most 497 ms | at most 506 ms |
+
+The 14 changes are the ten above and four more, for one RAM's connection (databasehost.frognet, which is on
+Seattle5): soft Homa with key A accepted; requests to that machine under key A; back to tcp with key A still
+accepted; the RAM's tuple emptied. In the second of them the tier checks that New-York-1's requests to Seattle5 went
+under key A and its requests to Seattle3B stayed on tcp with no key.
+
+`wire_between_machines_tier.py` after the four pieces: tcp 37 checks, softhoma 40 checks, all pass.
+`core/test_channel_setting_oracle.py` (new, 13 checks in one process) passes.
+
+Still not done: real nodes; kernel Homa; softhoma told to a node by the tuple alone (a node must have soft Homa in
+its own word first); more than one protection on a connection at once.
 
 ## The numbers, change by change
 

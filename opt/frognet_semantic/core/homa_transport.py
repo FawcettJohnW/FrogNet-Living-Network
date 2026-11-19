@@ -78,6 +78,19 @@ from typing import Dict, Optional, Tuple
 
 TRANSPORT_FILE = os.environ.get("FROGNET_SEM_TRANSPORT_FILE", "/etc/frognet/semantic_transport")
 VALID = ("auto", "tcp", "homa", "softhoma", "homasim")
+# [A_DRIVER_REGISTERS_ITS_WORD_V1] John, 2026-11-19: "There is not a fixed form, and the consumer is the thing that
+# wrote it." The words a setting may use (the file's, and the channel's tuple's) are the words drivers have
+# registered, not a list fixed here: VALID is the drivers in the tree, and register_driver adds one. A word says which
+# of the engine's two session kinds stands under it: "tcp" (proxy/transport_semantic._DaemonWorker) or "homa"
+# (proxy/transport_homa._MsgWorker, on the process's one message carrier, open_homa_socket below).
+DRIVERS: Dict[str, str] = {"auto": "auto", "tcp": "tcp", "homa": "homa", "softhoma": "homa", "homasim": "homa"}
+
+
+def register_driver(word: str, session_kind: str) -> None:
+    """A driver's own word for a channel's setting. session_kind: "tcp" or "homa"."""
+    if session_kind not in ("tcp", "homa"):
+        raise ValueError("a driver's session kind is tcp or homa, not %r" % (session_kind,))
+    DRIVERS[word.lower()] = session_kind
 WALK = ("homa", "softhoma", "tcp")    # the walk's order: equal or unmeasured carriers are taken in this order
 BUILD = "homa-carrier-v4-20261117u"
 _chosen = None
@@ -101,14 +114,14 @@ def semantic_transport() -> str:
             text, src = "auto", "no %s (the default)" % TRANSPORT_FILE
     lines = [l.split() for l in text.splitlines() if l.strip()]
     word = lines[0][0] if lines and len(lines[0]) == 1 else " ".join(lines[0]) if lines else ""
-    if word not in VALID:
+    if word not in DRIVERS:
         raise SystemExit("[SEM-TRANSPORT] %s says %r; the semantic wire's transport is one of %s"
-                         % (src, word, ", ".join(VALID)))
+                         % (src, word, ", ".join(sorted(DRIVERS))))
     rams: Dict[str, str] = {}
     for l in lines[1:]:                      # [A_WORD_PER_RAM_CONNECTION_V1]
-        if len(l) != 2 or l[1] not in VALID or l[1] == "homasim" or l[0] in rams:
+        if len(l) != 2 or l[1] not in DRIVERS or l[1] == "homasim" or l[0] in rams:
             raise SystemExit("[SEM-TRANSPORT] %s says %r after its first line; each line there is a RAM's role name and "
-                             "one of %s, and a RAM is named once" % (src, " ".join(l), ", ".join(VALID)))
+                             "one of %s, and a RAM is named once" % (src, " ".join(l), ", ".join(sorted(DRIVERS))))
         rams[l[0]] = l[1]
     _ram_words.clear()
     _ram_words.update(rams)
@@ -265,13 +278,16 @@ def carrier_for(host: str) -> str:
         # [CHANNEL_SETTING_IS_A_TUPLE_V1] the channel's tuple, when there is one and it names a driver, is the word.
         # A process with no such tuple goes on exactly as before.
         from core import channel_setting
-        said = channel_setting.driver()
-        if said == "tcp":
+        said = channel_setting.driver(host)     # [A_SETTING_PER_RAM_CONNECTION_V1] a RAM's own tuple, if one is at host
+        kind = DRIVERS.get(said) if said is not None else None        # [A_DRIVER_REGISTERS_ITS_WORD_V1]
+        if kind == "tcp":
             return "tcp"
-        if said == "softhoma":
-            if _soft_homa_loaded() is None:
+        if kind == "homa":
+            if said == "softhoma" and _soft_homa_loaded() is None:
                 raise ConnectionError("the channel's tuple says softhoma and this node was not told of soft Homa: a node "
                                       "that was not told a driver's word does not run it")
+            if said != "softhoma":
+                carriers_here(said)             # a word this process cannot keep stops it here
             return "homa"
     if mode == "tcp":
         return "tcp"

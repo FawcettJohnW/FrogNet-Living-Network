@@ -75,7 +75,8 @@ have its header put in front of it; `unpack()` gives one bytes-like frame back.
 3. The two Homa ends (`transport_homa.py`, `server_homa.py`) still call their carrier by the kernel socket's names
    (`send_request`, `send_reply`, `recv`) and still carry the machinery kernel Homa's message limit needs (pieces,
    spare RPCs). Soft Homa's carrier sets its message limit high, so on soft Homa that machinery does not run.
-4. The words a setting may use are a fixed list in `core/homa_transport.py`; a driver cannot yet register its own.
+4. A driver registers its word (section 7, item 5), and a process still has one message carrier: a registered word
+   of the message kind rides soft Homa's or the kernel's connection, whichever the process has.
 
 ## 7. The channel's setting is a capability tuple
 
@@ -85,16 +86,16 @@ not need to be standard in any way." And: "You can also introduce other capabili
 and the consumer is the thing that wrote it."
 
 The code is `core/channel_setting.py`. The tuple is (channel, setting, semantic) in the ControlRam. Its JSON is that
-module's own: `driver` ("tcp" or "softhoma": the driver a new session opens on), `key` (the NAME of the key a message
-is sent under) and `accept` (the names a message may arrive under). The key is never in the tuple; it is a 32-byte
+module's own: `driver` (a word a driver registered, item 5 below; "tcp" and "softhoma" are in the tree: the driver a
+new session opens on), `key` (the NAME of the key a message is sent under), `accept` (the names a message may arrive
+under) and `protection` (the NAME of what is done to a message under a key, item 6; absent, aes-256-gcm). The key is never in the tuple; it is a 32-byte
 file on the machine (`FROGNET_CHANNEL_KEYS`, default `/etc/frognet/channel_keys/<name>`). Every daemon and proxy
-holds a read on the tuple. A process with no such tuple goes on as before, on its node's word (item 4 of section 6
-still stands for that word).
+holds a read on the tuple. A process with no such tuple goes on as before, on its node's word.
 
 1. **A change of driver moves no session.** New requests open a new session on the new driver at once. The old
    session finishes what is outstanding on it and ends after the new one is up. Nothing in flight is failed.
-2. **A key is the soft Homa driver's.** `core/homa_frames._Conn` seals a whole message with AES-256-GCM under the
-   named key before cutting it into segments, and marks it in the DATA header's reserved field. A reply goes under
+2. **A key is the soft Homa driver's.** `core/homa_frames._Conn` seals a whole message under the named key (item 6)
+   before cutting it into segments, and marks it in the DATA header's reserved field. A reply goes under
    the key its request came under. The TCP driver carries no key yet.
 3. **Accept first, then send, then take away.** The tuple is read over the channel it sets, so an end that is sent
    what it does not yet accept refuses it and cannot read the tuple either (found 19 Nov). The owner therefore widens
@@ -103,6 +104,25 @@ still stands for that word).
    held read on those.
 4. **A machine on another carrier has not left.** When a machine's last session on one carrier ends and it has one
    on another carrier of the same daemon, its tuples stay (`homa_transport.on_another_carrier`).
+
+5. **A driver registers its word** (`[A_DRIVER_REGISTERS_ITS_WORD_V1]`, `core/homa_transport.DRIVERS` and
+   `register_driver(word, session_kind)`). The words the file and the tuple may use are the registered ones; the list
+   `VALID` is no longer the gate. A word names which of the engine's two session kinds stands under it: `tcp`, or the
+   message session of `transport_homa.py`. A process has ONE message carrier (`open_homa_socket`), so a new wire
+   beside soft Homa in the same process still means changing that function. A word in the tuple that nobody
+   registered is said in the log and the node's own word decides.
+6. **A protection is registered by name** (`[A_PROTECTION_IS_REGISTERED_V1]`, `core/channel_protection.py`): two
+   functions, `seal(key, nonce, associated data, frame)` and `open(...)`, and a name. `channel_setting.protect` and
+   `unprotect`, which the driver's packing and unpacking call, use the one the tuple names. `aes-256-gcm` is the
+   machine's own libcrypto through ctypes; the Python module `cryptography` is not needed and is not on the nodes.
+   One protection at a time on a connection: the tuple names it, the message does not.
+7. **One RAM's connection may have a setting of its own** (`[A_SETTING_PER_RAM_CONNECTION_V1]`). The tuple
+   (channel, setting, <the RAM's role name>), for example (channel, setting, databasehost.frognet), is the setting of
+   every node's connection to the machine that RAM is on now, in place of (channel, setting, semantic): for the nodes
+   that open the connection, and on that machine for what arrives. The same JSON; an empty JSON says nothing for
+   that RAM. Where the RAM is comes from this node's hosts file, read when the tuples change and at each hosts event,
+   so the setting follows the role. `channel_setting.write(value, ram="databasehost.frognet")` writes it, and each
+   end's (channel, at, ...) tuple carries what it runs for each RAM under `rams`.
 
 The test is `simulation/channel_swap_tier.py`; its results are in
 `ribbit/examples/homa/REPORT-channel-setting-tuple-swap-under-load-20261119.md`.

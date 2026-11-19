@@ -115,9 +115,9 @@ class _Conn(TransportDriver):
         keyed = 0
         if self.channel and isinstance(frame, (bytes, bytearray, memoryview)):
             from core import channel_setting
-            name = self._req_key.pop(n - 1, "") if n & 1 else channel_setting.sending_key()
+            name = self._req_key.pop(n - 1, "") if n & 1 else channel_setting.sending_key(self.far[0])
             if name:
-                frame, keyed = channel_setting.protect(n, frame, name), 1
+                frame, keyed = channel_setting.protect(n, frame, name, self.far[0]), 1
             if not n & 1 and name != self._said_key:
                 import time as _t
                 print("[CHANNEL-KEY] %.6f requests to %s:%d now go under %s" % (_t.time(), self.far[0], self.far[1],
@@ -138,13 +138,13 @@ class _Conn(TransportDriver):
         from core import channel_setting
         try:
             if keyed:
-                frame, name = channel_setting.unprotect(n, frame, not n & 1)
+                frame, name = channel_setting.unprotect(n, frame, not n & 1, self.far[0])
                 if not n & 1:
                     self._req_key[n] = name
-            elif not n & 1 and channel_setting.refuses_no_key(channel_setting.current()) \
-                    and channel_setting.refuses_no_key(channel_setting.read_now()):
+            elif not n & 1 and channel_setting.refuses_no_key(channel_setting.here()) \
+                    and channel_setting.refuses_no_key(channel_setting.read_here()):
                 raise channel_setting.KeyRefused("a request arrived under no key and the channel accepts %s"
-                                                 % list(channel_setting._accepted(channel_setting.current())))
+                                                 % list(channel_setting._accepted(channel_setting.here())))
         except channel_setting.KeyRefused as e:
             raise ConnectionGone("message %d from %s:%d: %s" % (n, self.far[0], self.far[1], e)) from e
         return n, frame

@@ -803,6 +803,29 @@ session-held cell `(AIConnect, receiver, <machine>)` there, a producer writes ea
 what landed is counted by the region (`stats.by_acct`) at the rung edges. That direction is a cross-space write;
 whether to change it is John's call.
 
+## 10c. The channel's setting is a tuple; a running channel is changed by writing it
+
+Which transport driver a node's semantic wire opens its sessions on, and which key its messages go under, is a
+capability tuple in the ControlRam: (channel, setting, semantic), `opt/frognet_semantic/core/channel_setting.py`.
+`/etc/frognet/semantic_transport` is the node's own word and stands only where no tuple speaks.
+
+- The JSON is `driver` (a word a driver registered), `key` (a key's NAME), `accept` (the names a message may arrive
+  under) and `protection` (the name of what is done under a key; absent, aes-256-gcm). The key itself is a 32-byte
+  file on each machine in `/etc/frognet/channel_keys` and never crosses the wire.
+- Every daemon and proxy holds a read on the tuple. Nothing polls, nothing is restarted, and nothing in flight is
+  failed: a change of driver opens a new session and the old one finishes what it has.
+- The owner changes a key in three writes: widen `accept`, change `key`, narrow `accept`, waiting between them on each
+  end's own tuple (channel, at, ...) that says what it runs. The tuple is read over the channel it sets, so an end
+  must never be sent what it does not yet accept.
+- (channel, setting, <a RAM's role name>) is the same JSON for the connection to that RAM's machine alone.
+- A driver's word is registered (`core/homa_transport.register_driver`); a protection is registered
+  (`core/channel_protection.register_protection`). Neither is a fixed list.
+- A node must have been told of soft Homa (its own word names it) before the tuple can put a session on it.
+- Read `opt/frognet_semantic/core/TRANSPORT-DRIVER-INTERFACE.md` section 7 before changing any of this. The test is
+  `opt/frognet_semantic/simulation/channel_swap_tier.py` (between machines, the real proxy and daemon, under load,
+  perfect link and 4,800 baud); the quick check is `core/test_channel_setting_oracle.py`.
+
+
 ---
 
 # WHAT AN APPLICATION CANNOT DO
