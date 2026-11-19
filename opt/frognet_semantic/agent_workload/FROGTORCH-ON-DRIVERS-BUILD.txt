@@ -1,0 +1,92 @@
+FrogTorch on the transport drivers, build of 19 November 2026
+branch homa-under-croakos-20261116, code as of commit a707ad9e (base 948b435c)
+
+What this is
+  PyTorch on FrogNet with the transport under it a driver: a rank's session with the FrogTorch RAM is a transport
+  driver's connection (tcp or softhoma, by the word /etc/frognet/semantic_transport gives for that RAM), PyTorch's
+  tensors are cells in that RAM read by held read, and no rank listens or connects to another rank.
+  agent_workload/PYTORCH-ON-THE-DRIVERS-PRIMER.md says where it stands and what is not done.
+
+This one tarball is everything a node needs, whatever it has now.
+  It carries the transport-driver build of 18 November (the files TRANSPORT-DRIVERS-BUILD.txt lists, unchanged since
+  commit ae7b3791) and this work's files. On a node that already has that build only the FrogTorch files change.
+  On a node that does not, it brings that build too; it takes effect there when frognet-daemon and frognet-proxy are
+  next restarted, and until /etc/frognet/semantic_transport is there the node runs on TCP as it did.
+
+After untarring, on EVERY node
+  systemctl restart frogtorch-ram
+  The RAM of the old build does not know the tensor reads this build holds, and ranks of different builds refuse to
+  form a group and say which rank runs what.
+  For soft Homa, /etc/frognet/semantic_transport is the file TRANSPORT-DRIVERS-BUILD.txt gives (tcp, then
+  databasehost.frognet softhoma) and frogtorch-ram is restarted after it is there: the RAM listens with the drivers
+  its own node's setting names when it starts, tcp on its port and softhoma on its port plus one.
+
+To run it, on every node, with one run id number that has not been used before
+  sh /usr/local/frognet-ai/transportrun.sh <this node's mesh address> <run id number>
+  Its nodes are meshrun.sh's five (Seattle5, Seattle7, New-York-1, BAMacBook, Seattle3B); FROGNET_RUN_NODES names
+  another set. It runs simulation/collective_tier.py on the node, says what the RAM listens with, runs gloo,
+  Psychedelic shard on tcp and on softhoma, and meshfeed k=1 at batch 64 and 4096 on each, and prints from the RAM,
+  the same on every node: whole-run seconds, held-out loss and param_sha as three matrices, and each arm's ratio
+  against this session's gloo.
+
+What the logs say, so nothing has to be run to find out
+  [frogtorch-ram] frogtorch_ram 20261119-r8 ... RAM port P on ...; listening: tcp on port P, softhoma on port P+1
+  [frogtorch] ... sessions with the RAM host <ip>:P are on the <tcp|softhoma> driver (...; the setting's word ...)
+  [psychedelic] psychedelic 20261119-tensors-in-the-ram-r13 ...
+  [DIAG-PSY] RANKS r0=<host>:<number>/<build> ...       the number is the rank's process id: no rank has a port
+
+Tested, on one machine only (four ranks; torch 2.15, x86-64), on tcp and on softhoma
+  agent_workload/tests/test_regions_collectives.py and test_regions_ddp.py pass; shard 1299476b225f2d9a and faithful
+  8293546b6b4e8c48, as the tree before this work gave.
+  ddpbench, the standard workload (4 ranks, hidden 1024, 40 steps): held-out 0.4940, one param_sha on every rank,
+  the same sha the tree before this work gives on that machine (6d84cfed6441a54f).
+  meshfeed k=1: the same sha before and after, equal to its oracle.
+  transportrun.sh whole, as three nodes: seven arms, every rank ok, the three reports identical.
+  simulation/collective_tier.py: 91 pass, 3 FAIL. The three are nine wait loops in the September backends that
+  sleep between re-asks (psychedelic_backend, torch_backend, ddp_hook's linger). They were there before this build
+  and were not changed by it.
+NOT tested: anything on a real node. The acceptance on nodes is shard df67ff9ce033941b and held-out 0.4940.
+NOT in this build: kernel Homa under the FrogTorch RAM's sessions (a session told homa says so and stops).
+
+Files
+  opt/frognet_semantic/TRANSPORT-DRIVERS-BUILD.txt
+  opt/frognet_semantic/agent_workload/FROGTORCH-ON-DRIVERS-BUILD.txt
+  opt/frognet_semantic/agent_workload/PYTORCH-ON-THE-DRIVERS-PRIMER.md
+  opt/frognet_semantic/agent_workload/tuplespace/ddp_hook.py
+  opt/frognet_semantic/agent_workload/tuplespace/frogtorch_ram.py
+  opt/frognet_semantic/agent_workload/tuplespace/frogtorch_ram_client.py
+  opt/frognet_semantic/agent_workload/tuplespace/frogtorch_ram_drivers.py
+  opt/frognet_semantic/agent_workload/tuplespace/psychedelic_backend.py
+  opt/frognet_semantic/agent_workload/tuplespace/ram_plane.py
+  opt/frognet_semantic/agent_workload/tuplespace/tensor_plane.py
+  opt/frognet_semantic/core/AI_README.md
+  opt/frognet_semantic/core/TRANSPORT-DRIVER-INTERFACE.md
+  opt/frognet_semantic/core/homa_frames.py
+  opt/frognet_semantic/core/homa_liveness.py
+  opt/frognet_semantic/core/homa_sim.py
+  opt/frognet_semantic/core/homa_socket.py
+  opt/frognet_semantic/core/homa_transport.py
+  opt/frognet_semantic/core/semcache_wire.py
+  opt/frognet_semantic/core/template_order.py
+  opt/frognet_semantic/core/test_homa_carrier_oracle.py
+  opt/frognet_semantic/core/test_homa_layout_oracle.py
+  opt/frognet_semantic/core/test_homa_liveness_oracle.py
+  opt/frognet_semantic/core/test_homa_liveness_ram_oracle.py
+  opt/frognet_semantic/core/test_homa_sim_oracle.py
+  opt/frognet_semantic/core/transport_driver.py
+  opt/frognet_semantic/core/wire_metrics.py
+  opt/frognet_semantic/daemon/AI_README.md
+  opt/frognet_semantic/daemon/daemon_main.py
+  opt/frognet_semantic/daemon/engine/execution.py
+  opt/frognet_semantic/daemon/engine/server_homa.py
+  opt/frognet_semantic/daemon/engine/session.py
+  opt/frognet_semantic/daemon/test_writer_gone_oracle.py
+  opt/frognet_semantic/proxy/AI_README.md
+  opt/frognet_semantic/proxy/test_homa_ordering_oracle.py
+  opt/frognet_semantic/proxy/transport_homa.py
+  opt/frognet_semantic/proxy/transport_semantic.py
+  opt/frognet_semantic/simulation/collective_tier.py
+  opt/frognet_semantic/simulation/test_aiconnect_ramp_oracle.py
+  usr/local/frognet-ai/meshfeed.py
+  usr/local/frognet-ai/transport_report.py
+  usr/local/frognet-ai/transportrun.sh
