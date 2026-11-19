@@ -1780,35 +1780,21 @@ class PsychedelicBackend(_base.FrogNetBackend):
         want = set(r for r in range(self._size) if r != self._rank)
         if not want:
             return
-        deadline = time.time() + self._timeout_s
-        wait = 0.00005
-        seen = set()
-        while time.time() < deadline:
-            # [ASK_ONCE_AND_WAIT_V1 - John 2026-09-14] Same spin as broadcast
-            # had: a 2 ms ceiling asking whether the readers are done yet.
-            #
-            # min_rows is len(want) -- every rank EXCEPT this one publishes a
-            # consumed-marker, so the producer is waiting for W-1 rows, not W.
-            # Asking for W would never be satisfied and the read would hold for
-            # the full wait on every pass.
-            _left = deadline - time.time()
-            # [DIAG_PSY_STALL_V1 - John 2026-09-14] This wait was NOT
-            # registered, which is why a rank sitting here printed nothing at
-            # all while every reader and server thread showed idle. A producer
-            # waiting on its readers is exactly what a deadlock looks like, and
-            # it was the one state with no line.
-            with _PsyWait(phase="await_consumers", rank=self._rank, seq=seq,
-                          op=op, want=sorted(want), have=sorted(seen),
-                          missing=sorted(want - seen),
-                          min_rows=len(want), _be=self):
-                seen = set(self._read_all(
-                    op + ".done", seq,
-                    wait_s=min(_left, _base.BLOCK_CAP) if _left > 0 else 0.0,
-                    min_rows=len(want)).keys())
-            if want.issubset(seen):
-                return
-            time.sleep(wait)
-            wait = min(wait * 2.0, 0.002)
+        # [A_WAIT_IS_ONE_HELD_READ_V1 - John 2026-11-19] "Why is a held read causing
+        # the tests to fail? There should not need to be anything else." One
+        # read, held in the RAM until the W-1 consumed-markers are there or
+        # the group's timeout has passed. This was a loop that held for at
+        # most BLOCK_CAP, slept, and asked again.
+        #
+        # min_rows is len(want): every rank EXCEPT this one publishes a
+        # consumed-marker, so the producer waits for W-1 rows, not W.
+        with _PsyWait(phase="await_consumers", rank=self._rank, seq=seq,
+                      op=op, want=sorted(want), min_rows=len(want), _be=self):
+            seen = set(self._read_all(op + ".done", seq,
+                                      wait_s=self._timeout_s,
+                                      min_rows=len(want)).keys())
+        if want.issubset(seen):
+            return
         raise RuntimeError(
             "psychedelic backend: %s seq %d -- rank %d still holds bytes "
             "nobody collected; readers %s never reported consuming them"
@@ -1848,7 +1834,8 @@ class PsychedelicBackend(_base.FrogNetBackend):
             c._cache[ck] = prev
 
     def _read_fresh(self, op: str, seq: int, since: float,
-                    wait_s: float = 0.0) -> Dict[int, Any]:
+                    wait_s: float = 0.0, unlike=None,
+                    ids: Optional[list] = None) -> Dict[int, Any]:
         """[WHEN_IS_PART_OF_WHAT_V1] Cells for this round, written since it
         began -- not merely cells that exist.
 
@@ -1870,7 +1857,9 @@ class PsychedelicBackend(_base.FrogNetBackend):
         # and the caller's loop below still runs, so this degrades to
         # polling rather than breaking.
         for r in T.get_all(self._service(op, seq), dbhost=self._dbhost,
-                           wait_s=wait_s, min_rows=self._size):
+                           wait_s=wait_s, min_rows=self._size, unlike=unlike):
+            if ids is not None:
+                ids.append(r["id"])
             v = r.get("var", "")
             if not v.startswith("r"):
                 continue
@@ -1907,25 +1896,27 @@ class PsychedelicBackend(_base.FrogNetBackend):
         # so its own contribution is inside the window too.
         since = self._round_started.pop((op, seq), time.time())
         deadline = time.time() + self._timeout_s
-        wait = 0.00005
         seen: Dict[int, Any] = {}
         want = set(range(self._size))
-        while time.time() < deadline:
+        # [A_WAIT_IS_ONE_HELD_READ_V1 - John 2026-11-19] One read, held until every
+        # rank's cell of this round is there. If cells are there and one is
+        # not this round's ([WHEN_IS_PART_OF_WHAT_V1]), the read is held again
+        # until the cells are not the ones just seen: a write wakes it and
+        # nothing else does. This slept and asked again, 2 s at a time.
+        last = None
+        while True:
             self.polls += 1
             _t0 = time.perf_counter()
-            # First ask blocks until the set is complete; if the store does
-            # not wait, the loop falls back to asking again.
-            _blk = os.environ.get("FROGNET_PSY_BLOCKREAD", "1") != "0"
-            seen = self._read_fresh(
-                op, seq, since,
-                wait_s=min(2.0, self._timeout_s) if _blk else 0.0)
+            ids: list = []
+            seen = self._read_fresh(op, seq, since,
+                                    wait_s=max(0.0, deadline - time.time()),
+                                    unlike=last, ids=ids)
             self.poll_s += time.perf_counter() - _t0
             # [COMPLETION_IS_A_RANK_SET_NOT_A_COUNT_V1]
-            if want.issubset(seen.keys()):
+            if want.issubset(seen.keys()) or time.time() >= deadline:
                 break
-            time.sleep(wait)
-            wait = min(wait * 2.0, 0.002)
-        else:
+            last = sorted(ids)
+        if not want.issubset(seen.keys()):
             raise RuntimeError(
                 "psychedelic backend: %s seq %d incomplete after %.0fs -- "
                 "ranks %s published nothing since this round began. A "
@@ -2054,54 +2045,25 @@ class PsychedelicBackend(_base.FrogNetBackend):
             seq = self._next_seq()
             if self._rank == root:
                 self._publish_tensor("bc", seq, t)
-            deadline = time.time() + self._timeout_s
-            wait = 0.00005
-            while time.time() < deadline:
-                # [ASK_ONCE_AND_WAIT_V1 - John 2026-09-14] Let the store hold
-                # the question open instead of asking again every 2 ms.
-                #
-                # This loop called _read_all() with no wait_s, so it spun at up
-                # to 500 asks/second for a descriptor exactly one rank writes.
-                # Measured on Seattle5 during ddp1921: 649 requests in 11.5 s
-                # for a single key, max 1 in flight, so the proxy's coalescing
-                # had nothing to join -- serial polls cannot coalesce. The
-                # blocking read reached the collective path (torch_backend:559)
-                # and never reached broadcast.
-                #
-                # min_rows is 1, NOT self._size: a broadcast has one producer,
-                # the root. Waiting for W rows on a key only the root ever
-                # writes is a condition that can never be satisfied, so the
-                # store would hold for the full wait and return empty every
-                # time -- slower than the spin it replaced.
-                #
-                # A store that does not implement waiting answers immediately
-                # and the backoff below still runs, so this degrades to polling
-                # rather than breaking.
-                _left = deadline - time.time()
-                # [DIAG_PSY_STALL_V1] Registered for the same reason as
-                # _await_consumers: a rank waiting on the root's descriptor
-                # otherwise sits silent with every thread idle.
-                with _PsyWait(phase="broadcast", rank=self._rank, seq=seq,
-                              op="bc", root=root, min_rows=1, _be=self):
-                    d = self._read_all(
-                        "bc", seq,
-                        wait_s=min(_left, _base.BLOCK_CAP) if _left > 0 else 0.0,
-                        min_rows=1).get(root)
-                if d is not None:
-                    if self._rank != root:
-                        got, _n, _same = self._client.read(
-                            "r%d" % root, d["host"], int(d["port"]),
-                            d["name"], int(d["gen"]), d["shape"], d["dtype"],
-                            mode=READ_CURRENT)
-                        t.copy_(got.reshape(t.shape).to(t.dtype))
-                        self._consumed("bc", seq)
-                    break
-                time.sleep(wait)
-                wait = min(wait * 2.0, 0.002)
-            else:
+            # [A_WAIT_IS_ONE_HELD_READ_V1 - John 2026-11-19] One read, held in the RAM
+            # until the root's descriptor is there or the group's timeout has
+            # passed. min_rows is 1: a broadcast has one producer. This was a
+            # loop that held for at most BLOCK_CAP, slept, and asked again.
+            with _PsyWait(phase="broadcast", rank=self._rank, seq=seq,
+                          op="bc", root=root, min_rows=1, _be=self):
+                d = self._read_all("bc", seq, wait_s=self._timeout_s,
+                                   min_rows=1).get(root)
+            if d is None:
                 raise RuntimeError(
                     "psychedelic backend: broadcast seq %d -- root %d never "
                     "published a descriptor" % (seq, root))
+            if self._rank != root:
+                got, _n, _same = self._client.read(
+                    "r%d" % root, d["host"], int(d["port"]),
+                    d["name"], int(d["gen"]), d["shape"], d["dtype"],
+                    mode=READ_CURRENT)
+                t.copy_(got.reshape(t.shape).to(t.dtype))
+                self._consumed("bc", seq)
             if self._rank == root:
                 # The bytes are in THIS process. Leaving now can pull them
                 # out from under a peer mid-fetch.
@@ -2395,7 +2357,8 @@ def _create(store, rank, size, timeout):
 
 
 #: Said once per process, so a run's own log shows which code is running.
-BUILD = ("psychedelic 20261119-tensors-in-the-ram-r13 (the September reduction, unchanged; "
+BUILD = ("psychedelic 20261119-tensors-in-the-ram-r14 (the September reduction, unchanged; "
+         "[A_WAIT_IS_ONE_HELD_READ_V1] every wait is one read held in the RAM; "
          "[THE_TENSORS_ARE_IN_THE_RAM_V1] a tensor is a cell in the FrogTorch RAM: its owner writes it once, each peer "
          "holds one read there on the family written for it, the write answers it; no rank listens; "
          "every session with the RAM is a transport driver's connection (tcp or softhoma, as the setting says); "

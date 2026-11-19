@@ -172,7 +172,8 @@ def plane_blocking_reads():
     # and BLOCK_CAP be absent: the 11 Nov design had removed them. John's ruling of 12 Nov, "Go back and revive the
     # code that worked before", brought the September backends back with them (09388fa5), and of 17 Nov, "I thought
     # what we had in there now was working performant. Why would I give that up?", keeps them. Those six checks
-    # asserted a design that was set aside and are gone. The checks on sleeping below are his standing rule and stay.)
+    # asserted a design that was set aside and are gone. The checks on sleeping below are his standing rule and stay;
+    # they failed on nine waits from 12 Nov until [A_WAIT_IS_ONE_HELD_READ_V1], 19 Nov.)
     #
     # [THE_TENSORS_ARE_IN_THE_RAM_V1] [THE_RAM_SESSION_IS_A_DRIVERS_CONNECTION_V1] No rank listens and nothing in
     # FrogTorch's path to its RAM opens a socket: the backends make the RAM's classes, and those and the RAM itself

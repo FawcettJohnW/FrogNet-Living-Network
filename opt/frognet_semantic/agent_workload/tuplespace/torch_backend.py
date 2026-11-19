@@ -89,14 +89,10 @@ from . import frogtorch_ram_client as T  # [ONE_RAM_V1] the control cells: the o
 #: variable per process group, one SCOPE per rank per operation per round.
 SERVICE = os.environ.get("FROGNET_C10D_SERVICE", "c10d")
 
-#: [ASK_ONCE_AND_WAIT_V1] Cap on how long the STORE may hold one read open.
-#: The loop still re-evaluates its deadline every BLOCK_CAP seconds, and a
-#: store that honours wait_s cannot pin a connection for the whole 300 s
-#: timeout. Was a local inside _collect_descriptors, which left broadcast and
-#: _await_consumers in psychedelic_backend with no value to reach for -- they
-#: spun at a 2 ms ceiling instead. One knob, module level, so every waiting
-#: loop in both backends uses the same bound.
-BLOCK_CAP = float(os.environ.get("FROGNET_BLOCK_CAP_S", "5.0"))
+#: [A_WAIT_IS_ONE_HELD_READ_V1 - John 2026-11-19] There is no cap on how long
+#: the RAM holds a read ([HELD_FOR_THE_CALLERS_DEADLINE_V1]): a wait is one
+#: read held for the group's timeout. BLOCK_CAP, which re-armed every waiting
+#: loop in both backends every 5 s, went with those loops.
 
 #: [NEVER_TWO_THINGS_IN_ONE_CELL_V1] A cell name carries the operation, the
 #: sequence number within the group and the contributing rank. Two collectives
@@ -556,51 +552,18 @@ class FrogNetBackend(_CBackend):
         deadline = time.time() + self._timeout_s
         want = set(range(self._size))
         out: Dict[int, Any] = {}
-        # [POLL_AT_THE_SPEED_OF_THE_ANSWER_V1] A flat 2 ms sleep was the cost
-        # of a collective, not the reads. Three scoped reads measure 1.76 ms
-        # while an all_reduce took 24 ms -- about thirteen cycles, and the
-        # sleeping was ~26 ms of it. Ranks publish within microseconds of
-        # each other, so the first few waits should be short; the backoff
-        # only grows for a genuinely late peer, where spinning would be
-        # rude.
-        wait = 0.00005
-        # [SAY_WHO_IS_MISSING_V1 - John 2026-09-29] A barrier (and every other
-        # gather) printed only how many rows came back -- "rows n=3" every
-        # 5 s -- so a run stuck waiting for one rank could not say WHICH rank
-        # without opening the other three logs. Every incomplete pass now
-        # names the ranks present and the ranks missing, at most once a
-        # second; a pass that completes after having waited says so.
+        # [A_WAIT_IS_ONE_HELD_READ_V1 - John 2026-11-19] One read, held in the RAM until
+        # every rank's cell of this collective is there or the group's timeout
+        # has passed. This was a loop that held for at most BLOCK_CAP, slept
+        # ([POLL_AT_THE_SPEED_OF_THE_ANSWER_V1]) and asked again.
         t0 = time.time()
-        said = 0.0
-        while time.time() < deadline:
-            remaining = deadline - time.time()
-            if remaining <= 0:
-                break
-            # One request that BLOCKS until the rank set is complete,
-            # instead of hundreds that each ask and hang up. Against an
-            # updated store this is a single round trip per collective; the
-            # backoff below only still runs against a store that ignores the
-            # parameters, or when the server's own wait expired first.
-            out = self._read_all(op, seq,
-                                 wait_s=min(remaining, BLOCK_CAP),
-                                 min_rows=self._size)
-            # [COMPLETION_IS_A_RANK_SET_NOT_A_COUNT_V1] The condition is that
-            # the expected rank set is contained in what was observed for
-            # THIS collective identity. A count is only the efficient form of
-            # that while the keys are guaranteed to be exactly these ranks --
-            # and a future naming bug could satisfy a count without it.
-            if want.issubset(out.keys()):
-                if said:
-                    _say_gather("GATHER_DONE", op, seq, self._rank,
-                                sorted(out.keys()), [], time.time() - t0)
-                return [out[r] for r in range(self._size)]
-            if time.time() - said >= 1.0:
-                said = time.time()
-                _say_gather("GATHER_WAIT", op, seq, self._rank,
-                            sorted(set(out.keys()) & want),
-                            sorted(want - set(out.keys())), said - t0)
-            time.sleep(wait)
-            wait = min(wait * 2.0, 0.002)
+        out = self._read_all(op, seq, wait_s=max(0.0, deadline - t0),
+                             min_rows=self._size)
+        # [COMPLETION_IS_A_RANK_SET_NOT_A_COUNT_V1] The condition is that
+        # the expected rank set is contained in what was observed for
+        # THIS collective identity.
+        if want.issubset(out.keys()):
+            return [out[r] for r in range(self._size)]
         missing = sorted(want - set(out.keys()))
         _say_gather("GATHER_FAIL", op, seq, self._rank,
                     sorted(set(out.keys()) & want), missing, time.time() - t0)
@@ -738,17 +701,15 @@ class FrogNetBackend(_CBackend):
             seq = self._next_seq()
             if self._rank == root:
                 self._put("bc", seq, self._enc(t))
-            deadline = time.time() + self._timeout_s
-            while time.time() < deadline:
-                v = self._read_all("bc", seq).get(root)
-                if v is not None:
-                    t.copy_(self._dec(v, t))
-                    break
-                time.sleep(0.002)
-            else:
+            # [A_WAIT_IS_ONE_HELD_READ_V1 - John 2026-11-19] one read, held until the root's
+            # cell is there; it was asked every 2 ms
+            v = self._read_all("bc", seq, wait_s=self._timeout_s,
+                               min_rows=1).get(root)
+            if v is None:
                 raise RuntimeError(
                     "frognet backend: broadcast seq %d -- root %d never "
                     "published" % (seq, root))
+            t.copy_(self._dec(v, t))
         return _Work(tensors)
 
     def allgather(self, output_tensors, input_tensors, opts=None):
@@ -798,17 +759,15 @@ class FrogNetBackend(_CBackend):
                 ins = input_tensors[i] if i < len(input_tensors) \
                     else input_tensors[0]
                 self._put("sc", seq, {"parts": [self._enc(t) for t in ins]})
-            deadline = time.time() + self._timeout_s
-            while time.time() < deadline:
-                v = self._read_all("sc", seq).get(root)
-                if v is not None:
-                    out.copy_(self._dec(v["parts"][self._rank], out))
-                    break
-                time.sleep(0.002)
-            else:
+            # [A_WAIT_IS_ONE_HELD_READ_V1 - John 2026-11-19] one read, held until the root's
+            # cell is there; it was asked every 2 ms
+            v = self._read_all("sc", seq, wait_s=self._timeout_s,
+                               min_rows=1).get(root)
+            if v is None:
                 raise RuntimeError(
                     "frognet backend: scatter seq %d -- root %d never "
                     "published" % (seq, root))
+            out.copy_(self._dec(v["parts"][self._rank], out))
         return _Work(output_tensors)
 
     def all_to_all_single(self, output_tensor, input_tensor, output_split_sizes, input_split_sizes, opts=None):
@@ -922,20 +881,15 @@ class FrogNetBackend(_CBackend):
             self._p2p_in[k] = self._p2p_in.get(k, 0) + 1
             op = "p2p.%d.%d.%d" % (src_rank, self._rank, tag)
             seq = self._p2p_in[k]
-            deadline = time.time() + self._timeout_s
-            wait = 0.00005
-            while time.time() < deadline:
-                got = self._read_all(op, seq)
-                if src_rank in got:
-                    t.copy_(self._dec(got[src_rank], t))
-                    break
-                time.sleep(wait)
-                wait = min(wait * 2.0, 0.002)
-            else:
+            # [A_WAIT_IS_ONE_HELD_READ_V1 - John 2026-11-19] one read, held until the sender's
+            # cell for this message is there; it was asked up to 500 times a second
+            got = self._read_all(op, seq, wait_s=self._timeout_s, min_rows=1)
+            if src_rank not in got:
                 raise RuntimeError(
                     "frognet backend: recv from rank %d tag %d (message %d) "
                     "timed out -- no cell was published for it"
                     % (src_rank, tag, seq))
+            t.copy_(self._dec(got[src_rank], t))
         return _Work(tensors, register_for=tensors)
 
     def recv_anysource(self, tensors, tag=0):
@@ -959,30 +913,62 @@ class FrogNetBackend(_CBackend):
         """
         got_from = None
         for t in tensors:
-            deadline = time.time() + self._timeout_s
-            wait = 0.00005
-            while time.time() < deadline:
-                for src in range(self._size):
-                    if src == self._rank:
-                        continue
-                    k = (src, tag)
-                    seq = self._p2p_in.get(k, 0) + 1
-                    op = "p2p.%d.%d.%d" % (src, self._rank, tag)
-                    cell = self._read_all(op, seq)
-                    if src in cell:
-                        t.copy_(self._dec(cell[src], t))
-                        self._p2p_in[k] = seq
-                        got_from = src
+            # [A_WAIT_IS_ONE_HELD_READ_V1 - John 2026-11-19] Each sender's next message to
+            # this rank is its own cell, so this holds one read on each of them
+            # at once, each on its own session, and takes the first that is
+            # answered. The others are ended by ending their sessions (a read
+            # held on a connection that ends is told at once); their cells are
+            # untouched and are the next call's. This asked every sender in
+            # turn, slept, and asked again.
+            srcs = [q for q in range(self._size) if q != self._rank]
+            cv = threading.Condition()
+            answers: List[Any] = []            # (src, seq, cell or None, error or None)
+            sess: Dict[int, Any] = {}
+            over = [False]
+
+            def _hold(src):
+                seq = self._p2p_in.get((src, tag), 0) + 1
+                ram = T.ram()
+                with cv:
+                    if over[0]:
+                        return
+                    sess[src] = ram.session(ram.control())
+                try:
+                    cell = self._read_all("p2p.%d.%d.%d" % (src, self._rank, tag), seq,
+                                          wait_s=self._timeout_s, min_rows=1)
+                    err = None
+                except ConnectionError as e:
+                    cell, err = None, e
+                with cv:
+                    if not over[0]:
+                        answers.append((src, seq, cell, err))
+                        cv.notify()
+
+            for q in srcs:
+                threading.Thread(target=_hold, args=(q,), daemon=True,
+                                 name="recv-anysource-r%d" % q).start()
+            with cv:
+                while True:
+                    hit = next((a for a in answers if a[2] and a[0] in a[2]), None)
+                    bad = next((a for a in answers if a[3] is not None), None)
+                    if hit is not None or bad is not None or len(answers) >= len(srcs):
                         break
-                if got_from is not None:
-                    break
-                time.sleep(wait)
-                wait = min(wait * 2.0, 0.002)
-            else:
+                    cv.wait()
+                over[0] = True
+                held = [v for k, v in sess.items() if hit is None or k != hit[0]]
+            for s_ in held:
+                s_.close()
+            if hit is None and bad is not None:
+                raise bad[3]
+            if hit is None:
                 raise RuntimeError(
                     "frognet backend: recv_anysource tag %d timed out -- no "
                     "rank published a cell addressed to rank %d"
                     % (tag, self._rank))
+            src, seq, cell, _e = hit
+            t.copy_(self._dec(cell[src], t))
+            self._p2p_in[(src, tag)] = seq
+            got_from = src
         return _Work(tensors, src=got_from)
 
     def barrier(self, opts=None):

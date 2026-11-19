@@ -224,7 +224,8 @@ class FrogNetHookState:
                "done": bool(done), "t": time.time()},
               dbhost=self.dbhost, own=False)
 
-    def bag_read(self, wait_s: float = 0.0, min_rows: int = 0) -> Dict[int, Any]:
+    def bag_read(self, wait_s: float = 0.0, min_rows: int = 0,
+                 unlike=None, ids: Optional[list] = None) -> Dict[int, Any]:
         """Every rank's bag, in one round trip.
 
         `min_rows` lets the store hold the question open until that many
@@ -237,7 +238,9 @@ class FrogNetHookState:
         out: Dict[int, Any] = {}
         for row in T.get_all("%s.bag.%s" % (SERVICE, self.group),
                              dbhost=self.dbhost, wait_s=wait_s,
-                             min_rows=min_rows or 0):
+                             min_rows=min_rows or 0, unlike=unlike):
+            if ids is not None:
+                ids.append(row["id"])
             v = row.get("var", "")
             d = row.get("value")
             if v.startswith("r") and isinstance(d, dict):
@@ -337,9 +340,16 @@ class FrogNetHookState:
         want = set(range(self.world)) - {self.rank}
         deadline = time.time() + self.timeout_s
         waited = 0.0
-        while time.time() < deadline:
-            bags = self.bag_read(wait_s=min(5.0, self.timeout_s),
-                                 min_rows=self.world)
+        # [A_WAIT_IS_ONE_HELD_READ_V1 - John 2026-11-19] One read on the bags, held until
+        # they are not the bags last seen: a rank writing its bag (its `done`
+        # among them) wakes it and nothing else does. This read the bags,
+        # which are always all there, slept a second, and read them again.
+        last = None
+        while True:
+            ids: list = []
+            bags = self.bag_read(wait_s=max(0.0, deadline - time.time()),
+                                 min_rows=self.world, unlike=last, ids=ids)
+            waited = self.timeout_s - (deadline - time.time())
             left = {r for r in want
                     if not (isinstance(bags.get(r), dict)
                             and bags[r].get("done"))}
@@ -348,8 +358,9 @@ class FrogNetHookState:
                        "finished, nothing can still be reading this plane"
                        % (self.rank, waited))
                 return True
-            time.sleep(1.0)
-            waited = self.timeout_s - (deadline - time.time())
+            if time.time() >= deadline:
+                break
+            last = sorted(ids)
         logger("HOOK_LINGER rank=%d EXPIRED after %.1fs still waiting on "
                "rank(s) %s -- they never published done, so they are gone or "
                "stuck, not slow. This plane is closing and their next read of "

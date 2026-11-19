@@ -57,6 +57,8 @@ How it was done, so it is not redone:
 - **A rank's cells** are named `<host>:<number>/<name>` (the host and number are what the rank writes in its
   rendezvous cell; the number is its process id, since no rank has a port), are held by its session, and go when
   its process goes, as they did when they were in the process.
+- **A wait is one held read** (`[A_WAIT_IS_ONE_HELD_READ_V1]`): the September backends' waits (collectives'
+  gathers, broadcast, scatter, recv, the hook's linger) no longer sleep, re-arm on a cap or ask again.
 - **One thing found on the way** (`[A_READ_IS_HELD_UNTIL_THE_WRITE_V1]`): a cell and the descriptor that names it
   reach the RAM on different sessions, so a reader can have the descriptor before the bytes have landed. DDP's
   first broadcast failed on it ("r0 does not publish 'bc.3' at all"). A named read is now held for the write.
@@ -75,7 +77,7 @@ How it was done, so it is not redone:
      torch is 2.15 on x86-64; **on John's nodes the acceptance is still `df67ff9ce033941b` and 0.4940, and that
      has not been run.**
    - `meshfeed.py`, 3 nodes, k=1: `e815acd8ca31c698` before and after, and equal to its oracle.
-   - `simulation/collective_tier.py`: 91 pass, 3 fail (section 6, item 1).
+   - `simulation/collective_tier.py`: all 94 pass.
    - `simulation/test_aiconnect_ramp_oracle.py`: passes on tcp.
 3. **NEXT, on the nodes: measure, one session, the control first.** Install (section 5), then on every node:
 
@@ -129,12 +131,9 @@ How it was done, so it is not redone:
 
 ## 6. Not done. Nothing here may be reported as working
 
-1. **Nine wait loops in the September backends sleep between re-asks**, against John's rule that a wait is a held
-   read: `psychedelic_backend.py` `_await_consumers`, `_gather_tensors`, `broadcast`; `torch_backend.py`
-   `_gather_cells`, `broadcast`, `scatter`, `recv`, `recv_anysource`; `ddp_hook.py` `linger` (a 1-second poll at
-   the end of a hooked run). They came back with the September code on 12 November. The tier has a check for each
-   file and all three fail. They were not changed in this work, which was told to change where a tensor is
-   published and read and nothing else. The all-reduce path of a DDP step does not pass through them.
+1. (Closed 19 Nov.) Nine wait loops in the September backends slept between re-asks. John: "Why is a held read
+   causing the tests to fail? There should not need to be anything else". Each is one held read now
+   (`[A_WAIT_IS_ONE_HELD_READ_V1]`), `BLOCK_CAP` is gone, and the tier passes.
 2. **Nothing has run on a node.** Every number in section 4 is one machine with four ranks.
 3. **Kernel Homa** under the RAM session (step 4).
 4. **`frogtorch.py` and `frogtrain.py`** (not on PyTorch's path, not used by the bench) still keep their tensors in

@@ -1621,6 +1621,41 @@ nodes' file has (`tcp`, then `databasehost.frognet softhoma`). Not run on a node
 - The first session-ends check closed the main thread's session and expected a read held on another thread's to
   fail. A rank's data session is its thread's own.
 
+### 19 Nov 06:41 to 07:10: a wait is one held read (`[A_WAIT_IS_ONE_HELD_READ_V1]`)
+
+John, on the three failing checks: "Why is a held read causing the tests to fail? There should not need to be
+anything else" (section 4.1, case 25). The held read did not fail them. What was around it did. All nine are now a
+read held in the RAM and nothing else:
+
+| where | what it was | what it is |
+|---|---|---|
+| `psychedelic_backend._await_consumers`, `.broadcast`; `torch_backend._gather_cells` | a read held for at most `BLOCK_CAP` (5 s), a sleep, and a loop to ask again | one read, held for the group's timeout |
+| `torch_backend.broadcast`, `.scatter`, `.recv` | a read that did not hold, asked every 2 ms or faster | one read, held for the group's timeout (`min_rows=1`: one writer) |
+| `psychedelic_backend._gather_tensors` | a read held 2 s at a time, a sleep, and a loop | one read held for the timeout; if cells are there and one is not this round's, held again until the cells are not the ones just seen (`unlike`): a write wakes it |
+| `ddp_hook.linger` | the bags read (they are always all there), a 1 s sleep, read again | one read held until the bags are not the ones just seen |
+| `torch_backend.recv_anysource` | every sender's cell asked in turn, a sleep, again | one read held on each sender's next cell at once, each on its own session; the first answered is taken and the others are ended by ending their sessions |
+
+`BLOCK_CAP` had no user left and is gone. Nothing is retried: a read that returns at its deadline without what was
+asked is the error it was.
+
+Run after it, on `tcp` and on `softhoma`: `test_regions_collectives` on both backends (`psychedelic` and `frognet`,
+which covers send/recv, `recv_anysource` and scatter); `test_regions_ddp` with shard `1299476b225f2d9a`, faithful
+`8293546b6b4e8c48` and every_k's four shas unchanged; the AIConnect oracle; and
+**`simulation/collective_tier.py`: all 94 pass.** The three sleep checks failed on the code before this entry
+(they are the same checks).
+
+The faithful-hook arm of `ddpbench` (4 ranks on one machine, hidden 256, 40 steps), whole-run seconds, three runs
+each, the two trees run alternately, same `param_sha` (`259b1ff0033fc596`) in all six:
+
+| | run 1 | run 2 | run 3 | mean |
+|---|---|---|---|---|
+| before (linger polls each second) | 8.43 | 8.12 | 7.86 | 8.14 |
+| after (linger is one held read) | 7.76 | 7.35 | 6.95 | 7.35 |
+
+One machine; it shows the second the poll cost at the end of a hooked run and nothing about the mesh.
+
+The tarball for nodes is rebuilt under a new name with this in it (below, section 10).
+
 ## 4. The interventions: what was said, why it was noticed, what had not been considered
 
 John, 17 Nov, of the first version of this file: "It is not just the order. It is what I asked and why I asked it.
@@ -1907,6 +1942,20 @@ against six commits and a results document that came after it.
   why it fails changes nothing in his code and was allowed all along. The answer was four adjacent lines in a log
   I already had.
 
+**25. "Left failing"** (19 Nov, 05:40 to 06:41)
+
+- *What I said*: that the tier failed three checks because "nine wait loops in the September backends still sleep
+  between re-asks", and that "I left them alone because the primer said to change only where a tensor is published
+  and read".
+- *What John asked*: "Why is a held read causing the tests to fail? There should not need to be anything else".
+- *Why it was a tell*: I had reported a red gate on his own standing rule and handed the code over with it, with a
+  reason for not acting. Case 24 again, a day later: "not mine to change".
+- *Not considered or recalled, and why*: each loop already contained the held read. What failed the check was what
+  stood around it: a sleep, a cap that ended the hold every 5 s, a loop to ask again; and three reads that did not
+  hold at all. Taking those away is not a change to the reduction. I had also let the one hard case
+  (`recv_anysource`, which waits on several senders' cells) stand for all nine. And the rule on fixes that follow
+  from his rules ("just make them", 27 September) was in my notes.
+
 ### What the cases have in common
 
 - **The fault was in a sentence I offered as plain description or as a reason.** "Listens", "because", "setting",
@@ -1946,6 +1995,7 @@ against six commits and a results document that came after it.
 | Presented one proxy and one daemon in one process as "the simulator" | John (ruling 32) | Passing is the driver between machines on the topology, full battery. |
 | Two new files without the license header | the simulator's license check | Every source file carries it; run the simulator before saying a change is clean. |
 | Spent an hour on a note's wording while saying the Torch work was under way | John: "Where is the torch work" | Say "not started" when it is not started. |
+| Reported the tier red on nine sleeping waits and left them, citing the primer's scope | John: "There should not need to be anything else" | A red gate on his standing rule is fixed, not reported. A held read needs nothing around it. |
 
 | Asked John to choose between two node-wide settings | John (ruling 35) | The transport is a setting per RAM connection. |
 | Tier had both RAMs on one machine | reading the elector | Place roles by the node's own rule, not by hand. |
@@ -2033,10 +2083,10 @@ Nothing here may be reported as working.
    (`df67ff9ce033941b`, 0.4940) has not been run there. Not done: kernel Homa under the RAM session; `frogtorch.py`
    and `frogtrain.py` (still `MemoryPlane`, a rank listening); AIConnect's bulk path (its own TCP sockets to the
    RAM's port: refused on a node whose only word is `softhoma`).
-3a. **Nine wait loops of the September backends sleep between re-asks** (`psychedelic_backend.py`
-   `_await_consumers`, `_gather_tensors`, `broadcast`; `torch_backend.py` `_gather_cells`, `broadcast`, `scatter`,
-   `recv`, `recv_anysource`; `ddp_hook.py` `linger`). `simulation/collective_tier.py` fails three checks on them and
-   has since 12 Nov. Not changed on 19 Nov.
+3a. (closed 19 Nov 07:10) Nine wait loops of the September backends slept between re-asks. Each is one held read
+   now, `[A_WAIT_IS_ONE_HELD_READ_V1]`; the tier passes all 94. Left as they were, and not checked by the tier: the
+   rendezvous loops in `psychedelic_backend._rendezvous_locked`, `ddp_hook.rendezvous`, `gate.py` and `meshfeed.py`
+   hold a read for at most 5 to 60 s and hold again until their deadline. They do not sleep.
 3b. **The path through the RAM has had no performance work**, and what the rank-to-rank link did on the wire (LZ4,
    block DIFF/SAME, sized records, channel sets) is not on it. No number for it exists off one machine.
 4. **Stock PyTorch on Homa.** No design under ruling 20. `transportrun.sh` runs stock DDP on gloo as the control,

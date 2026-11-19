@@ -782,13 +782,16 @@ what is next is `opt/frognet_semantic/agent_workload/PYTORCH-ON-THE-DRIVERS-PRIM
   `agent_workload/tests/test_regions_collectives.py` and `test_regions_ddp.py`, and
   `simulation/test_aiconnect_ramp_oracle.py`. On nodes: `usr/local/frognet-ai/transportrun.sh`.
 
-Not brought to this yet, and said in the primer: nine wait loops of the September backends still sleep between
-re-asks (the tier fails on them); `frogtorch.py` and `frogtrain.py` still keep their tensors in `MemoryPlane`
+- **A wait is one held read** (`[A_WAIT_IS_ONE_HELD_READ_V1]`, John 2026-11-19: "There should not need to be
+  anything else"): no sleep after it, no cap that ends it early, no loop that asks again. A read that must look
+  again does so by being held until the cells are not the ones it last saw (`unlike`).
+
+Not brought to this yet, and said in the primer: `frogtorch.py` and `frogtrain.py` still keep their tensors in `MemoryPlane`
 (`memory_plane.py`, a rank listening); AIConnect's bulk writes and reads open their own TCP sockets to a RAM's port.
 
 Do not reintroduce: a rank listening for readers, a connection from one rank to another, a RAM host per machine
 holding tensors (2026-11-11/12: "pretty much the same as doing straight messaging all around the network"), writes
-into another rank's cells, acks, a ready flag, a placement fallback, or a socket opened outside a driver.
+into another rank's cells, acks, a ready flag, a placement fallback, a sleep or a re-ask around a held read, or a socket opened outside a driver.
 
 AIConnect (`agent_workload/aiconnect`) still uses a frogtorch-ram region on each RECEIVER machine: a receiver is a
 session-held cell `(AIConnect, receiver, <machine>)` there, a producer writes each object into it unanswered, and
