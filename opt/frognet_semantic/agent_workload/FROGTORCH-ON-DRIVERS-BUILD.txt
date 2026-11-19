@@ -46,7 +46,7 @@ Tested, on one machine only (four ranks; torch 2.15, x86-64), on tcp and on soft
   the same sha the tree before this work gives on that machine (6d84cfed6441a54f).
   meshfeed k=1: the same sha before and after, equal to its oracle.
   transportrun.sh whole, as three nodes: seven arms, every rank ok, the three reports identical.
-  simulation/collective_tier.py: all 99 pass. Every wait in the backends is one read held in the RAM
+  simulation/collective_tier.py: all 103 pass. Every wait in the backends is one read held in the RAM
   ([A_WAIT_IS_ONE_HELD_READ_V1]): no sleep, no cap, no asking again.
   AIConnect ([AICONNECT_ON_THE_DRIVERS_V1]): the producer's bulk link and probes are the transport driver's
   connection. --link-timeout is gone (a producer command line that passes it is refused); a stall is an attempt in

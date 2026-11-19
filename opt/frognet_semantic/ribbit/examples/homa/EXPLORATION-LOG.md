@@ -1700,7 +1700,7 @@ Two things went that were his own and deliberate, on his word to fix it after be
 socket, that no timeout is on a link's writes, that a stall is measured in flight, and that a run's end closes the
 links. **192 pass on `tcp` and 192 on `softhoma`**; before this entry it could not pass on `softhoma` at all (the
 producer's sockets went to a port nothing listened on). The tier's no-socket check now covers `frogtorch.py`,
-`frogtrain.py`, `aiconnect/producer.py` and `aiconnect/service.py`: all 99 pass.
+`frogtrain.py`, `aiconnect/producer.py` and `aiconnect/service.py`, which adds four checks: all 103 pass.
 
 A real ramp on one machine (a RAM, the receiver service, the producer; 1,000,000-byte objects, 2 s rungs, stopped by
 its own CPU limit both times):
@@ -2360,5 +2360,5 @@ here; where this work did one late or wrong, it says so.
 | (this commit) | 19 Nov 07:15 | The build note and record for `frogtorch-on-drivers-20261119-5b90a6a6.tgz` (42 files; replaces `...-a59a380a.tgz`), run as extracted over the base |
 | `369cc10e` | 19 Nov 07:25 | MemoryPlane is gone: Worker and Trainer keep their tensors in the RAM; the tier passes all 99 |
 | (this commit) | 19 Nov 07:28 | The build note and record for `frogtorch-on-drivers-20261119-369cc10e.tgz` (44 files; replaces the two before it), run as extracted over the base |
-| `27ab07de` | 19 Nov 07:35 | AIConnect on the drivers; its oracle passes on both; the tier's no-socket check covers it |
-| (this commit) | 19 Nov 07:38 | The build note and record for `frogtorch-on-drivers-20261119-27ab07de.tgz` (45 files; replaces the three before it), run as extracted over the base |
+| `27ab07de` | 19 Nov 07:35 | AIConnect on the drivers; its oracle passes on both; the tier's no-socket check covers it (103 pass) |
+| (this commit) | 19 Nov 07:38 | The build note and record for `frogtorch-on-drivers-20261119-27ab07de-b.tgz` (45 files; replaces the three before it), run as extracted over the base |

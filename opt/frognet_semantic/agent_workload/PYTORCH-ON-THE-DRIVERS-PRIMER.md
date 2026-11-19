@@ -77,7 +77,7 @@ How it was done, so it is not redone:
      torch is 2.15 on x86-64; **on John's nodes the acceptance is still `df67ff9ce033941b` and 0.4940, and that
      has not been run.**
    - `meshfeed.py`, 3 nodes, k=1: `e815acd8ca31c698` before and after, and equal to its oracle.
-   - `simulation/collective_tier.py`: all 99 pass.
+   - `simulation/collective_tier.py`: all 103 pass.
    - `simulation/test_aiconnect_ramp_oracle.py`: passes on tcp.
 3. **NEXT, on the nodes: measure, one session, the control first.** Install (section 5), then on every node:
 
