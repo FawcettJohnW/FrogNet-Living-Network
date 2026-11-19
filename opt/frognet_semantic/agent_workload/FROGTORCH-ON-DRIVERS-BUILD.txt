@@ -1,5 +1,6 @@
 FrogTorch on the transport drivers, build of 19 November 2026
-branch homa-under-croakos-20261116, code as of commit a707ad9e (base 948b435c)
+branch homa-under-croakos-20261116, code as of commit 5b90a6a6 (base 948b435c)
+It replaces frogtorch-on-drivers-20261119-a59a380a.tgz, whose waits still slept between held reads.
 
 What this is
   PyTorch on FrogNet with the transport under it a driver: a rank's session with the FrogTorch RAM is a transport
@@ -32,19 +33,18 @@ To run it, on every node, with one run id number that has not been used before
 What the logs say, so nothing has to be run to find out
   [frogtorch-ram] frogtorch_ram 20261119-r8 ... RAM port P on ...; listening: tcp on port P, softhoma on port P+1
   [frogtorch] ... sessions with the RAM host <ip>:P are on the <tcp|softhoma> driver (...; the setting's word ...)
-  [psychedelic] psychedelic 20261119-tensors-in-the-ram-r13 ...
+  [psychedelic] psychedelic 20261119-tensors-in-the-ram-r14 ...
   [DIAG-PSY] RANKS r0=<host>:<number>/<build> ...       the number is the rank's process id: no rank has a port
 
 Tested, on one machine only (four ranks; torch 2.15, x86-64), on tcp and on softhoma
-  agent_workload/tests/test_regions_collectives.py and test_regions_ddp.py pass; shard 1299476b225f2d9a and faithful
+  agent_workload/tests/test_regions_collectives.py (both backends) and test_regions_ddp.py pass; shard 1299476b225f2d9a and faithful
   8293546b6b4e8c48, as the tree before this work gave.
   ddpbench, the standard workload (4 ranks, hidden 1024, 40 steps): held-out 0.4940, one param_sha on every rank,
   the same sha the tree before this work gives on that machine (6d84cfed6441a54f).
   meshfeed k=1: the same sha before and after, equal to its oracle.
   transportrun.sh whole, as three nodes: seven arms, every rank ok, the three reports identical.
-  simulation/collective_tier.py: 91 pass, 3 FAIL. The three are nine wait loops in the September backends that
-  sleep between re-asks (psychedelic_backend, torch_backend, ddp_hook's linger). They were there before this build
-  and were not changed by it.
+  simulation/collective_tier.py: all 94 pass. Every wait in the backends is one read held in the RAM
+  ([A_WAIT_IS_ONE_HELD_READ_V1]): no sleep, no cap, no asking again.
 NOT tested: anything on a real node. The acceptance on nodes is shard df67ff9ce033941b and held-out 0.4940.
 NOT in this build: kernel Homa under the FrogTorch RAM's sessions (a session told homa says so and stops).
 
@@ -59,6 +59,7 @@ Files
   opt/frognet_semantic/agent_workload/tuplespace/psychedelic_backend.py
   opt/frognet_semantic/agent_workload/tuplespace/ram_plane.py
   opt/frognet_semantic/agent_workload/tuplespace/tensor_plane.py
+  opt/frognet_semantic/agent_workload/tuplespace/torch_backend.py
   opt/frognet_semantic/core/AI_README.md
   opt/frognet_semantic/core/TRANSPORT-DRIVER-INTERFACE.md
   opt/frognet_semantic/core/homa_frames.py

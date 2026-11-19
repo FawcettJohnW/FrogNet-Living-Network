@@ -2270,3 +2270,5 @@ here; where this work did one late or wrong, it says so.
 | `dfd2c2f1` | 19 Nov 05:20 | meshfeed's minibatches in the RAM; the collective tier checks the design the tree has |
 | (this commit) | 19 Nov 05:40 | transportrun.sh and its report through the RAM; the primer, AI_READ_FIRST and this record brought up to date |
 | `a707ad9e`, `a59a380a` | 19 Nov 05:35 | transportrun's softhoma word as the nodes' file has it; the build note that goes to nodes |
+| `5b90a6a6` | 19 Nov 07:10 | A wait is one held read: nine waits; the tier passes all 94 |
+| (this commit) | 19 Nov 07:15 | The build note and record for `frogtorch-on-drivers-20261119-5b90a6a6.tgz` (42 files; replaces `...-a59a380a.tgz`), run as extracted over the base |
