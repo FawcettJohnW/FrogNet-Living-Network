@@ -18,7 +18,7 @@
 #   arm  what                                                   the transport under FrogTorch's sessions with the RAM
 #   0    ddpbench, stock DDP on gloo (the control)              gloo's own sockets, rank to rank; no setting reaches them
 #   1    ddpbench, Psychedelic shard                            tcp
-#   2    ddpbench, Psychedelic shard                            softhoma (databasehost.frognet softhoma)
+#   2    ddpbench, Psychedelic shard                            softhoma (tcp, then databasehost.frognet softhoma)
 #   3    meshfeed k=1, batch 64, 40 steps, --check              tcp
 #   4    meshfeed k=1, batch 64, 40 steps, --check              softhoma
 #   5    meshfeed k=1, batch 4096, 10 steps, --check            tcp
@@ -59,7 +59,7 @@ STORE=databasehost.frognet:80
 GATE_WAIT="${FROGNET_GATE_WAIT:-3600}"
 ARMS=7
 W_TCP="tcp"
-W_SOFT="auto,databasehost.frognet softhoma"
+W_SOFT="tcp,databasehost.frognet softhoma"
 mkdir -p "$OUT"
 
 echo "=============================================================="
