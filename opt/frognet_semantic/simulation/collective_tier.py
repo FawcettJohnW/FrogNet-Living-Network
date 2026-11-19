@@ -190,7 +190,8 @@ def plane_blocking_reads():
                          else getattr(f, "attr", "")))
         return out
     harness = os.path.normpath(os.path.join(_SEM, "..", "..", "usr", "local", "frognet-ai", "meshfeed.py"))
-    for f in (os.path.join(_tuplespace(), "psychedelic_backend.py"), os.path.join(_tuplespace(), "ddp_hook.py"), harness):
+    for f in (os.path.join(_tuplespace(), "psychedelic_backend.py"), os.path.join(_tuplespace(), "ddp_hook.py"),
+              os.path.join(_tuplespace(), "frogtorch.py"), os.path.join(_tuplespace(), "frogtrain.py"), harness):
         made = _calls(f) & {"TensorServer", "StreamSubscription", "TensorClient", "P.TensorServer",
                             "P.StreamSubscription", "P.TensorClient", "MemoryPlane"}
         check(not made, "fail-on-old: %s makes nothing that listens or connects rank to rank (%s)"
@@ -807,57 +808,84 @@ def plane_name_like_is_a_like():
               "and the store still builds a LIKE clause from that suffix")
 
 # ---------------------------------------------------------------------------
-# PLANE 9 -- MemoryPlane: a process's own memory, read by reference (frogtorch.py, frogtrain.py)
+# PLANE 9 -- frogtorch.Worker and frogtrain.Trainer: their tensors are cells in the RAM too
 # ---------------------------------------------------------------------------
-def plane_two_copies():
-    """[THE_BITS_STAY_WHERE_THEY_ARE_V1] Behaviour: a rank's MemoryPlane holds a read until the generation asked for
-    is stored, the bytes come straight from the owner's memory into the reader's tensor, a copy=False cell is the
-    caller's own tensor, a buffer is refilled only when nothing refers to it. Source: no rank's tensor is written
-    into any RAM host (fail-on-old: 271a754 stored every tensor in the machine's frogtorch-ram)."""
-    print("\n=== PLANE 9: MemoryPlane holds a read until the owner stores, and serves its own bytes ===")
-    import threading, time
+# (Until 19 Nov this plane tested memory_plane.MemoryPlane: a worker's own memory, served from a port it listened
+# on, read by a connection from each peer. John, 19 Nov: "Why are things listening through MemoryPlane? That sure as
+# hell sounds like a shared RAM thing". MemoryPlane is gone; the workers make RamPlane and RamTensorClient.)
+def _worker_proc(name, seed):
+    """One frogtorch.Worker with a data plane, as a process (run by plane_workers_do_not_listen)."""
+    import json
+    sys.path.insert(0, _SEM)
     import torch
-    if _SEM not in sys.path:
-        sys.path.insert(0, _SEM)
-    from agent_workload.tuplespace.memory_plane import MemoryPlane
-    from agent_workload.tuplespace.tensor_plane import TensorClient, READ_BY_IDENTITY
-    mp = MemoryPlane(0, bind="127.0.0.1")
-    cli = TensorClient("tier9")
-    a, b = torch.randn(300_000), torch.randn(300_000)
-    dst = torch.empty(300_000)
-    got = {}
+    from agent_workload.tuplespace.frogtorch import Worker
+    mine = torch.randn(60_000, generator=torch.Generator().manual_seed(seed))
+    both = sum(torch.randn(60_000, generator=torch.Generator().manual_seed(k)) for k in (1, 2)) / 2
+    w = Worker(name, data_plane=True)
+    w.publish("tier9", mine, step=1)
+    peers = sorted(w.wait_for("tier9", 2, timeout=60))
+    out = w.reduce("tier9", mine, step=1)
+    listen, far = _own_sockets()
+    print("TIER9 " + json.dumps({"name": name, "peers": peers, "mean_ok": bool(torch.allclose(out, both, atol=1e-6)),
+                                 "listen": listen, "far": far}), flush=True)
+    sys.stdin.read()            # its cells are held by its session: stay until the other worker has read them
+    w.retire()
+    return 0
 
-    def late():
-        time.sleep(0.4)
-        mp.publish("t9", 1, a)
-    th = threading.Thread(target=late)
-    th.start()
-    t0 = time.perf_counter()
-    cli.read_into(dst, "r0", "127.0.0.1", mp.port, MemoryPlane.key("t9", 0), 1, mode=READ_BY_IDENTITY, wait_s=10,
-                  verify=True, exact=True)
-    held = time.perf_counter() - t0
-    th.join()
-    check(torch.equal(dst, a) and 0.3 < held < 5, "a read is held until the owner stores it (%.2fs), then exact"
-          % held)
-    for g, src in ((2, b), (3, a), (4, b)):
-        mp.publish("t9", g, src)
-        cli.read_into(dst, "r0", "127.0.0.1", mp.port, MemoryPlane.key("t9", 0), g, mode=READ_BY_IDENTITY,
-                      wait_s=10, verify=True, exact=True)
-    check(torch.equal(dst, b), "every generation read back exactly, digest verified")
-    check(mp.stats()["buffers"] <= 2, "buffers reused once nothing refers to them (%d for 4 stores)"
-          % mp.stats()["buffers"])
-    live = torch.arange(1000, dtype=torch.float32)
-    mp.publish("v9", 1, live, copy=False)
-    live += 1                                 # copy=False: the cell IS the caller's tensor
-    small = torch.empty(1000)
-    cli.read_into(small, "r0", "127.0.0.1", mp.port, MemoryPlane.key("v9", 0), 1, mode=READ_BY_IDENTITY, wait_s=5,
-                  exact=True)
-    check(torch.equal(small, live), "a copy=False cell is the owner's own tensor, not a copy")
-    mp.close()
-    # (Until 19 Nov four source checks followed, requiring that PyTorch's tensors stay in each rank's MemoryPlane
-    # and never be written into a RAM host. John's ruling of 17 Nov is the opposite: "the bits are in tuple space
-    # ... Tuple space IS the RAM host". PLANE 4 and PLANE 6 check that now. MemoryPlane itself, checked above, is
-    # still what frogtorch.py and frogtrain.py keep their tensors in.)
+
+def plane_workers_do_not_listen():
+    """[THE_TENSORS_ARE_IN_THE_RAM_V1] Two frogtorch.Workers with a data plane, each its own process, one real RAM,
+    on each driver: each reduces to the mean of both; from the kernel, neither listens and every connection goes to
+    the RAM. fail-on-old: each listened (MemoryPlane) and was connected to the other."""
+    print("\n=== PLANE 9: two frogtorch.Workers: their tensors are in the RAM, neither listens ===")
+    import json, socket, subprocess
+    for word in ("tcp", "softhoma"):
+        s = socket.socket()
+        s.bind(("127.0.0.1", 0))
+        port = s.getsockname()[1]
+        s.close()
+        env = dict(os.environ, PYTHONPATH=_SEM, FROGNET_SEM_TRANSPORT=word, FROGTORCH_RAMS="127.0.0.1:%d" % port,
+                   FROGNET_DIAG="0")
+        ram = subprocess.Popen([sys.executable, "-m", "agent_workload.tuplespace.frogtorch_ram", "--port", str(port),
+                                "--no-announce"], env=env, cwd=_SEM, stdout=subprocess.DEVNULL)
+        there = port + (1 if word == "softhoma" else 0)
+
+        def up():
+            try:
+                socket.create_connection(("127.0.0.1", there), timeout=1).close()
+                return True
+            except OSError:
+                return False
+        _until(up, 15.0)
+        procs = [subprocess.Popen([sys.executable, os.path.abspath(__file__), "--worker-proc", "w%d" % k, str(k)],
+                                  env=env, cwd=_SEM, stdin=subprocess.PIPE, stdout=subprocess.PIPE,
+                                  stderr=subprocess.STDOUT, text=True) for k in (1, 2)]
+        got = []
+        for p in procs:
+            line, seen = "", []
+            while True:
+                line = p.stdout.readline()
+                if not line or line.startswith("TIER9 "):
+                    break
+                seen.append(line)
+            got.append(json.loads(line[6:]) if line else {"error": "".join(seen)[-400:]})
+        for p in procs:
+            p.stdin.close()
+            p.wait(timeout=30)
+        ram.terminate()
+        ok = all("error" not in g for g in got)
+        check(ok and all(g["mean_ok"] and g["peers"] == ["w1", "w2"] for g in got),
+              "%s: each worker reduces to the mean of both (%s)" % (word, "ok" if ok else got))
+        if not ok:
+            continue
+        check(all(g["listen"] == [] for g in got),
+              "fail-on-old: %s: no worker listens on any port (%s)" % (word, [g["listen"] for g in got]))
+        check(all(g["far"] == [there] for g in got),
+              "fail-on-old: %s: every connection a worker has goes to the RAM, port %d (%s)"
+              % (word, there, [g["far"] for g in got]))
+    check(not os.path.exists(os.path.join(_tuplespace(), "memory_plane.py")),
+          "fail-on-old: there is no MemoryPlane: nothing keeps tensors in a process that listens for readers")
+
 
 def main():
     try:
@@ -881,7 +909,7 @@ def main():
     plane_read_ahead_keying()
     plane_linger()
     plane_name_like_is_a_like()
-    plane_two_copies()
+    plane_workers_do_not_listen()
 
     print()
     if FAILS:
@@ -894,6 +922,8 @@ def main():
 
 
 if __name__ == "__main__":
+    if len(sys.argv) > 3 and sys.argv[1] == "--worker-proc":
+        sys.exit(_worker_proc(sys.argv[2], int(sys.argv[3])))
     if len(sys.argv) > 4 and sys.argv[1] == "--rank-worker":
         sys.exit(_rank_worker(int(sys.argv[2]), int(sys.argv[3]), sys.argv[4]))
     sys.exit(main())

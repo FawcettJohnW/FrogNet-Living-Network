@@ -786,8 +786,11 @@ what is next is `opt/frognet_semantic/agent_workload/PYTORCH-ON-THE-DRIVERS-PRIM
   anything else"): no sleep after it, no cap that ends it early, no loop that asks again. A read that must look
   again does so by being held until the cells are not the ones it last saw (`unlike`).
 
-Not brought to this yet, and said in the primer: `frogtorch.py` and `frogtrain.py` still keep their tensors in `MemoryPlane`
-(`memory_plane.py`, a rank listening); AIConnect's bulk writes and reads open their own TCP sockets to a RAM's port.
+- **`frogtorch.Worker` and `frogtrain.Trainer` are the same** (John 2026-11-19: "Why are things listening through
+  MemoryPlane? That sure as hell sounds like a shared RAM thing"): `RamPlane` and `RamTensorClient`. There is no
+  `MemoryPlane`.
+
+Not brought to this, and said in the primer: AIConnect's producer opens its own TCP sockets to a RAM's port.
 
 Do not reintroduce: a rank listening for readers, a connection from one rank to another, a RAM host per machine
 holding tensors (2026-11-11/12: "pretty much the same as doing straight messaging all around the network"), writes

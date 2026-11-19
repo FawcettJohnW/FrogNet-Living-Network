@@ -1656,6 +1656,26 @@ One machine; it shows the second the poll cost at the end of a hooked run and no
 
 The tarball for nodes is rebuilt under a new name with this in it (below, section 10).
 
+### 19 Nov 06:57 to 07:25: MemoryPlane is gone
+
+John: "Why are things listening through MemoryPlane? That sure as hell sounds like a shared RAM thing" (section
+4.1, case 26). `frogtorch.Worker` and `frogtrain.Trainer` kept their tensors in `memory_plane.MemoryPlane`: the
+12 Nov reading of "the bits stay where they are" (in each process, served from a port it listened on), which he
+corrected on 17 Nov ("the bits are in tuple space"). They now make `RamPlane` and `RamTensorClient`, as the PyTorch
+backends do. Several workers can be one process, so a worker's name stays in its cells' address as `MemoryPlane`
+had it (`<host>:<number>/<name>@<worker>`). `memory_plane.py` is deleted; nothing used it.
+
+Measured before and after with the same script (two Workers with a data plane, publish and reduce): before, two
+listening ports besides the RAM's, a connection between the workers, no tensors in the RAM; after, none listening,
+`g@wa` and `g@wb` in the RAM, the same mean. The tier's plane 9, which tested `MemoryPlane`, is now two Workers as
+processes on each driver, checked from the kernel's socket list. Two Trainers publishing and reducing their
+parameters: the mean, `params@ta` and `params@tb` in the RAM, nothing listening. **Tier: all 99 pass.** Both tests and
+the AIConnect oracle pass; shard and faithful shas unchanged.
+
+What still opens a socket of its own under `agent_workload`: AIConnect's producer (`aiconnect/producer.py`: its bulk
+link to a RAM's port with a write timeout that is part of what it measures, and its connect-time and TTL probes).
+`AI_READ_FIRST.md` 10b has that as John's call. Not changed.
+
 ## 4. The interventions: what was said, why it was noticed, what had not been considered
 
 John, 17 Nov, of the first version of this file: "It is not just the order. It is what I asked and why I asked it.
@@ -1956,6 +1976,17 @@ against six commits and a results document that came after it.
   (`recv_anysource`, which waits on several senders' cells) stand for all nine. And the rule on fixes that follow
   from his rules ("just make them", 27 September) was in my notes.
 
+**26. "Still listening, and listed"** (19 Nov, 06:57)
+
+- *What I said*: under "Not done", that "`frogtorch.py` and `frogtrain.py` still listen through `MemoryPlane`".
+- *What John asked*: "Why are things listening through MemoryPlane? That sure as hell sounds like a shared RAM thing".
+- *Why it was a tell*: the word "listen", in my own account of a memory system, for the third time in this work
+  (cases in section 4.1 above), sixteen minutes after case 25.
+- *Not considered or recalled, and why*: I had read the primer's table as the edge of the job. It names the files
+  PyTorch's run goes through, and these two are not on that path, so I wrote them down as someone else's. The
+  ruling they break is not about a path: no rank listens, the bits are in tuple space. The fix was the one already
+  made three times that morning: make the RAM's class in place of the one that listens. It took two lines in each.
+
 ### What the cases have in common
 
 - **The fault was in a sentence I offered as plain description or as a reason.** "Listens", "because", "setting",
@@ -1996,6 +2027,7 @@ against six commits and a results document that came after it.
 | Two new files without the license header | the simulator's license check | Every source file carries it; run the simulator before saying a change is clean. |
 | Spent an hour on a note's wording while saying the Torch work was under way | John: "Where is the torch work" | Say "not started" when it is not started. |
 | Reported the tier red on nine sleeping waits and left them, citing the primer's scope | John: "There should not need to be anything else" | A red gate on his standing rule is fixed, not reported. A held read needs nothing around it. |
+| Listed two files that still listened (`MemoryPlane`) as "not done" because the primer's table did not name them | John: "That sure as hell sounds like a shared RAM thing" | A ruling is not scoped by the file list of the task. If my own report says "listens", that is the next thing to fix. |
 
 | Asked John to choose between two node-wide settings | John (ruling 35) | The transport is a setting per RAM connection. |
 | Tier had both RAMs on one machine | reading the elector | Place roles by the node's own rule, not by hand. |
@@ -2080,8 +2112,7 @@ Nothing here may be reported as working.
 3. **FrogTorch.** (changed 19 Nov) For PyTorch (`psychedelic_backend.py`, `ddp_hook.py`, `meshfeed.py`) no rank
    listens, the tensors are cells in the RAM and every session is a driver's connection, `tcp` or `softhoma`; run in
    the sandbox only (section 3, 19 Nov). **Nothing of it has run on a node**, and the September acceptance
-   (`df67ff9ce033941b`, 0.4940) has not been run there. Not done: kernel Homa under the RAM session; `frogtorch.py`
-   and `frogtrain.py` (still `MemoryPlane`, a rank listening); AIConnect's bulk path (its own TCP sockets to the
+   (`df67ff9ce033941b`, 0.4940) has not been run there. Not done: kernel Homa under the RAM session; AIConnect's bulk path (its own TCP sockets to the
    RAM's port: refused on a node whose only word is `softhoma`).
 3a. (closed 19 Nov 07:10) Nine wait loops of the September backends slept between re-asks. Each is one held read
    now, `[A_WAIT_IS_ONE_HELD_READ_V1]`; the tier passes all 94. Left as they were, and not checked by the tier: the

@@ -111,7 +111,7 @@ from typing import Any, Callable, Dict, List, Optional, Tuple
 from . import frogtorch_ram_client as T  # [ALL_IN_THE_REGION_V1] FrogTorch's own RAM
 
 from .reduce_by_read import ReduceGroup, default_accept
-from .tensor_plane import TensorClient
+from .ram_plane import RamPlane, RamTensorClient   # [THE_TENSORS_ARE_IN_THE_RAM_V1]: no trainer listens
 
 # [IMPORT_GUARD_V2] 2026-09-25: diag is first-party and the tree is always on the path; a stub hid a broken install.
 from core.frognet_diag import diag, diag_exc
@@ -306,13 +306,12 @@ class Trainer:
         self.dbhost = dbhost or T.DEFAULT_DBHOST
         self.job = Job(run, spec or {"shards": 8}, self.dbhost)
         self.claims = Claims(self.name, self.dbhost)
-        # [ALL_IN_THE_REGION_V1] Parameters go into this machine's FrogTorch region; this process serves nothing.
+        # [THE_TENSORS_ARE_IN_THE_RAM_V1] Parameters are cells in the FrogTorch RAM; this process serves nothing.
         self.server = None
         if data_plane:
-            from .memory_plane import MemoryPlane
-            self.server = MemoryPlane(self.name)            # [THE_BITS_STAY_WHERE_THEY_ARE_V1]
             advertise_host = T.my_ip()
-        self.client = TensorClient(self.name) if data_plane else None
+            self.server = RamPlane(advertise_host, owner=self.name)
+        self.client = RamTensorClient(self.name) if data_plane else None
         self.params = ReduceGroup(
             "params", self.name, dbhost=self.dbhost,
             accept=lambda a, b, c: default_accept(a, b, c, max_lag),
@@ -324,8 +323,8 @@ class Trainer:
                       "reclaimed": 0, "resumed_from_checkpoint": False}
         diag("DIAG-TRAIN", "trainer", worker=self.name, run=run,
              shards=self.job.shards,
-             data_plane=("port=%d" % self.server.port) if self.server
-             else "none")
+             data_plane=("cells %s:%d/... in the FrogTorch RAM" % (advertise_host, self.server.port))
+             if self.server else "none")
 
     # -- the checkpoint IS the state ---------------------------------------
 

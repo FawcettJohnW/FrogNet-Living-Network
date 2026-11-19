@@ -10,7 +10,8 @@ ready flag; the owner's write of the data is the event, and the reader's held re
 Until this file a rank served its tensors from its own process (tensor_plane.TensorServer listened on a port) and
 every reader connected to every rank (TensorClient, StreamSubscription): direct sockets from rank to rank that no
 transport setting reached. The three classes here stand where those three stood, with the same calls, so the
-backends (psychedelic_backend.py, ddp_hook.py, meshfeed.py) changed only in which class they make. The reduction,
+backends (psychedelic_backend.py, ddp_hook.py, meshfeed.py, and frogtorch.py and frogtrain.py, which had kept their
+tensors in a MemoryPlane that listened) changed only in which class they make. The reduction,
 its order, the cell names, the generations and the read-ahead are the September code's, untouched.
 
     RamPlane          where TensorServer was. publish() writes the cell into the RAM, once (a tensor write on the
@@ -71,9 +72,10 @@ def _open(what: str):
 class RamPlane:
     """A rank's side of its own cells: it writes them into the RAM. Where tensor_plane.TensorServer was."""
 
-    def __init__(self, bind_ip: str = "0.0.0.0", port: int = 0, watch=None):
+    def __init__(self, bind_ip: str = "0.0.0.0", port: int = 0, watch=None, owner=None):
         from .tensor_plane import _NoWatch
         self.host = bind_ip
+        self.owner = owner               # a worker's name, where several workers are one process (frogtorch.Worker)
         self.port = os.getpid()          # this rank's number in its rendezvous cell; nothing listens on it
         self.watch = watch if watch is not None else _NoWatch()
         self._lock = threading.Lock()    # one writer at a time on the session: a cell's request and bytes go together
@@ -112,7 +114,7 @@ class RamPlane:
         copied (`copy` is accepted for the callers that pass it; there is nothing left here to freeze)."""
         blob = tensor_view_bytes(tensor)
         t0 = time.perf_counter()
-        self._write({"op": "tput", "name": cell_name(self.host, self.port, name), "gen": int(generation),
+        self._write({"op": "tput", "name": cell_name(self.host, self.port, self.cell_name(name)), "gen": int(generation),
                      "inc": incarnation, "life": "session", "readers": int(readers) if readers else None,
                      "ack": False}, blob)
         ms = (time.perf_counter() - t0) * 1000.0
@@ -130,9 +132,15 @@ class RamPlane:
         self.watch.observe(STAGE_PLANE_PUBLISH, step=generation, tensor=tensor, name=name)
         diag("DIAG-TPLANE", "offer", name=name, gen=generation, incarnation=incarnation)
 
+    def cell_name(self, name: str) -> str:
+        """The name a reader asks for. Whose cell it is, is the host and number every read carries
+        ([A_REFERENCE_SAYS_WHERE_V1]); where several workers are one process the worker's name is in it too
+        (`<name>@<worker>`), because the workers' names repeat."""
+        return name if self.owner is None else "%s@%s" % (name, self.owner)
+
     def retire(self, name: str) -> bool:
         """The owner drops a cell nobody will read again."""
-        self._write({"op": "tdel", "name": cell_name(self.host, self.port, name)})
+        self._write({"op": "tdel", "name": cell_name(self.host, self.port, self.cell_name(name))})
         self.retired += 1
         return self._current.pop(name, None) is not None
 

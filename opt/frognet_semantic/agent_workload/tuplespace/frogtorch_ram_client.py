@@ -344,7 +344,7 @@ class Placement:
         self.of_rank = ips
 
     def region(self, rank: int) -> Tuple[str, int]:
-        """Where rank's memory is: its MemoryPlane, in its own process."""
+        """The address a rank wrote in its member cell."""
         return self.of_rank[rank]
 
 

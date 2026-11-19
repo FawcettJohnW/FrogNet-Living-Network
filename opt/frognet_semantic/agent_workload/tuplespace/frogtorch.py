@@ -58,11 +58,13 @@ import time
 from typing import Any, Callable, Dict, List, Optional
 
 from . import frogtorch_ram_client as T  # [ALL_IN_THE_REGION_V1] FrogTorch's own RAM
-from .memory_plane import MemoryPlane
 
 from .finite import FiniteWatch
 from .reduce_by_read import ReduceGroup, default_accept
-from .tensor_plane import TensorClient
+# [THE_TENSORS_ARE_IN_THE_RAM_V1 - John 2026-11-19] "Why are things listening through MemoryPlane? That sure as hell
+# sounds like a shared RAM thing." A worker's tensors are cells in the FrogTorch RAM (ram_plane.py); it listens on
+# nothing and connects to no other worker.
+from .ram_plane import RamPlane, RamTensorClient
 from .torch_store import FrogNetStore, SERVICE
 
 # [IMPORT_GUARD_V2] 2026-09-25: diag is first-party and the tree is always on the path; a stub hid a broken install.
@@ -109,21 +111,22 @@ class Worker:
         #: over one, and the space carries only descriptors. Without it, the
         #: tensors travel in the cells, which is honest for small ones and is
         #: the only mode that works before a plane exists.
-        # [ALL_IN_THE_REGION_V1] With a data plane, tensors go into this machine's FrogTorch region and readers
-        # read them there; this process serves nothing.
+        # [THE_TENSORS_ARE_IN_THE_RAM_V1] With a data plane this worker writes its tensors into the FrogTorch RAM
+        # and reads its peers' there by held read; this process serves nothing. (`server` is the name the reduction
+        # groups know it by; it is the writer of this worker's own cells.)
         self.server = None
         if data_plane:
-            self.server = MemoryPlane(self.name)            # [THE_BITS_STAY_WHERE_THEY_ARE_V1]
             advertise_host = T.my_ip()
-        self.client = (TensorClient(self.name, watch=self.watch)
+            self.server = RamPlane(advertise_host, watch=self.watch, owner=self.name)
+        self.client = (RamTensorClient(self.name, watch=self.watch)
                        if data_plane else None)
         self.advertise_host = advertise_host
         self._groups: Dict[str, ReduceGroup] = {}
         self._store: Optional[FrogNetStore] = None
         self._lock = threading.RLock()
         diag("DIAG-FROGTORCH", "worker", name=self.name, dbhost=self.dbhost,
-             data_plane=("port=%d" % self.server.port) if self.server
-             else "none")
+             data_plane=("cells %s:%d/... in the FrogTorch RAM" % (advertise_host, self.server.port))
+             if self.server else "none")
 
     # -- the reduction ----------------------------------------------------
 

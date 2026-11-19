@@ -480,7 +480,7 @@ which carrier to open. Everything else that talks between nodes opens its own TC
 
 | What | Where it dials or listens for itself |
 |---|---|
-| FrogTorch's tensor link (owner's memory to reader) | CLOSED 19 Nov for PyTorch (`psychedelic_backend.py`, `ddp_hook.py`, `meshfeed.py`): tensors are cells in the RAM, `agent_workload/tuplespace/ram_plane.py`, on a driver's connection. Still open: `frogtorch.py`, `frogtrain.py` (`memory_plane.py` 70) |
+| FrogTorch's tensor link (owner's memory to reader) | CLOSED 19 Nov for PyTorch (`psychedelic_backend.py`, `ddp_hook.py`, `meshfeed.py`): tensors are cells in the RAM, `agent_workload/tuplespace/ram_plane.py`, on a driver's connection. `frogtorch.py` and `frogtrain.py` the same day; `memory_plane.py` is deleted |
 | FrogTorch's control (the frogtorch-ram) | CLOSED 19 Nov: `frogtorch_ram_drivers.py`; `tcp` or `softhoma` by the per-RAM word. Kernel Homa not yet |
 | AIConnect | `agent_workload/aiconnect/producer.py` 191, 216, 249, 381 |
 | Every C++ Ribbit session (three sockets each) and the RAM host's listener | `ribbit/cpp/src/frogram.cpp` `dial()` 443, 449, 452, 1058; `ram_client.cpp` 13; `ram_host.cpp` 1361 |

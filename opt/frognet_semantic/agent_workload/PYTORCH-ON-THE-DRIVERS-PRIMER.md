@@ -77,7 +77,7 @@ How it was done, so it is not redone:
      torch is 2.15 on x86-64; **on John's nodes the acceptance is still `df67ff9ce033941b` and 0.4940, and that
      has not been run.**
    - `meshfeed.py`, 3 nodes, k=1: `e815acd8ca31c698` before and after, and equal to its oracle.
-   - `simulation/collective_tier.py`: all 94 pass.
+   - `simulation/collective_tier.py`: all 99 pass.
    - `simulation/test_aiconnect_ramp_oracle.py`: passes on tcp.
 3. **NEXT, on the nodes: measure, one session, the control first.** Install (section 5), then on every node:
 
@@ -136,8 +136,8 @@ How it was done, so it is not redone:
    (`[A_WAIT_IS_ONE_HELD_READ_V1]`), `BLOCK_CAP` is gone, and the tier passes.
 2. **Nothing has run on a node.** Every number in section 4 is one machine with four ranks.
 3. **Kernel Homa** under the RAM session (step 4).
-4. **`frogtorch.py` and `frogtrain.py`** (not on PyTorch's path, not used by the bench) still keep their tensors in
-   `memory_plane.MemoryPlane`, a rank listening.
+4. (Closed 19 Nov.) `frogtorch.py` and `frogtrain.py` kept their tensors in `memory_plane.MemoryPlane`, a process
+   listening. They make `RamPlane` and `RamTensorClient` now and `memory_plane.py` is deleted.
 5. **AIConnect's bulk path** (`aiconnect/producer.py`, and its reads) opens its own TCP sockets to a RAM's port. It
    works whenever the RAM listens with tcp, which is whenever any word of the node's setting is `tcp` or `auto`.
    On a node whose only word is `softhoma` it is refused; before this work it ignored the setting.
