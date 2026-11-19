@@ -431,5 +431,11 @@ class DaemonServer:
                         self._live_by_ip.pop(peer, None)
                         last = True
             if last:
-                threading.Thread(target=_writer_gone, args=(peer,), daemon=True,
-                                 name=f"writer-gone-{peer}").start()
+                from core import homa_transport
+                if homa_transport.on_another_carrier(peer, self):
+                    print(f"[WRITER_GONE_V1] [A_MACHINE_ON_ANOTHER_CARRIER_HAS_NOT_LEFT_V1] {peer}'s last TCP session "
+                          f"ended and it has a session on another carrier of this daemon: it has not left, and its "
+                          f"tuples stay", flush=True)
+                else:
+                    threading.Thread(target=_writer_gone, args=(peer,), daemon=True,
+                                     name=f"writer-gone-{peer}").start()

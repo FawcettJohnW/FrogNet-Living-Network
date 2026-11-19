@@ -572,6 +572,11 @@ def main():
     # them it FAILS and says which. The TCP control is the same command with --transport tcp.
     results.append(_run_proc("Homa driver between machines, every hardware topology (wire_between_machines_tier --topology all)",
                              ["simulation/wire_between_machines_tier.py", "--transport", "softhoma", "--topology", "all"], retry=False))
+    # [CHANNEL_SWAP_TIER_V1] the channel's setting is a capability tuple (core/channel_setting.py): its driver and key
+    # changed ten times under a running workload between machines, with nothing failed, nothing wrong and nothing
+    # restarted. About 100 seconds. Needs what the tier above needs and the Python module cryptography (setup.sh).
+    results.append(_run_proc("the channel's setting changed under load between machines (channel_swap_tier)",
+                             ["simulation/channel_swap_tier.py"], retry=False))
     results.append(_run_proc("transport factory self-test (sim+loopback+netem, 12)",
                              ["simulation/transport_factories.py"]))
     # [AICONNECT_RAMP_IS_GATED_V1] The AIConnect workload had no tier at all --

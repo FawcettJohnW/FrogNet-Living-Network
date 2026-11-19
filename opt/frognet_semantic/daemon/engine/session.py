@@ -576,6 +576,8 @@ class EngineSession:
     Worker pool submits (seq, reply, wire_in) tuples to _reply_q; whoever runs the driver drains it."""
 
     def __init__(self, peer_ip: str, resolver, http_client=None):
+        from core import channel_setting                 # [CHANNEL_SETTING_IS_A_TUPLE_V1] a session arriving is an event:
+        channel_setting.current()                        # a hold on the channel's tuple that was not taken is held again
         self._encode_lock = threading.Lock()             # [REFERENCES_MOVE_IN_WIRE_ORDER_V1]
         self.peer_ip = peer_ip
         self.established = False      # [WRITER_GONE_V1] set once the permanent connection is up

@@ -77,7 +77,37 @@ have its header put in front of it; `unpack()` gives one bytes-like frame back.
    spare RPCs). Soft Homa's carrier sets its message limit high, so on soft Homa that machinery does not run.
 4. The words a setting may use are a fixed list in `core/homa_transport.py`; a driver cannot yet register its own.
 
-## 7. Adding a driver
+## 7. The channel's setting is a capability tuple
+
+John, 19 November 2026: "It does not have to introduce anything. It is a tuple. A control tuple and part of the system
+capability tuple. You do realize we have full control over the contents of the json that tuple holds, right? It does
+not need to be standard in any way." And: "You can also introduce other capability tuples. There is not a fixed form,
+and the consumer is the thing that wrote it."
+
+The code is `core/channel_setting.py`. The tuple is (channel, setting, semantic) in the ControlRam. Its JSON is that
+module's own: `driver` ("tcp" or "softhoma": the driver a new session opens on), `key` (the NAME of the key a message
+is sent under) and `accept` (the names a message may arrive under). The key is never in the tuple; it is a 32-byte
+file on the machine (`FROGNET_CHANNEL_KEYS`, default `/etc/frognet/channel_keys/<name>`). Every daemon and proxy
+holds a read on the tuple. A process with no such tuple goes on as before, on its node's word (item 4 of section 6
+still stands for that word).
+
+1. **A change of driver moves no session.** New requests open a new session on the new driver at once. The old
+   session finishes what is outstanding on it and ends after the new one is up. Nothing in flight is failed.
+2. **A key is the soft Homa driver's.** `core/homa_frames._Conn` seals a whole message with AES-256-GCM under the
+   named key before cutting it into segments, and marks it in the DATA header's reserved field. A reply goes under
+   the key its request came under. The TCP driver carries no key yet.
+3. **Accept first, then send, then take away.** The tuple is read over the channel it sets, so an end that is sent
+   what it does not yet accept refuses it and cannot read the tuple either (found 19 Nov). The owner therefore widens
+   `accept`, waits until every end says it runs that, changes `key`, waits again, and only then narrows `accept`.
+   Each end says what it runs in a tuple of its own, (channel, at, its address and process), and the owner's wait is a
+   held read on those.
+4. **A machine on another carrier has not left.** When a machine's last session on one carrier ends and it has one
+   on another carrier of the same daemon, its tuples stay (`homa_transport.on_another_carrier`).
+
+The test is `simulation/channel_swap_tier.py`; its results are in
+`ribbit/examples/homa/REPORT-channel-setting-tuple-swap-under-load-20261119.md`.
+
+## 8. Adding a driver
 
 Read `ribbit/examples/homa/EXPLORATION-LOG.md`: section 9 for the procedure, section 4 for what went wrong the first
 time, and the entries of 18 November for a driver built as an imitation of something else and then taken out.

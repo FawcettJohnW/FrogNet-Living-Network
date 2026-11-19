@@ -352,11 +352,43 @@ def agent():
         for t in ts: t.join()
         return out
 
+    def timed(lists, seconds):
+        """[CHANNEL_SWAP_TIER_V1] Each list is one program repeating its requests until `seconds` have passed. Every
+        request is returned as (when it was sent, when it was answered, its status, whether the answer is right)."""
+        end, out = time.time() + seconds, [[] for _ in lists]
+
+        def right(q, g):
+            if g["status"] != 200:
+                return False
+            try:
+                d = json.loads(g["body"])
+            except ValueError:
+                return False
+            if q["method"] == "GET":
+                t, k = q["path"].split("SensorType=")[1].split("&")[0], int(q["path"].split("limit=")[1].split("&")[0])
+                rows = d.get("rows", [])
+                return len(rows) == k and all(x.get("SensorType") == t for x in rows)
+            return bool(d.get("ok"))
+
+        def work(k):
+            i = 0
+            while time.time() < end:
+                q = lists[k][i % len(lists[k])]; i += 1
+                t0 = time.time()
+                g = req(q["target"], q["method"], q["path"], q.get("body"))
+                out[k].append([t0, time.time(), g["status"], right(q, g), g["body"][:160] if g["status"] != 200 else ""])
+        ts = [threading.Thread(target=work, args=(k,)) for k in range(len(lists))]
+        for t in ts: t.start()
+        for t in ts: t.join()
+        return out
+
     print(MARK + json.dumps({"ready": True}), flush=True)
     for line in sys.stdin:
         c = json.loads(line)
         try:
-            if c["op"] == "req":
+            if c["op"] == "timed":
+                r = timed(c["lists"], c["seconds"])
+            elif c["op"] == "req":
                 r = req(c["target"], c["method"], c["path"], c.get("body"))
             elif c["op"] == "streams":
                 r = streams(c["lists"])

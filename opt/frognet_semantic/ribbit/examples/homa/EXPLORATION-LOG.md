@@ -2362,3 +2362,4 @@ here; where this work did one late or wrong, it says so.
 | (this commit) | 19 Nov 07:28 | The build note and record for `frogtorch-on-drivers-20261119-369cc10e.tgz` (44 files; replaces the two before it), run as extracted over the base |
 | `27ab07de` | 19 Nov 07:35 | AIConnect on the drivers; its oracle passes on both; the tier's no-socket check covers it (103 pass) |
 | (this commit) | 19 Nov 07:38 | The build note and record for `frogtorch-on-drivers-20261119-27ab07de-b.tgz` (45 files; replaces the three before it), run as extracted over the base |
+| (this commit) | 19 Nov 09:10 | The channel's setting is a capability tuple: driver and key changed under load between machines, nothing failed (`REPORT-channel-setting-tuple-swap-under-load-20261119.md`); five findings in the existing code |

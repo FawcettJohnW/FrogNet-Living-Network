@@ -71,6 +71,11 @@ class _Conn(TransportDriver):
         self.send_lock = threading.Lock()            # a message's segments go one after another
         self._join: Dict[int, List] = {}             # rpc id -> [msg_length, bytearray] while its segments arrive
         self.ports = (0, far[1])
+        # [CHANNEL_SETTING_IS_A_TUPLE_V1] True on the semantic wire's connections (HomaFramesOnTcp sets it): the
+        # channel's setting tuple says which key a message is sent under. False everywhere else, where nothing changes.
+        self.channel = False
+        self._req_key: Dict[int, str] = {}           # request id -> the key's name it arrived under (its reply's key)
+        self._said_key: Optional[str] = None
         if sock is not None:
             self._opened()
 
@@ -107,22 +112,51 @@ class _Conn(TransportDriver):
 
     def pack(self, n: int, frame: bytes) -> List[bytes]:
         """One message (RPC id n) as Homa DATA frames of at most SEGMENT bytes each."""
+        keyed = 0
+        if self.channel and isinstance(frame, (bytes, bytearray, memoryview)):
+            from core import channel_setting
+            name = self._req_key.pop(n - 1, "") if n & 1 else channel_setting.sending_key()
+            if name:
+                frame, keyed = channel_setting.protect(n, frame, name), 1
+            if not n & 1 and name != self._said_key:
+                import time as _t
+                print("[CHANNEL-KEY] %.6f requests to %s:%d now go under %s" % (_t.time(), self.far[0], self.far[1],
+                      "the key %r" % name if name else "no key"), flush=True)
+                self._said_key = name
         out, total = [], len(frame)
         for off in range(0, max(total, 1), SEGMENT):
             seg = frame[off:off + SEGMENT]
             out.append(COMMON.pack(self.ports[0], self.ports[1], off, b"\0\0\0", DATA, (HEADER // 4) << 4, HIJACK_FLAGS,
                                    0, 0, HIJACK_URGENT, n)
-                       + DATA_HDR.pack(total, 0, 0, 0, 0, 0, 0, off, len(seg)) + seg)
+                       + DATA_HDR.pack(total, keyed, 0, 0, 0, 0, 0, off, len(seg)) + seg)
         return out
+
+    def _whole(self, n: int, keyed: int, frame: bytes) -> Tuple[int, bytes]:
+        """[CHANNEL_SETTING_IS_A_TUPLE_V1] a whole message as it arrived: opened when it came under a key."""
+        if not self.channel:
+            return n, frame
+        from core import channel_setting
+        try:
+            if keyed:
+                frame, name = channel_setting.unprotect(n, frame, not n & 1)
+                if not n & 1:
+                    self._req_key[n] = name
+            elif not n & 1 and channel_setting.refuses_no_key(channel_setting.current()) \
+                    and channel_setting.refuses_no_key(channel_setting.read_now()):
+                raise channel_setting.KeyRefused("a request arrived under no key and the channel accepts %s"
+                                                 % list(channel_setting._accepted(channel_setting.current())))
+        except channel_setting.KeyRefused as e:
+            raise ConnectionGone("message %d from %s:%d: %s" % (n, self.far[0], self.far[1], e)) from e
+        return n, frame
 
     def unpack(self, data: bytes) -> Optional[Tuple[int, bytes]]:
         _sp, _dp, _seq, _ack, typ, _doff, flags, _win, _ck, urgent, n = COMMON.unpack_from(data)
         if typ != DATA or flags != HIJACK_FLAGS or urgent != HIJACK_URGENT:
             raise ConnectionGone("a unit from %s:%d that is not a Homa DATA frame (type %#x flags %d urgent %#x): the far "
                                  "end is not this driver" % (self.far[0], self.far[1], typ, flags, urgent))
-        total, _r1, _c, _p, _cv, _r2, _rt, off, length = DATA_HDR.unpack_from(data, COMMON.size)
+        total, keyed, _c, _p, _cv, _r2, _rt, off, length = DATA_HDR.unpack_from(data, COMMON.size)
         if off == 0 and length == total:
-            return n, data[HEADER:]
+            return self._whole(n, keyed, data[HEADER:])
         got = self._join.setdefault(n, [total, bytearray()])
         if off != len(got[1]) or got[0] != total:
             raise ConnectionGone("message %d from %s:%d: segment at %d of %d arrived with %d held: the stream is not in "
@@ -131,7 +165,7 @@ class _Conn(TransportDriver):
         if len(got[1]) < total:
             return None
         del self._join[n]
-        return n, bytes(got[1])
+        return self._whole(n, keyed, bytes(got[1]))
 
     def close(self) -> None:
         s, self._sock = self._sock, None
@@ -185,6 +219,7 @@ class HomaFramesOnTcp:
             except OSError:
                 return
             c = _Conn((addr[0], addr[1]), sock=s)
+            c.channel = True
             with self._lock:
                 self._accepted.add(c)
             print("[SOFTHOMA] %s a connection from %s:%d is open on soft Homa's port" % (BUILD, addr[0], addr[1]), flush=True)
@@ -211,6 +246,7 @@ class HomaFramesOnTcp:
             self._next_id += 2
         if c is None:                                 # something to send and no connection: open it (an event, not a timer)
             c = _Conn(far, src=self._src)
+            c.channel = True
             c.connect()
             with self._lock:
                 had = self._conns.get(far)
@@ -278,9 +314,15 @@ class HomaFramesOnTcp:
             why = "%s: %r" % (type(e).__name__, e)
         self._ended(c, why)
 
+    def _closing_all(self) -> bool:
+        return bool(getattr(self, "_closed", False))
+
     def _ended(self, c: _Conn, why: str) -> int:
         """A connection has ended. Gone is gone: every request outstanding on it ends here, and nothing is used in its
         place. It is opened again when there is next something to send."""
+        if c.channel and not self._closing_all():
+            from core import channel_setting     # [CHANNEL_SETTING_IS_A_TUPLE_V1] an event: read what the channel is now
+            channel_setting.connection_ended()
         with self._lock:
             mine = self._conns.get(c.far) is c
             if mine:

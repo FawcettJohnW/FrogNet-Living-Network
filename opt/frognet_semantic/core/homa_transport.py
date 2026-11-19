@@ -118,6 +118,9 @@ def semantic_transport() -> str:
                                        for kv in sorted(rams.items()))), flush=True)
     for w in sorted(set(rams.values())):
         carriers_here(w)                     # a RAM's word this process cannot keep stops it here, at the start
+    if word != "homasim":
+        from core import channel_setting    # [CHANNEL_SETTING_IS_A_TUPLE_V1] this process holds a read on the channel's tuple
+        channel_setting.start()
     return _chosen
 
 
@@ -258,6 +261,18 @@ def carrier_for(host: str) -> str:
     """The driver a NEW session to `host` opens on: "homa" (the Homa driver, on kernel Homa or soft Homa, whichever
     this process has) or "tcp". See the module docstring for the rule."""
     mode = word_for(host)                   # [A_WORD_PER_RAM_CONNECTION_V1] the RAM's word if a named RAM is there now
+    if mode != "homasim":
+        # [CHANNEL_SETTING_IS_A_TUPLE_V1] the channel's tuple, when there is one and it names a driver, is the word.
+        # A process with no such tuple goes on exactly as before.
+        from core import channel_setting
+        said = channel_setting.driver()
+        if said == "tcp":
+            return "tcp"
+        if said == "softhoma":
+            if _soft_homa_loaded() is None:
+                raise ConnectionError("the channel's tuple says softhoma and this node was not told of soft Homa: a node "
+                                      "that was not told a driver's word does not run it")
+            return "homa"
     if mode == "tcp":
         return "tcp"
     if mode in ("homa", "softhoma", "homasim"):
@@ -297,6 +312,23 @@ def worker_idle(w) -> bool:
     return not w._pending and w.q.empty()
 
 
+_still_here: list = []      # [A_MACHINE_ON_ANOTHER_CARRIER_HAS_NOT_LEFT_V1] one per carrier's listener: ip -> has a live session
+
+
+def on_another_carrier(ip: str, asking) -> bool:
+    """Whether the machine `ip`, whose last session on one carrier has just ended, still has a session on another
+    carrier of this daemon. A machine that moved its sessions from one driver to another has not left the network, and
+    its tuples are not removed."""
+    for who, has in list(_still_here):
+        if who is not asking:
+            try:
+                if has(ip):
+                    return True
+            except Exception:
+                pass
+    return False
+
+
 def daemon_server(host: str, port: int, resolver, tcp_server_class):
     """The daemon's listener: one per carrier this end has. Same run() as DaemonServer."""
     mine = carriers_listened()
@@ -310,6 +342,8 @@ def daemon_server(host: str, port: int, resolver, tcp_server_class):
         def __init__(self):
             self.tcp = tcp_server_class(host=host, port=port, resolver=resolver)
             self.homa = MsgDaemonServer(host=host, port=port, resolver=resolver)
+            _still_here.append((self.tcp, lambda ip: bool(self.tcp._live_by_ip.get(ip))))
+            _still_here.append((self.homa, lambda ip: any(getattr(x, "node", None) == ip for x in list(self.homa._sessions.values()))))
 
         def _homa(self):
             try:

@@ -51,7 +51,7 @@ PKGS="g++ make file liblz4-dev libssl-dev libjemalloc-dev python3 python3-venv p
 [ $LISP = 1 ] && PKGS="$PKGS tcsh python3.12 python3.12-venv libffi-dev libpcap-dev"
 [ $NETNS = 1 ] && PKGS="$PKGS golang-go git iptables"
 NEED=""; for p in $PKGS; do dpkg-query -W -f='${Status}' $p 2>/dev/null | grep -q "install ok installed" || NEED="$NEED $p"; done
-SIM_MODS="lz4 mysql-connector-python lxml numpy scipy flask PyYAML"
+SIM_MODS="lz4 mysql-connector-python lxml numpy scipy flask PyYAML cryptography"
 LISP_MODS="cheroot bottle netifaces pyOpenSSL pycryptodome requests curve25519-donna geopy ecdsa future distro"
 TODO=""
 [ -n "$NEED" ] && TODO="$TODO\n  apt-get install$NEED"
@@ -74,7 +74,7 @@ if [ -n "$NEED" ]; then say "apt-get install$NEED"; $SUDO apt-get update -q; DEB
 
 # ---- the simulator's Python: from /usr/bin/python3, so the netns tests (which bind the tree over /usr/local) keep it
 if [ ! -x $VENV/bin/python3 ]; then say "venv $VENV"; mkdir -p $FROGSIM_HOME; /usr/bin/python3 -m venv $VENV; fi
-$VENV/bin/python3 -c "import lz4, mysql.connector, lxml, numpy, scipy, flask, yaml" 2>/dev/null || { say "pip install $SIM_MODS (into $VENV)"; $VENV/bin/pip install -q $SIM_MODS; }
+$VENV/bin/python3 -c "import lz4, mysql.connector, lxml, numpy, scipy, flask, yaml, cryptography" 2>/dev/null || { say "pip install $SIM_MODS (into $VENV)"; $VENV/bin/pip install -q $SIM_MODS; }
 
 # ---- MariaDB: running, with the simulator's user and databases
 if ! $SUDO mysql -u root -e "SELECT 1" >/dev/null 2>&1; then

@@ -2252,6 +2252,9 @@ def _is_frognet_ip(ip: str) -> bool:
 from core.homa_transport import carrier_for, worker_idle   # [HOMA_TRANSPORT_V1] [CARRIER_PER_HOP_V1]
 
 
+_DRAINING: list = []       # [CHANNEL_SETTING_IS_A_TUPLE_V1] (key, session) taken out of use with work outstanding; under _WORKERS_LOCK
+
+
 def _get_worker(host: str, port: int, set_id: int = 0) -> _DaemonWorker:
 
     trace_enter('transport_semantic._get_worker', host=repr(host), port=repr(port))
@@ -2302,6 +2305,29 @@ def _get_worker(host: str, port: int, set_id: int = 0) -> _DaemonWorker:
         # this peer (core/homa_transport.py). The engine's calls on it are the same. A session is never moved: one
         # whose carrier is no longer the choice is retired when a request finds it with nothing outstanding.
         kind = carrier_for(host)
+        # [CHANNEL_SETTING_IS_A_TUPLE_V1] sessions the channel's tuple took out of use end here, at a request (an
+        # event), once nothing is outstanding on them. Nothing outstanding is failed and nothing waits on a timer.
+        for dk, dw in list(_DRAINING):
+            nw = _WORKERS.get(dk)
+            # the session that replaced it is up first: the far daemon never sees this machine with no session at all
+            up = nw is not None and (getattr(nw, "n_replies", 0) > 0 if hasattr(nw, "n_replies")
+                                     else getattr(nw, "_recv_sock", None) is not None and getattr(nw, "_send_sock", None) is not None)
+            if dw.is_stopped() or (worker_idle(dw) and up):
+                _DRAINING.remove((dk, dw))
+                if not dw.is_stopped():
+                    dw.stop()
+                print(f"[CHANNEL-SETTING] {time.time():.6f} the session to {dk[0]}:{dk[1]} set={dk[2]} on "
+                      f"{getattr(dw, 'carrier', 'tcp')} has nothing outstanding: ended", flush=True)
+        from core import channel_setting as _cs
+        if w is not None and getattr(w, "carrier", "tcp") != kind and _cs.driver() is not None:
+            # the channel's tuple changed the driver: new requests open a new session now, and this one finishes
+            # what it has and ends once the new one is up.
+            print(f"[CHANNEL-SETTING] {time.time():.6f} {host}:{port} set={set_id}: the channel's tuple says {kind}; the "
+                  f"session on {getattr(w, 'carrier', 'tcp')} finishes what is outstanding on it and takes nothing new",
+                  flush=True)
+            _DRAINING.append((key, w))
+            _WORKERS.pop(key, None)
+            w = None
         if w is not None and getattr(w, "carrier", "tcp") != kind and worker_idle(w):
             print(f"[SEM-TRANSPORT] [CARRIER_PER_HOP_V1] {host}:{port} set={set_id}: its session on "
                   f"{getattr(w, 'carrier', 'tcp')} has nothing outstanding and the choice is {kind}: retired", flush=True)

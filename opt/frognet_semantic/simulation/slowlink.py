@@ -79,6 +79,7 @@ PROFILES = {
     "4g-lossy":    Link(40.0, 15.0, 10e6 / 8, 0.01),
     "halow-lossy": Link(20.0, 5.0, 600e3 / 8, 0.05),
     "wan-100ms":   Link(50.0, 5.0, 100e6 / 8),           # one way 50 ms: the 100 ms round trip of NY2 <-> Seattle7
+    "radio-4800":  Link(150.0, 30.0, 4800 / 8),          # [CHANNEL_SWAP_TIER_V1] a 4,800 baud radio channel: 600 bytes a second
 }
 
 
