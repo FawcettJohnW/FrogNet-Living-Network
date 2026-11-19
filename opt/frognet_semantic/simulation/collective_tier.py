@@ -196,7 +196,8 @@ def plane_blocking_reads():
                             "P.StreamSubscription", "P.TensorClient", "MemoryPlane"}
         check(not made, "fail-on-old: %s makes nothing that listens or connects rank to rank (%s)"
               % (os.path.basename(f), ", ".join(sorted(made)) or "none"))
-    for f in ("ram_plane.py", "frogtorch_ram.py", "frogtorch_ram_client.py"):
+    for f in ("ram_plane.py", "frogtorch_ram.py", "frogtorch_ram_client.py", "frogtorch.py", "frogtrain.py",
+              "../aiconnect/producer.py", "../aiconnect/service.py"):
         opens = _calls(os.path.join(_tuplespace(), f)) & {"socket.socket", "socket.create_connection", "create_connection"}
         check(not opens, "fail-on-old: %s opens no socket; its connections are a transport driver's (%s)"
               % (f, ", ".join(sorted(opens)) or "none"))

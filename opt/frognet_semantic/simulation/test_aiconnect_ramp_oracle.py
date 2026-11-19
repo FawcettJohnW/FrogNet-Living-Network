@@ -312,16 +312,24 @@ def test_receiver_age_is_reported():
           "receiver ages differ by" in src,
           "peers on different builds must not be compared silently")
 
-    check("the link timeout is a flag",
-          "--link-timeout" in src,
-          "a hardcoded timeout decides what every stall looks like")
-    check("workers use the configured value",
-          "_LINK_TIMEOUT[0] = a.link_timeout" in src)
-
-    lsrc = inspect.getsource(producer.RegionLink.__init__)
-    check("the send timeout is set separately from the connect timeout",
-          lsrc.count("settimeout") >= 2,
-          "leaving the connect timeout in place makes every send inherit it")
+    # [AICONNECT_ON_THE_DRIVERS_V1 - John 2026-11-19] "Why is aiconnect opening its own connection to the ram
+    # manager". Until then three checks here required a --link-timeout flag and a socket timeout on every send
+    # ([THE_TIMEOUT_IS_SHAPING_THE_DATA_V1]). The link is a transport driver's connection now and has no timer: no
+    # timeout shapes the data at all, and a stall is an attempt in flight for its real length (--stall-seconds).
+    psrc = inspect.getsource(producer)
+    lsrc = inspect.getsource(producer.RegionLink)
+    check("fail-on-old: the bulk link is a transport driver's connection",
+          "D.end_for(*region)" in lsrc and "socket" not in lsrc.replace("the socket", ""),
+          "a socket AIConnect opens itself is one no transport setting reaches")
+    check("fail-on-old: nothing in the producer opens a socket",
+          "socket.socket(" not in psrc and "create_connection(" not in psrc)
+    check("fail-on-old: no timeout on a link's writes",
+          "settimeout" not in lsrc and "--link-timeout" not in src,
+          "every stall in a run was a multiple of it")
+    check("a stall is measured as an attempt in flight, not as a timeout",
+          "--stall-seconds" in src and "stats.stalled(a.stall_seconds)" in src)
+    check("the end of a run ends the writes still held on links",
+          "close_links()" in src)
 
 
 def test_peer_route_is_reported():
@@ -468,9 +476,11 @@ def test_relayed_peer_is_detected():
     print("[9] a relayed peer is detected, not treated as a second peer")
 
     check("probe_rtt() exists", hasattr(producer.Receivers, "probe_rtt"))
-    check("is_on_link() exists", hasattr(producer.Receivers, "is_on_link"))
-    if not (hasattr(producer.Receivers, "probe_rtt")
-            and hasattr(producer.Receivers, "is_on_link")):
+    # [AICONNECT_ON_THE_DRIVERS_V1] is_on_link (a TCP connect with IP_TTL=1) is gone: a driver's connection has no
+    # TTL to set and routing is FrogNet's. The connect latency is the driver's own; the route per peer is printed.
+    check("fail-on-old: there is no TTL probe on a socket of AIConnect's own",
+          not hasattr(producer.Receivers, "is_on_link"))
+    if not hasattr(producer.Receivers, "probe_rtt"):
         return
 
     srv = socket.socket()
@@ -491,30 +501,30 @@ def test_relayed_peer_is_detected():
     t = threading.Thread(target=accept_loop, daemon=True)
     t.start()
     try:
-        rtt = producer.Receivers.probe_rtt("127.0.0.1", port)
+        # the listener above stands in for a RAM's listener for whichever driver the setting names: on soft Homa
+        # that is the RAM's port plus one, so the RAM's port is this one less that
+        from agent_workload.tuplespace import frogtorch_ram_drivers as D
+        ram_port = port - D.port_of(D.end_for("127.0.0.1", port).name, 0)
+        rtt = producer.Receivers.probe_rtt("127.0.0.1", ram_port)
         check("a reachable port yields a latency",
               rtt is not None and rtt >= 0.0, repr(rtt))
         check("an unreachable port yields None, not zero",
               producer.Receivers.probe_rtt("127.0.0.1", 1) is None,
               "a failed probe must not read as an instant one")
-        check("loopback is one hop",
-              producer.Receivers.is_on_link("127.0.0.1", port) is True,
-              "IP_TTL=1 must still reach a host on this machine")
+        check("a port nothing listens on is said with the driver it was tried on",
+              "driver" in (producer.Receivers.probe("127.0.0.1", 1) or ""))
     finally:
         stop.set()
         t.join(timeout=3)
         srv.close()
 
     src = inspect.getsource(producer.main)
-    check("the header prints latency and hop distance per peer",
+    check("the header prints the connect latency per peer",
           "path per peer" in src)
-    check("a relayed target is called out",
-          "reached through another node" in src,
-          "a peer behind another target doubles the load on the relay")
     check("a latency split is called out",
           "not interchangeable targets" in src)
-    check("both are recorded in the results",
-          '"peer_rtt_ms": _rtt' in src and '"peer_on_link": _onlink' in src)
+    check("it is recorded in the results",
+          '"peer_rtt_ms": _rtt' in src)
 
 
 def test_line_rate_is_reported():

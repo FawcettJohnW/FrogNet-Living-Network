@@ -138,7 +138,7 @@ How it was done, so it is not redone:
 3. **Kernel Homa** under the RAM session (step 4).
 4. (Closed 19 Nov.) `frogtorch.py` and `frogtrain.py` kept their tensors in `memory_plane.MemoryPlane`, a process
    listening. They make `RamPlane` and `RamTensorClient` now and `memory_plane.py` is deleted.
-5. **AIConnect's bulk path** (`aiconnect/producer.py`, and its reads) opens its own TCP sockets to a RAM's port. It
-   works whenever the RAM listens with tcp, which is whenever any word of the node's setting is `tcp` or `auto`.
-   On a node whose only word is `softhoma` it is refused; before this work it ignored the setting.
+5. (Closed 19 Nov.) AIConnect's producer opened its own TCP sockets to a RAM's port. Its bulk link and probes are
+   the transport driver's connection now (`[AICONNECT_ON_THE_DRIVERS_V1]`); `--link-timeout` and the TTL hop probe
+   are gone with the sockets. Its oracle passes on `tcp` and on `softhoma`.
 6. **The path through the RAM has had no performance work** (section 5).

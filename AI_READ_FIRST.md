@@ -790,7 +790,9 @@ what is next is `opt/frognet_semantic/agent_workload/PYTORCH-ON-THE-DRIVERS-PRIM
   MemoryPlane? That sure as hell sounds like a shared RAM thing"): `RamPlane` and `RamTensorClient`. There is no
   `MemoryPlane`.
 
-Not brought to this, and said in the primer: AIConnect's producer opens its own TCP sockets to a RAM's port.
+- **AIConnect is the same** (`[AICONNECT_ON_THE_DRIVERS_V1]`, John 2026-11-19: "Why is aiconnect opening its own
+  connection to the ram manager"): its bulk link and its probes are the driver's connection. There is no timeout on
+  a link's writes (a stall is an attempt in flight, `--stall-seconds`) and no TTL probe.
 
 Do not reintroduce: a rank listening for readers, a connection from one rank to another, a RAM host per machine
 holding tensors (2026-11-11/12: "pretty much the same as doing straight messaging all around the network"), writes

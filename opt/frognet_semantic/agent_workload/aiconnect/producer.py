@@ -46,7 +46,6 @@ import os
 import http.client
 import random
 import resource
-import socket
 import sys
 import threading
 import time
@@ -61,7 +60,9 @@ from core.codec import MAX_WIRE_FIELD_BYTES  # noqa: E402
 from agent_workload.aiconnect.service import (  # noqa: E402
     BUILD, SERVICE, VAR_RECEIVER, machine_name, parse_region)
 from agent_workload.tuplespace.frogtorch_ram_client import _Session, discover_regions  # noqa: E402
-from agent_workload.tuplespace.tensor_plane import _send_frame  # noqa: E402
+# [AICONNECT_ON_THE_DRIVERS_V1 - John 2026-11-19] "Why is aiconnect opening its own connection to the ram manager"
+# Its bulk link and its probes are a transport driver's connection to the RAM, as every other session with a RAM is.
+from agent_workload.tuplespace import frogtorch_ram_drivers as D  # noqa: E402
 from agent_workload.aiconnect.resources import (  # noqa: E402
     cpu_idle_pct, disk_free_mb, loadavg_per_core, mem_available_mb,
     net_counters, net_delta, link_capacity, link_summary, peer_routes, softnet_drops, wire_overhead_ratio, carrier_of, iface_table)
@@ -178,63 +179,33 @@ class Receivers:
         return {m: (now - float(v["started"])) if v.get("started") else None for m, v in self._seen.items()}
 
     @staticmethod
-    def probe_rtt(peer: str, port: int, timeout: float = 3.0) -> Optional[float]:
-        """Milliseconds to complete a TCP connect. None if it will not open.
+    def probe_rtt(peer: str, port: int) -> Optional[float]:
+        """Milliseconds for the transport driver to open its connection to that RAM. None if it will not open.
 
         [A_PEER_IS_ALSO_A_PATH_V1] This number was already in the log --
         `probe OK ... ms=6.1` against `ms=2.3` -- and nothing used it. A peer
         at nearly 3x the connect latency of another is not the same
         measurement, and per-peer results were being compared as if it were.
+
+        [AICONNECT_ON_THE_DRIVERS_V1] It is the driver's own connect (tcp, or soft Homa's on the RAM's port plus
+        one), so it measures the connection the bulk link will use. Until 19 Nov 2026 a second probe, is_on_link,
+        made a TCP connect with IP_TTL=1 to label a peer one hop or relayed. A driver's connection has no TTL to
+        set and routing is FrogNet's; the egress route per peer is still printed (peer_routes).
         """
+        end = D.end_for(peer, port)
         t0 = time.time()
         try:
-            with socket.create_connection((peer, port), timeout=timeout):
-                return (time.time() - t0) * 1000.0
-        except Exception:
+            end.connect()
+        except D.ConnectionGone:
             return None
+        ms = (time.time() - t0) * 1000.0
+        end.close()
+        return ms
 
     @staticmethod
-    def is_on_link(peer: str, port: int, timeout: float = 3.0) -> Optional[bool]:
-        """True if `peer` is ONE hop away, False if it is relayed.
-
-        [A_RELAYED_PEER_IS_NOT_A_SECOND_PEER_V1]
-        Measured 2026-09-05 from Seattle3: 10.250.250.1 is one hop;
-        10.170.170.1 is TWO, and the intermediate hop IS 10.250.250.1. So a
-        run against both peers put 100% of its bytes through Seattle5 --
-        half addressed to it and half passing through it -- while the ramp
-        table presented them as two independent targets sharing the load.
-        Every TimeoutError in every run today landed on the far side of that
-        relay, and the run had no way to say so.
-
-        Done with IP_TTL=1 on a normal connect: at one hop the SYN arrives and
-        the connection opens; at two the first router decrements to zero,
-        drops it, and the connect fails. Only meaningful straight after a
-        successful full-TTL probe, which is how it is called -- otherwise a
-        down peer and a distant one look the same. Returns None when the
-        platform will not set the option rather than guessing. [NO FALLBACKS]
-        """
-        sk = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-        try:
-            sk.setsockopt(socket.IPPROTO_IP, socket.IP_TTL, 1)
-        except (OSError, AttributeError):
-            sk.close()
-            return None
-        try:
-            sk.settimeout(timeout)
-            sk.connect((peer, port))
-            return True
-        except Exception:
-            return False
-        finally:
-            try:
-                sk.close()
-            except OSError:
-                pass
-
-    @staticmethod
-    def probe(peer: str, port: int, timeout: float = 3.0) -> Optional[str]:
-        """Is anything actually listening there? Returns None if the port
-        accepts, else a description of the refusal.
+    def probe(peer: str, port: int) -> Optional[str]:
+        """Is the RAM there for the driver this node's sessions with it use? Returns None if the driver's
+        connection opens, else why it did not.
 
         [PROVE_THE_PORT_IS_LIVE_V1]
         The same discipline [PROVE_THE_REQUEST_LANDED_V1] applies one step
@@ -244,16 +215,18 @@ class Receivers:
         failure rate sat at the coin flip -- 49%, 48%, 49%, 52% -- until it
         crossed a 50% stop threshold, and the ramp called that a peak.
         """
+        end = D.end_for(peer, port)
         t0 = time.time()
         try:
-            with socket.create_connection((peer, port), timeout=timeout):
-                diag("DIAG-RDV", "probe OK", peer=peer, port=port,
+            end.connect()
+        except D.ConnectionGone as e:
+            diag_exc("DIAG-RDV", "probe FAILED", e, peer=peer, port=port, driver=end.name,
                      ms=round((time.time() - t0) * 1000, 1))
-                return None
-        except Exception as e:
-            diag_exc("DIAG-RDV", "probe FAILED", e, peer=peer, port=port,
-                     ms=round((time.time() - t0) * 1000, 1))
-            return "%s: %s" % (type(e).__name__, e)
+            return D.unreachable(end, peer, port, e)
+        diag("DIAG-RDV", "probe OK", peer=peer, port=port, driver=end.name,
+             ms=round((time.time() - t0) * 1000, 1))
+        end.close()
+        return None
 
 
 def send_rest(peer: str, port: int, total_bytes: int, chunk: int = 1 << 16,
@@ -322,9 +295,23 @@ def send_rest(peer: str, port: int, total_bytes: int, chunk: int = 1 << 16,
         conn.close()
 
 
-#: Set from --link-timeout before any worker starts.
-#: [THE_TIMEOUT_IS_SHAPING_THE_DATA_V1]
-_LINK_TIMEOUT = [30.0]
+#: [THE_TIMEOUT_IS_SHAPING_THE_DATA_V1] [AICONNECT_ON_THE_DRIVERS_V1] Until 19 Nov 2026 a bulk link was a socket with a
+#: timeout on every write (--link-timeout), and every stall in a run was a multiple of it. A driver's connection has no
+#: timer. A write that cannot proceed is held by the connection until it can or until the connection ends, and shows in
+#: the results as what it is: an attempt in flight for its real length (Stats.stalled, --stall-seconds).
+#: Every open link, so that the end of a run can end the writes still held on them.
+_LINKS: set = set()
+_LINKS_LOCK = threading.Lock()
+
+
+def close_links() -> int:
+    """End every bulk link: a write held on one returns at once with the connection's end."""
+    with _LINKS_LOCK:
+        links = list(_LINKS)
+    for lk in links:
+        lk.close()
+    return len(links)
+
 
 
 def acct_of(sender: str) -> str:
@@ -355,7 +342,8 @@ class RegionLink:
 
     send() writes one object as the thread's cell, aic.<sender>.<thread>, into that region, overwriting the last
     one. The write is not answered ([A_WRITE_IS_NOT_A_CONVERSATION_V1]): send() returns when the bytes are handed to
-    the socket, and TCP's own window is the only thing that can hold it. What LANDED is counted by the region
+    the transport driver's connection ([AICONNECT_ON_THE_DRIVERS_V1]), and that connection is the only thing that
+    can hold it. What LANDED is counted by the region
     itself, under acct aic.<sender> ([DELIVERY_IS_COUNTED_WHERE_IT_LANDS_V1]), and read by landed() at the rung
     boundaries. The cell is held by this session (life="session"): it goes when the link closes, so a run leaves
     nothing in the receiver's memory. The object is sent from one block, repeated, so an object of any size needs
@@ -366,7 +354,7 @@ class RegionLink:
     """
 
     def __init__(self, machine: str, region: Tuple[str, int], sender: str, thread_id: int,
-                 chunk: int = 1 << 16, connect_timeout: float = 30.0, timeout: float = None):
+                 chunk: int = 1 << 16):
         self.peer, self.region = machine, region
         self.sender, self.thread_id = sender, thread_id
         self.chunk = chunk
@@ -376,33 +364,39 @@ class RegionLink:
         self.opened = time.time()
         self.name = "aic.%s.%d" % (sender, thread_id)
         self._block = memoryview(os.urandom(chunk))
-        # [THE_TIMEOUT_IS_SHAPING_THE_DATA_V1] the connect timeout, then --link-timeout for every write
-        self.timeout = connect_timeout if timeout is None else timeout
-        self.sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-        self.sock.settimeout(connect_timeout)
-        self.sock.connect(region)
-        self.sock.settimeout(self.timeout)
-        self.sock.setsockopt(socket.IPPROTO_TCP, socket.TCP_NODELAY, 1)
+        self._n = 0
+        # [AICONNECT_ON_THE_DRIVERS_V1] the link is the transport driver's connection to that RAM
+        self.end = D.end_for(*region)
+        try:
+            self.end.connect()
+        except D.ConnectionGone as e:
+            raise ConnectionError(D.unreachable(self.end, region[0], region[1], e)) from e
+        with _LINKS_LOCK:
+            _LINKS.add(self)
         diag("DIAG-PROD", "link opened", peer=machine, region="%s:%d" % region,
-             thread_id=thread_id, timeout_s=self.timeout)
+             thread_id=thread_id, driver=self.end.name)
+
+    def _put(self, frame) -> None:
+        self._n += 2
+        for unit in self.end.pack(self._n, frame):
+            self.end.send(unit)
 
     def send(self, total_bytes: int) -> int:
         self.gen += 1
-        _send_frame(self.sock, json.dumps({"op": "tput", "name": self.name, "gen": self.gen, "inc": None,
-                                           "life": "session", "ack": False,
-                                           "acct": acct_of(self.sender)}).encode())
+        self._put(json.dumps({"op": "tput", "name": self.name, "gen": self.gen, "inc": None,
+                              "life": "session", "ack": False,
+                              "acct": acct_of(self.sender)}).encode())
         full, tail = divmod(int(total_bytes), self.chunk)
         parts = [self._block] * full + ([self._block[:tail]] if tail else [])
-        _send_frame(self.sock, *(parts or [b""]))
+        self._put(tuple(parts) if parts else b"")
         self.objects += 1
         self.bytes += total_bytes
         return total_bytes
 
     def close(self) -> None:
-        try:
-            self.sock.close()
-        except OSError:
-            pass
+        with _LINKS_LOCK:
+            _LINKS.discard(self)
+        self.end.close()
 
 
 class RungGate:
@@ -737,8 +731,7 @@ def _prewarm(rv, peers, ports, transport, stats, thread_id, links) -> None:
         if not port:
             continue
         try:
-            links[peer] = RegionLink(peer, port, rv.me, thread_id,
-                                     timeout=_LINK_TIMEOUT[0])
+            links[peer] = RegionLink(peer, port, rv.me, thread_id)
         except Exception as e:
             diag_exc("DIAG-PROD", "prewarm failed", e, peer=peer, port=port,
                      thread_id=thread_id)
@@ -773,7 +766,7 @@ def _one_attempt(rv, peers, obj_bytes, transport, stats, thread_id,
         if transport == "region":
             lk = links.get(peer)
             if lk is None:
-                lk = links[peer] = RegionLink(peer, port, rv.me, thread_id, timeout=_LINK_TIMEOUT[0])
+                lk = links[peer] = RegionLink(peer, port, rv.me, thread_id)
             n = lk.send(obj_bytes)
         else:
             n = send_rest(peer, 8080 if transport == "rest8080" else 80,
@@ -824,11 +817,6 @@ def main(argv=None) -> int:
                         "failures, measuring this program's scheduler rather "
                         "than the mesh. Past this the answer is more client "
                         "MACHINES, not more threads on one.")
-    p.add_argument("--link-timeout", type=float, default=30.0,
-                   help="[THE_TIMEOUT_IS_SHAPING_THE_DATA_V1] socket timeout on "
-                        "a bulk link's sends. Every stall duration in a run is "
-                        "a multiple of this, so it decides what a 'slow peer' "
-                        "looks like in the data. Default %(default)s.")
     p.add_argument("--warmup-timeout", type=float, default=60.0,
                    help="[A_RUNG_IS_N_SIMULTANEOUS_V1] how long to wait for "
                         "every thread to open its links and reach the start "
@@ -916,7 +904,6 @@ def main(argv=None) -> int:
             raise SystemExit("%d of %d receivers' regions refuse connections from here: %s"
                              % (len(dead), len(targets), ", ".join("%s=%s" % kv for kv in sorted(dead.items()))))
 
-    _LINK_TIMEOUT[0] = a.link_timeout
     if a.stall_seconds <= 0:
         a.stall_seconds = 4.0 * a.step_seconds
 
@@ -946,28 +933,15 @@ def main(argv=None) -> int:
           % " ".join("%s=%s:%d(%s via %s)"
                      % (m, p[0], p[1], _fmt_age(_ages.get(m)), _routes.get(m) or "route?")
                      for m, p in sorted(ports.items())))
-    # [A_RELAYED_PEER_IS_NOT_A_SECOND_PEER_V1] Latency and hop distance per
-    # peer, measured with sockets only. A peer reached THROUGH another target
-    # is not a second target: it doubles the load on the one in between.
-    _rtt, _onlink = {}, {}
+    # [A_PEER_IS_ALSO_A_PATH_V1] [AICONNECT_ON_THE_DRIVERS_V1] How long the transport driver takes to open its
+    # connection to each receiver's RAM. (The hop label that stood beside it came from a TCP connect with IP_TTL=1;
+    # routing is FrogNet's, and the egress route per peer is in the line above.)
+    _rtt = {}
     for _m in sorted(ports):
         _rtt[_m] = rv.probe_rtt(*ports[_m])
-        _onlink[_m] = (rv.is_on_link(*ports[_m])
-                       if _rtt[_m] is not None else None)
     print("  path per peer  : %s"
-          % " ".join("%s=%s/%s" % (
-              _m,
-              ("%.1fms" % _rtt[_m]) if _rtt[_m] is not None else "unreachable",
-              {True: "1hop", False: "RELAYED", None: "hops?"}[_onlink[_m]])
-              for _m in sorted(ports)))
-    _relayed = [m for m, v in _onlink.items() if v is False]
-    if _relayed and len(ports) > 1:
-        print("  WARNING        : %s reached through another node, not "
-              "directly. If the relay is also a target, BOTH peers' bytes "
-              "cross it and the ramp is loading one machine twice while "
-              "reporting two. Per-peer failure shares below are about the "
-              "PATH, not the peer."
-              % ", ".join(sorted(_relayed)))
+          % " ".join("%s=%s" % (_m, ("%.1fms" % _rtt[_m]) if _rtt[_m] is not None else "unreachable")
+                     for _m in sorted(ports)))
     _lat = [v for v in _rtt.values() if v]
     if len(_lat) > 1 and max(_lat) > 2.0 * min(_lat):
         print("  WARNING        : peer connect latency differs by %.1fx "
@@ -1132,7 +1106,7 @@ def main(argv=None) -> int:
                    "softnet_backlog_drops": softnet_drops() - _softnet0,
                    "link_capacity": _caps,
                    "peer_routes": _routes,
-                   "peer_rtt_ms": _rtt, "peer_on_link": _onlink}
+                   "peer_rtt_ms": _rtt}
             levels.append(lvl)
             print("%-8d %10.2f %10.2f %10.2f %9d %8.1f %9.2f %8d %8d %5d/%-4d"
                   % (n_threads, lvl["mb_per_s"], _wire_rate,
@@ -1418,6 +1392,7 @@ def main(argv=None) -> int:
                 target_threads = min(n_threads * 2, a.max_threads)
     finally:
         stop.set()
+        close_links()          # [AICONNECT_ON_THE_DRIVERS_V1] a write still held on a link ends with its connection
         for t in threads:
             t.join(timeout=2.0)
         # The receiver belongs to the machine and stays open for the next run.
