@@ -1603,6 +1603,13 @@ its result into the RAM and every node prints the same three matrices and ratios
 one machine as three nodes with the RAM listening with both drivers and `databasehost.frognet softhoma` resolved
 through a hosts file: seven arms, every rank `ok`, the three nodes' reports identical.
 
+**The tarball.** `frogtorch-on-drivers-20261119-a59a380a.tgz`, one for every node: 41 files, the 26 of the 18 Nov
+transport-driver build (no core, daemon or proxy file has changed since its commit `ae7b3791`) and this work's, with
+`agent_workload/FROGTORCH-ON-DRIVERS-BUILD.txt` inside. Nothing under `/usr/local/bin`. That file was extracted over
+a tree at the branch's base (`948b435c`, a node with neither build) and run from there: both tests, the tier (91
+pass, the same 3 fail), the AIConnect oracle, and `transportrun.sh` as three nodes with the setting in the form the
+nodes' file has (`tcp`, then `databasehost.frognet softhoma`). Not run on a node.
+
 **Mistakes of mine in this stretch.**
 - A shell function assigned `T` and `A` (sh has no locals), so three runs labelled "new tree" ran the old one, and
   their shas "matched". Seen because their logs still had rank-to-rank `[DIAG-STREAM] LINK` lines. Rerun with the
@@ -2212,3 +2219,4 @@ here; where this work did one late or wrong, it says so.
 | `bbf1235e` | 19 Nov 05:00 | Psychedelic: PyTorch's tensors are cells in the FrogTorch RAM, read by held read; no rank listens |
 | `dfd2c2f1` | 19 Nov 05:20 | meshfeed's minibatches in the RAM; the collective tier checks the design the tree has |
 | (this commit) | 19 Nov 05:40 | transportrun.sh and its report through the RAM; the primer, AI_READ_FIRST and this record brought up to date |
+| `a707ad9e`, `a59a380a` | 19 Nov 05:35 | transportrun's softhoma word as the nodes' file has it; the build note that goes to nodes |
