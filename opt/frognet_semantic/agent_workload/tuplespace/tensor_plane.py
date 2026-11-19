@@ -2358,6 +2358,21 @@ class TensorClient:
             diag("DIAG-TPLANE", "link opened", peer=key, host=host, port=port)
             return sk
 
+    def _exchange(self, host: str, port: int, key: str, req: bytes,
+                  wait_s: float, into, mark):
+        """One request and its reply on the link to host:port. This is the
+        only place read() touches the link, so a client whose tensors are
+        somewhere other than a peer's socket replaces it and nothing else
+        (ram_plane.RamTensorClient: the cells are in the FrogTorch RAM, and
+        the link is a transport driver's connection to it)."""
+        sk = self._link(host, port, key)
+        # The socket must outlast the wait this request asks the
+        # server to hold, plus time to send the answer back. A
+        # slow link makes that second part matter.
+        sk.settimeout(max(DEFAULT_SOCKET_TIMEOUT_S, wait_s + SOCKET_MARGIN_S))
+        _send_frame(sk, req)
+        return _recv_frame(sk, into=into, mark=mark)
+
     def _scratch_for(self, key: str):
         """[A_BUFFER_BELONGS_TO_A_LINK_NOT_A_PEER_V1]
 
@@ -2560,16 +2575,10 @@ class TensorClient:
         for attempt in (1, 2):
             try:
                 with _kl:
-                    sk = self._link(host, port, key)
-                    # The socket must outlast the wait this request asks the
-                    # server to hold, plus time to send the answer back. A
-                    # slow link makes that second part matter.
-                    sk.settimeout(max(DEFAULT_SOCKET_TIMEOUT_S,
-                                      wait_s + SOCKET_MARGIN_S))
                     _t0 = time.perf_counter()
-                    _send_frame(sk, req)
                     del _mark[:]
-                    reply = _recv_frame(sk, into=into, mark=_mark)
+                    reply = self._exchange(host, port, key, req, wait_s,
+                                           into, _mark)
                     _t2 = time.perf_counter()
                 break
             except (ConnectionError, OSError) as e:

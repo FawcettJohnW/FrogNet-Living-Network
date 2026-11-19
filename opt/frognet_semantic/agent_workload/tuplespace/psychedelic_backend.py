@@ -89,8 +89,18 @@ import torch.distributed as dist
 from . import frogtorch_ram_client as T  # [ONE_RAM_V1] the control cells: the one RAM on databasehost.frognet; the September code, otherwise unchanged
 
 from . import torch_backend as _base
-from .tensor_plane import (READ_CURRENT, StreamSubscription, TensorClient,
-                           TensorServer, plane_view, tcp_info, writable_bytes)
+from .tensor_plane import READ_CURRENT, plane_view, writable_bytes
+# [THE_TENSORS_ARE_IN_THE_RAM_V1 - John 2026-11-17] "The tensor should not be
+# listening at all -- it should be using held reads, and when another node
+# needs a tensor it does not ask the other node for it. It gets it from tuple
+# space." The three classes this backend publishes and reads through are now
+# the RAM's (ram_plane.py):
+# RamPlane.publish() writes the cell into the FrogTorch RAM, a RamStream is one
+# read held there on a peer's family, a RamTensorClient read is held there
+# until the owner writes. They have the calls TensorServer, StreamSubscription and TensorClient
+# had, so nothing else below changed for it except _abort_io and
+# stream_stats, which used to reach for a stream's socket.
+from .ram_plane import RamPlane, RamStream, RamTensorClient
 
 
 # ---------------------------------------------------------------------------
@@ -294,11 +304,11 @@ _PLANES = {}
 _PLANES_LOCK = threading.Lock()
 
 
-def _shared_plane(host: str) -> TensorServer:
+def _shared_plane(host: str) -> RamPlane:
     with _PLANES_LOCK:
         srv = _PLANES.get(host)
         if srv is None:
-            srv = _PLANES[host] = TensorServer(host)
+            srv = _PLANES[host] = RamPlane(host)
         return srv
 
 
@@ -321,7 +331,8 @@ class PsychedelicBackend(_base.FrogNetBackend):
         # group cannot read a dead group's tensors.
         self._server = _shared_plane(host)
         self._server_host = host
-        self._client = TensorClient("psy-r%d" % rank)
+        self._client = RamTensorClient("psy-r%d" % rank)
+        self._client.hold_s = self._timeout_s   # [A_READ_IS_HELD_UNTIL_THE_WRITE_V1]
         self._gen = 0
         #: [ONE_NUMBER_IS_THE_IDENTITY_V1, second half]
         #: all_reduce names its states `<inc>.ar.<n>`, and the prefetcher
@@ -343,7 +354,7 @@ class PsychedelicBackend(_base.FrogNetBackend):
         #: [THE_STORE_IS_FOR_FINDING_NOT_FOR_TELLING_V1] found once
         self._peers: Optional[Dict[int, Any]] = None
         #: [BLAST_IT_ALL_AT_RAM_V1] one client per peer, so reads overlap
-        self._clients: Dict[int, TensorClient] = {}
+        self._clients: Dict[int, RamTensorClient] = {}
         #: [THE_STATE_SHOULD_ALREADY_BE_HERE_V1]
         self._inbox: Dict[Any, torch.Tensor] = {}
         self._inbox_cv = threading.Condition()
@@ -591,11 +602,7 @@ class PsychedelicBackend(_base.FrogNetBackend):
         for c in list(self._clients.values()):
             n += c.abort()
         for s_ in list(getattr(self, "_streams", {}).values()):
-            for sk in getattr(s_, "socks", [s_.sock]):
-                try:
-                    sk.shutdown(__import__("socket").SHUT_RDWR)
-                except OSError:
-                    pass
+            s_.close()          # ends the read held in the RAM; its takers are told
         ex = self._exec
         if ex is not None:
             ex.shutdown(wait=False, cancel_futures=True)
@@ -1280,7 +1287,7 @@ class PsychedelicBackend(_base.FrogNetBackend):
             if got is not None:
                 self._stage_free.setdefault(got[0], []).append(got[1])
 
-    def _stream(self, p: int) -> StreamSubscription:
+    def _stream(self, p: int) -> RamStream:
         subs = getattr(self, "_streams", None)
         if subs is None:
             subs = self._streams = {}
@@ -1293,7 +1300,7 @@ class PsychedelicBackend(_base.FrogNetBackend):
             if s is None:
                 d = self._rendezvous()[p]
                 pi = _re.escape(self._peer_inc(p))
-                s = subs[p] = StreamSubscription(
+                s = subs[p] = RamStream(
                     "r%d" % self._rank, d["host"], int(d["port"]),
                     "psy-r%d-from-r%d" % (self._rank, p),
                     family=[pi + r"\.ars\.\d+\." + str(self._rank),
@@ -1443,9 +1450,7 @@ class PsychedelicBackend(_base.FrogNetBackend):
                           "retired": self._server.retired,
                           "held": len(self._server._current)}}
         for p, s in sorted(getattr(self, "_streams", {}).items()):
-            st = s.stats()
-            st["tcp"] = tcp_info(s.sock)
-            out["from_r%d" % p] = st
+            out["from_r%d" % p] = s.stats()
         return out
 
 
@@ -1601,7 +1606,7 @@ class PsychedelicBackend(_base.FrogNetBackend):
                         self._prefetching = False
                 self._inbox_cv.notify_all()
 
-    def _peer_client(self, r: int) -> TensorClient:
+    def _peer_client(self, r: int) -> RamTensorClient:
         """[ONE_SOCKET_PER_PEER_ONE_READER_AT_A_TIME_V1] One client per peer.
 
         Reads to different peers share nothing -- different clients,
@@ -1621,7 +1626,8 @@ class PsychedelicBackend(_base.FrogNetBackend):
         """
         c = self._clients.get(r)
         if c is None:
-            c = TensorClient("psy-r%d-to-r%d" % (self._rank, r))
+            c = RamTensorClient("psy-r%d-to-r%d" % (self._rank, r))
+            c.hold_s = self._timeout_s          # [A_READ_IS_HELD_UNTIL_THE_WRITE_V1]
             self._clients[r] = c
         return c
 
@@ -2382,9 +2388,10 @@ def _create(store, rank, size, timeout):
 
 
 #: Said once per process, so a run's own log shows which code is running.
-BUILD = ("psychedelic 20261112-september-family-link-r12-hook (the September tensor path; "
-         "one held read per peer on the family it writes for this rank; the write fires it; every ready cell interleaved on the link; channel sets, 20 ms records and unsent cap available (off by default); per-peer stall timing; LZ4 when it shrinks; exact block DIFF/SAME per instance; coalesced takers; adaptive pools; native link optional; all_reduce returns at once, rounds in flight together "
-         "and the bytes go on one permanent link, without pause; "
+BUILD = ("psychedelic 20261119-tensors-in-the-ram-r13 (the September reduction, unchanged; "
+         "[THE_TENSORS_ARE_IN_THE_RAM_V1] a tensor is a cell in the FrogTorch RAM: its owner writes it once, each peer "
+         "holds one read there on the family written for it, the write answers it; no rank listens; "
+         "every session with the RAM is a transport driver's connection (tcp or softhoma, as the setting says); "
          "control cells in the one RAM; PyTorch 2.15 port)")
 
 

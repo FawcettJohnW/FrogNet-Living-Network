@@ -46,11 +46,19 @@ one frame handed to the driver (a tensor write is two: the request, then the byt
   tensor read   {name, gen, mode, have, want, inc, wait_s, verify}            -> SAME|DATA|GONE, as TensorServer
                 (the digest is computed only when the reader asks to verify, or names a digest)
   tensor write  {"op":"tput", name, gen, inc, life?, ack?, acct?}  then the bytes -> nothing (OKAY {gen} only if ack)
-                (AIConnect's objects; PyTorch's tensors are NOT here -- they stay in each rank's own memory,
-                 memory_plane.py [THE_BITS_STAY_WHERE_THEY_ARE_V1], and this RAM holds where that memory is)
+                (AIConnect's objects, and since 19 Nov 2026 PyTorch's tensors: "the bits are in tuple space
+                 ... Tuple space IS the RAM host", John, 17 Nov. Until then a rank's tensors stayed in its own
+                 process and its peers connected to it, [THE_BITS_STAY_WHERE_THEY_ARE_V1] and tensor_plane.)
                 (acct: the bytes are added to stats' by_acct[acct] -- how a writer that is never answered
                  learns what landed)
                 (life="session": the cell goes when the writer's session closes -- AIConnect's objects)
+                (readers=k: the cell is gone once k reads held on families have been answered with it)
+  held reads on tensor families ([THE_TENSORS_ARE_IN_THE_RAM_V1]; PyTorch's tensors, agent_workload/tuplespace/
+  ram_plane.py), on a session that carries nothing else:
+                {"op":"tsub", family:[regex,...]}      -> nothing; then, for every cell a family matches, as its
+                                                          owner writes it: DATA {name, gen, inc, n, ...} and the bytes
+                {"op":"twant", names:[...]}            -> nothing; each named cell once, the same way
+                {"op":"tdel", name}                    -> nothing; the owner retires a cell
   version       {"op":"version"}                                   -> OKAY {build}
   counters      {"op":"stats"}                                     -> OKAY {bytes_in, tputs, held_bytes, by_acct, ...}
   cell write    {"op":"cput", service, var, scope, value, life, ack?}          -> nothing (OKAY {id} only if ack)
@@ -65,6 +73,7 @@ Run:  python3 -m agent_workload.tuplespace.frogtorch_ram --port <port> [--bind 0
 from __future__ import annotations
 
 import argparse
+import collections
 import json
 import os
 import socket
@@ -80,7 +89,7 @@ from . import frogtorch_ram_drivers as D
 from .tensor_plane import (GONE_NEVER_PUBLISHED, GONE_SUPERSEDED, GONE_WAIT_EXPIRED,
                            READ_BY_IDENTITY, REPLY_DATA, REPLY_GONE, REPLY_SAME, _digest)
 
-BUILD = ("frogtorch_ram 20261119-r7 [THE_RAM_SESSION_IS_A_DRIVERS_CONNECTION_V1] [ALL_IN_THE_REGION_V1] [SESSION_TENSORS_V1] [THE_ANNOUNCEMENT_IS_READ_BACK_V1] "
+BUILD = ("frogtorch_ram 20261119-r8 [THE_TENSORS_ARE_IN_THE_RAM_V1] [THE_RAM_SESSION_IS_A_DRIVERS_CONNECTION_V1] [ALL_IN_THE_REGION_V1] [SESSION_TENSORS_V1] [THE_ANNOUNCEMENT_IS_READ_BACK_V1] "
          "[HELD_FOR_THE_CALLERS_DEADLINE_V1] [DELIVERY_IS_COUNTED_WHERE_IT_LANDS_V1]")
 #: Capability tuples live in the SystemRam (AI_READ_FIRST 10): every election reads capability there.
 SYSTEM_RAM = os.environ.get("FROGTORCH_SYSTEM_RAM", "databasehost.frognet")
@@ -97,6 +106,46 @@ class _Key:
         self.value = None
 
 
+class _TSub:
+    """One session's held reads on tensor cells: the families it holds a read on, the single cells it asked for
+    once, and the cells that have answered and are on their way to it. The writer's thread puts an answer here and
+    goes on; this session's own sender puts it on the connection, so a slow reader never holds a writer."""
+    __slots__ = ("cond", "rx", "wanted", "q", "closed", "sent", "bytes", "last_send_ms", "send_ms_sum")
+
+    def __init__(self):
+        self.cond = threading.Condition()
+        self.rx: list = []
+        self.wanted: set = set()
+        self.q: collections.deque = collections.deque()
+        self.closed = False
+        self.sent = self.bytes = 0
+        self.last_send_ms = self.send_ms_sum = 0.0
+
+    def fires(self, name: str) -> bool:
+        if name in self.wanted:
+            self.wanted.discard(name)
+            return True
+        return any(r.fullmatch(name) for r in self.rx)
+
+    def push(self, item) -> None:
+        with self.cond:
+            self.q.append(item)
+            self.cond.notify()
+
+    def next(self):
+        """The next answer, held until there is one. None when the session has ended."""
+        with self.cond:
+            while not self.q and not self.closed:
+                self.cond.wait()
+            return self.q.popleft() if self.q else None
+
+    def close(self) -> None:
+        with self.cond:
+            self.closed = True
+            self.q.clear()
+            self.cond.notify_all()
+
+
 class Region:
     """The memory: tensor cells by name, control cells by (service, var, scope)."""
 
@@ -106,6 +155,12 @@ class Region:
         self._services: Dict[str, _Key] = {}          # service -> {(var, scope): row}
         self._next_id = 0
         self._session_tensors: Dict[str, set] = {}    # [SESSION_TENSORS_V1] session -> names it holds
+        # [THE_TENSORS_ARE_IN_THE_RAM_V1] held reads on tensor families, and what each cell is owed
+        self._tsubs: List["_TSub"] = []               # every session's held reads on families
+        self._session_tsub: Dict[str, "_TSub"] = {}   # session -> its held reads
+        self._tmeta: Dict[str, tuple] = {}            # name -> (when it landed, ms its bytes took to arrive, session, life)
+        self._readers_left: Dict[str, int] = {}       # name -> held reads still to be answered before the cell goes
+        self.retired = self.tpushes = 0
         self.tputs = 0
         self.bytes_in = self.bytes_out = 0
         self.bytes_by_acct: Dict[str, int] = {}       # [DELIVERY_IS_COUNTED_WHERE_IT_LANDS_V1] writer-named tallies
@@ -119,24 +174,108 @@ class Region:
         return k
 
     def tput(self, name: str, gen: int, blob: bytes, inc, life: str = "data", session: str = "",
-             acct: Optional[str] = None) -> None:
+             acct: Optional[str] = None, readers: Optional[int] = None, up_ms: float = 0.0) -> None:
+        """The owner's write of a tensor cell. It answers every read held on that name (tget) and every read held
+        on a family the name is in (tsub): the write is the event, and nothing else says the cell is ready.
+        With readers=k the cell is gone once k held reads on families have been answered with it: everyone who
+        will ever read it has it."""
         with self._lock:
             k = self._tkey(name)
             k.value = (int(gen), blob, inc, None)
+            self._tmeta[name] = (time.monotonic(), float(up_ms), session, life)
             self.bytes_in += len(blob)
             if acct:
                 self.bytes_by_acct[acct] = self.bytes_by_acct.get(acct, 0) + len(blob)
             self.tputs += 1
             if life == "session":
                 self._session_tensors.setdefault(session, set()).add(name)
+            if readers:
+                self._readers_left[name] = int(readers)
+            else:
+                self._readers_left.pop(name, None)
             k.cond.notify_all()
+            for sub in self._tsubs:
+                if name not in self._tensors:
+                    break                              # its last reader has it
+                if sub.fires(name):
+                    self._answer(sub, name)
+
+    # ---- held reads on tensor families ([THE_TENSORS_ARE_IN_THE_RAM_V1]) -------------------------------------
+    # John, 17 November 2026: "The tensor should not be listening at all -- it should be using held reads, and when
+    # another node needs a tensor it does not ask the other node for it. It gets it from tuple space." And 12
+    # November: no ready flag; the owner's write of the data is the event, and the reader's held read on the family
+    # fires the transfer. A reader holds its reads on a session of its own; the owner's write answers them from here.
+    def _answer(self, sub: "_TSub", name: str) -> None:
+        """Cell `name` answers a read `sub` holds. Under the region's lock."""
+        v = self._tensors[name].value
+        landed, up_ms, _session, _life = self._tmeta[name]
+        sub.push((name, v[0], v[2], v[1], landed, up_ms))
+        self.tpushes += 1
+        left = self._readers_left.get(name)
+        if left is not None:
+            if left <= 1:
+                self._drop(name)
+            else:
+                self._readers_left[name] = left - 1
+
+    def _drop(self, name: str) -> bool:
+        """The cell is gone from the memory. Under the region's lock."""
+        k = self._tensors.pop(name, None)
+        self._readers_left.pop(name, None)
+        meta = self._tmeta.pop(name, None)
+        if meta is not None and meta[3] == "session":
+            self._session_tensors.get(meta[2], set()).discard(name)
+        if k is None or k.value is None:
+            return False
+        k.value = None
+        k.cond.notify_all()
+        self.retired += 1
+        return True
+
+    def tsub(self, session: str, family) -> tuple:
+        """Hold a read on every cell whose name one of `family` (regular expressions) matches in full: cells that
+        are there now answer it at once, in the order they were written, and every later write answers it as it
+        lands. Returns (the session's held reads, whether this call made them)."""
+        import re
+        with self._lock:
+            sub = self._session_tsub.get(session)
+            made = sub is None
+            if made:
+                sub = self._session_tsub[session] = _TSub()
+                self._tsubs.append(sub)
+            rx = [re.compile(p) for p in family]
+            sub.rx.extend(rx)
+            for name in [n for n, k in self._tensors.items()
+                         if k.value is not None and any(r.fullmatch(n) for r in rx)]:
+                self._answer(sub, name)
+            return sub, made
+
+    def twant(self, session: str, names) -> None:
+        """Hold a read on each named cell, once: a cell that is there answers it now, another when it is written."""
+        with self._lock:
+            sub = self._session_tsub.get(session)
+            if sub is None:
+                raise ValueError("twant on a session that holds no read on a family (tsub comes first)")
+            for name in names:
+                k = self._tensors.get(name)
+                if k is not None and k.value is not None:
+                    self._answer(sub, name)
+                else:
+                    sub.wanted.add(name)
+
+    def tdel(self, name: str) -> int:
+        """The owner retires a cell nobody will read again."""
+        with self._lock:
+            return 1 if self._drop(name) else 0
 
     def stats(self) -> Dict[str, Any]:
         with self._lock:
             held = sum(len(k.value[1]) for k in self._tensors.values() if k.value is not None)
             return {"bytes_in": self.bytes_in, "bytes_out": self.bytes_out, "tputs": self.tputs,
                     "tensors": sum(1 for k in self._tensors.values() if k.value is not None), "held_bytes": held,
-                    "by_acct": dict(self.bytes_by_acct)}
+                    "by_acct": dict(self.bytes_by_acct),
+                    "family_reads_held": len(self._tsubs), "family_answers": self.tpushes, "retired": self.retired,
+                    "answers_waiting": sum(len(t.q) for t in self._tsubs)}
 
     def tget(self, name: str, want_gen, wait_s: float):
         """The current value, once it has reached want_gen (held until then, up to wait_s)."""
@@ -271,11 +410,12 @@ class Region:
     def session_gone(self, session: str) -> None:
         """[WRITER_GONE_V1] A writer's session cells go with its session; its data cells stay."""
         with self._lock:
-            for name in self._session_tensors.pop(session, ()):
-                k = self._tensors.pop(name, None)
-                if k is not None:
-                    k.value = None
-                    k.cond.notify_all()
+            sub = self._session_tsub.pop(session, None)
+            if sub is not None:                        # its held reads on families end with it
+                self._tsubs.remove(sub)
+                sub.close()
+            for name in list(self._session_tensors.pop(session, ())):
+                self._drop(name)
             for k in self._services.values():
                 gone = [key for key, r in k.value.items() if r["life"] == "session" and r["session"] == session]
                 for key in gone:
@@ -342,13 +482,25 @@ class RamServer:
                     self._tensor_read(end, n, req)
                 elif op == "tput":
                     # the frame's own buffer, kept as it is: bytes() here was one more full copy of every write
+                    t_up = time.monotonic()
                     n, blob = self._next(end)
                     R.tput(req["name"], req["gen"], blob, req.get("inc"), req.get("life", "data"), session,
-                           req.get("acct"))
+                           req.get("acct"), req.get("readers"), (time.monotonic() - t_up) * 1000.0)
                     # [A_WRITE_IS_NOT_A_CONVERSATION_V1] a write is answered only if the writer asked to be told;
                     # FrogTorch's tensor writes stream, and the readers are what the cell landing releases
                     if req.get("ack", True):
                         reply(end, n, REPLY_OKAY, json.dumps({"gen": req["gen"]}).encode())
+                elif op == "tsub":
+                    # [THE_TENSORS_ARE_IN_THE_RAM_V1] nothing answers the request itself: each cell that answers the
+                    # held read is sent as it lands, by this session's own sender, numbered as this request's answer
+                    sub, made = R.tsub(session, req.get("family") or [])
+                    if made:
+                        threading.Thread(target=self._answer_held, args=(end, n, sub), daemon=True,
+                                         name="frogtorch-ram-held-%s" % session).start()
+                elif op == "twant":
+                    R.twant(session, req.get("names") or [])
+                elif op == "tdel":
+                    R.tdel(req["name"])
                 elif op == "cput":
                     i = R.cput(req["service"], req["var"], req["scope"], req.get("value"),
                                req.get("life", "data"), session)
@@ -395,6 +547,31 @@ class RamServer:
             self.sessions -= 1
             R.session_gone(session)                # [A_SESSION_ENDS_WITH_ITS_CONNECTION_V1]
             end.close()
+
+    def _answer_held(self, end, n: int, sub: "_TSub") -> None:
+        """A session's sender: every cell that answers a read the session holds on a family goes on its connection,
+        in the order the cells answered. The frame is a tensor read's DATA answer with the cell's name in its head:
+        {name, gen, inc, n, up_ms (the bytes' time from the owner into this memory), held_ms (in this memory before
+        this send began), prev_send_ms (this session's send before this one)}."""
+        R = self.region
+        try:
+            while True:
+                item = sub.next()
+                if item is None:
+                    return
+                name, gen, inc, blob, landed, up_ms = item
+                t0 = time.monotonic()
+                head = json.dumps({"name": name, "gen": gen, "inc": inc, "n": len(blob), "up_ms": round(up_ms, 3),
+                                   "held_ms": round((t0 - landed) * 1000.0, 3),
+                                   "prev_send_ms": round(sub.last_send_ms, 3)}).encode()
+                self._reply(end, n, REPLY_DATA, struct.pack(BULK_LEN_FMT, len(head)), head, blob)
+                sub.last_send_ms = (time.monotonic() - t0) * 1000.0
+                sub.send_ms_sum += sub.last_send_ms
+                sub.sent += 1
+                sub.bytes += len(blob)
+                R.bytes_out += len(blob)
+        except (ConnectionError, OSError):
+            end.close()                                # the session's reader thread ends with the connection
 
     def _tensor_read(self, end, n, req):
         """TensorServer's read contract, answered from the region."""

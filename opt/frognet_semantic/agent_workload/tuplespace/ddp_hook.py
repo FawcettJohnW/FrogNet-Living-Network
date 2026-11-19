@@ -91,9 +91,12 @@ import torch.distributed as dist
 
 from . import frogtorch_ram_client as T  # [ONE_RAM_V1] the control cells: the one RAM on databasehost.frognet; the September code, otherwise unchanged
 
-from .tensor_plane import (READ_CURRENT, AdaptivePool, StreamSubscription,
-                           TensorClient, TensorServer, plane_view,
+from .tensor_plane import (READ_CURRENT, AdaptivePool, plane_view,
                            writable_bytes)
+# [THE_TENSORS_ARE_IN_THE_RAM_V1 - John 2026-11-17] the hook's buckets are
+# cells in the FrogTorch RAM and no rank listens: see ram_plane.py. The three
+# classes have the calls TensorServer, StreamSubscription and TensorClient had.
+from .ram_plane import RamPlane, RamStream, RamTensorClient
 
 #: [HOOK_ON_THE_FAMILY_LINK_V1 - John 2026-11-12 "I need them both"] The hook
 #: on the same link as the all_reduce: one permanent link per peer, cells
@@ -129,8 +132,8 @@ class FrogNetHookState:
         self.dbhost = (dbhost or os.environ.get("FROGNET_C10D_DBHOST")
                        or T.DEFAULT_DBHOST)
         self.host = os.environ.get("FROGNET_PSY_HOST", "127.0.0.1")
-        self.server = TensorServer(self.host)
-        self.clients: Dict[int, TensorClient] = {}
+        self.server = RamPlane(self.host)
+        self.clients: Dict[int, RamTensorClient] = {}
         self.peers: Optional[Dict[int, Any]] = None
         self.seq = 0
         self.gen = 0
@@ -163,17 +166,18 @@ class FrogNetHookState:
         self.FRESH_MAX_DRIFT = MAX_DRIFT
         #: [HOOK_ON_THE_FAMILY_LINK_V1]
         self.which = "faithful"
-        self.subs: Dict[int, StreamSubscription] = {}
+        self.subs: Dict[int, RamStream] = {}
         self._sub_lock = threading.Lock()
         self.pool = AdaptivePool("ddphook-r%d" % rank)
         self.own_cells: Dict[int, List[str]] = {}
         self.landed_direct = self.landed_buffered = 0
         self.assembly_ms: List[float] = []
 
-    def client(self, r: int) -> TensorClient:
+    def client(self, r: int) -> RamTensorClient:
         c = self.clients.get(r)
         if c is None:
-            c = TensorClient("hook-r%d-to-r%d" % (self.rank, r))
+            c = RamTensorClient("hook-r%d-to-r%d" % (self.rank, r))
+            c.hold_s = self.timeout_s           # [A_READ_IS_HELD_UNTIL_THE_WRITE_V1]
             self.clients[r] = c
         return c
 
@@ -377,7 +381,7 @@ class FrogNetHookState:
         step, so a cell is written once and retired, never overwritten."""
         return "h%d.hb.%d.%d" % (rank, key, n)
 
-    def sub(self, r: int) -> StreamSubscription:
+    def sub(self, r: int) -> RamStream:
         s = self.subs.get(r)
         if s is not None:
             return s
@@ -388,7 +392,7 @@ class FrogNetHookState:
                 d = self.rendezvous()[r]
                 fam = ([re.escape("h%d" % r) + r"\.hb\.\d+\.\d+"]
                        if self.which == "faithful" else [])
-                s = self.subs[r] = StreamSubscription(
+                s = self.subs[r] = RamStream(
                     "r%d" % self.rank, d["host"], int(d["port"]),
                     "hook-r%d-from-r%d" % (self.rank, r), family=fam)
         return s
