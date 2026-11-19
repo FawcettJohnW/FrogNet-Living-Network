@@ -74,7 +74,7 @@ import socket
 import sys
 import time
 
-BUILD = "20261113-meshfeed2"
+BUILD = "20261119-meshfeed3-minibatches-in-the-ram"
 SERVICE = "meshfeed"
 
 
@@ -109,6 +109,9 @@ def main():
     import torch
     from agent_workload.tuplespace import frogtorch_ram_client as T
     from agent_workload.tuplespace import tensor_plane as P
+    # [THE_TENSORS_ARE_IN_THE_RAM_V1] a node's minibatches are cells in the FrogTorch RAM: it writes each once, the
+    # compute node holds one read there on the family, and no node listens (agent_workload/tuplespace/ram_plane.py)
+    from agent_workload.tuplespace import ram_plane as RP
 
     W, R, N = a.world, a.rank, a.warmup + a.steps
     svc = "%s.%s" % (SERVICE, a.runid)
@@ -159,10 +162,10 @@ def main():
         dt = (time.perf_counter() - t0) * 1000.0
         best = dt if best is None else min(best, dt)
     del probe
-    server = P.TensorServer(a.addr)
+    server = RP.RamPlane(a.addr)
     me = {"host": a.addr, "port": server.port, "build": BUILD, "cores": cores, "ms_step": round(best, 2),
           "node": socket.gethostname()}
-    note("capability: one step of %d x %d on %d cores = %.1f ms; plane at %s:%d"
+    note("capability: one step of %d x %d on %d cores = %.1f ms; this node's cells in the FrogTorch RAM are %s:%d/..."
          % (W, a.batch, cores, best, a.addr, server.port))
 
     # ---------------------------------------------------------------------------------------------- 3. rendezvous
@@ -249,8 +252,8 @@ def main():
     subs = {}
     for r in mine:
         if r != R:
-            subs[r] = P.StreamSubscription("mf-c%d" % R, peers[r]["host"], int(peers[r]["port"]),
-                                           "meshfeed-r%d-from-r%d" % (R, r), family=[r"mf%d\.mb\.\d+" % r])
+            subs[r] = RP.RamStream("mf-c%d" % R, peers[r]["host"], int(peers[r]["port"]),
+                                   "meshfeed-r%d-from-r%d" % (R, r), family=[r"mf%d\.mb\.\d+" % r])
     if K > 1:                                                       # the compute set's own all_reduce
         os.environ["FROGNET_PSY_HOST"] = a.addr
         os.environ["FROGNET_PSY_PEER_WAIT_S"] = str(a.peer_wait)
