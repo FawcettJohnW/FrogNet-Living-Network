@@ -2360,3 +2360,5 @@ here; where this work did one late or wrong, it says so.
 | (this commit) | 19 Nov 07:15 | The build note and record for `frogtorch-on-drivers-20261119-5b90a6a6.tgz` (42 files; replaces `...-a59a380a.tgz`), run as extracted over the base |
 | `369cc10e` | 19 Nov 07:25 | MemoryPlane is gone: Worker and Trainer keep their tensors in the RAM; the tier passes all 99 |
 | (this commit) | 19 Nov 07:28 | The build note and record for `frogtorch-on-drivers-20261119-369cc10e.tgz` (44 files; replaces the two before it), run as extracted over the base |
+| `27ab07de` | 19 Nov 07:35 | AIConnect on the drivers; its oracle passes on both; the tier's no-socket check covers it |
+| (this commit) | 19 Nov 07:38 | The build note and record for `frogtorch-on-drivers-20261119-27ab07de.tgz` (45 files; replaces the three before it), run as extracted over the base |

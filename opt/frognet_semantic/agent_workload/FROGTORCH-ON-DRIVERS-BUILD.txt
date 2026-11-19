@@ -1,6 +1,6 @@
 FrogTorch on the transport drivers, build of 19 November 2026
-branch homa-under-croakos-20261116, code as of commit 369cc10e (base 948b435c)
-It replaces frogtorch-on-drivers-20261119-a59a380a.tgz and -5b90a6a6.tgz.
+branch homa-under-croakos-20261116, code as of commit 27ab07de (base 948b435c)
+It replaces frogtorch-on-drivers-20261119-a59a380a.tgz, -5b90a6a6.tgz and -369cc10e.tgz.
 
 What this is
   PyTorch on FrogNet with the transport under it a driver: a rank's session with the FrogTorch RAM is a transport
@@ -48,6 +48,10 @@ Tested, on one machine only (four ranks; torch 2.15, x86-64), on tcp and on soft
   transportrun.sh whole, as three nodes: seven arms, every rank ok, the three reports identical.
   simulation/collective_tier.py: all 99 pass. Every wait in the backends is one read held in the RAM
   ([A_WAIT_IS_ONE_HELD_READ_V1]): no sleep, no cap, no asking again.
+  AIConnect ([AICONNECT_ON_THE_DRIVERS_V1]): the producer's bulk link and probes are the transport driver's
+  connection. --link-timeout is gone (a producer command line that passes it is refused); a stall is an attempt in
+  flight longer than --stall-seconds. The hop label (1hop / RELAYED) is gone. Its oracle: 192 pass on tcp and on
+  softhoma. A real ramp on one machine ran on each driver with 0 failures.
 NOT tested: anything on a real node. The acceptance on nodes is shard df67ff9ce033941b and held-out 0.4940.
 NOT in this build: kernel Homa under the FrogTorch RAM's sessions (a session told homa says so and stops).
 
@@ -55,6 +59,7 @@ Files
   opt/frognet_semantic/TRANSPORT-DRIVERS-BUILD.txt
   opt/frognet_semantic/agent_workload/FROGTORCH-ON-DRIVERS-BUILD.txt
   opt/frognet_semantic/agent_workload/PYTORCH-ON-THE-DRIVERS-PRIMER.md
+  opt/frognet_semantic/agent_workload/aiconnect/producer.py
   opt/frognet_semantic/agent_workload/tuplespace/ddp_hook.py
   opt/frognet_semantic/agent_workload/tuplespace/frogtorch.py
   opt/frognet_semantic/agent_workload/tuplespace/frogtorch_ram.py
