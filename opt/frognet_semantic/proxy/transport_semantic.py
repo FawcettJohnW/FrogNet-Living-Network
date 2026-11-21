@@ -731,24 +731,13 @@ def _recv_exact(sock: socket.socket, n: int) -> bytes:
     return bytes(buf)
 
 
-# [THE_TCP_DRIVER_SEALS_V1] the proxy end of what daemon/engine/session.py says under the same marker: a unit sealed
-# under the key the setting of its session's memory names is marked in the top bit of its length word.
-SEALED_BIT = 0x80000000
-
-
-class Sealed(bytes):
-    """A unit of the TCP driver that crossed, or is to cross, sealed."""
-
-
 def _recv_frame(sock: socket.socket) -> bytes:
     trace_enter('transport_semantic._recv_frame', sock=repr(sock))
     hdr = _recv_exact(sock, 4)
     (n,) = struct.unpack("!I", hdr)
-    sealed, n = n & SEALED_BIT, n & ~SEALED_BIT
     if n <= 0 or n > _MAX_FRAME:
         raise RuntimeError(f"bad frame length {n}")
-    data = _recv_exact(sock, n)
-    return Sealed(data) if sealed else data
+    return _recv_exact(sock, n)
 
 
 def _send_frame(sock: socket.socket, payload: bytes) -> None:
@@ -756,7 +745,7 @@ def _send_frame(sock: socket.socket, payload: bytes) -> None:
     n = len(payload)
     if n <= 0 or n > _MAX_FRAME:
         raise RuntimeError(f"invalid frame size {n}")
-    sock.sendall(struct.pack("!I", n | (SEALED_BIT if isinstance(payload, Sealed) else 0)))
+    sock.sendall(struct.pack("!I", n))
     sock.sendall(payload)
 
 
@@ -1137,19 +1126,11 @@ class _DaemonWorker:
               flush=True)
 
     def _packed(self, seq: int, packet: bytes) -> bytes:
-        """[THE_TCP_DRIVER_SEALS_V1] this end's pack(): the frame as it is, or sealed under the key the setting of this
-        session's memory names. Request `seq` is message 2*seq to the seal; its reply is 2*seq+1."""
-        from core import channel_setting as _cs
-        name = _cs.sending_key(self.host, self.ram)
-        if name != getattr(self, "_said_key", None):
-            print(f"[CHANNEL-KEY] {time.time():.6f} requests to {self.host}:{self.port}{' for ' + self.ram if self.ram else ''} "
-                  f"on the TCP driver now go under {('the key ' + repr(name)) if name else 'no key'}", flush=True)
-            self._said_key = name
-        out = Sealed(_cs.protect(2 * seq, packet, name, self.host, self.ram)) if name else packet
+        """This end's pack(): the frame as it is. (No driver seals: core/channel_frame.py seals, for every protocol.)"""
         from core import chorus as _ch                       # [BYTES_ON_THE_CONNECTION_V1]
         if _ch.WIRE_BYTES:
-            _ch.wire_bytes("tcp", self.ram, "req", 4 + len(out))
-        return out
+            _ch.wire_bytes("tcp", self.ram, "req", 4 + len(packet))
+        return packet
 
     def _mint_session_token(self) -> str:
         """[SESSION_TOKEN_V1] Mint a unique token for one send-sock +
@@ -1995,12 +1976,6 @@ class _DaemonWorker:
                 seq = struct.unpack("!I", frame[:4])[0]
                 _last_seq = seq
                 reply_data = frame[4:]
-                if isinstance(frame, Sealed):                # [THE_TCP_DRIVER_SEALS_V1] a reply sealed as its request went out
-                    from core import channel_setting as _cs
-                    try:
-                        reply_data = _cs.opened(2 * seq + 1, bytes(reply_data), False, self.host, self.ram)[0]
-                    except _cs.KeyRefused as e:
-                        raise RuntimeError(f"reply {seq} from {self.host} on the TCP driver: {e}") from e
 
                 with self._pending_lock:
                     rpc = self._pending.pop(seq, None)
@@ -2364,17 +2339,8 @@ def _get_worker(host: str, port: int, set_id: int = 0, ram: str = "") -> _Daemon
                       f"{getattr(dw, 'word', getattr(dw, 'carrier', 'tcp'))} has nothing outstanding: ended", flush=True)
         from core import channel_setting as _cs
         word = _cs.driver(host, ram) or ("chorus" if kind == "homa" else "tcp")
-        if w is not None and getattr(w, "carrier", "tcp") == kind == "homa" and getattr(w, "word", word) != word \
-                and _cs.driver(host, ram) is not None:
-            # [A_CONNECTION_IS_OF_ITS_DRIVER_V1] the channel's tuple changed the driver to another of the same session
-            # kind (chorus to openqasm): exactly as between tcp and chorus, new requests open a new session on the new
-            # driver's connection now, and this one finishes what it has and ends once the new one is up.
-            print(f"[CHANNEL-SETTING] {time.time():.6f} {host}:{port} set={set_id}{' for ' + ram if ram else ''}: the channel's tuple says "
-                  f"{word}; the session on {w.word} finishes what is outstanding on it and takes nothing new", flush=True)
-            w.moved_driver = True
-            _DRAINING.append((key, w))
-            _WORKERS.pop(key, None)
-            w = None
+        # [ONE_CONNECTION_PER_DESTINATION_V1] a change of protocol between tcp, chorus and openqasm does not move a
+        # session: it is on the one connection to its destination, and the frame switches the protocol in the stream.
         if w is not None and getattr(w, "carrier", "tcp") != kind and _cs.driver(host, ram) is not None:
             # the channel's tuple changed the driver: new requests open a new session now, and this one finishes
             # what it has and ends once the new one is up.

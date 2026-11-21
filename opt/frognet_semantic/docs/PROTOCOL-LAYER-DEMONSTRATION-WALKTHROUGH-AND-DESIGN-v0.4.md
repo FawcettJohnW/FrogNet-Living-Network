@@ -6,7 +6,7 @@ Nov 21, 2026 · @John
 | --- | --- |
 | Document | Walkthrough and Detailed Design |
 | Subject | How the CroakOS protocol layer is set up and administered: three protocols on one mesh, with protocol, key and algorithm switched by each Role's owner under a running exercise |
-| Version | 0.3, draft for review |
+| Version | 0.4, draft for review |
 | Date | November 21, 2026 |
 | Author | John W. Fawcett |
 | Organization | Fawcett Innovations, LLC (CAGE 1A5Y5), Burien, Washington |
@@ -20,6 +20,7 @@ Nov 21, 2026 · @John
 | 0.1 | November 21, 2026 | First issue of the requirements and detailed design |
 | 0.2 | November 21, 2026 | One current key, switched in the stream. Protocol and encryption separated. Owners write their own settings. Injection by the Instructor's own tuple. The TCP run sets the performance thresholds. |
 | 0.3 | November 21, 2026 | Rewritten around the people who operate the system. Sections 2 to 8 walk through setup and each kind of switch. The setting gains a count of switches. The rules of the exercise itself are unchanged from 0.2 and are not repeated here. |
+| 0.4 | November 21, 2026 | A setting proves itself with a check made from the Role's set of keys, and an end ignores a setting whose count is lower than the one it is running (10.1). A frame that does not open is tried under every key of the set and every algorithm, and the pair that opens is the current one (10.5). A connection's wire has one owner (10.5). Section 11.3 brought up to the code. |
 
 ## 1. Executive summary
 
@@ -239,7 +240,7 @@ At step 50 the owner of Assessment replaces AES-256-GCM with ChaCha20-Poly1305. 
 
 The owner picks the algorithm in the Channel panel and presses Switch algorithm. The page writes the setting with the new algorithm's name and the count raised by one. Each sender sends the same *switch encryption* call. Every frame after the call is sealed with the new algorithm under the next key of the set.
 
-It differs from a key switch in one way. The receiver takes the algorithm's name from the setting. If the call reaches a receiver before its own held read on the setting has woken it, the receiver reads the setting at that moment and continues.
+It differs from a key switch in one way. The key follows from a rule both ends hold, but the algorithm's name is in the setting, and the call can reach a receiver before its own held read on the setting has woken it. The receiver does not wait. The next frame does not open under the algorithm it held, so it runs through the Role's set under every registered algorithm, takes the pair that opens, and continues.
 
 ### 6.4 What causes a switch
 
@@ -328,8 +329,19 @@ A Role's channel setting is one tuple in the control memory. Its owner is the Ro
 | `seed` | Decides the order in which the stored keys are used. Empty means the channel is not sealed. | New. Replaces `key`, which named a key. |
 | `protection` | The algorithm frames are sealed with | *Existing* |
 | `switches` | How many encryption switches the owner has commanded | New |
+| `check` | Proves the setting was written by someone who holds the Role's set of keys | New |
 
 The fields `accept` and `protections`, and the key change made in three writes, are removed. The seed crosses the network inside the setting. The keys never do. Knowing the seed tells which key of a set is in use and nothing about any key.
+
+**The setting proves itself.** Nothing stops any member of the network writing any tuple, and that is not prevented. One forged write would matter: a setting with an empty seed turns a Role's encryption off. So a setting carries its own proof: one field, and two rules for the ends.
+
+1. `check` is an HMAC-SHA256 over the Role's name and the setting's other fields. Its key is the SHA-256 of the Role's stored keys taken in file-name order. The key comes from the whole set, not from the seed or the count, so it works for a setting whose seed is empty. Only a machine that holds the Role's set can make it.
+2. An end that holds a set for the Role ignores a setting whose check does not verify. It logs the reason and keeps running the setting it has. An end with no set for that Role has nothing to verify with and nothing to protect.
+3. An end ignores a setting whose `switches` is lower than the count it is running, and logs it. Without this, an old valid setting, such as a Role's first unsealed one, could be written again. Turning encryption off is therefore a new write with a higher count.
+
+There is no identity, no signature and no access list. The Role's admin page computes the check, so it is served from a machine that holds the Role's set. In the demonstration that is the site hosting the Role.
+
+The text that is checked is the Role's name, then each other field as `name=value`, sorted by name, one to a line.
 
 ### 10.2 The key store and the selection rule
 
@@ -392,9 +404,15 @@ A process holds one connection to each destination, whatever protocols are in us
 
 Each direction of a connection is its own stream. For each Role on each direction, an end keeps the protocol word, the count of switches and the key in use. An end switches its sending when its held read on the setting wakes it, and switches its receiving when the call arrives.
 
+**One owner for each direction.** A connection's wire has one owner. One writer for each connection takes messages from the request threads and alone gives packet IDs, sends switch calls, packs, seals, draws the nonce and writes. No request thread touches the socket, and there is no lock on sending. Reading has one owner as well. Everything that depends on the order of the wire is done by one of those two threads.
+
 A connection opened after switches have been made starts from the setting's count. Its first frame for the Role states that count, so the receiver starts from the same key even if its own held read has not yet woken it.
 
-When a receiver gets a *switch encryption* call that takes its count past the `switches` of the setting it holds, it reads the setting again before opening the next frame. That is how it learns a new algorithm.
+**A frame that does not open.** When a Role's frame does not open under the key and algorithm an end holds, at connection or after, the end runs through every key of the Role's set under every registered algorithm. The pair that opens the frame is the current one. The end takes it, logs what it held and what opened, and carries on. Its count of switches is unchanged. If nothing opens, the frame is refused and logged.
+
+A receiver therefore follows a sender with nothing but the Role's set. It needs neither the setting nor the count to be up to date, and there is no limit on how fast an owner may command switches. A receiver never reads the setting on the thread that reads the connection.
+
+One change the search cannot find is encryption turned off, because there is nothing to open. An end takes unsealed frames for a Role only when the setting it holds, which has proved itself, shows no seed.
 
 ### 10.6 Reports
 
@@ -452,17 +470,32 @@ The runs are made between simulated machines running the real network software, 
 | --- | --- |
 | The seven Role services, the scenario and the exercise's rules | Built. Run between three simulated sites. |
 | The circuit simulator | Built. It returns the design's five reference values for the assessment circuit. |
-| Injection by the Instructor's own tuple | Built. On a TCP run of 60 steps, 3,482 reads and writes were made and none failed, and all four injections were in force at every step until released. |
-| The OpenQASM circuit codex and the OpenQASM driver | The codex is built. The driver is built to version 0.1: it still seals its own messages and refuses an unsealed one, which this design removes. |
-| The seven admin pages | Built, without the Channel panel. Not yet checked in a browser. |
-| The frame layer, the two calls, one connection per destination | The frame, the two calls, the key selection rule and packet IDs by Role are built in `core/channel_frame.py` and pass 16 checks on a real connection between two ends in one process. They do not carry traffic between machines yet: the code on the branch still opens a connection for each driver and memory and changes a key in three writes. |
-| CACHE_MISS naming a request | Not built. |
+| Injection by the Instructor's own tuple | Built. All four injections were in force at every step until released, in all four runs. |
 | Election of the Roles' memories in the simulator | Built. Each of the three simulated machines ran the existing election unchanged and elected the seven memories the same, at the sites of section 2. |
+| The frame, the two calls, the key rule, packet IDs by Role | Built, in `core/channel_frame.py`. 21 checks pass on a real connection between two ends. |
+| One connection per destination | Built, in `core/channel_carrier.py`, and carrying all traffic between the simulated machines. Each site holds one connection to each other site, with every Role there on its own sequence of packet IDs. |
+| The setting with `seed`, `switches` and `check`, and its two rules | Built. 11 checks pass. |
+| A frame that does not open is tried under every key and algorithm | Built. Used twice in the mixed run, at the two algorithm switches. |
+| One writer for each connection | Built for the frame layer and for Chorus's own connections. The daemon's and the proxy's reference handling still use their locks; that change is next. |
+| Chorus and OpenQASM as protocols under the frame | Built. Neither seals. The drivers' own sealing code is removed. |
+| The four runs on a fast link | Passing. The record is identical in all four runs, 46,957 bytes. Each run made 3,482 reads and writes and none failed. Each of run 4's seven changes took 119 to 170 ms from the owner's write to every end sending the new way. |
+| Criterion 7 on a fast link | Not met. Runs 2 and 3 are under run 1 on bytes and 7 to 10 ms over it on the median step. Run 4's 95th-percentile step is over. |
+| The four runs at 4,800 baud | Not run on this mechanism. |
+| CACHE_MISS naming a request | Not built. |
 | The record captured step by step by held reads | Not built. The record is still read at the end of a run. |
-| The Channel panel | Not built. The test harness still writes the settings. |
-| The four runs at 4,800 baud | Not passing. |
+| The Channel panel | Not built. The test harness writes each Role's setting, from that Role's own site. |
+| The seven admin pages | Built, without the Channel panel. Not yet checked in a browser. |
 
-No result is claimed for the switch mechanism of sections 5 and 6 until it has run between machines under the simulator.
+Measured on the fast link, between three simulated machines:
+
+| | Run 1, TCP | Run 2, Chorus | Run 3, OpenQASM | Run 4, mixed |
+| --- | --- | --- | --- | --- |
+| The run, seconds | 25.3 | 25.7 | 25.3 | 26.8 |
+| A step, median ms | 381 | 391 | 388 | 383 |
+| A step, 95th percentile ms | 465 | 479 | 459 | 635 |
+| Bytes on the seven Roles' channels | 1,266,071 | 1,216,224 | 768,788 | 1,039,302 |
+
+These figures were measured before each connection was given one writer. The mixed run has been run again since and passes.
 
 ## 12. Glossary
 

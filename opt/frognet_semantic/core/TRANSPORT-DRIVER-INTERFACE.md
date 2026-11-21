@@ -50,10 +50,10 @@ alive (a held read on the capability tuple in the ControlRam); the contents of a
 
 | word | connection | packing | where |
 |---|---|---|---|
-| `tcp` | two TCP connections the proxy opens to the daemon's port, one each way, held open | a 4-byte length; a reply carries the 4-byte number of its request; under a key the frame is sealed and the length word's top bit says so (section 9) | proxy end: `proxy/transport_semantic._DaemonWorker`; daemon end: `daemon/engine/session.TcpDaemonEnd` |
-| `chorus` | one TCP connection to the daemon's port for each memory it has something for, held open; it begins `CHO\x02` and the memory's name (section 9) | `pack()` makes a Homa DATA frame in segments of at most 240,000 bytes; on the connection its header and the message's first bytes cross as a difference (section 7, item 8). Called soft Homa until 21 Nov 2026, when it stopped putting Homa's frames on the wire | `core/chorus.py` (`_Conn` is the six calls), under `proxy/transport_homa.py` and `daemon/engine/server_homa.py` |
+| `tcp` | on a node NOT told of chorus: two TCP connections the proxy opens to the daemon's port, one each way, held open. On a node told of chorus, under a setting: a protocol under the frame, on the one connection to its destination (section 7) | a 4-byte length; a reply carries the 4-byte number of its request. Under the frame: the message as it is | proxy end: `proxy/transport_semantic._DaemonWorker`; daemon end: `daemon/engine/session.TcpDaemonEnd`; under the frame: `core/channel_frame.py` |
+| `chorus` | the semantic wire: a protocol under the frame, on the one connection to its destination (section 7). FrogTorch's RAM sessions: a connection of chorus's own, which begins `CHO\x01` | under the frame: a message's first 24 bytes as a difference against the message before it for the same Role and direction. On its own connections: Homa DATA frames in segments of at most 240,000 bytes, the header and first bytes crossing as a difference (section 6a). Called soft Homa until 21 Nov 2026 | `core/chorus.py`: `_frame_pack`, `_frame_unpack`; `_Conn` for its own connections |
 | `homa` | one Homa socket (the kernel module) | the module's own: real Homa frames; it cuts, paces and resends | `core/homa_socket.HomaSocket`, under the same two files |
-| `openqasm` | as chorus, on a connection of its own that begins `OQ3\x01` | chorus's, with every message sealed and the whole message a difference before it is sealed (section 9) | `core/openqasm.py` (`OpenQasmConn`), with the circuit codex `core/openqasm_handler.py` above it |
+| `openqasm` | a protocol under the frame, on the one connection to its destination (section 7) | the whole message as a difference against the message before it for the same Role and direction; the circuit codex `core/openqasm_handler.py` stands above it in the codec | `core/openqasm.py` |
 
 The same interface carries a second wire since 19 November: a rank's session with the FrogTorch RAM
 (`agent_workload/tuplespace/frogtorch_ram_drivers.py`). There the proxy and daemon are not involved; the rank's end
@@ -62,7 +62,7 @@ connects and the RAM's end listens, with the same six calls and the same per-RAM
 | word | connection | packing | where |
 |---|---|---|---|
 | `tcp` (and `auto`) | one TCP connection to the RAM's port P, held open | an 8-byte length and the frame: the bytes that session has always sent | `TcpEnd`, `TcpListener` |
-| `chorus` | one TCP connection to P + 1, held open | the same packing and the same wire, as above | `ChorusEnd` (it is `core/chorus._Conn`), `ChorusListener` |
+| `chorus` | the semantic wire: a protocol under the frame, on the one connection to its destination (section 7). FrogTorch's RAM sessions: a connection of chorus's own, which begins `CHO\x01` | under the frame: a message's first 24 bytes as a difference against the message before it for the same Role and direction. On its own connections: Homa DATA frames in segments of at most 240,000 bytes, the header and first bytes crossing as a difference (section 6a). Called soft Homa until 21 Nov 2026 | `core/chorus.py`: `_frame_pack`, `_frame_unpack`; `_Conn` for its own connections |
 | `homa` | not written | | a session told this word says so and stops |
 
 There a frame may be handed to `pack()` as a tuple of parts that are the frame in order, so a tensor is not copied to
@@ -90,136 +90,50 @@ the origin and what of Homa remains inside it. The word in a setting is `chorus`
 at start with that said; it is not kept as a second name. Homa's socket API on CroakOS memory
 (`ribbit/examples/homa/src/softhoma.cpp`) keeps its name, and so does the kernel module's driver, `homa`.
 
-## 7. The channel's setting is a capability tuple
+## 7. A Role's channel: one frame under every protocol, one connection to each destination (21 November)
 
-John, 19 November 2026: "It does not have to introduce anything. It is a tuple. A control tuple and part of the system
-capability tuple. You do realize we have full control over the contents of the json that tuple holds, right? It does
-not need to be standard in any way." And: "You can also introduce other capability tuples. There is not a fixed form,
-and the consumer is the thing that wrote it."
+The design is `docs/PROTOCOL-LAYER-DEMONSTRATION-WALKTHROUGH-AND-DESIGN-v0.4.md` (sections 4 to 7 and 10), with
+`docs/PROTOCOL-LAYER-DEMONSTRATION-REQUIREMENTS-AND-DESIGN-v0.2.md` for the exercise it is demonstrated on. This
+section says where each part of it is in the code. Sections 7 and 9 of this file as they stood on 19 and 21 November
+described the mechanism that design replaced (a key named in the setting, an accept list, three writes for a key,
+a connection for each driver and memory, drivers that sealed); it is no longer in the tree.
 
-The code is `core/channel_setting.py`. The tuple is (channel, setting, semantic) in the ControlRam. Its JSON is that
-module's own: `driver` (a word a driver registered, item 5 below; "tcp" and "chorus" are in the tree: the driver a
-new session opens on), `key` (the NAME of the key a message is sent under), `accept` (the names a message may arrive
-under) and `protection` (the NAME of what is done to a message under a key, item 6; absent, aes-256-gcm). The key is never in the tuple; it is a 32-byte
-file on the machine (`FROGNET_CHANNEL_KEYS`, default `/etc/frognet/channel_keys/<name>`). Every daemon and proxy
-holds a read on the tuple. A process with no such tuple goes on as before, on its node's word.
+| Part | Where | What it is |
+| --- | --- | --- |
+| The setting | `core/channel_setting.py` | (channel, setting, `<Role>`) in the ControlRam: `driver`, `seed`, `protection`, `switches`, `check`. The held read on it; `role_of(name)`; the setting's proof and its two rules; this end's report, (channel, at, ...). |
+| The frame | `core/channel_frame.py` | `Link`: one end of one connection. A frame is its length, its packet ID and its data, sealed under the Role's current key or not; the data opened begins with the protocol's word. The two calls, `SWP` and `SWE`. `key_number(seed, n, size)`. One writer and one reader for each connection. |
+| The carrier | `core/channel_carrier.py` | `FrameCarrier`: the calls the message session's two ends make on a carrier (`send_request`, `send_reply`, `recv`, `abort`, `peer_gone`), with one `Link` to each destination. It tells every `Link` when the settings moved. |
+| The protocols | `channel_frame` (tcp), `core/chorus.py` (chorus), `core/openqasm.py` (openqasm) | Each is `pack(state, packet_id, message)` and `unpack(state, packet_id, data)`, registered with `channel_frame.register_driver(name, word, pack, unpack)`. `state` is the protocol's own, for one Role in one direction of one connection, empty after a switch of protocol. None seals. |
+| Which session | `core/homa_transport.carrier_for`, `proxy/transport_semantic._get_worker` | A setting whose `driver` is a protocol under the frame puts the session on the frame carrier, whatever the word. A change of word does not move a session. |
+| Arriving | `daemon/engine/server.py` | The daemon's port takes every connection. The first four bytes say whose it is: the frame carrier's word (`FRM` and a version) or the TCP session's own first frame. |
 
-1. **A change of driver moves no session.** New requests open a new session on the new driver at once. The old
-   session finishes what is outstanding on it and ends after the new one is up. Nothing in flight is failed.
-2. **A key is the chorus driver's.** `core/chorus._Conn` seals a whole message under the named key (item 6)
-   before cutting it into segments, and marks it in the DATA header's reserved field. A reply goes under
-   the key its request came under. The TCP driver carries no key yet.
-3. **Accept first, then send, then take away.** The tuple is read over the channel it sets, so an end that is sent
-   what it does not yet accept refuses it and cannot read the tuple either (found 19 Nov). The owner therefore widens
-   `accept`, waits until every end says it runs that, changes `key`, waits again, and only then narrows `accept`.
-   Each end says what it runs in a tuple of its own, (channel, at, its address and process), and the owner's wait is a
-   held read on those.
-4. **A machine on another carrier has not left.** When a machine's last session on one carrier ends and it has one
-   on another carrier of the same daemon, its tuples stay (`homa_transport.on_another_carrier`).
+**What a driver may rely on, and must not do.**
 
-5. **A driver registers its word** (`[A_DRIVER_REGISTERS_ITS_WORD_V1]`, `core/homa_transport.DRIVERS` and
-   `register_driver(word, session_kind)`). The words the file and the tuple may use are the registered ones; the list
-   `VALID` is no longer the gate. A word names which of the engine's two session kinds stands under it: `tcp`, or the
-   message session of `transport_homa.py`. A process has ONE message carrier (`open_homa_socket`), so a new wire
-   beside chorus in the same process still means changing that function. A word in the tuple that nobody
-   registered is said in the log and the node's own word decides.
-6. **A protection is registered by name** (`[A_PROTECTION_IS_REGISTERED_V1]`, `core/channel_protection.py`): two
-   functions, `seal(key, nonce, associated data, frame)` and `open(...)`, and a name. `channel_setting.protect` and
-   `unprotect`, which the driver's packing and unpacking call, use the one the tuple names. `aes-256-gcm` is the
-   machine's own libcrypto through ctypes; the Python module `cryptography` is not needed and is not on the nodes.
-   One protection at a time on a connection: the tuple names it, the message does not.
-7. **One RAM's connection may have a setting of its own** (`[A_SETTING_PER_RAM_CONNECTION_V1]`). The tuple
-   (channel, setting, <the RAM's role name>), for example (channel, setting, databasehost.frognet), is the setting of
-   every node's connection to the machine that RAM is on now, in place of (channel, setting, semantic): for the nodes
-   that open the connection, and on that machine for what arrives. The same JSON; an empty JSON says nothing for
-   that RAM. Where the RAM is comes from this node's hosts file, read when the tuples change and at each hosts event,
-   so the setting follows the role. `channel_setting.write(value, ram="databasehost.frognet")` writes it, and each
-   end's (channel, at, ...) tuple carries what it runs for each RAM under `rams`.
+1. The connection is ordered and its wire has one owner: the writer. A protocol's `pack` is called only by that
+   writer, in the order frames go on the wire, and its `unpack` only by the reader, in the order they arrive. So the
+   last message each way, for a Role, is a reference both ends hold: send differences against it and keep no lock.
+2. A protocol does not seal, and does not require or refuse a key. Key and protocol are independent.
+3. A protocol does not know the Role's setting, the count of switches or the key. It is handed a message and gives
+   back the data that goes inside the frame.
+4. A protocol's word is four bytes and is the first thing in the opened data. A receiver knows the protocol by that
+   word and by nothing else, which is why a protocol is switched only while the encryption holds still.
+5. Do not add to the frame what it already carries. The packet ID says the Role; the frame says the length.
 
-8. **A driver's control crosses as a difference** (`[THE_HEADER_IS_A_DIFFERENCE_V1]`, 21 Nov; John: "The Homa
-   header should diff out... All of the control should diff"). `pack()` makes a whole Homa DATA frame and `unpack()`
-   is handed one, as the contract says. Between them, on the connection:
-   - `send()` puts the 62-byte header as its difference from what is expected after the last one (2 or 3 bytes), and
-     the segment's first 24 bytes as their difference from the segment before, which is where the layer above keeps
-     its own control (the message session's magic, id and seq); `receive()` puts both back.
-   - Under a key, those 24 bytes are made a difference in `pack()` BEFORE the message is sealed, and the nonce is 8
-     bytes drawn once and a count. Secured after it is made small, opened before it is made whole.
-   This is the pattern for any driver: the connection is ordered and is the driver's own, so the last unit each way
-   is a reference both ends hold. The end that opens says first how it sends (`chorus.WIRE`); a node on this
-   build and a node on an older one do not talk chorus to each other, and the connection says so. At 4,800 baud
-   a request and reply: tcp 880 ms; chorus 1,121 ms before and 864 ms now; keyed 1,221 ms before and 934 ms now
-   (the 16-byte tag each way is what the key still costs).
+**What crosses for an unsealed frame**: 2 bytes (length and packet ID as small numbers), the 4-byte word, the
+protocol's data. Sealed: 28 more (a 12-byte nonce and a 16-byte tag).
 
-The test is `simulation/channel_swap_tier.py`; its results are in
-`ribbit/examples/homa/REPORT-channel-setting-tuple-swap-under-load-20261119.md`.
+**Measured between three simulated machines, fast link, the Roles exercise, 60 steps, 3,482 reads and writes a run**
+(21 November, before each connection had one writer):
 
-## 9. One port, a connection for each memory, three drivers (21 November)
+| | Run 1, tcp | Run 2, chorus | Run 3, openqasm | Run 4, mixed with 7 changes |
+| --- | --- | --- | --- | --- |
+| Bytes on the seven Roles' channels | 1,266,071 | 1,216,224 | 768,788 | 1,039,302 |
+| A step, median / 95th ms | 381 / 465 | 391 / 479 | 388 / 459 | 383 / 635 |
+| The exercise's record | 46,957 bytes | identical | identical | identical |
 
-The design these were built for is "CroakOS Protocol Layer Demonstration: Requirements and Detailed Design" (version
-0.1, 21 Nov 2026, https://claude.ai/artifact/KfJ8yFePmt15dK7FARWrri). The test is
-`simulation/roles_exercise_tier.py`: `--step memories`, `--step protocols`, `--step pages`, and `--run 1|2|3|4|all`,
-the exercise itself (seven Roles' services, `simulation/roles_exercise/`) on TCP, on Chorus, on OpenQASM, and mixed
-with a channel's protocol, key and algorithm changed under way; the exercise record of every run is byte for byte the
-same. The record is the exploration log's entries of 21 Nov.
+Each of run 4's changes took 119 to 170 ms from the owner's one write to every end sending the new way.
 
-1. **The setting is read by the memory's name** (`[THE_SETTING_IS_READ_BY_THE_MEMORYS_NAME_V1]`; John, 21 Nov: "The
-   setting in a tuple"). Item 7 of section 7 said a RAM's tuple was the setting of the connection "to the machine that
-   RAM is on". It is the setting of the connection FOR that RAM. The proxy takes the memory a request is for from the
-   request's own Host (`channel_setting.ram_of`: a name that has a tuple of its own); `setting_for`, `here`, `driver`,
-   `sending_key`, `protect` and `opened` take the memory. Which memory is at an address is never asked. A request
-   that names no such memory (an address, or a name with no tuple) is under the channel's own setting.
-2. **A connection is for a memory** (`[A_CONNECTION_IS_FOR_A_MEMORY_V1]`). A session is keyed by address, set and
-   memory (`transport_semantic._worker_key`); chorus's carrier holds connections by address, memory and driver word.
-   The end that opens says which memory: chorus and openqasm after their word (a length byte and the name), TCP in its
-   HELLO after an "@" (`ip#set@memory`). Two memories on one machine are two connections under two settings. A
-   request for a memory on the proxy's own machine crosses no connection.
-3. **One port; the first bytes say the protocol** (`[ONE_PORT_THE_FRAME_SAYS_THE_PROTOCOL_V1]`; John, 21 Nov: "The
-   receivers should be able to examine the received TCP frame and determine the underlying protocol by itself").
-   Every driver arrives on the daemon's port. The listener looks at a connection's first four bytes and leaves them:
-   a registered word (`core/chorus.WIRES`) and the connection is that driver's (`ChorusOnTcp.adopt`); anything else
-   is the TCP driver's first frame (a length, then `FNW1` HELLO) or is closed with the reason in the log. The port,
-   the sender and the setting are not consulted. Chorus has no port of its own any more.
-4. **A driver built on chorus's connection registers its class** (`[A_CONNECTION_IS_OF_ITS_DRIVER_V1]`,
-   `chorus.register_conn`): its `name` is the word a setting names and its `WIRE` the four bytes it begins with.
-   Section 6 item 4 is narrower now: a process still has one message carrier, and that carrier holds a connection for
-   each driver word. A change between two words of the message kind (chorus to openqasm) opens a new session on the
-   new driver's connection; the old one finishes what it has and its connection is closed.
-5. **The sealed message is the same for every driver, and says how it was sealed**
-   (`[THE_ALGORITHM_IS_PART_OF_THE_SETTING_V1]`; John, 21 Nov: "The algorithm employed is part of the capability
-   tuple"; "The keyed store, for example, can apply to all protocols"):
-
-       1 byte     the algorithm's number (1 aes-256-gcm, 2 chacha20-poly1305; a registered one has its own)
-       1 byte     the length of the key's name
-       n bytes    the key's name
-       12 bytes   the nonce: 8 bytes the sending process drew once, then a 4-byte count
-       the rest   the sealed frame, ending in the algorithm's 16-byte tag
-
-   The receiver opens it from what it says. The setting decides only whether that algorithm (`protections`; absent,
-   only `protection`) and that key (`accept`) are accepted. A reply is sealed as its request arrived. The message's
-   number, the algorithm's number and the key's name are bound in. Section 7 item 6's "the tuple names it, the message
-   does not" is no longer so. An algorithm is replaced as a key is: widen `protections`, change `protection`, narrow,
-   waiting on every end between; the key does not change.
-6. **The TCP driver seals** (`[THE_TCP_DRIVER_SEALS_V1]`): at the proxy's end where a frame leaves and a reply
-   arrives (`_DaemonWorker._packed`, the reader), at the daemon's in `TcpDaemonEnd.pack` and `unpack`. Request number
-   n is message 2n to the seal and its reply 2n+1. Section 7 item 2's "the TCP driver carries no key yet" is no
-   longer so.
-7. **The OpenQASM driver** (`[OPENQASM_DRIVER_V1]`): every message sealed. `pack()` fails with the reason when the
-   setting names no key; an unsealed message ends the connection, and says so. Because it always seals, it always
-   makes a message small first, and it makes the WHOLE message a difference against the last one sealed on the
-   connection (`[THE_WHOLE_MESSAGE_IS_A_DIFFERENCE_V1]`), where chorus makes the first 24 bytes one.
-8. **The circuit codex is above the drivers** (`[OPENQASM_CODEX_V1]`, `core/openqasm_handler.py`, value type 12 in
-   `core/codec.py`): a string value that begins `OPENQASM`, on a connection whose setting names `openqasm`
-   (`SemanticCodec.qasm`, set by the proxy for a request), crosses as a bitmap of the parameters that changed against
-   the value before it and those parameters, or as a loaded circuit's number and its parameters. Circuits are loaded
-   from `/etc/frognet/openqasm_circuits` (`FROGNET_OPENQASM_CIRCUITS`), placed before a run as keys are.
-9. **Measuring**: with `FROGNET_WIRE_BYTES=1` each driver says the bytes each message put on its connection
-   (`[WIRE-BYTES] time driver memory req|rep bytes`). A repeated 174-byte circuit, 21 Nov, between machines: tcp 191,
-   chorus 189, chorus under a key 211, openqasm 57.
-
-Not so yet: a held read's fire goes to the holder's address, so it crosses on the connection that is for no memory
-(the exploration log, 21 Nov, says what would change that and that it is John's to say).
-
-## 10. Adding a driver
+## 8. Adding a driver
 
 Read `ribbit/examples/homa/EXPLORATION-LOG.md`: section 9 for the procedure, section 4 for what went wrong the first
 time, and the entries of 18 November for a driver built as an imitation of something else and then taken out.

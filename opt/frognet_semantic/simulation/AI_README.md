@@ -102,10 +102,14 @@ every other on the transport given. Run it with `--transport tcp` first: that is
 
 ## `roles_exercise_tier.py` and `roles_exercise/`: the protocol layer demonstration (21 Nov 2026)
 
-Seven Roles on three machines of `wire_between_machines_tier`, each Role with a memory of its own
-(`<role>ram.frognet`; the tier writes their role lines through `W.MORE_MEMORIES`) and a channel setting of its own.
-`--step memories | protocols | pages` test the parts; `--run 1|2|3|4|all` runs the exercise on TCP, Chorus, OpenQASM
-and mixed with changes, and compares the exercise records byte for byte. The design is named in the tier's
+Seven Roles on three machines of `wire_between_machines_tier`, each Role with a memory of its own and a channel
+setting of its own. The memories are application memories (`exerciseHost.frognet`, `<role>Host.exercise`): the tier
+writes each machine's capability tuples and the application's configuration tuple and runs the existing election,
+`core/app_hosts.commit`, on each machine (`elect_memories`). Each Role's setting is written from that Role's own site
+(`owner_sets`: one write, then a held read on the ends' reports). `--step memories | pages` test the parts;
+`--run 1|2|3|4|all` runs the exercise on TCP, Chorus, OpenQASM and mixed with seven changes, and compares the
+exercise records byte for byte. The mechanism is `core/channel_frame.py` and `core/channel_carrier.py`
+(AI_READ_FIRST section 10c). The design is named in the tier's
 docstring; the record is `ribbit/examples/homa/EXPLORATION-LOG.md`, 21 Nov.
 
 Traps, each found by a run that failed:
@@ -114,8 +118,9 @@ Traps, each found by a run that failed:
   10 s (`proxy/local_read_cache.py`); a write of a NEW name does not empty one. A raw read of a whole service just
   after a write can answer without it. A hold's rows are not cached.
 - **A tuple is its writer's.** Two programs writing one name are two rows (the address each wrote from is part of
-  what the tuple is). `role_service.index` takes the row for the later step. The Instructor writes into a Role's
-  tuple as that tuple's writer.
+  what the tuple is). `role_service.index` takes the row for the later step. Nothing writes into another Role's
+  memory: the Instructor's injection is its own tuple, (instructor, injection, n), which `Role.look_mine` reads and
+  `Role.injected` applies.
 - **A service's waits are `Role.wait`; its looks are `Role.look`.** Nothing in `roles_exercise/` sleeps, polls, names
   a protocol or names a key, and the tier fails the build if it does (R25). The only pauses are the tier's own.
 - **A Role's facts for a step are that step's tuples**, because the record is read back from memory at the end.
@@ -126,3 +131,10 @@ Traps, each found by a run that failed:
   takes minutes).
 - `--steps N` runs N of the 60 steps, with run 4's changes at the same fractions: for the slow link.
 - `FROGNET_ROLES_SAY=1` makes each service say what each wait is for; a stalled run then names the tuple.
+- **Do not edit `core/` or `proxy/` or `daemon/` while a run is going.** Every run starts new daemons, proxies and
+  services, which import whatever is on disk at that moment: a four-run job edited under way is four runs of
+  different code. (21 Nov: run 4 of a job was started on a setting module changed after run 3.)
+- **MariaDB is not left running between commands in this sandbox.** Start it before each tier (`mysqladmin ping`, then
+  `service mariadb start`), and clear the namespaces left by a run that was stopped.
+- **A check that greps logs for a word must name whose line it is.** "refused" also appears in the proxy's own error
+  lines for an unrelated 410; the frame's and the setting's lines begin `[CHANNEL-FRAME]` and `[CHANNEL-SETTING]`.

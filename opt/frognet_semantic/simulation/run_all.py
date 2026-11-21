@@ -572,11 +572,13 @@ def main():
     # them it FAILS and says which. The TCP control is the same command with --transport tcp.
     results.append(_run_proc("Homa driver between machines, every hardware topology (wire_between_machines_tier --topology all)",
                              ["simulation/wire_between_machines_tier.py", "--transport", "chorus", "--topology", "all"], retry=False))
-    # [CHANNEL_SWAP_TIER_V1] the channel's setting is a capability tuple (core/channel_setting.py): its driver and key
-    # changed ten times under a running workload between machines, with nothing failed, nothing wrong and nothing
-    # restarted. About 100 seconds. Needs what the tier above needs.
-    results.append(_run_proc("the channel's setting changed under load between machines (channel_swap_tier)",
-                             ["simulation/channel_swap_tier.py"], retry=False))
+    # [ROLES_EXERCISE_V1] a Role's protocol, key and algorithm switched under a running exercise between three
+    # machines: seven Roles, three protocols on one connection per destination, seven changes each by one write of its
+    # owner's, the exercise's record byte for byte that of the run made all on TCP. (It replaces channel_swap_tier,
+    # whose mechanism, a key change in three writes and a connection for each driver, the 0.2 design removed.) About
+    # six minutes. Needs what the tier above needs.
+    results.append(_run_proc("the four runs of the Roles exercise between machines (roles_exercise_tier --run all)",
+                             ["simulation/roles_exercise_tier.py", "--run", "all"], retry=False))
     results.append(_run_proc("transport factory self-test (sim+loopback+netem, 12)",
                              ["simulation/transport_factories.py"]))
     # [AICONNECT_RAMP_IS_GATED_V1] The AIConnect workload had no tier at all --

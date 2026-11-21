@@ -803,54 +803,62 @@ session-held cell `(AIConnect, receiver, <machine>)` there, a producer writes ea
 what landed is counted by the region (`stats.by_acct`) at the rung edges. That direction is a cross-space write;
 whether to change it is John's call.
 
-## 10c. The channel's setting is a tuple; a running channel is changed by writing it
+## 10c. A Role's channel: its protocol and its encryption, set by its owner and switched under way
 
-Which transport driver a node's semantic wire opens its sessions on, and which key its messages go under, is a
-capability tuple in the ControlRam: (channel, setting, semantic), `opt/frognet_semantic/core/channel_setting.py`.
-`/etc/frognet/semantic_transport` is the node's own word and stands only where no tuple speaks.
+**Read these two documents before touching any of this**:
+`opt/frognet_semantic/docs/PROTOCOL-LAYER-DEMONSTRATION-WALKTHROUGH-AND-DESIGN-v0.4.md` (how a channel is set up and
+switched, the design as built, and in its section 11.3 what is built and what is not) and
+`opt/frognet_semantic/docs/PROTOCOL-LAYER-DEMONSTRATION-REQUIREMENTS-AND-DESIGN-v0.2.md` (the exercise's rules).
 
-- The JSON is `driver` (a word a driver registered), `key` (a key's NAME), `accept` (the names a message may arrive
-  under) and `protection` (the name of what is done under a key; absent, aes-256-gcm). The key itself is a 32-byte
-  file on each machine in `/etc/frognet/channel_keys` and never crosses the wire.
-- Every daemon and proxy holds a read on the tuple. Nothing polls, nothing is restarted, and nothing in flight is
-  failed: a change of driver opens a new session and the old one finishes what it has.
-- The owner changes a key in three writes: widen `accept`, change `key`, narrow `accept`, waiting between them on each
-  end's own tuple (channel, at, ...) that says what it runs. The tuple is read over the channel it sets, so an end
-  must never be sent what it does not yet accept.
-- (channel, setting, <a memory's host name>) is the same JSON for the connection FOR that memory
-  (`[THE_SETTING_IS_READ_BY_THE_MEMORYS_NAME_V1]`, John 2026-11-21: "The setting in a tuple"). It is read by the name a
-  request gives (its Host), never by which memory is at an address: two memories on one machine are two connections
-  under two settings (`[A_CONNECTION_IS_FOR_A_MEMORY_V1]`). Do not look a setting up by address.
-- Every driver arrives on the daemon's one port and is known by the first four bytes of its connection, not by the
-  port, the sender or the setting (`[ONE_PORT_THE_FRAME_SAYS_THE_PROTOCOL_V1]`, John 2026-11-21). Three are in the
-  tree: `tcp`, `chorus`, `openqasm` (`core/openqasm.py`; it seals every message, and the circuit codex
-  `core/openqasm_handler.py` stands above it in the codec).
-- The key store serves every driver, TCP included. A sealed message says which algorithm and which key sealed it; the
-  setting says which are accepted (`protection`, `protections`, `key`, `accept`). An algorithm is replaced by three
-  writes, as a key is (`[THE_ALGORITHM_IS_PART_OF_THE_SETTING_V1]`).
-- **The design changed on 21 Nov and the code is part way across. Read the two design documents before touching
-  any of this**: `opt/frognet_semantic/docs/PROTOCOL-LAYER-DEMONSTRATION-WALKTHROUGH-AND-DESIGN-v0.3.md` (how it is
-  set up and switched, and the design as it is being built; its section 11.3 says what is built) and
-  `opt/frognet_semantic/docs/PROTOCOL-LAYER-DEMONSTRATION-REQUIREMENTS-AND-DESIGN-v0.2.md` (the exercise's rules).
-  Under them a channel has ONE current key, picked from a set placed offline by a rule on the setting's `seed` and
-  `switches`; protocol and encryption are separate and are switched separately, each by a call in the stream on the
-  open connection; one layer seals every frame and no driver does; there is one connection per destination, and the
-  packet ID says which Role a frame is for. That layer is `core/channel_frame.py` (`[ONE_FRAME_UNDER_EVERY_PROTOCOL_V1]`,
-  checked by `core/test_channel_frame_oracle.py`) and NOTHING CALLS IT YET. The bullets above this one (`key`,
-  `accept`, `protections`, three writes, a connection for each memory and driver, a driver that seals) describe the
-  0.1 mechanism, which is what still carries traffic and which the design removes. Do not build on it.
-- The demonstration these serve, and its design: `core/TRANSPORT-DRIVER-INTERFACE.md` section 9. Its tier:
-  `opt/frognet_semantic/simulation/roles_exercise_tier.py`; its Roles' services: `simulation/roles_exercise/` (read
-  `role_service.py` first); its admin pages: `opt/fdf/src/fdf-source/fdf/www/roles_exercise/`.
+- **A Role is a service; how a Role is reached is a separate thing.** A Role's memory is an application memory
+  (`core/app_hosts.py`: `<app>Host.frognet`, `<team>Host.<app>`), elected as every application memory is. How it is
+  reached is its channel setting, the tuple (channel, setting, `<Role>`) in the ControlRam
+  (`core/channel_setting.py`): `{driver, seed, protection, switches, check}`. Its owner is the Role, and the Role's
+  admin tool is its only writer. (channel, setting, semantic) is the setting of traffic that belongs to no Role.
+  None of this is site-wide, and nothing in a Role's service names a protocol or a key.
+- **Protocol and encryption are different things and are switched separately** (John, 2026-11-21). The encryption is
+  the outside of a frame; the protocol is the data inside it, beginning with the protocol's 4-byte word. One layer,
+  `core/channel_frame.py`, builds, seals, opens and reads every frame for every protocol. **No driver seals.** `tcp`,
+  `chorus` (`core/chorus.py`) and `openqasm` (`core/openqasm.py`, with the circuit codex `core/openqasm_handler.py`
+  above it in the codec) are protocols under that frame, registered with `channel_frame.register_driver`.
+- **One connection to each destination**, held open, whatever Roles and protocols are on it
+  (`core/channel_carrier.py`, the semantic wire's carrier in every process told of chorus). The packet ID says which
+  Role a frame is for: each Role has its own sequence of IDs on the connection. Do not add a field to the frame for
+  what the packet ID already says.
+- **A switch is one write by the owner and one call in the stream.** The owner writes the setting: a new `driver`, or
+  `switches` raised by one (with a new `seed` or `protection` when that is what changes). Each end's held read wakes
+  it, and each connection's writer puts a call in its stream that says only "switch protocol" or "switch
+  encryption", never what from or to. Everything after the call is the new way. No connection is closed, no session
+  is moved, nothing is negotiated. A protocol and an encryption are never switched in one write.
+- **There is only the current key.** It is one of a set placed offline, `/etc/frognet/channel_keys/<role>/`, 32 bytes
+  a file, picked by a fixed rule on `seed` and `switches` (`channel_frame.key_number`). No key, key name or key number
+  crosses a link. When a frame does not open under what an end holds, the end runs through every key of the set
+  under every registered algorithm and takes the pair that opens (John, 2026-11-21 13:17). A receiver never reads
+  the setting on the thread that reads the connection.
+- **A setting proves itself** (John, 2026-11-21 13:05): `check` is an HMAC over the Role's name and the setting's
+  other fields, keyed from the Role's whole set. An end that holds the set ignores a setting whose check does not
+  verify, and one whose `switches` is lower than the count it is running. No identity, no signature, no access list.
+- **A connection's wire has one owner** (John, 2026-11-21 13:23): one writer for each connection alone gives packet
+  IDs, sends calls, packs, seals and writes; one reader reads. There is no lock on sending, in the frame layer or in
+  chorus's own connections. Do not add one; hand the writer the work. (Still to do: the daemon's and the proxy's
+  reference handling, `_encode_lock`, `_ref_lock` and the proxy's gate, which John has said go the same way.)
+- **Each end reports what it runs**: (channel, at, `<address>:<process>.<pid>`), written by that process's one
+  reporter: for each Role, what it holds and what it is sending under. Never a seed, never a key. A switch is
+  complete when every end's report shows it.
 - A tuple is its writer's: the memory keeps each writer's tuple of a name as that writer's own (service, name, and the
   address it was written from). Two programs writing one name are two rows, and a reader must say which it means.
-  Do not design a tuple with two writers, and do not assume a write from another machine replaces a tuple.
+  **Every tuple is written only by its owner.** The Instructor injects by writing its own tuple, which the Role it
+  names applies; nothing writes into another Role's memory.
 - A driver's word is registered (`core/homa_transport.register_driver`); a protection is registered
-  (`core/channel_protection.register_protection`). Neither is a fixed list.
-- A node must have been told of chorus (its own word names it) before the tuple can put a session on it.
-- Read `opt/frognet_semantic/core/TRANSPORT-DRIVER-INTERFACE.md` section 7 before changing any of this. The test is
-  `opt/frognet_semantic/simulation/channel_swap_tier.py` (between machines, the real proxy and daemon, under load,
-  perfect link and 4,800 baud); the quick check is `core/test_channel_setting_oracle.py`.
+  (`core/channel_protection.register_protection`). Neither is a fixed list. A node must have been told of chorus (its
+  own word names it) to have the frame carrier.
+- The tests: `core/test_channel_frame_oracle.py` (the frame, in one process), `core/test_channel_setting_oracle.py`
+  (the setting), and between machines `simulation/roles_exercise_tier.py --run all` (the four runs) and
+  `--step memories`. Its Roles' services are `simulation/roles_exercise/` (read `role_service.py` first); its admin
+  pages `opt/fdf/src/fdf-source/fdf/www/roles_exercise/`. `simulation/channel_swap_tier.py` is gone with the
+  mechanism it tested (three writes for a key, a connection for each driver).
+- NOT built yet: CACHE_MISS naming a request; the exercise record captured by held reads; the Channel panel on the
+  admin pages; the runs at 4,800 baud on this mechanism.
 
 
 ---

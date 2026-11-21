@@ -62,9 +62,8 @@ import time
 HERE = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, HERE)
 import wire_between_machines_tier as W  # noqa: E402
-import channel_swap_tier as S  # noqa: E402
 
-BUILD = "roles-exercise-tier-v3-20261121c"
+BUILD = "roles-exercise-tier-v4-20261121d"
 PY, SEM = W.PY, W.SEM
 START = "auto,databasehost_control.frognet chorus"       # every machine is told of chorus and listens on both
 SITES = {"A": "Seattle5", "B": "Seattle3B", "C": "New-York-1"}
@@ -87,8 +86,12 @@ def app_ram(role):
 
 
 def channel(role):
-    """The name a memory's channel setting and the logs go by: the memory's name as a request gives it, lower case."""
-    return memory(role).lower()
+    """The name a Role's channel setting, its keys and the logs go by: the Role (the design's 10.1)."""
+    return role
+
+
+KEYS_IN_A_SET = 20
+SEALED = lambda role, switches=0, protection="aes-256-gcm": {"seed": "the seed of %s" % role, "protection": protection, "switches": switches}
 
 
 def elect_memories(machines, by, check):
@@ -135,11 +138,11 @@ def elect_memories(machines, by, check):
     W.MORE_MEMORIES.update({name: [m for m in machines if m.ip == ip][0] for name, ip in elected[machines[0].name].items()})
 
 
-def key_bytes(name):
-    """A key's 32 bytes for the demonstration: made from its name, the same on every machine, placed in each
-    machine's key store before the run. It never crosses a link."""
+def key_bytes(role, i):
+    """One key of a Role's set for the demonstration: 32 bytes made from the Role and its place in the set, the same
+    on every machine, placed in each machine's key store before the run. It never crosses a link."""
     import hashlib
-    return hashlib.sha256(("roles-exercise key " + name).encode()).digest()
+    return hashlib.sha256(("roles-exercise key %s %d" % (role, i)).encode()).digest()
 
 
 def on(m, code, wait_s=120):
@@ -168,10 +171,13 @@ def sites_up(a, check):
     W.bring_up(machines, dbc, net)
     for m in machines:
         kd = os.path.join(m.dir, "channel_keys"); os.makedirs(kd, exist_ok=True)
+        # A machine holds a Role's set only if it carries that Role's traffic (R42). In this exercise every site's
+        # admin pages read every Role's memory, so all three machines carry all seven and hold all seven sets.
         for role, _site in ROLES:
-            for n in ("1", "2"):
-                with open(os.path.join(kd, "%s-%s" % (role, n)), "wb") as f:
-                    f.write(key_bytes("%s-%s" % (role, n)))
+            os.makedirs(os.path.join(kd, role), exist_ok=True)
+            for i in range(KEYS_IN_A_SET):
+                with open(os.path.join(kd, role, "%02d" % i), "wb") as f:
+                    f.write(key_bytes(role, i))
         m.env["FROGNET_CHANNEL_KEYS"] = kd
         cd = os.path.join(m.dir, "openqasm_circuits"); os.makedirs(cd, exist_ok=True)     # the circuit file, placed as keys are
         with open(os.path.join(cd, "01-track.qasm"), "w") as f:
@@ -209,36 +215,65 @@ def sites_up(a, check):
     return net, machines, by, tmp
 
 
+def owner_sets(machines, role, value, wait_s=60):
+    """A Role's owner makes one write of that Role's channel setting, from the Role's own site (rule 1: every value
+    has one owner, and only the owner writes it), and holds a read on the ends' reports, (channel, at, *), until
+    every daemon and proxy holds the setting and every one that carries the Role says it is sending that way.
+    Returns (it was so, seconds from the write to the last report, what was seen)."""
+    m = [x for x in machines if x.name == SITES[dict(ROLES)[role]]][0]
+    r = on(m, "from core import channel_setting as C\n"
+              "T, H = C._tuples()\n"
+              "value = json.loads(%r)\n"
+              "t0 = time.time()\n"
+              "ok = C.write(value, ram=%r)\n"
+              "pre, last = T.var_name('at', ''), {}\n"
+              "def fits(run):\n"
+              "    return (run.get('driver') == value.get('driver') and run.get('switches') == int(value.get('switches') or 0)\n"
+              "            and bool(run.get('sealed')) == bool(value.get('seed'))\n"
+              "            and (not value.get('seed') or run.get('protection') == (value.get('protection') or 'aes-256-gcm')))\n"
+              "def done(rows):\n"
+              "    at = [r.get('data') or {} for r in rows if str(r.get('SensorName') or '').startswith(pre)]\n"
+              "    last['ends'] = len(at)\n"
+              "    last['hold'] = sum(1 for d in at if fits((d.get('rams') or {}).get(%r) or {}))\n"
+              "    last['carry'] = sum(1 for d in at if %r in (d.get('running') or {}))\n"
+              "    last['run'] = sum(1 for d in at if %r in (d.get('running') or {}) and fits(d['running'][%r]))\n"
+              "    return last['ends'] >= %d and last['hold'] == last['ends'] and last['run'] == last['carry']\n"
+              "rows = H.holder().wait_until(C.SERVICE, C.CONTROL_RAM, done, name_like=T.var_name('at', '%%'), wait_s=%f)\n"
+              "print('@@ ' + json.dumps(dict(last, ok=bool(ok), done=done(rows), took=time.time() - t0)))"
+           % (json.dumps(value), role, role, role, role, role, 2 * len(machines), wait_s), wait_s=wait_s + 60)
+    return bool(r.get("done")), r.get("took"), r
+
+
 def set_channels(machines, owner, settings, check, why):
-    """The owner writes each memory's setting and waits, by held read, for every end to say it runs it."""
+    """Each Role's owner writes its channel's setting and waits, by held read, for every end's report."""
     for role, value in settings.items():
-        t0, _ = S.owner_writes(owner, value, ram=channel(role))
-        ran, t1 = S.owner_waits(owner, value, 2 * len(machines), wait_s=60, ram=channel(role))
-        check(ran, "%s: %s's channel is %s; every daemon and proxy said so %.0f ms after the write"
-              % (why, role, json.dumps(value, sort_keys=True), (t1 - t0) * 1000))
+        ran, took, saw = owner_sets(machines, role, value)
+        check(ran, "%s: %s's owner set its channel to %s; every daemon and proxy held it %.0f ms after the write (%s)"
+              % (why, role, json.dumps(value, sort_keys=True), (took or 0) * 1000, {k: saw.get(k) for k in ("ends", "hold", "carry", "run", "error") if k in saw}))
         if not ran:
             return False
     return True
 
 
 def step_memories(a, check):
+    """The design's build step 1 between machines: the Roles' memories elected, each Role's channel set by its owner,
+    every memory written and read by its name from every site, a held read across three sites, and ONE connection
+    from each site to each other site, carrying every Role there under that Role's own protocol and key."""
     net, machines, by, tmp = sites_up(a, check)
     owner = machines[0].control
-    before = S.pids(machines)
-    t_mark = time.time()
-    # two or three memories on one machine, each under a different setting
+    before = pids(machines)
+    # two or three Roles on one machine, each under a different setting
     settings = {
         "warning":    {"driver": "tcp"},
         "exercise":   {"driver": "chorus"},
-        "assessment": {"driver": "chorus", "key": "assessment-1", "accept": ["assessment-1"]},
-        "compute":    {"driver": "chorus", "key": "compute-1", "accept": ["compute-1"]},
+        "assessment": dict({"driver": "chorus"}, **SEALED("assessment")),
+        "compute":    dict({"driver": "openqasm"}, **SEALED("compute")),
         "instructor": {"driver": "chorus"},
-        "command":    {"driver": "chorus", "key": "command-1", "accept": ["command-1"]},
+        "command":    dict({"driver": "tcp"}, **SEALED("command")),
         "units":      {"driver": "tcp"},
     }
     if not set_channels(machines, owner, settings, check, "at the start"):
         return machines
-    # ---- every machine writes into every memory by name; another machine reads it back
     wrong, n = [], 0
     for rnd in range(3):
         for i, m in enumerate(machines):
@@ -270,62 +305,32 @@ def step_memories(a, check):
     check(w.get("ok") and 7 in (h.get("n") or []) and 2.0 <= h.get("after", 0) < 30,
           "a read held on %s at site A (%s) returned %.1f s after it was held, when site B (%s) wrote the value into that memory at site C (%s)"
           % (memory("units"), holder.name, h.get("after", -1), writer.name, SITES["C"], ) if "after" in h else "the held read failed: %s %s" % (h, w))
-    # ---- each memory's session opened under its own driver, and its own key
-    opened = {}
+    # ---- one connection to each destination, and on it each Role under its own setting
+    lines = {m.name: open(m.proxy_log, errors="replace").read() for m in machines}
+    opened = {m.name: sorted(set(re.findall(r"the connection to (\S+):\d+ is open; it is held open", lines[m.name]))) for m in machines}
+    want = {m.name: sorted(o.ip for o in machines if o is not m) for m in machines}
+    check(opened == want, "each site's proxy holds ONE connection to each other site and no more: %s" % opened)
+    named, bad = {}, {}
     for m in machines:
-        for role, site in ROLES:
-            far = by[SITES[site]]
-            if far is m:
-                continue
-            got = re.findall(r"the session to %s:\d+ for %s opened on (\w+)" % (re.escape(far.ip), re.escape(channel(role))),
-                             open(m.proxy_log, errors="replace").read())
-            opened[(m.name, role)] = got
-    bad = {k: v for k, v in opened.items() if not v or set(v) != {settings[k[1]]["driver"]}}
-    check(not bad, "every site's proxy opened a session of its own for each memory at another site, on that memory's driver "
-                   "(%d sessions; e.g. %s reaches %s on tcp and %s on chorus, both on %s)%s"
-          % (len(opened), SITES["A"], memory("units"), memory("command"), SITES["C"], "" if not bad else "; NOT so: %s" % bad))
-    keyed = {}
-    for m in machines:
-        text = open(m.proxy_log, errors="replace").read()
-        for role, site in ROLES:
-            if by[SITES[site]] is not m:
-                keyed[(m.name, role)] = re.findall(r"\[CHANNEL-KEY\] [0-9.]+ requests to \S+ for %s now go under (the key '[^']+'|no key)" % re.escape(channel(role)), text)
-    want = {k: (["the key '%s'" % settings[k[1]]["key"]] if settings[k[1]].get("key") else (["no key"] if settings[k[1]]["driver"] == "chorus" else []))
-            for k in keyed}
-    badk = {k: (v, want[k]) for k, v in keyed.items() if v != want[k]}
-    check(not badk, "each memory on chorus is sent under its own setting's key and no other (command, compute and assessment each under "
-                    "their own key; exercise and instructor under none)%s" % ("" if not badk else "; NOT so: %s" % badk))
-    for_mem = {m.name: sorted(set(re.findall(r"\[CHORUS\] \S+ the connection from \S+ is for (\S+)", open(m.daemon_log, errors="replace").read())))
-               for m in machines}
-    wantc = {SITES[s]: sorted(channel(r) for r, ss in ROLES if ss == s and settings[r]["driver"] == "chorus") for s in SITES}
-    check(for_mem == wantc, "each site's daemon was told, by each chorus connection that arrived, which memory it is for: %s" % for_mem)
-    after = S.pids(machines)
+        for ip, seq, role, how in re.findall(r"to (\S+):\d+, sequence (\d+) is '(\w*)': (\{[^}]*\})", lines[m.name]):
+            if role:
+                named.setdefault((m.name, ip), {})[role] = how
+                st = settings[role]
+                if ("'driver': '%s'" % st["driver"]) not in how or ("'sealed': %s" % bool(st.get("seed"))) not in how:
+                    bad[(m.name, role)] = how
+    shared = {k: sorted(v) for k, v in named.items() if len(v) > 1}
+    check(shared and not bad, "on those connections each Role has a sequence of packet IDs of its own, under its own protocol and its own key or none "
+          "(e.g. %s to %s carries %s on one connection)%s" % (next(iter(shared))[0] if shared else "?", next(iter(shared))[1] if shared else "?",
+                                                              ", ".join(next(iter(shared.values()))) if shared else "?", "" if not bad else "; NOT so: %s" % bad))
+    refused = [l for m in machines for f in (m.proxy_log, m.daemon_log) for l in re.findall(r"\[CHANNEL-(?:FRAME|SETTING)\][^\n]*(?:does not open|IGNORED|: refused)[^\n]*", open(f, errors="replace").read())]
+    check(not refused, "no frame was refused and no setting ignored%s" % ("" if not refused else ": %s" % refused[:2]))
+    after = pids(machines)
     check(before == after and all(p[1] is None and p[3] is None for p in after.values()), "no daemon or proxy restarted or ended")
     return machines
 
 
-def circuit(quality, sensors):
-    """The design's circuit (10.3) for a track of this quality read by this many sensors: the services' own rule."""
-    return _rules().circuit(quality, sensors)
-
-
-def _rules():
-    d = os.path.join(os.path.dirname(os.path.abspath(__file__)), "roles_exercise")
-    if d not in sys.path:
-        sys.path.insert(0, d)
-    import rules
-    return rules
-
-
-def wire_bytes(m, log, ram, what, since):
-    """The [WIRE-BYTES] lines of one of m's logs for one memory since a time: [(time, driver, bytes)]."""
-    return [(float(t), d, int(n)) for t, d, n in re.findall(r"\[WIRE-BYTES\] ([0-9.]+) (\S+) %s %s (\d+)" % (re.escape(ram), what),
-                                                            open(log, errors="replace").read()) if float(t) >= since]
-
-
-def write_tuple(m, role, var, scope, value):
-    return on(m, "import frognet_ram as R\nok = R.upsert(%r, %r, %r, json.loads(%r), R.DURABLE, dbhost=%r)\nprint('@@ ' + json.dumps({'ok': bool(ok)}))"
-              % (role, var, scope, json.dumps(value), memory(role)))
+def pids(machines):
+    return {m.name: (m.daemon.pid, m.daemon.poll(), m.proxy_main.pid, m.proxy_main.poll()) for m in machines}
 
 
 def read_tuple(m, role, var, scope):
@@ -342,142 +347,28 @@ def read_tuple(m, role, var, scope):
     return v[0] if len(v) == 1 and isinstance(v[0], dict) else r
 
 
-def circuits_cross(m, check, label, n=6):
-    """Assessment's write of one track's circuit, n times with the two angles changed each time, from machine m (not
-    Assessment's site). Returns the bytes each of the last n-1 writes put on the connection, as the driver counted."""
-    t0 = time.time()
-    code = "import frognet_ram as R\nok = []\n"
-    for k in range(n):                                          # the tuple's own ts is given, and held still: only the circuit changes
-        code += "ok.append(bool(R.upsert('assessment', 'circuit', '7', {'step': 1, 'track': 7, 'ts': 1795000000, 'qasm': %r}, R.DURABLE, dbhost=%r)))\n" % (
-            circuit(400 + 97 * k, 1 + k % 4), memory("assessment"))
-    code += "print('@@ ' + json.dumps({'ok': ok}))"
-    r = on(m, code)
-    got = read_tuple(m, "assessment", "circuit", "7")
-    want = circuit(400 + 97 * (n - 1), 1 + (n - 1) % 4)
-    time.sleep(0.3)
-    sent = wire_bytes(m, m.proxy_log, channel("assessment"), "req", t0)
-    writes = [b for _t, _d, b in sent][:n]                      # the n writes; the read after them is the next
-    drv = sorted({d for _t, d, _b in sent})
-    check(r.get("ok") == [True] * n and isinstance(got, dict) and got.get("qasm") == want and len(writes) == n,
-          "%s: %d writes of one track's circuit (%d bytes of program) from %s; the memory holds the last one byte for byte; on the "
-          "connection (%s) the writes after the first were %s bytes each" % (label, n, len(want), m.name, ",".join(drv), writes[1:]))
-    return writes[1:], drv
+def circuit(quality, sensors):
+    """The design's circuit (10.3) for a track of this quality read by this many sensors: the services' own rule."""
+    return _rules().circuit(quality, sensors)
+
+
+def _rules():
+    d = os.path.join(os.path.dirname(os.path.abspath(__file__)), "roles_exercise")
+    if d not in sys.path:
+        sys.path.insert(0, d)
+    import rules
+    return rules
 
 
 def change(machines, owner, role, values, check, label):
-    """The owner's writes for one change of a memory's channel, each waited for at every end. Returns the time from
-    the first write to the last end saying it runs the last value."""
-    t_first = None
-    for value in values:
-        t0, _ = S.owner_writes(owner, value, ram=channel(role))
-        t_first = t_first or t0
-        ran, t1 = S.owner_waits(owner, value, 2 * len(machines), wait_s=60, ram=channel(role))
-        if not ran:
-            check(False, "%s: not every end said it runs %s" % (label, json.dumps(value, sort_keys=True)))
-            return None
-    check(True, "%s: %d write(s), every daemon and proxy on the last %.0f ms after the first write" % (label, len(values), (t1 - t_first) * 1000))
-    return t1 - t_first
+    """One change of a Role's channel: ONE write by the Role's owner (the design's 6: a switch is one command).
+    Returns the time from the write to every end that carries the Role saying it sends the new way."""
+    ran, took, saw = owner_sets(machines, role, values[-1])
+    check(ran and len(values) == 1, "%s: one write; every daemon and proxy held it, and the %s that carry %s were sending the new way, %.0f ms after the write"
+          % (label, saw.get("carry"), role, (took or 0) * 1000) if ran else "%s: not every end said it runs %s (%s)" % (label, json.dumps(values[-1], sort_keys=True), saw))
+    return took if ran else None
 
 
-def step_protocols(a, check):
-    """The design's build steps 2 and 3 between machines: the OpenQASM driver and codex, every driver on one port
-    recognised by its first bytes, the TCP driver sealing, and a channel's driver, key and algorithm each changed."""
-    net, machines, by, tmp = sites_up(a, check)
-    owner = machines[0].control
-    A, B, C = by[SITES["A"]], by[SITES["B"]], by[SITES["C"]]
-    for m in machines:                                          # the circuit file, placed on each machine as keys are
-        check(os.path.isfile(os.path.join(m.dir, "openqasm_circuits", "01-track.qasm")), "%s holds the circuit file" % m.name)
-    before = S.pids(machines)
-    K = lambda role, n="1": {"key": "%s-%s" % (role, n), "accept": ["%s-%s" % (role, n)]}
-    start = {"warning": {"driver": "tcp"}, "exercise": {"driver": "chorus"},
-             "assessment": dict({"driver": "tcp"}), "compute": dict({"driver": "openqasm"}, **K("compute")),
-             "instructor": {"driver": "chorus"}, "command": dict({"driver": "chorus"}, **K("command")), "units": {"driver": "tcp"}}
-    if not set_channels(machines, owner, start, check, "at the start"):
-        return machines
-    def carries(role, n, label):
-        got, raw = [], []
-        for i, m in enumerate(machines):
-            w = write_tuple(m, role, "probe", m.name, {"n": n + i})
-            r = read_tuple(A if m is not A else B, role, "probe", m.name)
-            got.append((w.get("ok"), r.get("n")))
-            raw.append((w, r))
-        good = got == [(True, n + i) for i in range(len(machines))]
-        check(good, "%s: each site wrote into %s and another read the value back (%s)" % (label, memory(role), got if good else raw))
-
-    # ---- three protocols at once: warning and units on tcp, exercise and command on chorus, compute on openqasm
-    for i, role in enumerate(("warning", "exercise", "compute", "command", "units")):
-        carries(role, 10 * i, "three protocols at once")
-    words = {}
-    for m in machines:
-        text = open(m.daemon_log, errors="replace").read()
-        words[m.name] = sorted(set(re.findall(r"a connection from \S+ began (b'[^']+'): it is (\w+)'s", text)))
-    check(("b'OQ3\\x01'", "openqasm") in words[B.name] and ("b'CHO\\x02'", "chorus") in words[A.name] and ("b'CHO\\x02'", "chorus") in words[C.name]
-          and all("[RETURN_ONLY_V1] listening on" in open(m.daemon_log, errors="replace").read() for m in machines),
-          "every driver arrived on the daemon's one port and was recognised by its first four bytes, not by the port: %s" % words)
-    # ---- the circuit on each protocol: assessment's channel on tcp, then chorus, then openqasm
-    sizes = {}
-    sizes["tcp"], d = circuits_cross(C, check, "the circuit on tcp")
-    check(d == ["tcp"], "those writes went on the TCP driver (%s)" % d)
-    change(machines, owner, "assessment", [{"driver": "chorus"}], check, "assessment's driver, tcp to chorus")
-    sizes["chorus"], d = circuits_cross(C, check, "the circuit on chorus")
-    check(d == ["chorus"], "those writes went on chorus (%s)" % d)
-    change(machines, owner, "assessment", [dict({"driver": "chorus", "accept": ["", "assessment-1"]}),
-                                           dict({"driver": "chorus"}, **{"key": "assessment-1", "accept": ["", "assessment-1"]}),
-                                           dict({"driver": "chorus"}, **K("assessment"))], check, "assessment gets a key (three writes)")
-    sizes["chorus under a key"], d = circuits_cross(C, check, "the circuit on chorus under a key")
-    change(machines, owner, "assessment", [dict({"driver": "openqasm"}, **K("assessment"))], check, "assessment's driver, chorus to openqasm")
-    sizes["openqasm"], d = circuits_cross(C, check, "the circuit on openqasm")
-    check(d == ["openqasm"], "those writes went on the OpenQASM driver (%s)" % d)
-    moved = re.findall(r"for %s: the channel's tuple says openqasm; the session on chorus finishes" % re.escape(channel("assessment")), open(C.proxy_log, errors="replace").read())
-    closed = re.findall(r"the chorus connection to \S+ for %s has no session left on it: closed" % re.escape(channel("assessment")), open(C.proxy_log, errors="replace").read())
-    check(moved and closed, "chorus to openqasm moved no session: a new one opened on the new driver, the old one finished and its connection was closed (%d, %d)" % (len(moved), len(closed)))
-    med = {k: sorted(v)[len(v) // 2] for k, v in sizes.items() if v}
-    check(len(med) == 4 and med["openqasm"] < med["chorus under a key"] and med["openqasm"] < med["tcp"],
-          "bytes on the connection for a repeated circuit, median: %s" % ", ".join("%s %d" % (k, med[k]) for k in ("tcp", "chorus", "chorus under a key", "openqasm") if k in med))
-    # ---- the key store serves TCP: units gets a key on the TCP driver, the key is replaced, the algorithm is replaced
-    U = lambda **kw: dict({"driver": "tcp"}, **kw)
-    carries("units", 100, "units on tcp, no key")
-    change(machines, owner, "units", [U(accept=["", "units-1"]), U(key="units-1", accept=["", "units-1"]), U(key="units-1", accept=["units-1"])],
-           check, "units gets a key on the TCP driver (three writes)")
-    carries("units", 110, "units on tcp under units-1")
-    said1 = re.findall(r"requests to \S+ for %s on the TCP driver now go under the key 'units-1'" % re.escape(channel("units")), open(A.proxy_log, errors="replace").read())
-    change(machines, owner, "units", [U(key="units-1", accept=["units-1", "units-2"]), U(key="units-2", accept=["units-1", "units-2"]), U(key="units-2", accept=["units-2"])],
-           check, "units' key is replaced (three writes)")
-    carries("units", 120, "units on tcp under units-2")
-    said2 = re.findall(r"requests to \S+ for %s on the TCP driver now go under the key 'units-2'" % re.escape(channel("units")), open(A.proxy_log, errors="replace").read())
-    check(said1 and said2, "the TCP driver sealed units' requests under units-1 and then under units-2, from the one key store")
-    P = lambda now, ok: U(key="units-2", accept=["units-2"], protection=now, protections=ok)
-    change(machines, owner, "units", [P("aes-256-gcm", ["aes-256-gcm", "chacha20-poly1305"]), P("chacha20-poly1305", ["aes-256-gcm", "chacha20-poly1305"]),
-                                      P("chacha20-poly1305", ["chacha20-poly1305"])], check, "units' algorithm is replaced, the key is not (three writes)")
-    carries("units", 130, "units on tcp under units-2, sealed with chacha20-poly1305")
-    # ---- what is refused, and said
-    t_r = time.time()
-    r = on(A, "import socket\nfrom core import chorus, openqasm\nfrom core.transport_driver import ConnectionGone\n"
-              "class Plain(chorus._Conn):\n    name = 'openqasm'\n    WIRE = openqasm.WIRE\n"
-              "c = Plain((%r, 9009), src=%r, ram=%r); c.connect()\n"
-              "[c.send(u) for u in c.pack(2, b'FNH1' + bytes(60))]\n"
-              "try:\n    c._sock.settimeout(10); c.receive(); closed = False\nexcept ConnectionGone:\n    closed = True\n"
-              "s = socket.create_connection((%r, 9009), timeout=10); s.sendall(b'XYZ\\x01 this is no protocol here'); s.settimeout(10)\n"
-              "try:\n    gone = s.recv(1) == b''\nexcept OSError:\n    gone = True\n"
-              "print('@@ ' + json.dumps({'closed': closed, 'gone': gone}))" % (B.ip, A.ip, channel("compute"), B.ip))
-    time.sleep(0.3)
-    dl = open(B.daemon_log, errors="replace").read()
-    check(r.get("closed") and "arrived unsealed on an OpenQASM connection for %s, which refuses it" % channel("compute") in dl,
-          "an unsealed message on an OpenQASM connection is refused: the connection is ended and the daemon says why (%s)" % r)
-    check(r.get("gone") and re.search(r"began b'XYZ\\x01', which is no registered protocol's first frame", dl),
-          "a connection whose first frame is no registered protocol's is closed, and the daemon says why")
-    change(machines, owner, "instructor", [{"driver": "openqasm"}], check, "instructor's channel set to openqasm with no key")
-    w = write_tuple(A, "instructor", "probe", "nokey", {"n": 1})
-    check(not w.get("ok") and "seals every message and its setting names no key" in open(A.proxy_log, errors="replace").read(),
-          "an OpenQASM channel whose setting names no key carries nothing: the write failed and the driver said why (%s)" % (w,))
-    change(machines, owner, "instructor", [{"driver": "chorus"}], check, "instructor's channel back to chorus")
-    carries("instructor", 200, "instructor on chorus again")
-    after = S.pids(machines)
-    check(before == after and all(p[1] is None and p[3] is None for p in after.values()), "no daemon or proxy restarted or ended")
-    return machines
-
-
-# ------------------------------------------------------------------------------------------------- the admin pages
 PAGES = os.path.join(os.path.dirname(os.path.dirname(SEM)), "opt", "fdf", "src", "fdf-source", "fdf", "www", "roles_exercise")
 ADMIN = ("WarningAdmin", "AssessmentAdmin", "ComputeAdmin", "CommandAdmin", "UnitsAdmin", "ExerciseAdmin", "InstructorAdmin")
 
@@ -502,8 +393,8 @@ def step_pages(a, check):
     place_pages(machines)
     owner = machines[0].control
     A, B, C = by[SITES["A"]], by[SITES["B"]], by[SITES["C"]]
-    if not set_channels(machines, owner, {"warning": {"driver": "tcp"}, "units": dict({"driver": "chorus"}, **KEYED("units")),
-                                          "compute": dict({"driver": "openqasm"}, **KEYED("compute"))}, check, "for the pages"):
+    if not set_channels(machines, owner, {"warning": {"driver": "tcp"}, "units": dict({"driver": "chorus"}, **SEALED("units")),
+                                          "compute": dict({"driver": "openqasm"}, **SEALED("compute"))}, check, "for the pages"):
         return machines
     door = "http://127.0.0.1:8080/roles_exercise/"
     get = lambda m, path, post=None: on(m, "import urllib.request\ntry:\n    r = urllib.request.urlopen(urllib.request.Request(%r, data=%r, method=%r), timeout=90)\n"
@@ -554,37 +445,31 @@ RX = os.path.join(HERE, "roles_exercise")
 SERVICES = (("A", "warning", ["warning.py"]), ("A", "exercise", ["exercise.py"]),
             ("B", "assessment", ["assessment.py"]), ("B", "compute", ["compute_planner.py"]), ("B", "processor1", ["compute_processor.py", "1"]),
             ("C", "command", ["command.py"]), ("C", "units", ["units.py"]), ("C", "processor2", ["compute_processor.py", "2"]))
-KEYED = lambda role, n="1": {"key": "%s-%s" % (role, n), "accept": ["%s-%s" % (role, n)]}
 
 
 def run_plan(run):
-    """(each memory's setting at the start, the changes of run 4 as (step of 60, role, label, [the owner's writes]))."""
+    """(each Role's channel at the start, the changes of run 4 as (step of 60, Role, label, [the owner's one write])).
+    The design's 11.1 and 8: runs 1 to 3 have every channel sealed, so the three protocols are compared like for
+    like; run 4 starts mixed and two owners make seven changes, a protocol and an encryption never in one write."""
     roles = [r for r, _s in ROLES]
-    if run == 1:
-        return {r: {"driver": "tcp"} for r in roles}, []
-    if run == 2:
-        return {r: {"driver": "chorus"} for r in roles}, []
-    if run == 3:
-        return {r: dict({"driver": "openqasm"}, **KEYED(r)) for r in roles}, []
-    start = {"warning": {"driver": "tcp"}, "exercise": {"driver": "chorus"}, "command": dict({"driver": "chorus"}, **KEYED("command")),
-             "compute": dict({"driver": "openqasm"}, **KEYED("compute")), "assessment": dict({"driver": "chorus"}, **KEYED("assessment")),
-             "units": {"driver": "tcp"}, "instructor": {"driver": "chorus"}}
-    U = lambda **kw: dict({"driver": "chorus"}, **kw)
-    A = lambda **kw: dict({"driver": "openqasm"}, **kw)
-    both = ["aes-256-gcm", "chacha20-poly1305"]
+    if run in (1, 2, 3):
+        word = {1: "tcp", 2: "chorus", 3: "openqasm"}[run]
+        return {r: dict({"driver": word}, **SEALED(r)) for r in roles}, []
+    P = lambda word: {"driver": word}
+    start = {"warning": P("tcp"), "exercise": P("chorus"), "assessment": dict(P("chorus"), **SEALED("assessment")),
+             "compute": dict(P("openqasm"), **SEALED("compute")), "instructor": P("chorus"),
+             "command": dict(P("chorus"), **SEALED("command")), "units": P("tcp")}
+    U = lambda **kw: dict(P("chorus"), **kw)
+    A = lambda **kw: dict(P("openqasm"), **kw)
+    cha = "chacha20-poly1305"
     changes = [
         (15, "units", "Units: the protocol, TCP to Chorus", [U()]),
-        (25, "assessment", "Assessment: the protocol, Chorus to OpenQASM", [A(**KEYED("assessment"))]),
-        (30, "units", "Units: a key is introduced", [U(accept=["", "units-1"]), U(key="units-1", accept=["", "units-1"]), U(**KEYED("units"))]),
-        (35, "assessment", "Assessment: its key is replaced", [A(key="assessment-1", accept=["assessment-1", "assessment-2"]),
-                                                              A(key="assessment-2", accept=["assessment-1", "assessment-2"]), A(**KEYED("assessment", "2"))]),
-        (45, "units", "Units: its key is replaced", [U(key="units-1", accept=["units-1", "units-2"]), U(key="units-2", accept=["units-1", "units-2"]), U(**KEYED("units", "2"))]),
-        (50, "assessment", "Assessment: its algorithm is replaced", [A(protection="aes-256-gcm", protections=both, **KEYED("assessment", "2")),
-                                                                    A(protection="chacha20-poly1305", protections=both, **KEYED("assessment", "2")),
-                                                                    A(protection="chacha20-poly1305", protections=["chacha20-poly1305"], **KEYED("assessment", "2"))]),
-        (55, "units", "Units: its algorithm is replaced", [U(protection="aes-256-gcm", protections=both, **KEYED("units", "2")),
-                                                          U(protection="chacha20-poly1305", protections=both, **KEYED("units", "2")),
-                                                          U(protection="chacha20-poly1305", protections=["chacha20-poly1305"], **KEYED("units", "2"))]),
+        (25, "assessment", "Assessment: the protocol, Chorus to OpenQASM", [A(**SEALED("assessment"))]),
+        (30, "units", "Units: encryption turned on", [U(**SEALED("units", 1))]),
+        (35, "assessment", "Assessment: its key is switched", [A(**SEALED("assessment", 1))]),
+        (45, "units", "Units: its key is switched", [U(**SEALED("units", 2))]),
+        (50, "assessment", "Assessment: its algorithm is replaced", [A(**SEALED("assessment", 2, cha))]),
+        (55, "units", "Units: its algorithm is replaced", [U(**SEALED("units", 3, cha))]),
     ]
     return start, changes
 
@@ -617,7 +502,7 @@ def one_run(a, run, check):
     try:
         if not set_channels(machines, owner, start, check, "run %d, at the start" % run):
             return machines, None, report
-        before = S.pids(machines)
+        before = pids(machines)
         sc = json.load(open(os.path.join(RX, "scenarios", "first.json")))
         full = sc["steps"]
         if a.steps and a.steps < full:
@@ -718,7 +603,7 @@ def one_run(a, run, check):
             said3.append("%d (%s %s.%s) steps %d to %d: %d of %d%s" % (n, v["role"], v["var"], v["scope"], lo, hi - 1, sum(good), len(good), ", released" if after else ", to the end"))
         check(ok3 and inj, "criterion 3: every injected value was in force at every step from its injection to its release: %s" % "; ".join(said3))
         # ---- criterion 4: nothing restarted
-        after_p = S.pids(machines)
+        after_p = pids(machines)
         alive = {n: p.poll() for n, (_m, p, _l) in procs.items()}
         check(before == after_p and all(v is None for v in alive.values()), "criterion 4: no daemon, proxy or Role service restarted or ended")
         # ---- bytes on each Role's channel, from the drivers' own counts, and the three protocols at once
@@ -790,7 +675,7 @@ def step_runs(a, check):
     print("   %-28s %s" % ("a step, 95th ms", "  ".join("%-13s" % (r.get("step_ms") or {}).get("p95") for r in reports)))
     print("   %-28s %s" % ("reads and writes / failed", "  ".join("%-13s" % ("%s / %s" % (r.get("calls"), r.get("failed"))) for r in reports)))
     for ram in [channel(r) for r, _s in ROLES] + ["-"]:
-        print("   %-28s %s" % ((ram if ram != "-" else "(for no memory: fires)")[:28] + " bytes", "  ".join(
+        print("   %-28s %s" % ((ram if ram != "-" else "(for no Role: fires)")[:28] + " bytes", "  ".join(
             "%-13s" % (lambda c: "%d %s" % (c["req_bytes"] + c["rep_bytes"], ",".join(c["drivers"])) if c else "-")((r.get("channels") or {}).get(ram)) for r in reports)))
     for r in reports:
         for c in r.get("changes", []):
@@ -804,7 +689,7 @@ def step_runs(a, check):
         for fn in files:
             if fn.endswith((".py", ".json")):
                 t = open(os.path.join(root, fn), errors="replace").read()
-                named += ["%s: %s" % (fn, w) for w in ("tcp", "chorus", "openqasm") + tuple("%s-%s" % (r, n) for r, _s in ROLES for n in "12") if w in t]
+                named += ["%s: %s" % (fn, w) for w in ("tcp", "chorus", "openqasm", "the seed of", "channel_keys", "aes-256", "chacha20") if w in t]
     check(not named, "R25: nothing under simulation/roles_exercise names a protocol or a key%s" % ("" if not named else ": %s" % named))
     import subprocess
     d = subprocess.run(["git", "-C", SEM, "status", "--porcelain", "--", "discovery", "frognet_route", "../../usr/local/bin", "internet_tunnels_v3"], capture_output=True, text=True)
@@ -814,7 +699,7 @@ def step_runs(a, check):
 
 def main():
     ap = argparse.ArgumentParser()
-    ap.add_argument("--step", default="memories", choices=["memories", "protocols", "pages"])
+    ap.add_argument("--step", default="memories", choices=["memories", "pages"])
     ap.add_argument("--run", default="", choices=["", "1", "2", "3", "4", "all"], help="the design's four runs: 1 TCP, 2 Chorus, 3 OpenQASM, 4 mixed with changes")
     ap.add_argument("--steps", type=int, default=0, help="run this many of the scenario's 60 steps (the changes of run 4 fall at the same fractions)")
     ap.add_argument("--out", default="", help="write <out>.run<N>.record.json and <out>.report.json")
@@ -835,7 +720,7 @@ def main():
         print("RESULT FAIL: this tier needs " + "; ".join(need)); return 1
     machines = []
     try:
-        machines = step_runs(a, check) if a.run else {"memories": step_memories, "protocols": step_protocols, "pages": step_pages}[a.step](a, check)
+        machines = step_runs(a, check) if a.run else {"memories": step_memories, "pages": step_pages}[a.step](a, check)
     finally:
         if machines and not a.keep:
             W.tear_down(machines)

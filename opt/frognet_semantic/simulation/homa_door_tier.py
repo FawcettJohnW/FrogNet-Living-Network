@@ -64,12 +64,12 @@ def main():
     ran = []                                                    # per scenario: what the driver carried
 
     def hop(TS, origin, origin_store):
-        from core import chorus as HF, homa_transport as HT
+        from core import channel_carrier as HF, homa_transport as HT
         from proxy import transport_homa as TH
         from daemon.engine import server_homa as SH
-        class OnThisHost(HF.ChorusOnTcp):                   # STOOD IN FOR: the origin node's address. One host is both
-            def send_request(self, dest, payload, cookie):      # nodes here, so the connection to 10.77.77.1 is made to
-                return super().send_request(("127.0.0.1", dest[1]), payload, cookie)     # this host; the frames are the same
+        class OnThisHost(HF.FrameCarrier):                  # STOOD IN FOR: the origin node's address. One host is both
+            def send_request(self, dest, payload, cookie, ram="", word=""):      # nodes here, so the connection to 10.77.77.1 is made to
+                return super().send_request(("127.0.0.1", dest[1]), payload, cookie, ram=ram)     # this host; the frames are the same
         TH._client_carrier = lambda: OnThisHost()
         TH._peer_liveness = lambda on_gone, on_event: _Liveness()
         tcp = []
@@ -84,7 +84,7 @@ def main():
         srv = SH.MsgDaemonServer(ORIGIN, TS._DAEMON_PORT, None)
         srv._http_client = origin
         srv._peer_liveness = lambda: _Liveness()
-        srv._server_carrier = lambda: HF.ChorusOnTcp(bind_ip="127.0.0.1", server_port=TS._DAEMON_PORT)
+        srv._server_carrier = lambda: HF.FrameCarrier(bind_ip="127.0.0.1", server_port=TS._DAEMON_PORT)
         srv._writer_gone = lambda ip: None
         threading.Thread(target=srv.run, daemon=True, name="homa-door-daemon").start()
         t_end = time.time() + 20

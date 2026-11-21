@@ -257,33 +257,19 @@ def _recv_exact(conn: socket.socket, n: int) -> bytes:
     return bytes(buf)
 
 
-# [THE_TCP_DRIVER_SEALS_V1] John, 2026-11-21: "The keyed store, for example, can apply to all protocols". One key store
-# on a machine serves every driver, so the TCP driver seals too: when the setting of its session's memory names a key,
-# pack() seals the frame (core/channel_setting.protect, the layout every driver uses) and marks the unit in the top
-# bit of its 4-byte length word; unpack() opens a unit that is marked. A unit read off the socket with the mark is a
-# Sealed; a unit to be sent with it is one.
-SEALED_BIT = 0x80000000
-
-
-class Sealed(bytes):
-    """A unit of the TCP driver that crossed, or is to cross, sealed."""
-
-
 def _recv_frame(conn: socket.socket) -> bytes:
     hdr = _recv_exact(conn, 4)
     (n,) = struct.unpack("!I", hdr)
-    sealed, n = n & SEALED_BIT, n & ~SEALED_BIT
     if n <= 0 or n > _MAX_FRAME:
         raise RuntimeError(f"bad frame length {n}")
-    data = _recv_exact(conn, n)
-    return Sealed(data) if sealed else data
+    return _recv_exact(conn, n)
 
 
 def _send_frame(conn: socket.socket, payload: bytes) -> None:
     n = len(payload)
     if n <= 0 or n > _MAX_FRAME:
         raise RuntimeError(f"invalid frame size {n}")
-    conn.sendall(struct.pack("!I", n | (SEALED_BIT if isinstance(payload, Sealed) else 0)))
+    conn.sendall(struct.pack("!I", n))
     conn.sendall(payload)
 
 
@@ -1597,7 +1583,6 @@ class TcpDaemonEnd(TransportDriver):
         # [A_CONNECTION_IS_FOR_A_MEMORY_V1] the memory this session is for: the proxy's HELLO says it after an "@"
         # (ip#set@memory). [THE_TCP_DRIVER_SEALS_V1] request number -> (key name, algorithm) it arrived under.
         self.ram = (return_ip or "").split("@", 1)[1].lower() if "@" in (return_ip or "") else ""
-        self._req_key: Dict[int, tuple] = {}
         if self.ram:
             print(f"[DAEMON-SESSION] [A_CONNECTION_IS_FOR_A_MEMORY_V1] the TCP session from {peer_ip} is for {self.ram}", flush=True)
         # [LINK_POTENTIAL_PING_V1 2026-05-25] The server reads one
@@ -1674,28 +1659,11 @@ class TcpDaemonEnd(TransportDriver):
         return _recv_frame(self._recv_sock)
 
     def pack(self, n: int, frame: bytes) -> List[bytes]:
-        how = self._req_key.pop(n, None)
-        if how is not None:                              # a reply is sealed as its request arrived
-            from core import channel_setting
-            return [Sealed(struct.pack("!I", n) + channel_setting.protect(2 * n + 1, frame, how[0], self.peer_ip, self.ram, how[1]))]
         return [struct.pack("!I", n) + frame]
 
     def unpack(self, data: bytes) -> Optional[Tuple[int, bytes]]:
         n = self._n
         self._n += 1
-        from core import channel_setting
-        try:
-            if isinstance(data, Sealed):
-                frame, name, how = channel_setting.opened(2 * n, bytes(data), True, self.peer_ip, self.ram)
-                self._req_key[n] = (name, how)
-                return n, frame
-            if channel_setting.refuses_no_key(channel_setting.here(self.ram)) and channel_setting.refuses_no_key(channel_setting.read_here(self.ram)):
-                raise channel_setting.KeyRefused("a request arrived under no key and the channel%s accepts %s"
-                                                 % (" of %s" % self.ram if self.ram else "",
-                                                    list(channel_setting._accepted(channel_setting.here(self.ram)))))
-        except channel_setting.KeyRefused as e:
-            from core.transport_driver import ConnectionGone
-            raise ConnectionGone("request %d from %s on the TCP driver: %s" % (n, self.peer_ip, e)) from e
         return n, data
 
     def close(self) -> None:

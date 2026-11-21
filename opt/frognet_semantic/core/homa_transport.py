@@ -92,6 +92,7 @@ def register_driver(word: str, session_kind: str) -> None:
         raise ValueError("a driver's session kind is tcp or homa, not %r" % (session_kind,))
     DRIVERS[word.lower()] = session_kind
 ON_CHORUS = {"chorus"}              # [A_CONNECTION_IS_OF_ITS_DRIVER_V1] the words whose connections chorus's carrier holds (core/openqasm.py adds its own)
+FRAMED = {"tcp", "chorus", "openqasm"}   # the protocols core/channel_frame.py carries inside its frame
 WALK = ("homa", "chorus", "tcp")    # the walk's order: equal or unmeasured carriers are taken in this order
 BUILD = "homa-carrier-v4-20261117u"
 _chosen = None
@@ -288,6 +289,11 @@ def carrier_for(host: str, ram: str = "") -> str:
         # [A_SETTING_PER_RAM_CONNECTION_V1] a RAM's own tuple, if one is at host
         said = channel_setting.driver(host, ram)
         kind = DRIVERS.get(said) if said is not None else None        # [A_DRIVER_REGISTERS_ITS_WORD_V1]
+        if said in FRAMED and _chorus_loaded() is not None:
+            # [ONE_CONNECTION_PER_DESTINATION_V1] a protocol under the frame (tcp, chorus, openqasm): the session is
+            # on this process's one connection to that destination, whatever the word. The word is the frame's
+            # business (core/channel_frame.py), not a choice of connection.
+            return "homa"
         if kind == "tcp":
             return "tcp"
         if kind == "homa":
@@ -362,8 +368,9 @@ def daemon_server(host: str, port: int, resolver, tcp_server_class):
     the connection is that driver's; anything else is the TCP driver's to read, and it refuses what is not its own."""
     mine = carriers_listened()
     if "tcp" in mine and "chorus" in mine:
-        from core import chorus
+        from core import chorus, channel_carrier
         chorus.SHARED_PORT = True
+        channel_carrier.SHARED_PORT = True
     if mine == ("tcp",):
         return tcp_server_class(host=host, port=port, resolver=resolver)
     from daemon.engine.server_homa import MsgDaemonServer
@@ -405,8 +412,11 @@ def open_homa_socket(who: str, bind_ip: str = "0.0.0.0", server_port=None):
             src = ""
             print("[HOMA] %s: this node's own address could not be said (%s: %s); chorus's connections leave by "
                   "whatever address the kernel picks" % (who, type(e).__name__, e), flush=True)
-        s = chorus.ChorusOnTcp(bind_ip=bind_ip, server_port=server_port, src=src)
-        print(chorus.startup_line(who, s), flush=True)
+        # [ONE_CONNECTION_PER_DESTINATION_V1] the semantic wire's carrier is the frame carrier: one connection to
+        # each destination, every Role's traffic on it under that Role's own protocol and key (core/channel_carrier.py)
+        from core import channel_carrier
+        s = channel_carrier.FrameCarrier(bind_ip=bind_ip, server_port=server_port, src=src)
+        print(channel_carrier.startup_line(who, s), flush=True)
         return s
     from core import homa_socket
     s = homa_socket.HomaSocket(bind_ip=bind_ip, server_port=server_port)

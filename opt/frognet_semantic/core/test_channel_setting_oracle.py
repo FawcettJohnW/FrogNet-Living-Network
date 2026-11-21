@@ -1,17 +1,17 @@
 #!/usr/bin/env python3
 # Copyright (C) 2016-2026 Fawcett Innovations LLC
 # SPDX-License-Identifier: GPL-2.0-only
-"""The parts of the channel's setting that can be checked in one process: a registered driver's word, a registered
-protection, a RAM's own setting, and the sealed message's bytes.
+"""The parts of a channel's setting that can be checked in one process: whose setting a memory's name says it is, a
+registered protocol's word, the two algorithms, and the setting proving itself ([A_SETTING_PROVES_ITSELF_V1]).
 
-This is NOT the test that a running channel can be changed. That is simulation/channel_swap_tier.py, between machines,
-through the real proxy and daemon. This is the quick check after touching core/channel_setting.py or
-core/channel_protection.py.
+This is NOT the test that a running channel can be switched. That is simulation/roles_exercise_tier.py --run 4, between
+machines, through the real proxy and daemon; and core/test_channel_frame_oracle.py for the frame itself. This is the
+quick check after touching core/channel_setting.py or core/channel_protection.py.
 
   python3 core/test_channel_setting_oracle.py
 """
+import hashlib
 import os
-import struct
 import sys
 import tempfile
 
@@ -30,107 +30,84 @@ def main():
     keys = tempfile.mkdtemp(prefix="channel-keys-")
     os.environ["FROGNET_CHANNEL_KEYS"] = keys
     os.environ["FROGNET_SEM_TRANSPORT"] = "tcp"
-    for name in ("A", "B"):
-        with open(os.path.join(keys, name), "wb") as f:
-            f.write(os.urandom(32))
+    for role in ("units", "assessment"):
+        os.makedirs(os.path.join(keys, role))
+        for i in range(20):
+            with open(os.path.join(keys, role, "%02d" % i), "wb") as f:
+                f.write(hashlib.sha256(("%s %d" % (role, i)).encode()).digest())
     from core import channel_setting as C
     from core import channel_protection as P
     from core import homa_transport as HT
     C._started = True                                       # no held read: the settings are put here by hand
-    C._me = "10.2.2.1"
-    C.read_now = lambda: C._cur                             # and no read of the ControlRam at a refusal: there is none here
+    said = []
+    real_print = print
 
-    # ---- a driver's word
-    C._cur = {"driver": "chorus"}
-    check(C.driver() == "chorus" and C.driver("10.9.9.1") == "chorus", "the tuple names chorus: that is the word for a new session")
-    C._cur = {"driver": "quantum"}
-    check(C.driver() is None, "the tuple names a word no driver registered: it is no word, and the node's own word decides")
-    HT.register_driver("quantum", "homa")
-    check(C.driver() == "quantum" and HT.DRIVERS["quantum"] == "homa", "a driver registers its word: the tuple may then name it")
-    try:
-        HT.register_driver("bad", "udp"); said = False
-    except ValueError:
-        said = True
-    check(said, "a word is registered as one of the engine's two session kinds, and nothing else")
+    # ---- whose setting a memory's name says it is
+    names = {"unitsHost.exercise": "units", "exerciseHost.frognet": "exercise", "UNITSHOST.EXERCISE:80": "units",
+             "databasehost.frognet": "", "databasehost_control.frognet": "", "10.1.2.3": "", "FrogNetHost.Seattle5": "", "": ""}
+    check(all(C.role_of(n) == r for n, r in names.items()),
+          "a Role's memory is an application memory, <team>Host.<app> or <app>Host.frognet, and the Role is the name before Host; "
+          "the SystemRam, the ControlRam, a node's name and an address are no Role (%s)" % {n: C.role_of(n) for n in names})
 
-    # ---- one RAM's own setting
-    C._cur = {"driver": "tcp"}
-    C._rams = {"databasehost.frognet": {"driver": "chorus", "key": "A", "accept": ["A"]}}
-    # [THE_SETTING_IS_READ_BY_THE_MEMORYS_NAME_V1] John, 2026-11-21: "The setting in a tuple". It is read by the memory's
-    # name, never by which memory is at an address.
-    R = "databasehost.frognet"
-    C._rams["otherram.frognet"] = {"driver": "tcp", "key": "B", "accept": ["B"]}
-    check(C.driver("10.2.2.1", R) == "chorus" and C.sending_key("10.2.2.1", R) == "A" and C.driver("10.2.2.1") == "tcp" and C.sending_key("10.2.2.1") == "",
-          "a memory's own tuple is the setting of the connection FOR that memory; a connection for no memory is the channel's, whatever is at its address")
-    check(C.driver("10.2.2.1", "otherram.frognet") == "tcp" and C.sending_key("10.2.2.1", "otherram.frognet") == "B",
-          "two memories on one machine each have their own setting")
-    check(C._accepted(C.here(R)) == ("A",) and C._accepted(C.here("otherram.frognet")) == ("B",) and C._accepted(C.here()) == (),
-          "what arrives for a memory is under that memory's setting; what arrives for none is under the channel's")
-    check(C.driver("10.4.4.1", R) == "chorus", "the role moved: the memory's setting is still its own, at the new address")
-    check(C.ram_of("DatabaseHost.frognet") == R and C.ram_of("databasehost.frognet:80") == R and C.ram_of("10.2.2.1") == ""
-          and C.ram_of("nosuchram.frognet") == "" and C.ram_of(None) == "",
-          "the memory a request is for is the name it gives, when that memory has a tuple of its own; an address or another name is none")
-    del C._rams["otherram.frognet"]
+    # ---- a setting proves itself
+    def signed(role, **v):
+        v = dict(v); v["check"] = C.check_of(role, v); return v
+    first = signed("units", driver="tcp", switches=0)
+    C._take(None, "the oracle", {"units": first})
+    check(C.setting_of("units") == first and C.ram_of("unitsHost.exercise") == "units" and C.ram_of("commandHost.exercise") == "",
+          "a setting with its check is taken, and a request for that Role's memory is that Role's; a Role with no setting is traffic of no Role")
+    sealed = signed("units", driver="tcp", seed="s", protection="aes-256-gcm", switches=1)
+    C._take(None, "the oracle", {"units": sealed})
+    check(C.setting_of("units") == sealed, "the owner turns encryption on with a new write and a higher count: taken")
+    forged = dict(sealed, seed="", switches=2)              # written by someone who does not hold the set: the old check, or none
+    C._take(None, "the oracle", {"units": forged})
+    kept1 = C.setting_of("units") == sealed
+    C._take(None, "the oracle", {"units": {"driver": "tcp", "seed": "", "switches": 2}})
+    kept2 = C.setting_of("units") == sealed
+    C._take(None, "the oracle", {"units": dict(forged, check=C.check_of("assessment", {k: v for k, v in forged.items() if k != "check"}))})
+    kept3 = C.setting_of("units") == sealed
+    check(kept1 and kept2 and kept3, "a setting that turns the encryption off, with a check copied from another setting, with none, or "
+          "made with another Role's set: ignored each time, and this end keeps running the setting it has")
+    C._take(None, "the oracle", {"units": first})           # the Role's first, unsealed setting, written again: valid when it was made
+    check(C.setting_of("units") == sealed, "an old valid setting written again (the Role's first, unsealed one, count 0): ignored, "
+          "because its count is lower than the one this end is running")
+    C.RUNNING = lambda: {"units": {"switches": 3}}
+    late = signed("units", driver="chorus", seed="s", protection="aes-256-gcm", switches=2)
+    C._take(None, "the oracle", {"units": late})
+    check(C.setting_of("units") == sealed, "the count compared with is the one this end is RUNNING on its connections, when that is ahead of the setting it holds")
+    C.RUNNING = None
+    off = signed("units", driver="tcp", seed="", switches=2)
+    C._take(None, "the oracle", {"units": off})
+    check(C.setting_of("units") == off, "the owner turns encryption off: a new write, with its check, and a higher count: taken")
+    C._take(None, "the oracle", {"units": off, "command": {"driver": "chorus", "seed": "x", "switches": 0}})
+    check(C.setting_of("command") == {"driver": "chorus", "seed": "x", "switches": 0},
+          "a Role this machine holds no set for: it has nothing to verify with and nothing to protect, and takes the setting as written")
+    check(C.check_of("units", off) != C.check_of("assessment", off) and C.check_of("command", off) is None
+          and C.check_text("units", {"switches": 2, "driver": "tcp", "seed": "", "check": "x", "ts": 9}) == b"units\ndriver=tcp\nseed=\nswitches=2",
+          "the check is of the Role's name and the setting's other fields, as text any language can make the same, keyed from the Role's whole set")
 
-    # ---- the sealed message
-    frame = os.urandom(300001)
-    b = C.protect(4, frame, "A", "10.2.2.1", R)
-    got, name = C.unprotect(4, b, True, "10.9.9.1", R)
-    check(got == frame and name == "A" and frame[:64] not in b, "a 300,001-byte message under key A: none of it in the clear, and it opens to exactly what was sealed")
-    try:
-        import cryptography.hazmat.primitives.ciphers.aead as A
-        same = A.AESGCM(open(os.path.join(keys, "A"), "rb").read()).encrypt(b[3:15], frame, struct.pack("!Q", 4) + b[:3]) == b[15:]
-        check(same, "the bytes are the bytes the Python module cryptography makes for the same key, nonce and associated data")
-    except ImportError:
-        print("  [SKIP] the Python module cryptography is not here to compare bytes with (it is not needed)")
-    for what, n, blob in (("another message's number", 6, b), ("one bit changed", 4, b[:-1] + bytes([b[-1] ^ 1]))):
-        try:
-            C.unprotect(n, blob, True, "10.9.9.1", R); said = False
-        except C.KeyRefused:
-            said = True
-        check(said, "a sealed message with %s does not open, and is refused" % what)
-    try:
-        C.unprotect(4, C.protect(4, b"x", "B", "10.2.2.1", R), True, "10.9.9.1", R); said = False
-    except C.KeyRefused as e:
-        said = "accepts" in str(e)
-    check(said, "a request under key B where only A is accepted: refused, and it says what is accepted")
-    P.register_protection("xor-test", lambda k, n, a, f: bytes(x ^ 0x5A for x in f), lambda k, n, a, f: bytes(x ^ 0x5A for x in f))
-    C._rams["databasehost.frognet"]["protection"] = "xor-test"
-    b2 = C.protect(4, b"hello", "A", "10.2.2.1", R)
-    check(C.unprotect(4, b2, True, "10.9.9.1", R)[0] == b"hello" and b2.endswith(bytes(x ^ 0x5A for x in b"hello")),
-          "a protection registered by name is the one used when the tuple names it")
-    # [THE_ALGORITHM_IS_PART_OF_THE_SETTING_V1] the message names its algorithm; the setting says which are accepted
-    C._rams[R].pop("protection")
-    aes = C.protect(4, b"circuit", "A", "10.2.2.1", R)
-    C._rams[R].update(protection="chacha20-poly1305", protections=["aes-256-gcm", "chacha20-poly1305"])
-    cha = C.protect(4, b"circuit", "A", "10.2.2.1", R)
-    check(aes[0] == 1 and cha[0] == 2 and aes[1:3] == cha[1:3] == b"\x01A" and C.opened(4, aes, True, None, R) == (b"circuit", "A", "aes-256-gcm")
-          and C.opened(4, cha, True, None, R) == (b"circuit", "A", "chacha20-poly1305"),
-          "a sealed message begins with its algorithm's number and its key's name; while both algorithms are accepted, a message sealed either way opens, under the same key")
-    C._rams[R]["protections"] = ["chacha20-poly1305"]
-    try:
-        C.opened(4, aes, True, None, R); said = False
-    except C.KeyRefused as e:
-        said = "aes-256-gcm" in str(e) and "accepts" in str(e)
-    check(said and C.opened(4, cha, True, None, R)[0] == b"circuit", "once only the new algorithm is accepted, a request sealed with the old one is refused, and it says so")
-    check(C.opened(5, C.protect(5, b"reply", "A", None, R, "aes-256-gcm"), False, "10.2.2.1", R)[2] == "aes-256-gcm",
-          "a reply is sealed as its request arrived, whatever the setting seals requests with now")
-    try:
-        C.opened(4, bytes([99]) + aes[1:], True, None, R); said = False
-    except C.KeyRefused as e:
-        said = "99" in str(e)
-    check(said, "a message that names an algorithm this build does not have is refused, and the number is said")
-    C._rams[R].pop("protections")
-    C._rams["databasehost.frognet"]["protection"] = "rot13"
-    try:
-        C.protect(4, b"hello", "A", "10.2.2.1", R); said = False
-    except C.KeyRefused as e:
-        said = "rot13" in str(e)
-    check(said, "a protection nobody registered: refused, and it is named")
+    # ---- a registered protocol's word
+    C._take(None, "the oracle", {"units": signed("units", driver="openqasm", switches=3), "assessment": signed("assessment", driver="no-such", switches=0)})
+    check(C.driver(None, "units") == "openqasm" and C.driver(None, "assessment") is None,
+          "the protocol a setting names is taken when a driver has registered that word (%s), and a word nobody registered is said and is no word"
+          % ", ".join(sorted(HT.DRIVERS)))
 
-    print("\n%s" % ("ALL CHANNEL-SETTING ORACLE CHECKPOINTS PASS" if not FAILED else "CHANNEL-SETTING ORACLE FAILED (%d)" % len(FAILED)))
+    # ---- the two algorithms
+    key, nonce, aad = os.urandom(32), os.urandom(12), b"\0" * 8
+    ok = True
+    for name in ("aes-256-gcm", "chacha20-poly1305"):
+        seal, open_ = P.PROTECTIONS[name]
+        blob = seal(key, nonce, aad, b"a frame")
+        ok = ok and open_(key, nonce, aad, blob) == b"a frame" and len(blob) == len(b"a frame") + P.TAG
+        for bad in ((os.urandom(32), nonce, aad), (key, nonce, b"\1" * 8)):
+            try:
+                open_(bad[0], bad[1], bad[2], blob); ok = False
+            except ValueError:
+                pass
+    check(ok, "aes-256-gcm and chacha20-poly1305, from the machine's own libcrypto: each opens what it sealed, and not under another key or for another packet")
+    print("ALL CHANNEL-SETTING ORACLE CHECKPOINTS PASS" if not FAILED else "CHANNEL-SETTING ORACLE: %d FAILED" % len(FAILED))
     return 1 if FAILED else 0
 
 
 if __name__ == "__main__":
-    rc = main(); sys.stdout.flush(); os._exit(rc)
+    sys.exit(main())

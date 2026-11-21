@@ -47,14 +47,11 @@ def _recv_exact(conn, n):
 
 
 def _recv_frame(conn):
-    from .session import Sealed, SEALED_BIT              # [THE_TCP_DRIVER_SEALS_V1] the first session frame may be sealed
     hdr = _recv_exact(conn, 4)
     (n,) = struct.unpack("!I", hdr)
-    sealed, n = n & SEALED_BIT, n & ~SEALED_BIT
     if n <= 0 or n > _MAX_FRAME:
         raise RuntimeError(f"bad frame length {n}")
-    data = _recv_exact(conn, n)
-    return Sealed(data) if sealed else data
+    return _recv_exact(conn, n)
 
 
 def _send_frame(conn, payload: bytes) -> None:
@@ -150,22 +147,23 @@ class DaemonServer:
         # are looked at (and left in place). A driver's word: the connection is that driver's. Anything else is read
         # below as the TCP driver's own first frame, a length and then FNW1 HELLO, and refused if it is not that.
         try:
-            from core import chorus as _chorus
-            _word = _chorus.first_word(conn)
+            from core import channel_carrier as _carrier
+            _word = _carrier.first_word(conn)
         except OSError as e:
             print(f"[DAEMON-SERVER] a connection from {peer_ip}:{addr[1]} said nothing ({e!r}): closed", flush=True)
             try: conn.close()
             except Exception: pass
             return
-        if len(_word) < len(_chorus.WIRE):
+        if len(_word) < len(_carrier.WORD):
             print(f"[DAEMON-SERVER] a connection from {peer_ip}:{addr[1]} closed after {len(_word)} byte(s), before it had said what it is", flush=True)
             try: conn.close()
             except Exception: pass
             return
-        if _word in _chorus.WIRES:
-            if _chorus.SERVER is None or not _chorus.SERVER.adopt(conn, addr, _word):
-                print(f"[DAEMON-SERVER] a connection from {peer_ip}:{addr[1]} began {_word!r} ({_chorus.WIRES[_word].name}'s "
-                      f"word) and this daemon was not told of that driver's carrier: closed", flush=True)
+        if _word == _carrier.WORD:
+            # [ONE_CONNECTION_PER_DESTINATION_V1] the frame carrier's connection: every Role's traffic from that machine
+            if _carrier.SERVER is None or not _carrier.SERVER.adopt(conn, addr, _word):
+                print(f"[DAEMON-SERVER] a connection from {peer_ip}:{addr[1]} began {_word!r} (the frame carrier's word) "
+                      f"and this daemon was not told of that carrier: closed", flush=True)
                 try: conn.close()
                 except Exception: pass
             return

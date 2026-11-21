@@ -2215,6 +2215,84 @@ and `switches` in `core/channel_setting.py`; chorus and OpenQASM as packers unde
 the record captured by held reads; the Channel panel; the tier's steps for protocols and the four runs, which still
 drive the 0.1 mechanism. The four runs do not pass at 4,800 baud.
 
+### 21 Nov 12:56 to 14:30: the frame carries the traffic; three of John's rulings built; the old mechanism removed (`241c693` is the commit before; this stretch NOT COMMITTED)
+
+John, 12:56: "Commit, then continue and do not stop until you hit another blocker." `241c693` was committed and pushed
+to the branch. Everything below is after it and is not committed.
+
+**The carrier on the frame** (`core/channel_carrier.py`, `[ONE_CONNECTION_PER_DESTINATION_V1]`). `FrameCarrier` has the
+calls the message session's two ends already made on `ChorusOnTcp`, with one `channel_frame.Link` to each destination.
+`core/homa_transport.open_homa_socket` hands it out; `carrier_for` puts a session on it whenever the setting's
+`driver` is tcp, chorus or openqasm and the process was told of chorus; `_get_worker` no longer moves a session when
+the word changes; the daemon's first-word look hands over a connection that begins `FRM\x01`. Chorus and OpenQASM
+are `pack`/`unpack` pairs under the frame. The first 12-step run on it passed at the first attempt.
+
+**The first mixed run between machines failed, and why.** A key switch took 20 s and, after an algorithm switch, a
+frame did not open. `Link` read the setting again when a call took its count past what it held, and it did that on the
+thread that reads the connection. The read went out on that same connection (the ControlRam is at the far end of
+it), waited for a reply only that thread could read, timed out, and went on with the old algorithm. Every other
+request on the connection stalled behind it, including the ends' re-holds on the setting ("the hold was not taken:
+timed out"). I rebuilt receiving so a Role's frames waited, in order, for the setting. Twenty minutes later John's
+ruling (case 38) made the waiting unnecessary and it was removed.
+
+**John's rulings in this stretch, each built:**
+
+- 13:05, a setting proves itself (`[A_SETTING_PROVES_ITSELF_V1]`, `core/channel_setting.py`): `check`, an HMAC over
+  the Role's name and the setting's other fields, keyed from the Role's whole set; an end that holds the set ignores
+  a setting whose check does not verify, and one whose `switches` is lower than the count it is running. The text
+  checked is plain lines (`check_text`), so a page's door can make it in PHP.
+- 13:17, the key that opens is the current one (`[THE_KEY_THAT_OPENS_IS_THE_CURRENT_ONE_V1]`, `Link._open`): a frame
+  that does not open is tried under every key of the set and every registered algorithm. In the mixed run it was
+  used twice, at the two algorithm switches. One case it cannot find is encryption turned off, which an end takes
+  only when the setting it holds shows no seed.
+- 13:23 and 13:25, a connection's wire has one owner (`[A_CONNECTIONS_WIRE_HAS_ONE_OWNER_V1]`): `Link` has one writer
+  (`_write`), handed work by `submit`, `submit_reply` and `setting_changed`; it alone gives counters and packet IDs,
+  names Roles, sends calls, packs, seals, draws the nonce and writes. `_send_lock`, the frame's `_nonce_lock` and the
+  read side's lock are gone. `chorus._Conn.send` hands its frame to that connection's writer and `_wire_lock` is
+  gone. The report, (channel, at, ...), has one writer in each process. A check hands one connection 1,600 requests
+  from eight threads.
+
+**Removed.** `ChorusOnTcp` and its registries (and `send_lock` with it); the drivers' own sealing in `chorus._Conn`,
+`proxy/transport_semantic.py` (`Sealed`, `SEALED_BIT`, `_packed`'s seal, the reply's open), `daemon/engine/session.py`
+and `server.py`; from `core/channel_setting.py` everything that sealed (`sending_key`, `_accepted`, `refuses_no_key`,
+`_aes`, `protect`, `opened`, `unprotect`, the nonce and its lock, `KeyRefused`); `simulation/channel_swap_tier.py`,
+whose mechanism is gone (run_all runs the exercise's four runs in its place); the tier's 0.1 protocol step.
+`chorus.WIRE` is `CHO\x01` again, as before 21 Nov, so FrogTorch's RAM sessions are as they were on the wire.
+Against `241c693`: 887 lines added and 1,625 removed in 14 files, before the documents.
+
+**FrogTorch's RAM and `_wire_lock`.** `frogtorch_ram.py` answers on one connection from its serving thread and from a
+thread for each held read (`_reply`), with no lock of its own, so `_wire_lock` was what kept a frame's header
+difference whole there. The writer is therefore inside `_Conn` and FrogTorch's files are unchanged. FrogTorch's own
+tiers cannot be run in this sandbox (no torch): that change is NOT tested on FrogTorch.
+
+**Run** (three simulated machines, fast link):
+
+| | Run 1, tcp | Run 2, chorus | Run 3, openqasm | Run 4, mixed |
+| --- | --- | --- | --- | --- |
+| The exercise's record | 46,957 bytes | identical | identical | identical |
+| Reads and writes / failed | 3,482 / 0 | 3,482 / 0 | 3,482 / 0 | 3,482 / 0 |
+| The run, seconds | 25.3 | 25.7 | 25.3 | 26.8 |
+| A step, median / 95th ms | 381 / 465 | 391 / 479 | 388 / 459 | 383 / 635 |
+| Bytes on the seven Roles' channels | 1,266,071 | 1,216,224 | 768,788 | 1,039,302 |
+
+Run 4's seven changes: 119 to 170 ms each from the owner's one write to every end that carries the Role sending the
+new way. (That table is from the four runs made before the writer; run 4 has been run three times since, after the
+writer, after the sealing code was removed and after the report had one writer, and passed each time.)
+Criterion 7 is NOT met on these numbers: runs 2 and 3 are under run 1 on bytes and 7 to 10 ms over it on the median
+step, and run 4's 95th is over.
+
+Also run after the removals: `core/test_channel_frame_oracle.py` 21 checks; `core/test_channel_setting_oracle.py`
+(rewritten for the 0.2 setting) 11; `core/test_homa_carrier_oracle.py`; `simulation/homa_door_tier.py` (moved from
+`ChorusOnTcp` to `FrameCarrier`); `wire_between_machines_tier` chorus 40, tcp 37, `tcp,databasehost.frognet chorus`
+38, the counts of the baseline; `roles_exercise_tier --step memories` 26.
+
+**Not done.** John's 13:25 list also names `_encode_lock` and the daemon's `_ref_lock` (`daemon/engine/session.py`)
+and the proxy's `_ref_lock` and `_gate_lock` (`proxy/transport_semantic.py`): the encode and the reference's commit
+move into the connection's writer, and a reply's reference is applied by the reader. None of that is started. It is
+the engine every tier uses, and its acceptance is the existing oracles and tiers. Also not done: CACHE_MISS naming a
+request; the record captured by held reads; the Channel panel; `--step pages` rerun; any run at 4,800 baud on this
+mechanism; the collective tier and `run_all.py`.
+
 ## 4. The interventions: what was said, why it was noticed, what had not been considered
 
 John, 17 Nov, of the first version of this file: "It is not just the order. It is what I asked and why I asked it.
@@ -2630,6 +2708,38 @@ that part is not written here and must not be made up)
 - *The rule*: before adding a field, read what the frame already carries. (Case 28's rule again: a byte I can name
   is a byte to remove.)
 
+**37. A read of the setting on the thread that reads the connection** (21 Nov, 13:10; found by the first mixed run between machines)
+
+- *What I built*: when a "switch encryption" call took a receiver's count past the setting it held, `Link` read the
+  setting again, there and then.
+- *What happened*: the read crossed the connection that thread reads. It waited for its own reply until it timed out
+  (a key switch took 20 s), went on with the old algorithm, and the next frame did not open.
+- *What I had not considered*: who reads the reply to a request made by the only thread that reads replies.
+- *The rule*: the thread that owns a direction of a connection never waits on that connection.
+
+**38. The key that opens is the current one** (21 Nov, 13:17)
+
+- *What I had built by then*: a Role's frames waiting, in order, for the end's own held read to bring the setting.
+- *What John said*: "When a Role's frame does not open under the key and algorithm an end holds, at connection or
+  after, the end runs through every key of the Role's set under every registered algorithm. The pair that opens the
+  frame is the current one... This replaces any limit on how fast an owner may command switches."
+- *What I had not considered*: the receiver holds everything needed to find the answer, the set, and so needs
+  neither the setting nor to wait. Twenty keys under two algorithms is forty tries, once, at a mismatch.
+- *The rule*: before building a way for an end to be told something, ask whether it can find it from what it holds.
+
+**39. Locks on a wire** (21 Nov, 13:23 and 13:25)
+
+- *What I had built*: `_send_lock` on a connection's sending, a lock on the nonce, a lock on reading, a lock to order
+  the reports.
+- *What John said*: "A connection's wire has one owner. One writer for each connection takes messages from the request
+  threads and alone packs, sends switch calls, seals and writes. No request thread touches the socket... nothing
+  replaces them." And: "Move everything that depends on wire order into that writer and the reader."
+- *What the code said*: the TCP session already worked that way (`_write_loop`, fed by a queue). And the proxy's
+  `_ref_lock` is one lock for the whole process, held across every request's encode, so one writer for each
+  connection is more parallel than the lock it replaces.
+- *The rule*: what depends on the order of a wire is done by the one thread that owns that direction of it. A lock
+  around a wire is a sign that two threads own it.
+
 ### What the cases have in common
 
 - **The fault was in a sentence I offered as plain description or as a reason.** "Listens", "because", "setting",
@@ -2689,6 +2799,10 @@ that part is not written here and must not be made up)
 | Read a whole service at once after a write of a new name, through a raw request, and called the result the memory's | the tier failing one run in two | The proxy's local read cache answers a broad read for up to 10 s. Read a tuple by its name, or hold a read. |
 | Asked John which field a key switch's write changes, when the design had given the rule | John: "You can't figure out which of the hundreds of ways to do this might work?" (case 35) | Ask when two answers lead to different systems. When any of several would do, pick one, say which, and build. |
 | Added a byte to the frame to say which Role a packet is for | John: "through the packet ID" (case 36) | Before adding a field, read what the frame already carries. |
+| Read the setting on the thread that reads the connection, over that connection | the first mixed run between machines: a key switch took 20 s and a frame did not open (case 37) | The thread that owns a direction of a connection never waits on that connection. |
+| Made a Role's frames wait for the setting, to learn an algorithm | John: run through every key of the set under every algorithm (case 38) | Before building a way for an end to be told something, ask whether it can find it from what it holds. |
+| Put locks on a connection's sending, its nonce, its reading and the reports | John: "A connection's wire has one owner" (case 39) | What depends on the order of a wire is done by the one thread that owns that direction of it. |
+| Edited `core/` while a four-run job was going | run 4 of the job started on a module changed after run 3 | Every run starts new processes from what is on disk. Do not edit under a running job. |
 
 ## 5. What Homa's mechanisms became
 
