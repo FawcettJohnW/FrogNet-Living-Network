@@ -23,7 +23,7 @@ Two things, and nothing else:
               From the capability family in the SystemRam (each frogtorch_ram service writes its own), or from
               FROGTORCH_RAMS="host:port,host:port" when the regions are configured rather than discovered.
   sessions    a rank's permanent connection to a RAM is a transport driver's ([THE_RAM_SESSION_IS_A_DRIVERS_
-              CONNECTION_V1], frogtorch_ram_drivers.py): tcp or softhoma, as /etc/frognet/semantic_transport says for
+              CONNECTION_V1], frogtorch_ram_drivers.py): tcp or chorus, as /etc/frognet/semantic_transport says for
               that RAM. Nothing here or above knows which.
   cells       put / get_all / get / remove on the one RAM, control(): the same calls, arguments and
               row shape (var, scope, value, id, age_s, ts_env) as core.frognet_tuples, so the backends read and

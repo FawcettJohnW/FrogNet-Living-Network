@@ -14,12 +14,12 @@ on the RAM's machine now, else the node's word (homa_transport.word_for).
     tcp        one TCP connection from the rank to the RAM's port, held open. Packing: an 8-byte length and the
                frame (tensor_plane's `<!Q length><payload>`). These are the bytes this session has always put on
                the wire, so numbers measured before this file stand as the control. `auto` is this driver.
-    softhoma   one TCP connection to the RAM's port PLUS ONE, held open. Packing: Homa's DATA frames, segments of at
-               most 240,000 bytes (core/homa_frames._Conn, the same class the proxy-to-daemon wire uses).
+    chorus   one TCP connection to the RAM's port PLUS ONE, held open. Packing: Homa's DATA frames, segments of at
+               most 240,000 bytes (core/chorus._Conn, the same class the proxy-to-daemon wire uses).
     homa       kernel Homa. Not carried yet (the primer's step 4): a session told this word says so and stops.
 
 [ONE_RULE_FOR_THE_PORT_V1] A FrogTorch RAM has one port, P: the one it is started with, announces, and is configured
-by. Its tcp driver listens on P and its softhoma driver on P + 1. Nothing else is announced or negotiated.
+by. Its tcp driver listens on P and its chorus driver on P + 1. Nothing else is announced or negotiated.
 
 A frame handed to pack() may be one bytes-like object or a tuple of them that are the frame in order, so that a
 tensor is not copied to have a header put in front of it. unpack() gives the frame back as one bytes-like object.
@@ -33,7 +33,7 @@ import socket
 import struct
 from typing import Dict, List, Optional, Tuple
 
-from core import homa_frames
+from core import chorus
 from core.transport_driver import ConnectionGone, TransportDriver, TransportListener
 
 BUILD = "frogtorch-ram-drivers-v1-20261119a"
@@ -60,7 +60,7 @@ class TcpEnd(TransportDriver):
     def connect(self) -> None:
         s = socket.socket()
         try:
-            s.settimeout(10)                   # the connect alone, as core/homa_frames._Conn.connect; nothing after it
+            s.settimeout(10)                   # the connect alone, as core/chorus._Conn.connect; nothing after it
             s.connect(self.far)
             s.settimeout(None)
             s.setsockopt(socket.IPPROTO_TCP, socket.TCP_NODELAY, 1)
@@ -125,8 +125,8 @@ class TcpEnd(TransportDriver):
             s.close()
 
 
-class SoftHomaEnd(homa_frames._Conn):
-    """One end of the softhoma driver's connection to a FrogTorch RAM: core/homa_frames._Conn as it is. Its packing
+class ChorusEnd(chorus._Conn):
+    """One end of the chorus driver's connection to a FrogTorch RAM: core/chorus._Conn as it is. Its packing
     cuts a frame into segments, so a frame given as parts is joined first."""
 
     def pack(self, n: int, frame) -> List[bytes]:
@@ -170,24 +170,24 @@ class TcpListener(_Listener):
     name, end = "tcp", TcpEnd
 
 
-class SoftHomaListener(_Listener):
-    name, end = "softhoma", SoftHomaEnd
+class ChorusListener(_Listener):
+    name, end = "chorus", ChorusEnd
 
 
 def _driver_of(word: str, what: str) -> str:
     """The driver a word of the setting means for a session with a FrogTorch RAM."""
     if word in ("auto", "tcp"):
         return "tcp"
-    if word == "softhoma":
-        return "softhoma"
-    raise ConnectionError("frogtorch: %s is set to %r, and a session with a FrogTorch RAM is carried on tcp or softhoma. "
+    if word == "chorus":
+        return "chorus"
+    raise ConnectionError("frogtorch: %s is set to %r, and a session with a FrogTorch RAM is carried on tcp or chorus. "
                           "Kernel Homa under this session is not written yet (agent_workload/"
                           "PYTORCH-ON-THE-DRIVERS-PRIMER.md, step 4)." % (what, word))
 
 
 def port_of(driver: str, ram_port: int) -> int:
     """[ONE_RULE_FOR_THE_PORT_V1]"""
-    return ram_port + (SOFTHOMA_PORT_OFFSET if driver == "softhoma" else 0)
+    return ram_port + (SOFTHOMA_PORT_OFFSET if driver == "chorus" else 0)
 
 
 def word_for(host: str) -> str:
@@ -202,7 +202,7 @@ def end_for(host: str, ram_port: int) -> TransportDriver:
     word = word_for(host)
     driver = _driver_of(word, "this node's connection to the RAM at %s" % host)
     far = (host, port_of(driver, ram_port))
-    return TcpEnd(far) if driver == "tcp" else SoftHomaEnd(far)
+    return TcpEnd(far) if driver == "tcp" else ChorusEnd(far)
 
 
 def listeners_for(bind: str, ram_port: int) -> Dict[str, TransportListener]:
@@ -220,16 +220,16 @@ def listeners_for(bind: str, ram_port: int) -> Dict[str, TransportListener]:
         d = _driver_of(w, "a word of this node's setting")
         if d not in drivers:
             drivers.append(d)
-    kinds = {"tcp": TcpListener, "softhoma": SoftHomaListener}
+    kinds = {"tcp": TcpListener, "chorus": ChorusListener}
     while True:
         out: Dict[str, TransportListener] = {}
         try:
             # tcp first, so that with ram_port 0 it is the one whose port becomes P
-            for d in sorted(drivers, key=("tcp", "softhoma").index):
+            for d in sorted(drivers, key=("tcp", "chorus").index):
                 p = ram_port
                 if p == 0 and out:
                     p = next(iter(out.values())).port
-                if p == 0 and d == "softhoma":             # softhoma alone on any port: P is the one below it
+                if p == 0 and d == "chorus":             # chorus alone on any port: P is the one below it
                     out[d] = kinds[d](bind, 0)
                     continue
                 out[d] = kinds[d](bind, port_of(d, p))
@@ -238,7 +238,7 @@ def listeners_for(bind: str, ram_port: int) -> Dict[str, TransportListener]:
             for l in out.values():
                 l.close()
             if ram_port != 0:
-                raise OSError("frogtorch-ram: cannot listen for %s on %s, RAM port %d (tcp on it, softhoma on it "
+                raise OSError("frogtorch-ram: cannot listen for %s on %s, RAM port %d (tcp on it, chorus on it "
                               "plus %d): %s" % (", ".join(drivers), bind, ram_port, SOFTHOMA_PORT_OFFSET, e)) from e
             # any port was asked for and the one above the port the system gave is taken: ask for another
 
@@ -246,7 +246,7 @@ def listeners_for(bind: str, ram_port: int) -> Dict[str, TransportListener]:
 def unreachable(end: TransportDriver, host: str, ram_port: int, e: BaseException) -> str:
     """What to say when a session's connection to a RAM could not be opened."""
     return ("cannot reach the RAM host at %s:%d on the %s driver (%s). A FrogTorch RAM listens with the drivers its own "
-            "node's transport setting names when frogtorch-ram starts (tcp on its port, softhoma on its port plus one)"
+            "node's transport setting names when frogtorch-ram starts (tcp on its port, chorus on its port plus one)"
             % (host, ram_port, end.name, e))
 
 
@@ -254,4 +254,4 @@ def ram_port_of(listeners: Dict[str, TransportListener]) -> int:
     """P, from the listeners that are open."""
     if "tcp" in listeners:
         return listeners["tcp"].port
-    return listeners["softhoma"].port - SOFTHOMA_PORT_OFFSET
+    return listeners["chorus"].port - SOFTHOMA_PORT_OFFSET

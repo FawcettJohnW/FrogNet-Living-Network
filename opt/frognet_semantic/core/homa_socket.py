@@ -121,8 +121,8 @@ class RpcFailed(OSError):
 
 
 class PeerConnectionEnded(ConnectionError):
-    """[A_SESSION_ENDS_WITH_ITS_CONNECTION_V1] A carrier that holds a connection open to each peer (soft Homa,
-    core/homa_frames.py) says that one of them has ended. Every session on it ends with it, at both ends, whether or
+    """[A_SESSION_ENDS_WITH_ITS_CONNECTION_V1] A carrier that holds a connection open to each peer (chorus,
+    core/chorus.py) says that one of them has ended. Every session on it ends with it, at both ends, whether or
     not anything was outstanding. The kernel module's socket has no connections and never raises this."""
 
     def __init__(self, peer: Tuple[str, int], why: str):
@@ -166,7 +166,7 @@ def sysctls() -> dict:
 
 def max_message() -> int:
     """[FRAMES_GO_IN_PIECES_V1] The largest message the kernel module's Homa carries as ONE message: Homa's own limit.
-    The driver cuts a frame into pieces of this size. (Soft Homa, core/homa_frames.py, cuts for itself and says so in
+    The driver cuts a frame into pieces of this size. (Chorus, core/chorus.py, cuts for itself and says so in
     its carrier's max_message.)"""
     return HOMA_MAX_MESSAGE_LENGTH
 

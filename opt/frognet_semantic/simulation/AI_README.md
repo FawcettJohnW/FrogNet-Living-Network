@@ -68,7 +68,7 @@ every other on the transport given. Run it with `--transport tcp` first: that is
   (`usr/local/bin/frognet_dbhost_elector.py`).
 - A machine leaving is a merge: it is out of every remaining hosts block and its role goes to a machine that is
   there. Do not model "a machine restarts and every hosts file still names it"; John called that not realistic.
-- `--transport` takes a whole setting, lines joined by commas (`'softhoma,databasehost_control.frognet tcp'`). Run
+- `--transport` takes a whole setting, lines joined by commas (`'chorus,databasehost_control.frognet tcp'`). Run
   `tcp` first as the control, and run every word the setting accepts.
 - One read answered 503 "REQ_MISS from daemon; exhausted retries" is the semantic engine's, on either driver. The
   tier counts it and says so; it does not judge it. Anything else fails the pair.

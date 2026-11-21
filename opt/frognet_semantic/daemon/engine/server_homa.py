@@ -403,7 +403,7 @@ class MsgDaemonServer:
 
     def run(self) -> None:
         """Listen for as long as the process runs. The listening socket does not go away under the listener: on kernel
-        Homa it is the module's, on soft Homa it is this driver's own port (core/homa_frames.py). If it cannot be
+        Homa it is the module's, on chorus it is this driver's own port (core/chorus.py). If it cannot be
         opened, that is said and the process stops; nothing is used in its place."""
         self._listen()
 

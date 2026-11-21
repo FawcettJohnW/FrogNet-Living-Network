@@ -19,16 +19,16 @@ code in the tree that worked and was measured; do not roll it back and do not re
 
 A driver is six calls (`core/transport_driver.py`): connect, send, receive, pack, unpack, close, and listen on the
 end that is connected to. "We own the wire": a permanently open connection of the driver's choosing; the data is
-data; packing and unpacking are the driver's. Three drivers: `tcp`; `softhoma` (Homa's DATA frames on a TCP
-connection the driver holds open, `core/homa_frames.py`); `homa` (the kernel module). The word is a setting per RAM
+data; packing and unpacking are the driver's. Three drivers: `tcp`; `chorus` (Homa's DATA frames on a TCP
+connection the driver holds open, `core/chorus.py`); `homa` (the kernel module). The word is a setting per RAM
 connection in `/etc/frognet/semantic_transport`.
 
 ## 3. What FrogTorch puts on the network now (read from the code, and from the kernel, on 19 November)
 
 | traffic | code | how it travels | does the transport setting reach it |
 |---|---|---|---|
-| a rank's session with the FrogTorch RAM (membership, store, gate, bags: control cells) | `tuplespace/frogtorch_ram_client._Session`, `tuplespace/frogtorch_ram.RamServer` | a transport driver's connection from the rank to the RAM (`tuplespace/frogtorch_ram_drivers.py`) | YES: `tcp` or `softhoma` |
-| tensor bytes: DDP gradients under Psychedelic, the hooks' buckets, meshfeed's minibatches | `tuplespace/ram_plane.py` (`RamPlane`, `RamStream`, `RamTensorClient`) | cells in the FrogTorch RAM: the owner writes each once on its session, a reader's held read is answered by that write; each session is a driver's connection | YES: `tcp` or `softhoma` |
+| a rank's session with the FrogTorch RAM (membership, store, gate, bags: control cells) | `tuplespace/frogtorch_ram_client._Session`, `tuplespace/frogtorch_ram.RamServer` | a transport driver's connection from the rank to the RAM (`tuplespace/frogtorch_ram_drivers.py`) | YES: `tcp` or `chorus` |
+| tensor bytes: DDP gradients under Psychedelic, the hooks' buckets, meshfeed's minibatches | `tuplespace/ram_plane.py` (`RamPlane`, `RamStream`, `RamTensorClient`) | cells in the FrogTorch RAM: the owner writes each once on its session, a reader's held read is answered by that write; each session is a driver's connection | YES: `tcp` or `chorus` |
 | stock DDP on gloo | PyTorch's own | gloo's own sockets from rank to rank | no, and it should not: it is the control |
 | anything a rank asks of `api.php` | the node's proxy | the proxy-to-daemon semantic wire | yes |
 
@@ -46,9 +46,9 @@ Both of John's rulings of 17 November that the tree did not meet are met for PyT
 How it was done, so it is not redone:
 - **The session** (`[THE_RAM_SESSION_IS_A_DRIVERS_CONNECTION_V1]`). `_Session` and `RamServer` call the six calls
   and open no socket. `tcp` puts on the wire exactly the bytes that session always sent (`<!Q length><payload>`;
-  compared byte for byte in the tier), so numbers measured before stand as the control. `softhoma` is
-  `core/homa_frames._Conn`. A RAM has one port P (the one it is started with and announces): tcp listens on P,
-  softhoma on P + 1; the RAM listens with every driver a word of its own node's setting names. `auto` is tcp here.
+  compared byte for byte in the tier), so numbers measured before stand as the control. `chorus` is
+  `core/chorus._Conn`. A RAM has one port P (the one it is started with and announces): tcp listens on P,
+  chorus on P + 1; the RAM listens with every driver a word of its own node's setting names. `auto` is tcp here.
 - **The tensors** (`[THE_TENSORS_ARE_IN_THE_RAM_V1]`). The three classes in `ram_plane.py` have the calls
   `TensorServer`, `StreamSubscription` and `TensorClient` had, so `psychedelic_backend.py`, `ddp_hook.py` and
   `meshfeed.py` changed only in which class they make. The reduction, its order, the cell names, the generations and
@@ -67,7 +67,7 @@ How it was done, so it is not redone:
 
 1. **DONE 19 Nov. The rank's session with the FrogTorch RAM is a driver's connection.**
 2. **DONE 19 Nov, in the sandbox. PyTorch's tensors are in the RAM and are read by held read.** What was run, on
-   `tcp` and on `softhoma`, four ranks on one machine:
+   `tcp` and on `chorus`, four ranks on one machine:
    - `agent_workload/tests/test_regions_collectives.py`: every collective passes.
    - `agent_workload/tests/test_regions_ddp.py`: shard `1299476b225f2d9a`, faithful `8293546b6b4e8c48`, held-out
      0.487819 on every rank: the same as the tree before the work.
@@ -84,7 +84,7 @@ How it was done, so it is not redone:
        sh /usr/local/frognet-ai/transportrun.sh <this node's mesh address> <a run id number never used before>
 
    It runs the tier on the node, prints what the one FrogTorch RAM is and what it listens with, then seven arms in
-   step across the nodes: gloo; Psychedelic shard on tcp; Psychedelic shard on softhoma; meshfeed k=1 batch 64 on
+   step across the nodes: gloo; Psychedelic shard on tcp; Psychedelic shard on chorus; meshfeed k=1 batch 64 on
    each; meshfeed k=1 batch 4096 on each. Each rank writes its result of each arm into the RAM and every node
    prints the same report from it: whole-run seconds, held-out loss and `param_sha` as three matrices (ranks down,
    arms across, as John specified on 15 September), then the arms with their ratio against that session's arm 0
@@ -100,12 +100,12 @@ How it was done, so it is not redone:
 
 - **Every node gets the same build, and `frogtorch-ram` is restarted on every node after it.** Ranks of different
   builds refuse to form a group and say which rank runs what; a RAM of the old build does not know `tsub`.
-- **For the softhoma arms the RAM must be listening with soft Homa**: `/etc/frognet/semantic_transport` on its node
-  has the line `databasehost.frognet softhoma` (every node has the same file, since the role moves), and
+- **For the chorus arms the RAM must be listening with chorus**: `/etc/frognet/semantic_transport` on its node
+  has the line `databasehost.frognet chorus` (every node has the same file, since the role moves), and
   `frogtorch-ram` was started after that. `transportrun.sh` gives each arm's word to that arm's processes alone and
   changes nothing on the node; it prints what the RAM listens with before the first arm, and a session that finds
   nothing listening says which driver it was on and why that happens.
-- **Soft Homa's port for the FrogTorch RAM is the RAM's port plus one.** A link that filters by port must let it
+- **Chorus's port for the FrogTorch RAM is the RAM's port plus one.** A link that filters by port must let it
   through. (`usr/local/bin/ham_guardrail.sh` lets only 9009 through, so neither FrogTorch port crosses a ham link.)
 - `ddpbench.py` runs from `/usr/local/frognet-ai`, not from this directory. Editing a copy elsewhere changes nothing.
 - The FrogTorch RAM is one process on the SystemRam's machine; the role moves. No address goes in a setting.
@@ -140,5 +140,5 @@ How it was done, so it is not redone:
    listening. They make `RamPlane` and `RamTensorClient` now and `memory_plane.py` is deleted.
 5. (Closed 19 Nov.) AIConnect's producer opened its own TCP sockets to a RAM's port. Its bulk link and probes are
    the transport driver's connection now (`[AICONNECT_ON_THE_DRIVERS_V1]`); `--link-timeout` and the TTL hop probe
-   are gone with the sockets. Its oracle passes on `tcp` and on `softhoma`.
+   are gone with the sockets. Its oracle passes on `tcp` and on `chorus`.
 6. **The path through the RAM has had no performance work** (section 5).

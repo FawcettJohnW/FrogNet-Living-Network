@@ -1,5 +1,7 @@
 # Homa on CroakOS: the design
 
+> **21 Nov 2026:** the driver this document calls "soft Homa" / `softhoma` is called **chorus** from this date (the word `chorus`, `core/chorus.py`). The text below is as written and keeps the old name. Why: `EXPLORATION-LOG.md`, entry of 21 Nov 07:48.
+
 Written 2026-11-16 by Claude for John Fawcett. This file stands on its own. Statements marked **[ruling]** are
 John's decisions of 16 November 2026; everything about code names a file. Homa is John Ousterhout's transport
 (`https://github.com/PlatformLab/HomaModule`, read at commit `07ce63ef`).

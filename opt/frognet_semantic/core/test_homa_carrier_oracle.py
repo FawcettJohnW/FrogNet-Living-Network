@@ -135,61 +135,61 @@ def main():
     w4 = TS._get_worker(P, 9009)
     check(w4 is w3 and len(made) == 2, "and stays there: one session, no spare")
 
-    # [SOFT_HOMA_CARRIER_V1] a node in whose process soft Homa is loaded: the same driver, another carrier's name
-    real_soft = HT._soft_homa_loaded
-    HT._soft_homa_loaded = lambda: "softhoma-stood-in"
+    # [SOFT_HOMA_CARRIER_V1] a node in whose process chorus is loaded: the same driver, another carrier's name
+    real_soft = HT._chorus_loaded
+    HT._chorus_loaded = lambda: "chorus-stood-in"
     fresh(); HT._kernel_homa_opens = lambda: (True, "an IPPROTO_HOMA socket opened (stood in)"); HT._tcp_rtt = lambda host: None
-    check(HT.homa_name() == "softhoma" and HT.carriers_here() == ("softhoma", "tcp"), f"soft Homa is loaded into this process: carriers {HT.carriers_here()}")
+    check(HT.homa_name() == "chorus" and HT.carriers_here() == ("chorus", "tcp"), f"chorus is loaded into this process: carriers {HT.carriers_here()}")
     theirs["v"] = ("homa", "tcp")
-    check(HT.carrier_for(P) == "tcp", "a peer with kernel Homa and tcp: soft Homa and kernel Homa are not one wire, tcp is what both have")
+    check(HT.carrier_for(P) == "tcp", "a peer with kernel Homa and tcp: chorus and kernel Homa are not one wire, tcp is what both have")
     theirs["v"] = ("homa",)
     try:
         HT.carrier_for(P); none = False
     except ConnectionError as e:
-        none = "no carrier in common" in str(e) and "softhoma" in str(e)
+        none = "no carrier in common" in str(e) and "chorus" in str(e)
     check(none, "a peer told kernel Homa only: no carrier in common, said with both ends' carriers")
-    theirs["v"] = ("softhoma", "tcp")
-    check(HT.carrier_for(P) == "homa", "a peer with soft Homa and tcp, nothing measured: the Homa driver (on soft Homa)")
-    HT.note_rtt(P, "softhoma", 0.0003); HT._tcp_rtt = lambda host: 0.0002
-    check(HT.carrier_for(P) == "tcp" and (P, "homa") not in HT._rtt, "soft Homa 0.3 ms and tcp 0.2 ms: tcp. Its round trips are kept under its own name, not kernel Homa's")
-    HT.note_rtt(P, "softhoma", 0.0001)
-    check(HT.carrier_for(P) == "homa", "soft Homa measures 0.1 ms: the Homa driver again")
+    theirs["v"] = ("chorus", "tcp")
+    check(HT.carrier_for(P) == "homa", "a peer with chorus and tcp, nothing measured: the Homa driver (on chorus)")
+    HT.note_rtt(P, "chorus", 0.0003); HT._tcp_rtt = lambda host: 0.0002
+    check(HT.carrier_for(P) == "tcp" and (P, "homa") not in HT._rtt, "chorus 0.3 ms and tcp 0.2 ms: tcp. Its round trips are kept under its own name, not kernel Homa's")
+    HT.note_rtt(P, "chorus", 0.0001)
+    check(HT.carrier_for(P) == "homa", "chorus measures 0.1 ms: the Homa driver again")
     fresh("homa")
     try:
         HT.carriers_here(); stopped = False
     except SystemExit as e:
-        stopped = "softhoma" in str(e)
-    check(stopped, "told homa with soft Homa loaded: the process stops and says the word is softhoma")
-    fresh("softhoma")
-    check(HT.carriers_here() == ("softhoma",) and HT.carrier_for(P) == "homa" and HT.on_homa_driver(), "told softhoma with soft Homa loaded: Homa only, on soft Homa")
-    HT._soft_homa_loaded = lambda: None
-    fresh("softhoma")
-    # [WE_OWN_THE_WIRE_V1] soft Homa is Homa's frames on TCP the driver holds open: it needs no library told
-    check(HT.carriers_here() == ("softhoma",) and HT.carrier_for(P) == "homa", "told softhoma and nothing else: Homa only; soft Homa needs nothing told but the word")
+        stopped = "chorus" in str(e)
+    check(stopped, "told homa with chorus loaded: the process stops and says the word is chorus")
+    fresh("chorus")
+    check(HT.carriers_here() == ("chorus",) and HT.carrier_for(P) == "homa" and HT.on_homa_driver(), "told chorus with chorus loaded: Homa only, on chorus")
+    HT._chorus_loaded = lambda: None
+    fresh("chorus")
+    # [WE_OWN_THE_WIRE_V1] chorus is Homa's frames on TCP the driver holds open: it needs no library told
+    check(HT.carriers_here() == ("chorus",) and HT.carrier_for(P) == "homa", "told chorus and nothing else: Homa only; chorus needs nothing told but the word")
     # [A_WORD_PER_RAM_CONNECTION_V1] John 2026-11-17: "It is a Setting per ram connection, which may be on different machines"
     SYS, CTL = "databasehost.frognet", "databasehost_control.frognet"
     where = {SYS: "10.2.2.1", CTL: "10.3.3.1"}
     real_at = HT._rams_at
     HT._rams_at = lambda host: tuple(sorted(n for n in HT._ram_words if where.get(n) == host))
-    HT._soft_homa_loaded = lambda: "softhoma-test"
-    fresh("tcp,%s softhoma" % SYS)
-    check(HT.semantic_transport() == "tcp" and HT._ram_words == {SYS: "softhoma"}, "the first line is the node's word; each line after it is a RAM's role name and the word for the connection to it")
+    HT._chorus_loaded = lambda: "chorus-test"
+    fresh("tcp,%s chorus" % SYS)
+    check(HT.semantic_transport() == "tcp" and HT._ram_words == {SYS: "chorus"}, "the first line is the node's word; each line after it is a RAM's role name and the word for the connection to it")
     check(HT.carrier_for("10.2.2.1") == "homa" and HT.carrier_for("10.3.3.1") == "tcp" and HT.carrier_for("10.4.4.1") == "tcp",
-          "node's word tcp, the SystemRam's softhoma: the session to the SystemRam's machine is on soft Homa, every other machine's on tcp")
+          "node's word tcp, the SystemRam's chorus: the session to the SystemRam's machine is on chorus, every other machine's on tcp")
     where[SYS] = "10.4.4.1"
     check(HT.carrier_for("10.4.4.1") == "homa" and HT.carrier_for("10.2.2.1") == "tcp", "the role moves: the word follows the RAM to its new machine, and the old machine is the node's word again")
-    fresh("softhoma,%s tcp" % CTL)
-    check(HT.carrier_for("10.3.3.1") == "tcp" and HT.carrier_for("10.4.4.1") == "homa", "node's word softhoma, the ControlRam's tcp: the ControlRam is reached on tcp and everything else on soft Homa")
-    check(HT.carriers_listened() == ("softhoma", "tcp") and type(HT.daemon_server("h", 1, None, Tcp).tcp) is Tcp,
-          "and its daemon listens on every carrier its setting names: soft Homa and tcp")
-    fresh("tcp,%s softhoma,%s tcp" % (SYS, CTL))
+    fresh("chorus,%s tcp" % CTL)
+    check(HT.carrier_for("10.3.3.1") == "tcp" and HT.carrier_for("10.4.4.1") == "homa", "node's word chorus, the ControlRam's tcp: the ControlRam is reached on tcp and everything else on chorus")
+    check(HT.carriers_listened() == ("chorus", "tcp") and type(HT.daemon_server("h", 1, None, Tcp).tcp) is Tcp,
+          "and its daemon listens on every carrier its setting names: chorus and tcp")
+    fresh("tcp,%s chorus,%s tcp" % (SYS, CTL))
     where[CTL] = "10.4.4.1"
     try:
         HT.carrier_for("10.4.4.1"); refused = False
     except ConnectionError as e:
-        refused = SYS in str(e) and CTL in str(e) and "softhoma and tcp" in str(e)
+        refused = SYS in str(e) and CTL in str(e) and "chorus and tcp" in str(e)
     check(refused, "two named RAMs on one machine with different words: that session is not opened and the error names both; nothing is preferred")
-    fresh("tcp,%s softhoma,%s softhoma" % (SYS, CTL))
+    fresh("tcp,%s chorus,%s chorus" % (SYS, CTL))
     check(HT.carrier_for("10.4.4.1") == "homa", "two named RAMs on one machine with the same word: that word")
     for bad, what in (("tcp,%s bogus" % SYS, "a RAM's word that is not a transport"), ("tcp,%s tcp,%s homa" % (SYS, SYS), "a RAM named twice"), ("tcp,%s" % SYS, "a RAM with no word"), ("tcp,%s homasim" % SYS, "a RAM told the harness's word homasim")):
         fresh(bad)
@@ -198,17 +198,17 @@ def main():
         except SystemExit as e:
             stopped = "after its first line" in str(e)
         check(stopped, "%s stops the process with the line in the message" % what)
-    HT._soft_homa_loaded = lambda: None
-    fresh("tcp,%s softhoma" % SYS)
-    check(HT.semantic_transport() == "tcp" and HT.carriers_here("softhoma") == ("softhoma",),
-          "a RAM's word softhoma is kept with nothing else told: the node's word is tcp and that RAM's connection is on soft Homa")
+    HT._chorus_loaded = lambda: None
+    fresh("tcp,%s chorus" % SYS)
+    check(HT.semantic_transport() == "tcp" and HT.carriers_here("chorus") == ("chorus",),
+          "a RAM's word chorus is kept with nothing else told: the node's word is tcp and that RAM's connection is on chorus")
     HT._rams_at = real_at
     import tempfile, frognet_held
     hf = tempfile.NamedTemporaryFile("w", suffix=".hosts", delete=False)
     hf.write("127.0.0.1 localhost\n10.2.2.1 a.frognet %s # merge\n10.3.3.1 %s\n" % (SYS, CTL)); hf.close()
     real_hosts = frognet_held.HOSTS; frognet_held.HOSTS = hf.name
-    HT._soft_homa_loaded = lambda: "softhoma-test"
-    fresh("tcp,%s softhoma" % SYS)
+    HT._chorus_loaded = lambda: "chorus-test"
+    fresh("tcp,%s chorus" % SYS)
     HT.semantic_transport()
     check(HT._rams_at("10.2.2.1") == (SYS,) and HT._rams_at("10.3.3.1") == (), "where a RAM is comes from this node's hosts file, by the role's name")
     open(hf.name, "w").write("10.2.2.1 a.frognet\n10.3.3.1 %s %s\n" % (CTL, SYS))
@@ -216,7 +216,7 @@ def main():
     open(hf.name, "w").write("10.2.2.1 %s\n10.3.3.1 %s\n" % (SYS, SYS))
     check(HT._rams_at("10.2.2.1") == () and HT._rams_at("10.3.3.1") == (), "a role the file gives two addresses is at neither")
     frognet_held.HOSTS = real_hosts; os.unlink(hf.name)
-    HT._soft_homa_loaded = real_soft
+    HT._chorus_loaded = real_soft
     HT._kernel_homa_opens = real
     print()
     print("ALL HOMA-CARRIER ORACLE CHECKPOINTS PASS" if ok else "HOMA-CARRIER ORACLE FAILED", flush=True)

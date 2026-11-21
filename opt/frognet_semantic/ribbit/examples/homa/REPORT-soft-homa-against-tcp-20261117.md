@@ -1,5 +1,7 @@
 # Homa's socket interface on FrogNet shared memory, against TCP: first measurements on three Raspberry Pis
 
+> **21 Nov 2026:** the driver this document calls "soft Homa" / `softhoma` is called **chorus** from this date (the word `chorus`, `core/chorus.py`). The text below is as written and keeps the old name. Why: `EXPLORATION-LOG.md`, entry of 21 Nov 07:48.
+
 17 November 2026. Fawcett Innovations LLC. Branch `homa-under-croakos-20261116` of FrogNet-Living-Network.
 
 ## Summary

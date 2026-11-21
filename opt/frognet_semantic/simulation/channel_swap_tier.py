@@ -47,7 +47,7 @@ HERE = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, HERE)
 import wire_between_machines_tier as W  # noqa: E402
 
-START = "auto,databasehost_control.frognet softhoma"       # every machine is told of soft Homa and listens on both
+START = "auto,databasehost_control.frognet chorus"       # every machine is told of chorus and listens on both
 PY, SEM = W.PY, W.SEM
 KEYS = {"A": bytes(range(32)), "B": bytes(range(100, 132))}
 
@@ -283,7 +283,7 @@ def main():
               "every machine's daemon and proxy are up, told %r" % START)
         W.the_merge(net, machines, machines, "the election ran")
         there = W.wait_for_listeners(machines)
-        check(all(there.values()), "every machine's daemon is listening on soft Homa as well as TCP (%s)" % there)
+        check(all(there.values()), "every machine's daemon is listening on chorus as well as TCP (%s)" % there)
 
         by = {m.name: m for m in machines}
         src, dst, owner = by[a.src], by[a.dst], machines[0].control
@@ -305,9 +305,9 @@ def main():
         elif not a.shared:
             ok = W.battery_fanout(machines, check, tag="under the tuple's tcp, ") and ok
 
-        K = {"driver": "softhoma"}
+        K = {"driver": "chorus"}
         steps = [
-            ("the driver, tcp to softhoma", dict(K)),
+            ("the driver, tcp to chorus", dict(K)),
             ("(preparing) key A accepted as well as no key", dict(K, accept=["", "A"])),
             ("a key where there was none: requests now go under key A", dict(K, key="A", accept=["", "A"])),
             ("no key is no longer accepted", dict(K, key="A", accept=["A"])),
@@ -315,11 +315,11 @@ def main():
             ("the key changed: requests now go under key B", dict(K, key="B", accept=["A", "B"])),
             ("key A is no longer accepted", dict(K, key="B", accept=["B"])),
             ("(preparing) no key accepted as well as key B", dict(K, key="B", accept=["B", ""])),
-            ("the driver, softhoma under key B back to tcp", {"driver": "tcp", "accept": ["B", ""]}),
+            ("the driver, chorus under key B back to tcp", {"driver": "tcp", "accept": ["B", ""]}),
             ("key B is no longer accepted", {"driver": "tcp"}),
         ]
         if a.shared:
-            steps = [steps[0], ("the driver, softhoma back to tcp", {"driver": "tcp"}), steps[0], ("the driver, softhoma back to tcp", {"driver": "tcp"})]
+            steps = [steps[0], ("the driver, chorus back to tcp", {"driver": "tcp"}), steps[0], ("the driver, chorus back to tcp", {"driver": "tcp"})]
         for label, new in steps:
             t_mark = time.time()
             r = one_change(machines, src, dst, owner, label, new, a.seconds, check)
@@ -337,7 +337,7 @@ def main():
         check(same, "after every change, a read through the wire of what %s's writers wrote equals %s's own api.php" % (src.name, dst.name))
         # ---- [A_SETTING_PER_RAM_CONNECTION_V1] one RAM's connection given a setting of its own. The channel's tuple
         # says tcp and no key. The tuple (channel, setting, <the role of a RAM on the far machine>) puts every node's
-        # connection to THAT machine on soft Homa under key A; connections to every other machine stay as they were.
+        # connection to THAT machine on chorus under key A; connections to every other machine stay as they were.
         at = {}
         for line in open(src.hosts):
             f = line.split("#", 1)[0].split()
@@ -348,8 +348,8 @@ def main():
             role = None
         if role and results and len(results) == len(steps):
             other = next(m for m in machines if m not in (src, dst))
-            for label, new in [("(preparing) the RAM's connection: soft Homa, key A accepted as well as no key", {"driver": "softhoma", "accept": ["", "A"]}),
-                               ("the RAM's connection alone goes under key A", {"driver": "softhoma", "key": "A", "accept": ["", "A"]}),
+            for label, new in [("(preparing) the RAM's connection: chorus, key A accepted as well as no key", {"driver": "chorus", "accept": ["", "A"]}),
+                               ("the RAM's connection alone goes under key A", {"driver": "chorus", "key": "A", "accept": ["", "A"]}),
                                ("(preparing) the RAM's connection back to tcp, key A still accepted", {"driver": "tcp", "accept": ["A", ""]}),
                                ("the RAM's tuple says nothing: its connection is the channel's again", {})]:
                 t_mark = time.time()

@@ -2361,7 +2361,7 @@ BUILD = ("psychedelic 20261119-tensors-in-the-ram-r14 (the September reduction, 
          "[A_WAIT_IS_ONE_HELD_READ_V1] every wait is one read held in the RAM; "
          "[THE_TENSORS_ARE_IN_THE_RAM_V1] a tensor is a cell in the FrogTorch RAM: its owner writes it once, each peer "
          "holds one read there on the family written for it, the write answers it; no rank listens; "
-         "every session with the RAM is a transport driver's connection (tcp or softhoma, as the setting says); "
+         "every session with the RAM is a transport driver's connection (tcp or chorus, as the setting says); "
          "control cells in the one RAM; PyTorch 2.15 port)")
 
 

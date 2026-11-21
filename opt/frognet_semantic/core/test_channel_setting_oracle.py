@@ -41,8 +41,8 @@ def main():
     C.read_now = lambda: C._cur                             # and no read of the ControlRam at a refusal: there is none here
 
     # ---- a driver's word
-    C._cur = {"driver": "softhoma"}
-    check(C.driver() == "softhoma" and C.driver("10.9.9.1") == "softhoma", "the tuple names softhoma: that is the word for a new session")
+    C._cur = {"driver": "chorus"}
+    check(C.driver() == "chorus" and C.driver("10.9.9.1") == "chorus", "the tuple names chorus: that is the word for a new session")
     C._cur = {"driver": "quantum"}
     check(C.driver() is None, "the tuple names a word no driver registered: it is no word, and the node's own word decides")
     HT.register_driver("quantum", "homa")
@@ -55,13 +55,13 @@ def main():
 
     # ---- one RAM's own setting
     C._cur = {"driver": "tcp"}
-    C._rams = {"databasehost.frognet": {"driver": "softhoma", "key": "A", "accept": ["A"]}}
+    C._rams = {"databasehost.frognet": {"driver": "chorus", "key": "A", "accept": ["A"]}}
     C._at = {"databasehost.frognet": "10.2.2.1"}
-    check(C.driver("10.2.2.1") == "softhoma" and C.sending_key("10.2.2.1") == "A" and C.driver("10.3.3.1") == "tcp" and C.sending_key("10.3.3.1") == "",
+    check(C.driver("10.2.2.1") == "chorus" and C.sending_key("10.2.2.1") == "A" and C.driver("10.3.3.1") == "tcp" and C.sending_key("10.3.3.1") == "",
           "a RAM's own tuple: the connection to the machine that RAM is on is its setting, and every other connection is the channel's")
     check(C._accepted(C.here()) == ("A",), "on the RAM's machine, what arrives is under the RAM's setting")
     C._at = {"databasehost.frognet": "10.4.4.1"}
-    check(C.driver("10.4.4.1") == "softhoma" and C.driver("10.2.2.1") == "tcp" and C._accepted(C.here()) == (),
+    check(C.driver("10.4.4.1") == "chorus" and C.driver("10.2.2.1") == "tcp" and C._accepted(C.here()) == (),
           "the role moved: the setting is the new machine's connection, and the old machine's is the channel's again")
 
     # ---- the sealed message

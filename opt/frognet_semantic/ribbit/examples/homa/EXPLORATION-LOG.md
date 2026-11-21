@@ -5,6 +5,12 @@ dropped and why, every measurement, every test that failed and what it turned ou
 still unverified. `DESIGN.md` says what the design IS. This file says how it came to be that, including the wrong
 turns, so that nobody pays for them a second time.
 
+**A name changed on 21 Nov 2026.** The driver this file calls "soft Homa" (the word `softhoma`, the file
+`core/homa_frames.py`, the log tag `[SOFTHOMA]`) is called **chorus** from that day (the word `chorus`,
+`core/chorus.py`, `[CHORUS]`). Every entry made before then keeps the name it was made under; nothing in them was
+reworded. The entry of 21 Nov 07:48 in section 3 says why. `softhoma.cpp` / `libsofthoma.so`, Homa's socket API
+answered on CroakOS memory, is a different thing and keeps its name.
+
 **Why it exists.** John, 17 Nov 2026: "Update your branch as appropriate so you dont drop anything, and i mean
 anything. I have invested a lot in this chat and I dont want the knowledge lost, including the process of
 exploration." The conversations in which this was worked out are not kept. The branch is.
@@ -1716,6 +1722,205 @@ joining of each megabyte in Python, at a rate no link of John's reaches. Not a n
 Under `agent_workload` nothing opens a socket now but the drivers (`frogtorch_ram_drivers.py`, `core/homa_frames.py`)
 and `tensor_plane.py`'s rank-to-rank classes, which nothing in the tree makes any more (`netbench1.py` names them).
 
+### 19 Nov 07:21 to 11:45: the channel's setting is a tuple, built twice (`d7cc57e0`, `4e62a9ca`)
+
+John handed the same handoff to two threads. The thread that owns this branch built it and committed `d7cc57e0`
+(three writes for a change of key: widen what is accepted, change the key, narrow; a change of driver opens a new
+session and the old one finishes; nothing in flight fails). This thread built it separately on `46075258` with a
+different design: one write a change, the proxy closing the old connection when the far daemon said it was on the
+new setting, and what was in flight failing with that as its reason. Both passed their own tier between machines.
+John kept the first and had four pieces of the second added to it (`4e62a9ca`; the report
+`REPORT-channel-setting-tuple-swap-under-load-20261119.md`, "Added the same day", says which and why not the fifth).
+The second build's code is not on the branch.
+
+Side by side, the same change on the same simulator:
+
+| | first build (on the branch) | second build (not on the branch) |
+|---|---|---|
+| writes for a change of key | 3 | 1 |
+| requests failed at a change | 0 in 43,171 | up to 3 a change |
+| no answer for, perfect link | no longer than without a change | 0.04 to 0.10 s |
+| no answer for, 4,800 baud | no longer than without a change | 3.3 to 4.4 s |
+
+The lesson is the design difference, not the code: the second build CLOSED a connection to change it, and five of its
+six findings below are what closing costs. The first build never closes anything that is in use.
+
+What the second build's runs found. They are kept because each is a thing to look for the next time a connection is
+changed under a running system:
+
+1. *Held-read fires never reached a machine of the between-machines tier.* `held_fire.php` hands a fire to the
+   holder's socket in `/run/frognet/held`; a machine of the tier keeps its sockets in its own directory. Every fire
+   was answered 410 and the hold dropped, so since 17 Nov every held read in that tier had returned only at a hosts
+   event. The machine's copy of the receiver is now told the machine's directory (`[A_FIRE_REACHES_ITS_HOLDER_V1]`,
+   `wire_between_machines_tier.bring_up`). The tier's own results did not change: tcp 37 and softhoma 40 checkpoints
+   before and after.
+2. *Closing the TCP session removed the node's tuples.* The daemon takes the close of a machine's last TCP session as
+   the machine leaving (`[WRITER_GONE_V1]`) and removes what it wrote. The first swap removed the setting tuple
+   itself, and every end went back to tcp. Now the proxy opens the new session first and closes the old connection
+   when the daemon has it, and the daemon asks whether the machine has a session on its other listener before it
+   removes anything.
+3. *A write nobody sent was stored* (4,800 bit/s, first run): the writer's last acknowledged write was 254 and the
+   origin held 255. A write still on the link when the proxy closed the old connection arrived after a write on the
+   new one and was executed; it was a difference, applied to a reference the newer write had moved. Rule 6 of the
+   interface document is the fix. In the next slow run the daemon logged one such frame as not executed.
+4. *An end's own hold was on the connection that was closed.* The proxy's follower, and then on the slow link the
+   daemon's, had their hold in flight at the move; it failed, and the follower waited for a hosts event that never
+   came. The proxy's answer to such a request says the setting changed; the follower takes that answer as the event
+   and holds again (`Follower._failed_by_the_change`), and the proxy wakes its own follower.
+5. *The reason given for a request that failed in flight was the closed socket* (`OSError(9, 'Bad file
+   descriptor')`). What is outstanding is now failed with the change of setting as its reason before the sockets
+   are closed.
+6. A move's end-callback stayed set after the move was done and fired at the next change, logging a close that had
+   already happened. Cleared when the HELLO reply is in.
+
+Finding 1 is true of the branch as well and was found independently by both threads; the fix on the branch is the
+first build's.
+
+### 21 Nov 06:42 to 08:10: all of soft Homa's control crosses as a difference (`[THE_HEADER_IS_A_DIFFERENCE_V1]`, this commit)
+
+Asked on 21 Nov how the settings compare, the 4,800 baud numbers showed soft Homa slower than tcp. A request and its
+reply, median, New-York-1 to Seattle5, the shaper at 4,800 bit/s on every uplink:
+
+| setting | whole header (19 Nov) | Homa's header as a difference (21 Nov, first) | all the control as a difference (21 Nov, last) |
+|---|---|---|---|
+| tcp | 880 ms | 880 ms | 880 ms |
+| softhoma, no key | 1,121 ms | 930 ms | 864 ms |
+| softhoma, keyed | 1,221 ms | 1,030 ms | 934 ms |
+
+Why it was slower: bytes. At 600 bytes a second a byte is 1.67 ms, and soft Homa put Homa's 62-byte DATA header on
+every frame: 124 bytes a request and reply, 207 ms of the 241. Measured, not reasoned: messages of 10, 200 and 1,000
+bytes each came out of `pack()` exactly 62 bytes longer. On a perfect link the settings were the same within the
+spread (22 to 25 ms), which is what a cost in bytes looks like.
+
+John: "The Homa header should diff out." And: "The payload on the tcp frame is a Homa frame. All of the control
+should diff."
+
+What was built (`core/homa_frames.py`): `pack()` still makes a whole Homa DATA frame and `unpack()` is still handed
+one. `send()` puts the header on the connection as a difference against the header before it on that connection (3
+bytes saying which of its 20 fields changed, then each change as a varint), and `receive()` puts the whole header
+back. The connection is ordered, so the last header each way is a reference both ends have. In steady state about 7
+bytes cross where 62 did. The end that opens a connection says first that it sends headers this way; an end of an
+older build is told apart and the connection ends with that said, so a node on this build and a node on the build
+before it do not talk soft Homa to each other.
+
+Run: the swap tier at 4,800 baud (14 changes, 1,740 requests, 0 failed, 0 wrong) and on a perfect link (pass);
+`wire_between_machines_tier` softhoma 40 and tcp 37; `collective_tier` 104 (its check of what crosses a soft Homa
+connection was a whole header and is now the difference and what `receive()` makes of it); the AIConnect oracle on
+softhoma; the carrier and channel-setting oracles.
+
+John, of the 930: "The headers for Homa will add a small overhead. 6% seems high though." It was. Traced by reading
+the two sessions' framing, not by guessing: the message session (`proxy/transport_homa.py`) puts its own header in
+every message, magic, session id and seq, 20 bytes on a request and 12 on a reply, where the TCP session spends 16
+in all. With the 14 bytes of the two header differences that is the 30 bytes, 50 ms, that were left. Three more
+changes, each measured:
+
+1. The header's difference is against what is EXPECTED, not only what was: the RPC id is the last plus 2, the
+   segment's length is the message's. Which fields changed is a varint with the usual ones first. 2 or 3 bytes
+   where the first version sent 7.
+2. The first 24 bytes of each segment cross as a difference against the first 24 of the segment before. That is
+   where the layer above keeps its control; the driver does not know what the bytes are, only that they repeat. With
+   no key soft Homa became 864 ms, under tcp's 880.
+3. Under a key the same 24 bytes are made a difference BEFORE the message is sealed (in `pack()`, with the send, under
+   one lock), because after sealing nothing can be seen to repeat; the first run of (2) under a key was 1,022 ms for
+   exactly that reason. And the nonce, which was 12 random bytes a message, is 8 bytes a process draws once and a
+   count, so it crosses as a byte or two. Keyed became 934 ms. What the key still costs is its 16-byte tag each way,
+   which has to cross.
+
+Final run: swap tier at 4,800 baud, 14 changes, 1,848 requests, 0 failed, 0 wrong; perfect link, 14 changes, 45,853
+requests, 0 failed, 0 wrong (19 to 24 ms a request under every setting); `wire_between_machines_tier` softhoma 40,
+tcp 37; `collective_tier` 104; the carrier and channel-setting oracles.
+
+**Tensors, measured the same morning** (John: "If the data itself lends it to the form. Breaking the tensor into
+segments that can be diffed would be a huge boost"). The acceptance model (ddpbench's: 16 -> 1024 x 5 tanh -> 1, seed
+17, lr 0.02, W=5 x batch 64, plain SGD), 40 steps, each 16.9 MB tensor against the same tensor one step before:
+
+| tensor | segments byte-for-byte the same (4 KiB, 64 KiB, 240 KB) | bytes the same | top byte of each float the same | second byte | size as XOR with the step before, by byte plane, lz4 |
+|---|---|---|---|---|---|
+| gradient | 0% | 8.4% | 32.5% | 0.4% | 89.4% |
+| parameters after the update | 0% | 47.8% | 99.9% | 85.8% | 59.2% |
+| the change to the parameters | 0% | 8.4% | 32.4% | 0.4% | 89.4% |
+
+So on this model no segment is ever the same: every float changes every step, and a same-or-different rule a segment
+at a time sends everything. What the data does lend itself to is narrower: the PARAMETERS keep their top two bytes
+from step to step, so their difference from the last generation, split into byte planes, is 59% of the size (53% with
+zlib level 1). A gradient is 84 to 89% by byte planes with or without the step before; it has no memory of the last
+one. Not measured: a model with frozen layers, an embedding updated in a few rows, or buffers, where whole segments
+would be the same. Other ways, the same model, a rank's own gradient (batch 64), each run to the end and its held-out loss taken as
+`meshfeed.py` takes it (whole: 0.4950 in this replica):
+
+| way | bytes sent | changes a gradient value | held-out | packs, one core |
+|---|---|---|---|---|
+| byte planes + lz4 | 88.2% | no | 0.4950 | 573 MB/s |
+| byte planes + zlib 1 / 6 | 83.8% / 81.7% | no | 0.4950 | 81 / 61 MB/s |
+| byte planes + lzma 0 | 78.6% | no | 0.4950 | 9 MB/s |
+| the layer's two factors in place of its gradient | 15.6% | no (0.0 largest difference) | 0.4950 | no packing |
+| factors + byte planes + lz4 | 14.0% | no | 0.4950 | 611 MB/s |
+| 16-bit floats | 50.0% | up to 2.1e-4 | 0.4950 | |
+| 8 bits a value, a scale a layer (+ lz4) | 25.0% (22.6%) | up to 5.9e-4 | 0.4950 | |
+| the largest 10% of values only | 17.5% | yes | 0.4924 | |
+
+The factors are the finding. A Linear layer's gradient for a batch is (what came back from the layer above)^T x
+(what went into the layer): two matrices of batch rows, where the gradient is out x in. With batch 64 and width
+1,024 the two are 15.6% of the gradient, and the far end's product of them was the same gradient to the last bit in
+this run (one machine; across machines the product is the far end's GEMM, as `meshfeed.py` already says of its own).
+It is what the data lends itself to: not a difference from the last step, but the form the gradient is made in. It
+holds while the batch is smaller than the layer is wide, and for one rank's gradient, not for a sum of them.
+The scripts are `usr/local/frognet-ai` candidates, kept for now beside this log's patch as `tensor-sameness-20261121.py`
+and `tensor-ways-20261121.py`. Nothing of this is built into FrogTorch.
+
+### 21 Nov 07:48: soft Homa is called chorus (`[CHORUS_V1]`, this commit)
+
+John: "We are no longer faithful to Homa in softhoma, and the hardware run for softhoma is moot. Preserve all notes
+about the origin of softhoma, but call the protocol 'chorus'."
+
+Why now: until this morning what this driver put on a TCP connection was Homa's DATA frame, byte for byte as his
+module's TCP hijacking would. That was the point of it: the same frames, so the same driver ends ran on it and on the
+module, and the two could be compared on hardware. Since the entry above, the header crosses as a difference, the
+first bytes of a message cross as a difference, and the opener says a word of its own first. A Homa module could not
+read it. A run of this against the module on the Pi would compare two protocols, so that run (section 7, item 8,
+"one process holding both kernel Homa and soft Homa") is no longer a thing to do for THIS driver. Kernel Homa under
+the `homa` word is untouched and its own runs still stand as not done.
+
+What was renamed: the driver's word in a setting (`softhoma` -> `chorus`, in the file and in the channel's tuple);
+`core/homa_frames.py` -> `core/chorus.py`; `HomaFramesOnTcp` -> `ChorusOnTcp`; FrogTorch's `SoftHomaEnd` and
+`SoftHomaListener` -> `ChorusEnd`, `ChorusListener`; the log tag `[SOFTHOMA]` -> `[CHORUS]`; the build
+`chorus-v1-20261121a`; the opener's word `CHO\x01`; the tiers' `--transport chorus`; `transportrun.sh`'s arms.
+
+What was NOT renamed, on purpose:
+- Every entry of this log, the reports of 17 and 19 Nov, `DESIGN.md`, and the two build notes: they say what was true
+  under the old name, and each now has a line at its head saying the name changed. The driver's own file keeps its
+  18 Nov description under a heading that says when it was written.
+- `ribbit/examples/homa/src/softhoma.cpp`, `libsofthoma.so`, `softhoma-ram`, the `SOFTHOMA_*` variables: Homa's
+  socket API on CroakOS memory ([SOFT_HOMA_V1]). It is still Homa's API, his `cp_node` still runs on it unchanged,
+  and it is not this driver.
+- The message session (`proxy/transport_homa.py`, `daemon/engine/server_homa.py`, the word `homa`, the magic
+  `FNH1`): it is the Homa driver's two ends and runs on the kernel module's socket as well as on chorus.
+- Inside chorus, `pack()` still builds and `unpack()` is still handed a Homa DATA frame, and the ids are Homa's.
+
+The old word is not kept beside the new one. A node whose `/etc/frognet/semantic_transport` says `softhoma` stops at
+start and is told: "That driver is called chorus now... Change the word to chorus". A tuple that names `softhoma` is
+said to name a word no driver registered, and the node's own word decides.
+
+Run under the new name: `wire_between_machines_tier` chorus 40, tcp 37, `tcp,databasehost.frognet chorus` 38;
+`collective_tier` 104; the AIConnect oracle on chorus; the carrier and channel-setting oracles; the swap tier on a
+perfect link (14 changes, 44,536 requests, 0 failed, 0 wrong) and at 4,800 baud (14 changes, 1,839 requests, 0
+failed, 0 wrong; a request 880 ms on tcp, 864 on chorus, 934 keyed).
+
+Two things that did not pass, said as they are:
+- The swap tier at 4,800 baud FAILED its first change once (the run before the one above): no request failed and
+  none was wrong, but the owner's wait for every end to say it runs the new setting, 20 s, was not met ("the owner
+  goes no further"). The same run passed when repeated, and the five 4,800 baud runs earlier in the day passed. Not
+  explained. It is section 7's to carry until it is.
+- `proxy/test_homa_ordering_oracle.py` does not finish its `sim` mode in this sandbox today: `core/homa_sim.py`
+  cannot bind its address (`Cannot assign requested address`). It fails the same way on the last commit
+  (`4e62a9ca`), so it is this machine since its restart and not this change; its other modes pass. Not run to the
+  end today.
+
+"Chorus" is also the name John gave on 6 Oct to the distribution model (fan-in of each participant's truth, fan-out
+of the current truth). Asked for nothing, he said two minutes later, of a network of sites: "In this system, each Role
+is its own ram, etc., coordinated through Chorus." So it is one name on purpose: Chorus is how roles' RAMs are
+coordinated, and this driver is what carries it between machines. No file in this tree used the name before today.
+
 ## 4. The interventions: what was said, why it was noticed, what had not been considered
 
 John, 17 Nov, of the first version of this file: "It is not just the order. It is what I asked and why I asked it.
@@ -2041,6 +2246,24 @@ against six commits and a results document that came after it.
   question under it (a flag of his, checked by his oracle, that cannot exist on a driver's connection), and asking
   it with a recommendation was right; listing it as "not done" in the two reports before was not.
 
+**28. "The 62 bytes are the real Homa DATA header layout"** (21 Nov, 06:42 to 06:44)
+
+- *What I said*: that soft Homa was 27% slower than tcp at 4,800 baud because of its 62-byte header, and then, as a
+  description: "The 62 bytes are the real Homa DATA header layout, kept so the frames are the ones kernel Homa uses.
+  On a held-open TCP connection most of those fields are zero."
+- *What John said*: "The Homa header should diff out." Then: "The payload on the tcp frame is a Homa frame. All of the
+  control should diff."
+- *Why it was a tell*: the fourth of the kind (cases 25 to 27): I named a cost and gave the reason it was there. And
+  the sentence held its own answer: "most of those fields are zero" on a connection whose every other byte is sent as
+  same-or-different.
+- *Not considered or recalled, and why*: his definition of 18 Nov ("We own the wire... The data on the socket is
+  exactly that -- data... provided by the packing method of the driver and on the other end will be handed unchanged
+  to the unpacking method"). The frame has to be Homa's at `pack()` and at `unpack()`. I had taken it that it had to
+  be Homa's on the TCP connection between them too, because the file is named for Homa's frames and the header
+  structs are copied from Homa's own. The semantic difference is made above the driver, so the header was the one
+  part of a message that no difference had ever been made of, and I had measured it without asking why it was
+  exempt. Forty minutes from his sentence to the measured result.
+
 ### What the cases have in common
 
 - **The fault was in a sentence I offered as plain description or as a reason.** "Listens", "because", "setting",
@@ -2090,6 +2313,9 @@ against six commits and a results document that came after it.
 | Three code changes on three guesses | the fourth failing run | Log which event it was before changing what handles it. |
 | The library could end the proxy that loaded it | the restart battery | No exception leaves a call the driver makes; a dead memory is let go of. |
 | `auto` had never been run between machines | its first run | Run every word the setting accepts, between machines. |
+| Closed a connection to change its setting (the second channel-setting build) | six findings in its own runs, 19 Nov | Do not close what is in use to change it: open the new, let the old finish. |
+| Reported a 62-byte header as the reason soft Homa was slower, and left it | John, one sentence (case 28) | A cost I can name in bytes is a thing to remove, or to ask about with a recommendation, not a thing to describe. |
+| Compared a read through the wire with the far machine's own read to check a write (they agree whatever is held) | writing the held-value check for the tier | A check has to be able to fail: say what wrong result it would catch. |
 
 ## 5. What Homa's mechanisms became
 
@@ -2142,6 +2368,10 @@ Raspberry Pi 5s. Ping 1.9 ms within Seattle, 91.6 ms to New York. 17 Nov, Homa A
 
 Nothing here may be reported as working.
 
+Of chorus (21 Nov): **the swap tier's owner wait at 4,800 baud was missed once in seven runs** (section 3, 21 Nov
+07:48; not explained). **`test_homa_ordering_oracle.py` sim mode not run to the end** (this sandbox cannot bind
+`homa_sim`'s address; the same on the last commit). **Not run on a node.**
+
 0. **A node whose every connection is forced to `softhoma`, while its listener is down**, can be told nothing
    except through its own hosts file (the ControlRam tells a holder through the wire). John's ruling 36: not a
    realistic case, because a machine going is a merge. With `auto`, or with the ControlRam's connection on tcp in
@@ -2183,7 +2413,9 @@ Nothing here may be reported as working.
 7. **The platform patch** (`cellwire.hpp`) against the MQTT, Redis and FD&F gates. The platform's `qualify.sh` fails
    in the sandbox without the patch too (C++ `semtpl` canon_key behind Python since `befe497c`, 1 Nov).
 8. **Kernel Homa on the Pi.** Compiles; never loaded. Needs John's go-ahead and `linux-headers` on the node. One
-   process holding both kernel Homa and soft Homa is not built.
+   process holding both kernel Homa and soft Homa is not built. (21 Nov: John ruled the hardware run of soft Homa
+   against the module moot; soft Homa is chorus now and no longer puts Homa's frames on the wire. Kernel Homa's own
+   runs under the word `homa` are still not done.)
 9. **Two unexplained test failures** (section 3, 11:30): the ordering tier once inside `run_all.py`; the TCP
    driver's writer-gone oracle once in four.
 10. **The old memory's session.** The platform's `Space` has no close, so after a move the session with the old
@@ -2364,3 +2596,5 @@ here; where this work did one late or wrong, it says so.
 | (this commit) | 19 Nov 07:38 | The build note and record for `frogtorch-on-drivers-20261119-27ab07de-b.tgz` (45 files; replaces the three before it), run as extracted over the base |
 | (this commit) | 19 Nov 09:10 | The channel's setting is a capability tuple: driver and key changed under load between machines, nothing failed (`REPORT-channel-setting-tuple-swap-under-load-20261119.md`); five findings in the existing code |
 | (this commit) | 19 Nov 11:45 | Onto the channel-setting build, four pieces from a second build of the same handoff: libcrypto in place of the Python module `cryptography`, a registered protection, a registered driver word (`VALID` no longer the gate), one RAM's connection with a setting of its own. Tier: 14 changes, perfect link and 4,800 baud, 0 failed, 0 wrong; a held-value check and a shared-request workload added to it (report, "Added the same day") |
+| (this commit) | 21 Nov 08:10 | All of soft Homa's control crosses as a difference: a request at 4,800 baud 1,121 ms to 864 ms with no key (tcp 880), 1,221 ms to 934 ms keyed. Ways to send less of a gradient measured on the acceptance model: its two factors are 15.6% of it, bit for bit. |
+| (this commit) | 21 Nov 07:48 | Soft Homa is called chorus (`core/chorus.py`, the word `chorus`); the old word is refused with the reason; every earlier note keeps the old name. |

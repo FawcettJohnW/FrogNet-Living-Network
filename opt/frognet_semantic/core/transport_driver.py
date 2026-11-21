@@ -44,9 +44,11 @@ The drivers, in these terms (the code is being brought to this shape; where it i
                the part to be split out.
     homa       kernel Homa. connect: one Homa socket. send/receive: the module's sendmsg/recvmsg, real Homa frames;
                the module does the cutting, pacing and resending. pack: the number and the frame.
-    softhoma   Homa's framing on a connection we hold open: connect: one TCP connection to the daemon. pack: Homa's
-               own data frame (as his module's TCP hijacking puts on the wire), no unit over Homa's message limit,
-               cut and joined here. Nothing else is under it: no memory process and no imitation socket.
+    chorus   (soft Homa until 21 Nov 2026) a connection we hold open: connect: one TCP connection to the daemon.
+               pack: Homa's own data frame, no unit over Homa's message limit, cut and joined here. send/receive:
+               the frame's header and first bytes cross as a difference from the frame before, so what is on the
+               wire is this driver's own and not Homa's (core/chorus.py). Nothing else is under it: no memory
+               process and no imitation socket.
 """
 from abc import ABC, abstractmethod
 from typing import List, Optional, Tuple

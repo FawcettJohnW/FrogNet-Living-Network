@@ -286,11 +286,11 @@ def plane_tensors_in_the_ram():
     print("\n=== PLANE 4: a tensor is a cell in the RAM, and a held read is answered by its owner's write ===")
     import threading, time
     import torch
-    for word in ("tcp", "softhoma"):
+    for word in ("tcp", "chorus"):
         with _setting(word), _a_ram() as srv:
             from agent_workload.tuplespace.ram_plane import RamPlane, RamStream, RamTensorClient
             from agent_workload.tuplespace.tensor_plane import READ_CURRENT, plane_view, writable_bytes
-            N = 70_000                                   # 280,000 bytes: over soft Homa's 240,000-byte segment
+            N = 70_000                                   # 280,000 bytes: over chorus's 240,000-byte segment
             a, b = torch.randn(N), torch.randn(N)
             owner, other = RamPlane("10.9.9.1"), RamPlane("10.9.9.2")
             st = RamStream("r1", "10.9.9.1", owner.port, "tier4", family=[r"g\.ars\.\d+\.1"])
@@ -351,7 +351,7 @@ def plane_ram_session_is_a_drivers_connection():
     if _SEM not in sys.path:
         sys.path.insert(0, _SEM)
     from agent_workload.tuplespace import frogtorch_ram_client as RC
-    from core import homa_frames as HF
+    from core import chorus as HF
 
     def _read(conn, n):
         conn.settimeout(5)
@@ -380,8 +380,8 @@ def plane_ram_session_is_a_drivers_connection():
         check(got == want, "tcp: the bytes on the wire are the ones this session has always sent "
                            "(<!Q length><payload>; %d of %d compared)" % (len(got), len(want)))
         s.close(); conn.close(); ls.close()
-    # softhoma: the RAM's port plus one, and Homa's DATA frame
-    with _setting("softhoma"):
+    # chorus: the RAM's port plus one, and Homa's DATA frame
+    with _setting("chorus"):
         ls = socket.socket()
         ls.bind(("127.0.0.1", 0))
         ls.listen(1)
@@ -390,32 +390,49 @@ def plane_ram_session_is_a_drivers_connection():
             conn, _ = ls.accept()
             s.send(head)
             payload = json.dumps(head).encode()
-            got = _read(conn, HF.HEADER + len(payload))
-            f = HF.COMMON.unpack_from(got)
-            d = HF.DATA_HDR.unpack_from(got, HF.COMMON.size)
-            check(f[4] == HF.DATA and f[6] == HF.HIJACK_FLAGS and f[9] == HF.HIJACK_URGENT and d[0] == len(payload)
-                  and got[HF.HEADER:] == payload,
-                  "fail-on-old: told softhoma, the session connects to the RAM's port plus one and sends Homa's DATA frame")
+            # [THE_HEADER_IS_A_DIFFERENCE_V1] what crosses: the opener's word, then the DATA header as a difference
+            # against a header of zeros (it is the connection's first), then the payload. The far end of the driver
+            # puts the whole Homa DATA frame back; here the bytes are read as they crossed.
+            got = _read(conn, len(HF.WIRE))
+            rest = b""
+            conn.settimeout(5)
+            tail = payload[HF.PREFIX:]
+            while not rest.endswith(tail):                     # the rest of the one frame that was sent
+                part = conn.recv(4096)
+                if not part:
+                    break
+                rest += part
+            check(got == HF.WIRE and rest.endswith(tail) and len(rest) < len(payload) + 30 and HF.COMMON.size + HF.DATA_HDR.size == 62,
+                  "fail-on-old: told chorus, the session connects to the RAM's port plus one, says how it sends, and sends "
+                  "Homa's DATA frame with its header as a difference (the first frame of a connection: %d bytes crossed for a %d-byte header and a %d-byte "
+                  "payload)" % (len(rest), HF.HEADER, len(payload)))
+            c2 = HF._Conn(("127.0.0.1", 1)); c2._said_wire = True
+            import io as _io
+            c2._rf = _io.BytesIO(rest)
+            n2, back = c2.unpack(c2.receive())
+            f = HF._fields(HF.COMMON.pack(*c2._hdr_in[:11]) + HF.DATA_HDR.pack(*c2._hdr_in[11:]))
+            check(back == payload and f[4] == HF.DATA and f[6] == HF.HIJACK_FLAGS and f[9] == HF.HIJACK_URGENT and f[11] == len(payload),
+                  "and the far end's receive() puts back a whole Homa DATA frame: type, hijack marks, length and the payload exactly")
             s.close(); conn.close()
         except ConnectionError as e:
-            check(False, "fail-on-old: told softhoma, the session connects to the RAM's port plus one (%s)" % e)
+            check(False, "fail-on-old: told chorus, the session connects to the RAM's port plus one (%s)" % e)
         ls.close()
     # a word per RAM: one memory, both drivers, chosen by which RAM is on the machine
     at = lambda host: ("databasehost.frognet",) if host == "127.0.0.9" else ()
-    with _setting("auto", {"databasehost.frognet": "softhoma"}, at), _a_ram() as srv:
-        check(set(srv.listeners) == {"tcp", "softhoma"}
-              and srv.listeners["softhoma"].port == srv.listeners["tcp"].port + 1,
-              "the RAM listens with every driver the setting names: tcp on its port, softhoma on its port plus one")
+    with _setting("auto", {"databasehost.frognet": "chorus"}, at), _a_ram() as srv:
+        check(set(srv.listeners) == {"tcp", "chorus"}
+              and srv.listeners["chorus"].port == srv.listeners["tcp"].port + 1,
+              "the RAM listens with every driver the setting names: tcp on its port, chorus on its port plus one")
         s9, s8 = RC._Session("127.0.0.9", srv.port), RC._Session("127.0.0.8", srv.port)
         v9, v8 = s9.call({"op": "version"}), s8.call({"op": "version"})
-        check((s9.end.name, v9.get("driver"), s8.end.name, v8.get("driver")) == ("softhoma", "softhoma", "tcp", "tcp"),
-              "[A_WORD_PER_RAM_CONNECTION_V1] the connection to the machine databasehost.frognet is on is softhoma, "
+        check((s9.end.name, v9.get("driver"), s8.end.name, v8.get("driver")) == ("chorus", "chorus", "tcp", "tcp"),
+              "[A_WORD_PER_RAM_CONNECTION_V1] the connection to the machine databasehost.frognet is on is chorus, "
               "another machine's is the node's word (%s/%s, %s/%s)" % (s9.end.name, v9.get("driver"), s8.end.name,
                                                                       v8.get("driver")))
         s9.send(head)
         rows = s8.call({"op": "cget", "service": "s", "var": "v", "min_rows": 1, "wait_s": 5.0}).get("rows", [])
         check(len(rows) == 1 and rows[0]["value"] == {"k": 1},
-              "the transport is transparent: a cell written over softhoma is read over tcp, unchanged")
+              "the transport is transparent: a cell written over chorus is read over tcp, unchanged")
         s9.close(); s8.close()
     # a session ends with its connection
     with _setting("tcp"), _a_ram() as srv:
@@ -518,7 +535,7 @@ def plane_ranks_do_not_listen():
     print("\n=== PLANE 4b: three real ranks: none listens, each talks only to the RAM, on either driver ===")
     import json, socket, subprocess, time
     shas = {}
-    for word in ("tcp", "softhoma"):
+    for word in ("tcp", "chorus"):
         s = socket.socket()
         s.bind(("127.0.0.1", 0))
         port = s.getsockname()[1]
@@ -527,7 +544,7 @@ def plane_ranks_do_not_listen():
                    FROGNET_PSY_DIAG="0", FROGNET_DIAG="0")
         ram = subprocess.Popen([sys.executable, "-m", "agent_workload.tuplespace.frogtorch_ram", "--port", str(port),
                                 "--no-announce"], env=env, cwd=_SEM, stdout=subprocess.DEVNULL)
-        there = port + (1 if word == "softhoma" else 0)
+        there = port + (1 if word == "chorus" else 0)
 
         def up():
             try:
@@ -562,8 +579,8 @@ def plane_ranks_do_not_listen():
         check(all(g["far"] == [there] for g in got),
               "fail-on-old: %s: every connection a rank has goes to the RAM, port %d (%s)"
               % (word, there, [g["far"] for g in got]))
-    check(len(shas) == 2 and shas["tcp"] == shas["softhoma"],
-          "the transport is transparent: the same bits on tcp and on softhoma (%s)" % shas)
+    check(len(shas) == 2 and shas["tcp"] == shas["chorus"],
+          "the transport is transparent: the same bits on tcp and on chorus (%s)" % shas)
 
 
 # ---------------------------------------------------------------------------
@@ -840,7 +857,7 @@ def plane_workers_do_not_listen():
     the RAM. fail-on-old: each listened (MemoryPlane) and was connected to the other."""
     print("\n=== PLANE 9: two frogtorch.Workers: their tensors are in the RAM, neither listens ===")
     import json, socket, subprocess
-    for word in ("tcp", "softhoma"):
+    for word in ("tcp", "chorus"):
         s = socket.socket()
         s.bind(("127.0.0.1", 0))
         port = s.getsockname()[1]
@@ -849,7 +866,7 @@ def plane_workers_do_not_listen():
                    FROGNET_DIAG="0")
         ram = subprocess.Popen([sys.executable, "-m", "agent_workload.tuplespace.frogtorch_ram", "--port", str(port),
                                 "--no-announce"], env=env, cwd=_SEM, stdout=subprocess.DEVNULL)
-        there = port + (1 if word == "softhoma" else 0)
+        there = port + (1 if word == "chorus" else 0)
 
         def up():
             try:

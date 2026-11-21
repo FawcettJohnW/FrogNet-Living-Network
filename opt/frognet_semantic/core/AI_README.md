@@ -100,10 +100,10 @@ The parts every node runs. 38 Python files, no subdirectories.
   data on the socket is exactly that -- data ... The packing and unpacking methods are part of the driver."
   Nothing above a driver touches a socket; nothing below it knows what the bytes are. The engine's side of a session
   is `daemon/engine/session.EngineSession` (no socket); the TCP driver's daemon end is `TcpDaemonEnd` in the same file.
-- **Soft Homa is its own carrier, `softhoma`: Homa's frames on a connection the driver holds open**
-  (`core/homa_frames.py`). Homa's DATA frame as his TCP hijacking lays it over TCP's header, segments of at most
+- **Chorus is its own carrier, `chorus`: Homa's frames on a connection the driver holds open**
+  (`core/chorus.py`). Homa's DATA frame as his TCP hijacking lays it over TCP's header, segments of at most
   240,000 bytes, one TCP connection per daemon on port 9131, opened when there is first something to send and held
-  open. It needs nothing built, loaded or told but the word `softhoma`, and it is NOT taken on `auto`: a node left on
+  open. It needs nothing built, loaded or told but the word `chorus`, and it is NOT taken on `auto`: a node left on
   `auto` without Homa in its kernel is on TCP exactly as it was. **A session ends with its connection, at both ends**
   (`[A_SESSION_ENDS_WITH_ITS_CONNECTION_V1]`). DO NOT put a memory process, cells or an imitation socket under
   FrogNet's wire: that was built first (17 Nov), measured, and taken out on John's word ("You are trying to mimic a
@@ -113,7 +113,7 @@ The parts every node runs. 38 Python files, no subdirectories.
   are now done in hardware and use real Homa frames instead of tcp hijack frames".
 - **`[FRAMES_GO_IN_PIECES_V1]` a frame larger than one message goes in pieces.** The driver
   (`proxy/transport_homa.py`, `daemon/engine/server_homa.py`) asks the carrier what one message may be
-  (`homa_socket.max_message()`: 1,000,000 on kernel Homa; soft Homa's carrier cuts for itself) and cuts a larger frame or reply
+  (`homa_socket.max_message()`: 1,000,000 on kernel Homa; chorus's carrier cuts for itself) and cuts a larger frame or reply
   into numbered pieces, each a whole Homa message, rebuilt before the engine sees it. Nothing is refused for size
   and nothing is shed. The format and the gate are in `ribbit/examples/homa/DESIGN.md` section 5. Do not put a
   size limit back above the driver.
@@ -129,7 +129,7 @@ The parts every node runs. 38 Python files, no subdirectories.
 ## The semantic wire's transport is a setting per RAM connection (17 Nov 2026)
 
 John: "It is a Setting per ram connection, which may be on different machines." `/etc/frognet/semantic_transport`:
-the first line is the node's word (`auto`, `tcp`, `homa`, `softhoma`); each line after it is a RAM's role name and
+the first line is the node's word (`auto`, `tcp`, `homa`, `chorus`); each line after it is a RAM's role name and
 the word for this node's connection to that RAM, for example `databasehost_control.frognet tcp`. A RAM is named by
 its role, never by an address. `core/homa_transport.py` `[A_WORD_PER_RAM_CONNECTION_V1]`. Rules that came with it:
 

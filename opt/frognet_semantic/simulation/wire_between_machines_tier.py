@@ -35,11 +35,11 @@ A machine here is a network namespace, so nothing about a node is stood in for:
                        node's port-80 redirect, is NOT run: a request is handed to the engine with its target, as
                        door_semantic_tier hands it.)
 
-The transport is the word given (--transport tcp | softhoma | auto). The tier is run on tcp first: the TCP driver
+The transport is the word given (--transport tcp | chorus | auto). The tier is run on tcp first: the TCP driver
 must pass the battery before anything is concluded about another transport, and that run is the control.
 
 Needs root, network namespaces, php (mysqli, curl), socat, MariaDB answering root on its socket, the simulator's
-DB_CONFIG (setup.sh), and for softhoma the Homa API interface built. Says what is missing and FAILS.
+DB_CONFIG (setup.sh), and for chorus the Homa API interface built. Says what is missing and FAILS.
 
   python3 simulation/wire_between_machines_tier.py [--transport tcp] [--topology trial3] [--keep]
 """
@@ -687,7 +687,7 @@ def battery_large(machines, check):
     characters this side can recompute from the seed; op=echo returns the length and SHA-256 of what the origin
     was GIVEN, in canonical form (the wire carries JSON by its values). A large frame is many fields of 50,000
     characters: the semantic codec's string field holds 65,535 bytes and refuses a longer one with that reason
-    (found here, 17 Nov 22:10, with one field of 100,000). Sizes cross the Homa driver's message limit (240,000 bytes on soft Homa), so above it a frame goes
+    (found here, 17 Nov 22:10, with one field of 100,000). Sizes cross the Homa driver's message limit (240,000 bytes on chorus, then soft Homa), so above it a frame goes
     in pieces and comes back on spares. Each machine asks the next one in the topology's order."""
     import hashlib
     import door_origin
@@ -857,7 +857,7 @@ def battery_restart(net, machines, system, setting, check):
     (the_merge): the routes are the merge's for the topology that is left, each remaining machine's block is what
     it can still reach, and the role goes to a machine that is there. Where the machine was the only way between
     two others, they are in different blocks afterwards, each with its own roles, and are not asked to reach each
-    other. On soft Homa the memory went with the machine, so every other machine's Homa socket went down; each must
+    other. On chorus the memory went with the machine, so every other machine's Homa socket went down; each must
     be listening again, in the memory where ITS block's role is now, with nothing restarted, and the wire must
     carry the same work inside each block. Then the machine comes back, which is a network event, the merge runs
     over the whole network, and the wire carries the same work to and from it.
@@ -935,7 +935,7 @@ def battery_carried(machines, word, check):
         for ip, w in want.items():
             if w == "tcp":
                 fine = fine and ip in tcp and ip not in homa
-            elif w == "softhoma":
+            elif w == "chorus":
                 fine = fine and ip in homa and ip not in tcp
         fine = fine and not unknown
         good = good and fine
@@ -974,7 +974,7 @@ def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--transport", default="tcp",
                     help="every machine's transport setting, as /etc/frognet/semantic_transport holds it, lines joined by "
-                         "commas: tcp | softhoma | auto | 'softhoma,databasehost_control.frognet tcp' ...")
+                         "commas: tcp | chorus | auto | 'chorus,databasehost_control.frognet tcp' ...")
     ap.add_argument("--topology", default="trial3", choices=sorted(TOPOLOGIES) + simulator_topologies() + ["all"],
                     help="trial3, one of the simulator's topologies with a hardware baseline, or all (every one of them, each "
                          "in a run of its own)")

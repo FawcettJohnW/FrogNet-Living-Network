@@ -18,15 +18,15 @@
 #   arm  what                                                   the transport under FrogTorch's sessions with the RAM
 #   0    ddpbench, stock DDP on gloo (the control)              gloo's own sockets, rank to rank; no setting reaches them
 #   1    ddpbench, Psychedelic shard                            tcp
-#   2    ddpbench, Psychedelic shard                            softhoma (tcp, then databasehost.frognet softhoma)
+#   2    ddpbench, Psychedelic shard                            chorus (tcp, then databasehost.frognet chorus)
 #   3    meshfeed k=1, batch 64, 40 steps, --check              tcp
-#   4    meshfeed k=1, batch 64, 40 steps, --check              softhoma
+#   4    meshfeed k=1, batch 64, 40 steps, --check              chorus
 #   5    meshfeed k=1, batch 4096, 10 steps, --check            tcp
-#   6    meshfeed k=1, batch 4096, 10 steps, --check            softhoma
+#   6    meshfeed k=1, batch 4096, 10 steps, --check            chorus
 #
 # The word for an arm is given to that arm's processes alone (FROGNET_SEM_TRANSPORT); nothing on the node is changed
-# between arms. The softhoma arms need the FrogTorch RAM to be listening with soft Homa: its node's
-# /etc/frognet/semantic_transport has the line "databasehost.frognet softhoma" (every node has the same file, since
+# between arms. The chorus arms need the FrogTorch RAM to be listening with chorus: its node's
+# /etc/frognet/semantic_transport has the line "databasehost.frognet chorus" (every node has the same file, since
 # the role moves) and frogtorch-ram was restarted after this code was installed. What it listens with is printed
 # below before the first arm.
 #
@@ -59,7 +59,7 @@ STORE=databasehost.frognet:80
 GATE_WAIT="${FROGNET_GATE_WAIT:-3600}"
 ARMS=7
 W_TCP="tcp"
-W_SOFT="tcp,databasehost.frognet softhoma"
+W_CHORUS="tcp,databasehost.frognet chorus"
 mkdir -p "$OUT"
 
 echo "=============================================================="
@@ -93,7 +93,7 @@ now() { date +%s.%N; }
 arm() {   # arm, kind (ddp|mesh), word, label, then the program's own arguments
     _N="$1"; _KIND="$2"; _WORD="$3"; _LABEL="$4"; shift 4
     _ID="tr$((BASE + _N))"
-    case "$_WORD" in none) _SAY="gloo's own";; tcp) _SAY="tcp";; *) _SAY="softhoma";; esac
+    case "$_WORD" in none) _SAY="gloo's own";; tcp) _SAY="tcp";; *) _SAY="chorus";; esac
     echo ">>> $_ID  arm $_N  $_LABEL   [$_SAY]"
     if [ "$_N" -lt "$FIRST" ]; then echo "    skipped"; return 0; fi
     "$PY" "$GATE" --role barrier --runid "$_ID" --arm 0 --rank "$RANK" --world "$WORLD" \
@@ -127,11 +127,11 @@ arm() {   # arm, kind (ddp|mesh), word, label, then the program's own arguments
 
 arm 0 ddp  none      "ddpbench gloo (control)"          gloo        --steps 40 --warmup 8
 arm 1 ddp  "$W_TCP"  "ddpbench psychedelic shard"       psychedelic --steps 40 --warmup 8
-arm 2 ddp  "$W_SOFT" "ddpbench psychedelic shard"       psychedelic --steps 40 --warmup 8
+arm 2 ddp  "$W_CHORUS" "ddpbench psychedelic shard"       psychedelic --steps 40 --warmup 8
 arm 3 mesh "$W_TCP"  "meshfeed k=1 batch 64"            --check
-arm 4 mesh "$W_SOFT" "meshfeed k=1 batch 64"            --check
+arm 4 mesh "$W_CHORUS" "meshfeed k=1 batch 64"            --check
 arm 5 mesh "$W_TCP"  "meshfeed k=1 batch 4096"          --batch 4096 --steps 10 --warmup 2 --check
-arm 6 mesh "$W_SOFT" "meshfeed k=1 batch 4096"          --batch 4096 --steps 10 --warmup 2 --check
+arm 6 mesh "$W_CHORUS" "meshfeed k=1 batch 4096"          --batch 4096 --steps 10 --warmup 2 --check
 
 echo "=============================================================="
 echo " done on $NAME. Every rank's results, read from the RAM:"

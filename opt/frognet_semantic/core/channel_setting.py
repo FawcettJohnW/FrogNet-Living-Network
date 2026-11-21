@@ -30,7 +30,7 @@ The tuple is (channel, setting, semantic) in the ControlRam, where the capabilit
 module's and nobody else's: this module writes it (write(), the owner's act) and this module reads it (the held read
 below). What it holds today:
 
-    driver    a word a driver registered (core/homa_transport.register_driver; "tcp" and "softhoma" are in the tree):
+    driver    a word a driver registered (core/homa_transport.register_driver; "tcp" and "chorus" are in the tree):
               the driver a NEW session opens on. Absent: the node's own word decides, as before.
     key       the NAME of the key a message is sent under. Absent or "": messages are sent as the driver packs them.
     accept    the names of the keys a message may arrive under. Absent: only `key`.
@@ -367,11 +367,29 @@ def _protection(s: Optional[dict]):
     return p
 
 
+# [THE_HEADER_IS_A_DIFFERENCE_V1] The nonce is control too. It was 12 random bytes a message, which no difference can
+# shorten. It is now 8 random bytes this process draws once and a 4-byte count: never the same twice in a process, as
+# AES-GCM requires of a key's nonces, two processes' differ in the 8 bytes they drew (2^-64 that two draw the same),
+# and one message's nonce differs from the last one's in a byte or two, so on the connection it crosses as that. At
+# 2^32 messages the 8 bytes are drawn again.
+_nonce_lock = threading.Lock()
+_nonce_head, _nonce_count = os.urandom(8), 0
+
+
+def _next_nonce() -> bytes:
+    global _nonce_head, _nonce_count
+    with _nonce_lock:
+        if _nonce_count >= 0xFFFFFFFF:
+            _nonce_head, _nonce_count = os.urandom(8), 0
+        _nonce_count += 1
+        return _nonce_head + struct.pack("!I", _nonce_count)
+
+
 def protect(n: int, frame: bytes, name: str, far: Optional[str] = None) -> bytes:
     """frame under the key `name`: the name's length and the name, a nonce, the sealed frame. A request (n even) is
     under the setting of the connection to `far`; a reply under the setting of what arrives here."""
     nb = name.encode()
-    nonce = os.urandom(12)
+    nonce = _next_nonce()
     s = here() if n & 1 else setting_for(far)
     return bytes([len(nb)]) + nb + nonce + _protection(s)[0](_aes(name), nonce, struct.pack("!Q", n & ~1) + nb, bytes(frame))
 

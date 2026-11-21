@@ -768,8 +768,8 @@ what is next is `opt/frognet_semantic/agent_workload/PYTORCH-ON-THE-DRIVERS-PRIM
 - **Every session with the RAM is a transport driver's connection** (`[THE_RAM_SESSION_IS_A_DRIVERS_CONNECTION_V1]`,
   John 2026-11-17: "The connection to the RAM host is expected and should be transport transparent").
   `frogtorch_ram_drivers.py`: the six calls of `core/transport_driver.py`; `tcp` (the bytes this session has
-  always sent, `<!Q length><payload>`) or `softhoma` (`core/homa_frames._Conn`), by the word
-  `/etc/frognet/semantic_transport` gives for that RAM. A RAM has one port P: tcp listens on P, softhoma on P + 1.
+  always sent, `<!Q length><payload>`) or `chorus` (`core/chorus._Conn`), by the word
+  `/etc/frognet/semantic_transport` gives for that RAM. A RAM has one port P: tcp listens on P, chorus on P + 1.
   Nothing in `frogtorch_ram.py`, `frogtorch_ram_client.py` or `ram_plane.py` opens a socket. Kernel Homa under
   this session is not written (the primer's step 4): a session told `homa` says so and stops.
 - **A session ends with its connection** (`[A_SESSION_ENDS_WITH_ITS_CONNECTION_V1]`); **a named read is held until
@@ -820,7 +820,7 @@ capability tuple in the ControlRam: (channel, setting, semantic), `opt/frognet_s
 - (channel, setting, <a RAM's role name>) is the same JSON for the connection to that RAM's machine alone.
 - A driver's word is registered (`core/homa_transport.register_driver`); a protection is registered
   (`core/channel_protection.register_protection`). Neither is a fixed list.
-- A node must have been told of soft Homa (its own word names it) before the tuple can put a session on it.
+- A node must have been told of chorus (its own word names it) before the tuple can put a session on it.
 - Read `opt/frognet_semantic/core/TRANSPORT-DRIVER-INTERFACE.md` section 7 before changing any of this. The test is
   `opt/frognet_semantic/simulation/channel_swap_tier.py` (between machines, the real proxy and daemon, under load,
   perfect link and 4,800 baud); the quick check is `core/test_channel_setting_oracle.py`.

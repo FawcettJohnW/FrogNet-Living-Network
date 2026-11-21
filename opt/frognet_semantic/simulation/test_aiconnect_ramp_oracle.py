@@ -501,7 +501,7 @@ def test_relayed_peer_is_detected():
     t = threading.Thread(target=accept_loop, daemon=True)
     t.start()
     try:
-        # the listener above stands in for a RAM's listener for whichever driver the setting names: on soft Homa
+        # the listener above stands in for a RAM's listener for whichever driver the setting names: on chorus
         # that is the RAM's port plus one, so the RAM's port is this one less that
         from agent_workload.tuplespace import frogtorch_ram_drivers as D
         ram_port = port - D.port_of(D.end_for("127.0.0.1", port).name, 0)

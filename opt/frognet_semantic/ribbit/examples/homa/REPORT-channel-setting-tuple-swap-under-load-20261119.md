@@ -1,5 +1,7 @@
 # Channel setting in a capability tuple, changed under load: build and simulator results
 
+> **21 Nov 2026:** the driver this document calls "soft Homa" / `softhoma` is called **chorus** from this date (the word `chorus`, `core/chorus.py`). The text below is as written and keeps the old name. Why: `EXPLORATION-LOG.md`, entry of 21 Nov 07:48.
+
 19 November 2026. Built and run on branch `homa-under-croakos-20261116`. First run on commit `2783ff28`; applied
 unchanged to `46075258` and run again there before it was committed.
 

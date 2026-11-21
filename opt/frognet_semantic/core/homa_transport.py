@@ -33,24 +33,24 @@ One word says how a node chooses. It is read once at start from /etc/frognet/sem
               On a node where no Homa socket opens, "auto" is "tcp": nothing new runs.
     tcp       TCP only, and nothing here runs.
     homa      Homa only, on the kernel module. A harness's word, and a node's when every peer is the same.
-    softhoma  Homa only, and it must be soft Homa: Homa's calls on shared memory (ribbit/examples/homa), loaded into
-              this process. A node told "softhoma" without it stops.
+    chorus  Homa only, and it must be chorus: Homa's calls on shared memory (ribbit/examples/homa), loaded into
+              this process. A node told "chorus" without it stops.
     homasim   Homa only, on core/homa_sim.py (the Homa simulator). A harness's word.
 
-[SOFT_HOMA_CARRIER_V1] Kernel Homa and soft Homa answer the same calls and are not the same wire, so they are two
-carriers with two names: "homa" and "softhoma". One process has one of them: whichever answers IPPROTO_HOMA in it
+[SOFT_HOMA_CARRIER_V1] Kernel Homa and chorus answer the same calls and are not the same wire, so they are two
+carriers with two names: "homa" and "chorus". One process has one of them: whichever answers IPPROTO_HOMA in it
 (homa_name()). The Homa driver is the same for both. Each end says which it has in its capability tuple, so a kernel
-node and a soft node find TCP in common and nothing else. A node told "homa" in whose process soft Homa is loaded
-stops: the word for that is "softhoma".
+node and a soft node find TCP in common and nothing else. A node told "homa" in whose process chorus is loaded
+stops: the word for that is "chorus".
 
 Any other word stops the process with the word in the message.
 
-[A_WORD_PER_RAM_CONNECTION_V1] John, 2026-11-17, asked whether "softhoma" only is a mode to support or a test's word:
+[A_WORD_PER_RAM_CONNECTION_V1] John, 2026-11-17, asked whether "softhoma" only (chorus's word until 21 Nov) is a mode to support or a test's word:
 "Both. It is a Setting per ram connection, which may be on different machines". So the first line is this node's
 word, and each line after it is a RAM's role name and the word for this node's connection to that RAM:
 
     auto
-    databasehost.frognet softhoma
+    databasehost.frognet chorus
     databasehost_control.frognet tcp
 
 (FROGNET_SEM_TRANSPORT holds the same lines with commas between them.) A RAM is named by its role, never by an
@@ -62,9 +62,9 @@ session cannot have both, so it is not opened and the reason is the error (nothi
 
 A daemon listens on every carrier any word of its setting names (carriers_listened()), and says so in its capability
 tuple: a node that reaches a RAM on a carrier is a node a RAM can be reached at on that carrier when the role comes
-to it, and every node has the same setting. So "softhoma" with "databasehost_control.frognet tcp" is: this node
-opens soft Homa sessions to every machine but the ControlRam's, a TCP session to the ControlRam's, and its daemon
-listens on both. A RAM's word is auto, tcp, homa or softhoma (homasim is a harness's word for a whole process).
+to it, and every node has the same setting. So "chorus" with "databasehost_control.frognet tcp" is: this node
+opens chorus sessions to every machine but the ControlRam's, a TCP session to the ControlRam's, and its daemon
+listens on both. A RAM's word is auto, tcp, homa or chorus (homasim is a harness's word for a whole process).
 
 [NO_FALLBACK_V1] Choosing a carrier at the start of a session from what both ends have is not a fallback. A session
 whose carrier fails ends with the reason; nothing carries on underneath it. A node told "homa" whose Homa socket will
@@ -77,13 +77,13 @@ import threading
 from typing import Dict, Optional, Tuple
 
 TRANSPORT_FILE = os.environ.get("FROGNET_SEM_TRANSPORT_FILE", "/etc/frognet/semantic_transport")
-VALID = ("auto", "tcp", "homa", "softhoma", "homasim")
+VALID = ("auto", "tcp", "homa", "chorus", "homasim")
 # [A_DRIVER_REGISTERS_ITS_WORD_V1] John, 2026-11-19: "There is not a fixed form, and the consumer is the thing that
 # wrote it." The words a setting may use (the file's, and the channel's tuple's) are the words drivers have
 # registered, not a list fixed here: VALID is the drivers in the tree, and register_driver adds one. A word says which
 # of the engine's two session kinds stands under it: "tcp" (proxy/transport_semantic._DaemonWorker) or "homa"
 # (proxy/transport_homa._MsgWorker, on the process's one message carrier, open_homa_socket below).
-DRIVERS: Dict[str, str] = {"auto": "auto", "tcp": "tcp", "homa": "homa", "softhoma": "homa", "homasim": "homa"}
+DRIVERS: Dict[str, str] = {"auto": "auto", "tcp": "tcp", "homa": "homa", "chorus": "homa", "homasim": "homa"}
 
 
 def register_driver(word: str, session_kind: str) -> None:
@@ -91,7 +91,7 @@ def register_driver(word: str, session_kind: str) -> None:
     if session_kind not in ("tcp", "homa"):
         raise ValueError("a driver's session kind is tcp or homa, not %r" % (session_kind,))
     DRIVERS[word.lower()] = session_kind
-WALK = ("homa", "softhoma", "tcp")    # the walk's order: equal or unmeasured carriers are taken in this order
+WALK = ("homa", "chorus", "tcp")    # the walk's order: equal or unmeasured carriers are taken in this order
 BUILD = "homa-carrier-v4-20261117u"
 _chosen = None
 _ram_words: Dict[str, str] = {}              # [A_WORD_PER_RAM_CONNECTION_V1] RAM's role name -> the word for this node's connection to it
@@ -114,6 +114,11 @@ def semantic_transport() -> str:
             text, src = "auto", "no %s (the default)" % TRANSPORT_FILE
     lines = [l.split() for l in text.splitlines() if l.strip()]
     word = lines[0][0] if lines and len(lines[0]) == 1 else " ".join(lines[0]) if lines else ""
+    if "softhoma" in [l[-1] for l in lines if l]:
+        # [CHORUS_V1] the driver that was soft Homa is chorus since 21 Nov 2026 (core/chorus.py says why). The old
+        # word is not kept beside the new one: a node whose setting still says it is told, and does not start on a guess.
+        raise SystemExit("[SEM-TRANSPORT] %s says softhoma. That driver is called chorus now (21 Nov 2026: it no longer puts "
+                         "Homa's frames on the wire). Change the word to chorus in %s and start again." % (src, src))
     if word not in DRIVERS:
         raise SystemExit("[SEM-TRANSPORT] %s says %r; the semantic wire's transport is one of %s"
                          % (src, word, ", ".join(sorted(DRIVERS))))
@@ -172,26 +177,26 @@ def word_for(host: str) -> str:
 
 def on_homa_driver() -> bool:
     """True when this node was told Homa only (over the module or over the simulator)."""
-    return semantic_transport() in ("homa", "softhoma", "homasim")
+    return semantic_transport() in ("homa", "chorus", "homasim")
 
 
-def _soft_homa_loaded() -> Optional[str]:
-    """[WE_OWN_THE_WIRE_V1] Whether the Homa this node's driver runs on is soft Homa (Homa's frames on TCP connections
-    the driver holds open, core/homa_frames.py), and if so its build: only when a word of the node's setting says
-    softhoma. It needs nothing but TCP, so it could always be had; it is not taken unless asked for. A node left on
+def _chorus_loaded() -> Optional[str]:
+    """[WE_OWN_THE_WIRE_V1] Whether the Homa this node's driver runs on is chorus (Homa's frames on TCP connections
+    the driver holds open, core/chorus.py), and if so its build: only when a word of the node's setting says
+    chorus. It needs nothing but TCP, so it could always be had; it is not taken unless asked for. A node left on
     auto with no Homa in its kernel is on TCP exactly as it was (John, 17 Nov: "There should be no risk to existing
     systems at all")."""
     words = {semantic_transport()} | set(_ram_words.values())
-    if "softhoma" in words:
-        from core import homa_frames
-        return homa_frames.BUILD
+    if "chorus" in words:
+        from core import chorus
+        return chorus.BUILD
     return None
 
 
 
 def homa_name() -> str:
-    """The name of the Homa this process has: "softhoma" where it was told of a soft Homa library, else "homa"."""
-    return "softhoma" if _soft_homa_loaded() else "homa"
+    """The name of the Homa this process has: "chorus" where it was told of a chorus library, else "homa"."""
+    return "chorus" if _chorus_loaded() else "homa"
 
 
 def _kernel_homa_opens() -> Tuple[bool, str]:
@@ -215,23 +220,23 @@ def carriers_here(mode: Optional[str] = None) -> Tuple[str, ...]:
                 _here[mode] = ("tcp",)
             elif mode == "homasim":
                 _here[mode] = ("homa",)
-            elif mode in ("homa", "softhoma"):
-                soft = _soft_homa_loaded()
+            elif mode in ("homa", "chorus"):
+                soft = _chorus_loaded()
                 if mode == "homa" and soft:
-                    raise SystemExit("[SEM-TRANSPORT] this node was told homa, and it was also told of a soft Homa library "
-                                     "(%s): the Homa its driver would open is soft Homa. The word for that is softhoma." % soft)
+                    raise SystemExit("[SEM-TRANSPORT] this node was told homa, and it was also told of a chorus library "
+                                     "(%s): the Homa its driver would open is chorus. The word for that is chorus." % soft)
                 _here[mode] = (mode,)
             else:
-                soft = _soft_homa_loaded()
+                soft = _chorus_loaded()
                 # [SOFT_HOMA_IS_HAD_WHEN_ITS_LIBRARY_IS_V1] found between machines, 17 Nov: "auto" decided what this end
                 # has by opening a socket at start. A node starts before the merge has named the SystemRam, so soft
                 # Homa's memory cannot be named yet, the socket did not open, and "auto" was tcp for the life of the
-                # process on every node. Soft Homa is had when this node was told of its library; where its memory is
+                # process on every node. Chorus is had when this node was told of its library; where its memory is
                 # comes and goes with the role, and the listener follows it. Kernel Homa is still had when its socket opens.
-                ok, why = (True, "a word of this node's setting says softhoma") if soft else _kernel_homa_opens()
+                ok, why = (True, "a word of this node's setting says chorus") if soft else _kernel_homa_opens()
                 _here[mode] = (homa_name(), "tcp") if ok else ("tcp",)
                 print("[SEM-TRANSPORT] [CARRIER_PER_HOP_V1] carriers here: %s (%s: %s)"
-                      % (", ".join(_here[mode]), "soft Homa %s" % soft if soft else "kernel Homa", why), flush=True)
+                      % (", ".join(_here[mode]), "chorus %s" % soft if soft else "kernel Homa", why), flush=True)
         return _here[mode]
 
 
@@ -271,7 +276,7 @@ def _peer_carriers(node: str) -> Optional[Tuple[str, ...]]:
 
 
 def carrier_for(host: str) -> str:
-    """The driver a NEW session to `host` opens on: "homa" (the Homa driver, on kernel Homa or soft Homa, whichever
+    """The driver a NEW session to `host` opens on: "homa" (the Homa driver, on kernel Homa or chorus, whichever
     this process has) or "tcp". See the module docstring for the rule."""
     mode = word_for(host)                   # [A_WORD_PER_RAM_CONNECTION_V1] the RAM's word if a named RAM is there now
     if mode != "homasim":
@@ -283,17 +288,17 @@ def carrier_for(host: str) -> str:
         if kind == "tcp":
             return "tcp"
         if kind == "homa":
-            if said == "softhoma" and _soft_homa_loaded() is None:
-                raise ConnectionError("the channel's tuple says softhoma and this node was not told of soft Homa: a node "
+            if said == "chorus" and _chorus_loaded() is None:
+                raise ConnectionError("the channel's tuple says chorus and this node was not told of chorus: a node "
                                       "that was not told a driver's word does not run it")
-            if said != "softhoma":
+            if said != "chorus":
                 carriers_here(said)             # a word this process cannot keep stops it here
             return "homa"
     if mode == "tcp":
         return "tcp"
-    if mode in ("homa", "softhoma", "homasim"):
+    if mode in ("homa", "chorus", "homasim"):
         carriers_here(mode)                 # a word this process cannot keep stops it here
-        return "homa"                       # (told softhoma only: a peer not in the memory is the session's to say, transport_homa._MsgWorker)
+        return "homa"                       # (told chorus only: a peer not in the memory is the session's to say, transport_homa._MsgWorker)
     mine = carriers_here(mode)
     if mine == ("tcp",):
         return "tcp"
@@ -381,16 +386,16 @@ def open_homa_socket(who: str, bind_ip: str = "0.0.0.0", server_port=None):
         s = homa_sim.HomaSimSocket(bind_ip=bind_ip, server_port=server_port)
         print(homa_sim.startup_line(who, s), flush=True)
         return s
-    if _soft_homa_loaded():                        # [WE_OWN_THE_WIRE_V1] Homa's frames on connections the driver holds open
-        from core import homa_frames, frognet_tuples
+    if _chorus_loaded():                        # [WE_OWN_THE_WIRE_V1] Homa's frames on connections the driver holds open
+        from core import chorus, frognet_tuples
         try:
             src = frognet_tuples.my_ip()
         except Exception as e:
             src = ""
-            print("[HOMA] %s: this node's own address could not be said (%s: %s); soft Homa's connections leave by "
+            print("[HOMA] %s: this node's own address could not be said (%s: %s); chorus's connections leave by "
                   "whatever address the kernel picks" % (who, type(e).__name__, e), flush=True)
-        s = homa_frames.HomaFramesOnTcp(bind_ip=bind_ip, server_port=server_port, src=src)
-        print(homa_frames.startup_line(who, s), flush=True)
+        s = chorus.ChorusOnTcp(bind_ip=bind_ip, server_port=server_port, src=src)
+        print(chorus.startup_line(who, s), flush=True)
         return s
     from core import homa_socket
     s = homa_socket.HomaSocket(bind_ip=bind_ip, server_port=server_port)

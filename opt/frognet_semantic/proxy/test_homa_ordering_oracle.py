@@ -38,9 +38,9 @@ Three runs, each its own process (the engine's references are process-wide):
             simulator (Homa's protocol over real UDP on this machine: grants, SRPT, RESEND/BUSY, timeouts), with 2% of
             packets dropped each way. Same checks as ordered, and contract 5 both ways: by liveness, and by Homa's
             own timeout when the peer goes silent. This is the configuration the simulator tiers run.
-  soft      the driver as shipped, with NO substitution in this file, on soft Homa: Homa's calls on shared memory
+  soft      the driver as shipped, with NO substitution in this file, on chorus: Homa's calls on shared memory
             (ribbit/examples/homa), loaded into this process, the memory a process of its own. The node's word is
-            softhoma. Same checks as ordered up to contract 5; then the daemon's socket closes with requests
+            chorus. Same checks as ordered up to contract 5; then the daemon's socket closes with requests
             outstanding and every one is failed at once by the memory's word, with no timer. [SOFT_HOMA_CARRIER_V1]
   simheld   the same on the simulator with Homa's per-RPC timeout REMOVED, waits held and timers measured
             ([NO_RPC_TIMEOUT_V1] [HELD_WAITS_V1] [TIMERS_FROM_THE_MEASURED_PATH_V1]). Requests outstanding to a
@@ -68,7 +68,7 @@ import time
 MODE = sys.argv[1] if len(sys.argv) > 1 else "all"
 SIM = MODE in ("sim", "simheld")
 os.environ["FROGNET_LOCAL_GW"] = "10.88.88.1"     # the .1 each end names itself by in its HELLO (one process, both ends)
-os.environ["FROGNET_SEM_TRANSPORT"] = "homasim" if SIM else "softhoma" if MODE == "soft" else "homa"
+os.environ["FROGNET_SEM_TRANSPORT"] = "homasim" if SIM else "chorus" if MODE == "soft" else "homa"
 if SIM:
     os.environ.setdefault("FROGNET_HOMASIM_LOSS", "0.02")
 if MODE == "simheld":
@@ -361,10 +361,10 @@ def run(mode):
                                   "worst_in_flight_per_instance": worst["n"], "driver": ws}), flush=True)
     if soft:
         from core import homa_transport as HT
-        check(HT.carriers_here() == ("softhoma",) and HT._soft_homa_loaded(), f"the wire ran on soft Homa ({HT._soft_homa_loaded()}): {total} operations, {len(problems)} problems")
+        check(HT.carriers_here() == ("chorus",) and HT._chorus_loaded(), f"the wire ran on chorus ({HT._chorus_loaded()}): {total} operations, {len(problems)} problems")
         import ctypes
-        check("LD_PRELOAD" not in os.environ and not hasattr(ctypes.CDLL(None), "softhoma_build"),
-              "[THE_DRIVER_LOADS_ITS_OWN_HOMA_V1] soft Homa was not preloaded and its calls are not among this process's own: only the Homa driver's socket goes through the library")
+        check("LD_PRELOAD" not in os.environ and not hasattr(ctypes.CDLL(None), "chorus_build"),
+              "[THE_DRIVER_LOADS_ITS_OWN_HOMA_V1] chorus was not preloaded and its calls are not among this process's own: only the Homa driver's socket goes through the library")
     elif sim:
         cc, sc = TH._get_mux().carrier.counters(), srv._carrier.counters()
         print("    homasim proxy socket: %s" % {k: v for k, v in cc.items() if v}, flush=True)
@@ -391,7 +391,7 @@ def run(mode):
           f"contract 2: the daemon's engine was handed every frame in the order the proxy's engine submitted it ({sum(len(x.order) for x in sess)} frames, {len(sess)} session)")
     early_d, early_p = sum(x.n_early for x in sess), sum(w["replies_arrived_early"] for w in ws)
     if soft:                                       # one connection, held open: what it is given in order arrives in order
-        check(early_d == 0 and early_p == 0, f"soft Homa's connection kept the order itself: {early_d} requests and {early_p} replies arrived ahead of their turn")
+        check(early_d == 0 and early_p == 0, f"chorus's connection kept the order itself: {early_d} requests and {early_p} replies arrived ahead of their turn")
     else:
         check(early_d > 0 and early_p > 0, f"the driver did the work: {early_d} requests and {early_p} replies arrived ahead of their turn and were held for it")
     check(worst["n"] > 1, f"contract 3: nothing was held back from the wire: up to {worst['n']} frames of one instance in flight together")
@@ -461,10 +461,10 @@ def run(mode):
         del hub.ends[(F.DAEMON_IP, F.PORT)]
     got, ths = burst()
     if soft:
-        # soft Homa: the daemon closed, the connection to it ended, and what was outstanding on it ended with it
+        # chorus: the daemon closed, the connection to it ended, and what was outstanding on it ended with it
         for th in ths: th.join(20)
         dt = time.time() - t0
-        check([g[0] for g in got] == [503] * 6 and dt < 1.0, f"contract 5 on soft Homa: the daemon's socket closed with 6 requests outstanding; every one was failed (503) in {dt * 1000:.0f} ms by its connection ending, no timer, none re-sent ({[g[0] for g in got]}, {got[0][1][:90]!r})")
+        check([g[0] for g in got] == [503] * 6 and dt < 1.0, f"contract 5 on chorus: the daemon's socket closed with 6 requests outstanding; every one was failed (503) in {dt * 1000:.0f} ms by its connection ending, no timer, none re-sent ({[g[0] for g in got]}, {got[0][1][:90]!r})")
         check(not tcp_workers, "and still no TCP worker")
         return ok
     if mode == "sim":

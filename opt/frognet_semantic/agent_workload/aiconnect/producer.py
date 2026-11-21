@@ -187,7 +187,7 @@ class Receivers:
         at nearly 3x the connect latency of another is not the same
         measurement, and per-peer results were being compared as if it were.
 
-        [AICONNECT_ON_THE_DRIVERS_V1] It is the driver's own connect (tcp, or soft Homa's on the RAM's port plus
+        [AICONNECT_ON_THE_DRIVERS_V1] It is the driver's own connect (tcp, or chorus's on the RAM's port plus
         one), so it measures the connection the bulk link will use. Until 19 Nov 2026 a second probe, is_on_link,
         made a TCP connect with IP_TTL=1 to label a peer one hop or relayed. A driver's connection has no TTL to
         set and routing is FrogNet's; the egress route per peer is still printed (peer_routes).

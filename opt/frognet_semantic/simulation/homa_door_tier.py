@@ -14,19 +14,19 @@
 """
 homa_door_tier.py -- the simulator's door tier (door_semantic_tier.py: an app's calls to a FrogNet door through the
 REAL proxy and the REAL daemon, each node on its own template store) with the one thing that tier substitutes, the
-socket hop, replaced by the REAL Homa driver on soft Homa.
+socket hop, replaced by the REAL Homa driver on chorus.
 
 door_semantic_tier hands each frame straight to the daemon's session. Here the proxy's engine is left its own
-_get_worker, the node is told `softhoma`, and every frame crosses proxy/transport_homa.py -> soft Homa (the Homa API
+_get_worker, the node is told `chorus`, and every frame crosses proxy/transport_homa.py -> chorus (the Homa API
 interface the driver opens itself, on a memory process this tier starts) -> daemon/engine/server_homa.py. The door,
 the scenarios and the checks are door_semantic_tier's, unchanged: every answer must equal the door's and the door must
-be given exactly what the app sent. In addition every scenario must have run on soft Homa, on a session of its own,
+be given exactly what the app sent. In addition every scenario must have run on chorus, on a session of its own,
 with no TCP worker made.
 
-Stood in for: where soft Homa's memory is (on a node, the machine databasehost.frognet names; here the memory this
+Stood in for: where chorus's memory is (on a node, the machine databasehost.frognet names; here the memory this
 tier starts) and the two ends' liveness (the ControlRam's capability tuples, which this tier has no network for).
 
-Needs soft Homa built (make -C ribbit/examples/homa HOMA=<HomaModule checkout>) and what door_semantic_tier needs
+Needs chorus built (make -C ribbit/examples/homa HOMA=<HomaModule checkout>) and what door_semantic_tier needs
 (MariaDB, the simulator's database and that name + "7"). Without them it FAILS and names what is missing.
 """
 import os
@@ -55,19 +55,19 @@ class _Liveness:
 
 
 def main():
-    # [WE_OWN_THE_WIRE_V1] soft Homa is Homa's frames on a TCP connection the driver holds open (core/homa_frames.py):
+    # [WE_OWN_THE_WIRE_V1] chorus is Homa's frames on a TCP connection the driver holds open (core/chorus.py):
     # nothing is built, loaded or started for it
-    os.environ["FROGNET_SEM_TRANSPORT"] = "softhoma"
+    os.environ["FROGNET_SEM_TRANSPORT"] = "chorus"
     os.environ.pop("LD_PRELOAD", None)
     sys.path.insert(0, HERE)
     import door_semantic_tier as D
     ran = []                                                    # per scenario: what the driver carried
 
     def hop(TS, origin, origin_store):
-        from core import homa_frames as HF, homa_transport as HT
+        from core import chorus as HF, homa_transport as HT
         from proxy import transport_homa as TH
         from daemon.engine import server_homa as SH
-        class OnThisHost(HF.HomaFramesOnTcp):                   # STOOD IN FOR: the origin node's address. One host is both
+        class OnThisHost(HF.ChorusOnTcp):                   # STOOD IN FOR: the origin node's address. One host is both
             def send_request(self, dest, payload, cookie):      # nodes here, so the connection to 10.77.77.1 is made to
                 return super().send_request(("127.0.0.1", dest[1]), payload, cookie)     # this host; the frames are the same
         TH._client_carrier = lambda: OnThisHost()
@@ -84,7 +84,7 @@ def main():
         srv = SH.MsgDaemonServer(ORIGIN, TS._DAEMON_PORT, None)
         srv._http_client = origin
         srv._peer_liveness = lambda: _Liveness()
-        srv._server_carrier = lambda: HF.HomaFramesOnTcp(bind_ip="127.0.0.1", server_port=TS._DAEMON_PORT)
+        srv._server_carrier = lambda: HF.ChorusOnTcp(bind_ip="127.0.0.1", server_port=TS._DAEMON_PORT)
         srv._writer_gone = lambda ip: None
         threading.Thread(target=srv.run, daemon=True, name="homa-door-daemon").start()
         t_end = time.time() + 20
@@ -96,7 +96,7 @@ def main():
         def end():
             mux = TH._get_mux()
             w = [x.stats() for x in TS._WORKERS.values()]
-            ran.append({"soft": HT._soft_homa_loaded(), "carrier": type(mux.carrier).__name__,
+            ran.append({"soft": HT._chorus_loaded(), "carrier": type(mux.carrier).__name__,
                         "frames": sum(x.get("sent", 0) for x in w), "replies": sum(x.get("replies", 0) for x in w),
                         "sessions": len(srv._sessions), "homa_requests": mux.carrier.n_req_out,
                         "homa_replies": mux.carrier.n_rep_in, "tcp_workers": len(tcp),
@@ -116,11 +116,11 @@ def main():
     for name, r in zip([n for n, _s in D.SCENARIOS], ran):
         ok = (r["soft"] and r["carrier"] == "OnThisHost" and r["frames"] > 0 and r["frames"] == r["replies"]
               and r["homa_requests"] >= r["frames"] and r["sessions"] == 1 and r["tcp_workers"] == 0 and not r["preloaded"])
-        print(" %s  %s: on soft Homa %s, %d frames and %d replies in %d Homa requests on %d session, %d TCP workers"
+        print(" %s  %s: on chorus %s, %d frames and %d replies in %d Homa requests on %d session, %d TCP workers"
               % ("ok   " if ok else "WRONG", name, r["soft"], r["frames"], r["replies"], r["homa_requests"], r["sessions"],
                  r["tcp_workers"]))
         if not ok:
-            fails.append("%s: it did not run as one session on soft Homa: %s" % (name, r))
+            fails.append("%s: it did not run as one session on chorus: %s" % (name, r))
     if len(ran) != len(D.SCENARIOS):
         fails.append("%d of %d scenarios reached the end of their run" % (len(ran), len(D.SCENARIOS)))
     print("RESULT", "PASS" if not fails else "FAIL: %d wrong" % len(fails))

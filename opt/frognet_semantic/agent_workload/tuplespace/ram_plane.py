@@ -21,7 +21,7 @@ its order, the cell names, the generations and the read-ahead are the September 
     RamTensorClient   where TensorClient was. A read of one named cell, held in the RAM until its owner writes it.
 
 Every session is a transport driver's connection to the RAM ([THE_RAM_SESSION_IS_A_DRIVERS_CONNECTION_V1],
-frogtorch_ram_drivers.py): tcp or softhoma as the transport setting says for that RAM. Nothing here opens a socket.
+frogtorch_ram_drivers.py): tcp or chorus as the transport setting says for that RAM. Nothing here opens a socket.
 
 [A_REFERENCE_SAYS_WHERE_V1] A rank's cells are named `<host>:<number>/<name>`: the owner's identity is part of the
 cell's address in the memory, as it was part of the address a reader connected to. `host` and `number` are what the

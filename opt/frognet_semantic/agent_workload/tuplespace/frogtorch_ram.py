@@ -428,7 +428,7 @@ class RamServer:
     """One region on one port. A thread per client session; sessions are permanent connections.
 
     [THE_RAM_SESSION_IS_A_DRIVERS_CONNECTION_V1] The connections are transport drivers' (frogtorch_ram_drivers.py). The
-    RAM listens with every driver a word of this node's transport setting names: tcp on its port, softhoma on its port
+    RAM listens with every driver a word of this node's transport setting names: tcp on its port, chorus on its port
     plus one. A session is served through the driver's calls and this class never touches a socket, so nothing in the
     region or in the requests knows which driver carried them."""
 
