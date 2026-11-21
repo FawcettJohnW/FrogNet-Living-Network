@@ -1,0 +1,24 @@
+<!doctype html>
+<!-- Copyright (C) 2016-2026 Fawcett Innovations LLC. SPDX-License-Identifier: GPL-2.0-only
+     UnitsAdmin.html -- [ROLE_ADMIN_PAGES_V1] the Units Role's admin tool and view: each unit's position, readiness, communications and stores; the current orders.
+     It reads its Role's memory, and what that Role itself reads, through held reads (roles.js watch); it redraws when
+     one returns. It names memories and tuples only: no protocol and no key. -->
+<html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Roles Exercise -- UnitsAdmin</title><link rel="stylesheet" href="roles.css"></head><body>
+<h1>Roles Exercise -- UnitsAdmin <small id="clock"></small></h1>
+<div id="say"></div>
+<h2>Units</h2><table id="units"></table><h2>Orders <small id="step"></small></h2><table id="orders"></table><h2>Actions</h2><table id="acts"></table>
+<script type="module">
+import * as R from './roles.js'
+let mine = new Map(), orders = new Map()
+function draw() {
+  const o = R.latest(orders, 'order') || { orders: [] }, a = R.latest(mine, 'action') || { actions: [] }
+  R.$('#step').textContent = o.step ? 'step ' + o.step + ', alert level ' + o.level : ''
+  R.table(R.$('#units'), ['Unit', 'At', 'Reach', 'Readiness', 'Comms', 'Stores'], R.family(mine, 'unit').map(([n, u]) => [n, u.x + ', ' + u.y, u.reach, u.readiness, { html: '<span class="' + (u.comms === 'ok' ? 'ok' : 'bad') + '">' + R.esc(u.comms) + '</span>' }, u.stores]))
+  R.table(R.$('#orders'), ['Unit', 'Order', 'Track', 'At'], (o.orders || []).map((x) => [x.unit, x.action, x.track || '', x.track ? x.x + ', ' + x.y : '']))
+  R.table(R.$('#acts'), ['Step', 'Unit', 'Track', 'Done'], (a.actions || []).map((x) => [a.step, x.unit, x.track, x.done ? 'yes' : 'no']))
+}
+R.watch('units', 'SD:%', (c) => { mine = c; draw() })
+R.watch('command', 'SD:order.%', (c) => { orders = c; draw() })
+R.watch('exercise', 'SD:clock.run', (c) => { const k = c.get('clock.run'); R.$('#clock').textContent = k ? 'step ' + k.step + ', ' + k.state : '' })
+</script></body></html>

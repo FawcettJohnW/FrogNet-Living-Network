@@ -99,3 +99,30 @@ every other on the transport given. Run it with `--transport tcp` first: that is
   value (canonical form), because the wire carries values.
 - OPEN, the engine's: (c) fails in its second direction at 60 fields because the two machines' template stores hold
   different field orders for one opcode and the reply is decoded by position. See the Homa record, section 7 0d.
+
+## `roles_exercise_tier.py` and `roles_exercise/`: the protocol layer demonstration (21 Nov 2026)
+
+Seven Roles on three machines of `wire_between_machines_tier`, each Role with a memory of its own
+(`<role>ram.frognet`; the tier writes their role lines through `W.MORE_MEMORIES`) and a channel setting of its own.
+`--step memories | protocols | pages` test the parts; `--run 1|2|3|4|all` runs the exercise on TCP, Chorus, OpenQASM
+and mixed with changes, and compares the exercise records byte for byte. The design is named in the tier's
+docstring; the record is `ribbit/examples/homa/EXPLORATION-LOG.md`, 21 Nov.
+
+Traps, each found by a run that failed:
+
+- **Read a tuple by its name, or hold a read.** Every proxy caches broad reads of its own machine's api.php for up to
+  10 s (`proxy/local_read_cache.py`); a write of a NEW name does not empty one. A raw read of a whole service just
+  after a write can answer without it. A hold's rows are not cached.
+- **A tuple is its writer's.** Two programs writing one name are two rows (the address each wrote from is part of
+  what the tuple is). `role_service.index` takes the row for the later step. The Instructor writes into a Role's
+  tuple as that tuple's writer.
+- **A service's waits are `Role.wait`; its looks are `Role.look`.** Nothing in `roles_exercise/` sleeps, polls, names
+  a protocol or names a key, and the tier fails the build if it does (R25). The only pauses are the tier's own.
+- **A Role's facts for a step are that step's tuples**, because the record is read back from memory at the end.
+  Anything that must be in the record for every step is written per step.
+- **Nothing that enters the record is floating point** (the circuit simulator rounds its one probability to parts in
+  a million). `ts` and `step`-less timings are left out of the exercise record by `record.clean`.
+- **The record is collected at each site for the memories that site holds** (a whole memory across a 4,800-baud link
+  takes minutes).
+- `--steps N` runs N of the 60 steps, with run 4's changes at the same fractions: for the slow link.
+- `FROGNET_ROLES_SAY=1` makes each service say what each wait is for; a stalled run then names the tuple.

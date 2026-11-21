@@ -57,7 +57,7 @@ import threading
 import time
 from typing import Callable, List, Optional, Tuple
 
-BUILD = "channel-setting-is-a-tuple-v1-20261119b"
+BUILD = "channel-setting-is-a-tuple-v2-20261121a"
 SERVICE, VAR, SCOPE = "channel", "setting", "semantic"
 CONTROL_RAM = "databasehost_control.frognet"
 HOLD_S = 300.0
@@ -143,30 +143,41 @@ def _where() -> None:
     _at = {n: next(iter(a)) for n, a in at.items() if len(a) == 1}       # a role with two addresses is at neither
 
 
-def setting_for(host: Optional[str]) -> Optional[dict]:
-    """The setting of this node's connection to `host`: the tuple of a RAM that is there now, else the channel's."""
+def ram_of(name: Optional[str]) -> str:
+    """[THE_SETTING_IS_READ_BY_THE_MEMORYS_NAME_V1] The memory a request is for, when that memory has a setting tuple
+    of its own: the name the request itself gives (its Host), lower case, without a port. "" for anything else (an
+    address, a name with no tuple of its own): that request is on its machine's connection, as before."""
+    current()
+    n = str(name or "").strip().lower()
+    if n.startswith("["):
+        return ""
+    n = n.split(":", 1)[0]
+    return n if n in _rams else ""
+
+
+def setting_for(host: Optional[str], ram: Optional[str] = None) -> Optional[dict]:
+    """The setting of this node's connection for the memory `ram` (John, 2026-11-21: "The setting in a tuple": it is
+    the tuple (channel, setting, <the memory's name>), so it is read by that name). With no memory named, or one that
+    has no tuple of its own, the channel's. Until 21 Nov this looked for a RAM at the address `host` and used the first
+    by name: two memories on one machine then had one setting, and a request for a memory with no tuple of its own
+    went under another memory's because it was on the same machine. `host` is not consulted any more."""
     s = current()
-    if _rams and host:
-        for role in sorted(_rams):
-            if _at.get(role) == host:
-                return _rams[role]
+    if ram:
+        r = _rams.get(ram.lower())
+        if r is not None:
+            return r
     return s
 
 
-def here() -> Optional[dict]:
-    """The setting of what ARRIVES at this machine: the tuple of a RAM that is here, else the channel's."""
-    global _me
-    if not _rams:
-        return current()
-    if _me is None:
-        T, _ = _tuples()
-        _me = T.my_ip()
-    return setting_for(_me)
+def here(ram: Optional[str] = None) -> Optional[dict]:
+    """The setting of what ARRIVES at this machine for the memory `ram` (the connection says which, when it is for
+    one): that memory's tuple. With no memory named: the channel's."""
+    return setting_for(None, ram)
 
 
-def read_here() -> Optional[dict]:
+def read_here(ram: Optional[str] = None) -> Optional[dict]:
     read_now()
-    return here()
+    return here(ram)
 
 
 def _take(v: Optional[dict], how: str, rams: Optional[dict] = None) -> None:
@@ -300,11 +311,11 @@ def read_now() -> Optional[dict]:
     return _cur
 
 
-def driver(host: Optional[str] = None) -> Optional[str]:
+def driver(host: Optional[str] = None, ram: Optional[str] = None) -> Optional[str]:
     """The driver the tuple names for a session to `host`, when it is a word a driver has registered
     ([A_DRIVER_REGISTERS_ITS_WORD_V1], core/homa_transport.DRIVERS). A word nobody registered is said, and is no word."""
     from core import homa_transport
-    d = (setting_for(host) or {}).get("driver")
+    d = (setting_for(host, ram) or {}).get("driver")
     if d is None:
         return None
     if d in homa_transport.DRIVERS and d not in ("auto", "homasim"):
@@ -320,8 +331,8 @@ def driver(host: Optional[str] = None) -> Optional[str]:
 _said_bad = None
 
 
-def sending_key(host: Optional[str] = None) -> str:
-    return str((setting_for(host) or {}).get("key") or "")
+def sending_key(host: Optional[str] = None, ram: Optional[str] = None) -> str:
+    return str((setting_for(host, ram) or {}).get("key") or "")
 
 
 def _accepted(s: Optional[dict]) -> Tuple[str, ...]:
@@ -355,16 +366,29 @@ def _aes(name: str):
     return k
 
 
-def _protection(s: Optional[dict]):
-    """[A_PROTECTION_IS_REGISTERED_V1] (seal, open) for the protection the channel's tuple names: "protection", and
-    aes-256-gcm when it names none. core/channel_protection.register_protection adds one."""
+def protection_name(s: Optional[dict]) -> str:
+    """What requests are sealed with: the setting's "protection", and aes-256-gcm when it names none."""
+    return str((s or {}).get("protection") or "aes-256-gcm")
+
+
+def _accepted_protections(s: Optional[dict]) -> Tuple[str, ...]:
+    """[THE_ALGORITHM_IS_PART_OF_THE_SETTING_V1] what a request may arrive sealed with: the setting's "protections";
+    when it names none, only the one it seals with."""
+    a = (s or {}).get("protections")
+    if isinstance(a, list):
+        return tuple(str(x) for x in a)
+    return (protection_name(s),)
+
+
+def _protection(name: str):
+    """[A_PROTECTION_IS_REGISTERED_V1] (seal, open, number) for a protection by name.
+    core/channel_protection.register_protection adds one."""
     from core import channel_protection
-    name = str((s or {}).get("protection") or "aes-256-gcm")
     p = channel_protection.PROTECTIONS.get(name)
     if p is None:
         raise KeyRefused("the channel names the protection %r and this build has %s"
                          % (name, ", ".join(sorted(channel_protection.PROTECTIONS))))
-    return p
+    return p[0], p[1], channel_protection.NUMBERS[name]
 
 
 # [THE_HEADER_IS_A_DIFFERENCE_V1] The nonce is control too. It was 12 random bytes a message, which no difference can
@@ -385,26 +409,58 @@ def _next_nonce() -> bytes:
         return _nonce_head + struct.pack("!I", _nonce_count)
 
 
-def protect(n: int, frame: bytes, name: str, far: Optional[str] = None) -> bytes:
-    """frame under the key `name`: the name's length and the name, a nonce, the sealed frame. A request (n even) is
-    under the setting of the connection to `far`; a reply under the setting of what arrives here."""
+def protect(n: int, frame: bytes, name: str, far: Optional[str] = None, ram: Optional[str] = None,
+            protection: Optional[str] = None) -> bytes:
+    """frame under the key `name`. [THE_ALGORITHM_IS_PART_OF_THE_SETTING_V1] The sealed message, the same for every
+    driver:
+
+        1 byte     the algorithm's number (core/channel_protection.NUMBERS: 1 aes-256-gcm, 2 chacha20-poly1305)
+        1 byte     the length of the key's name
+        n bytes    the key's name
+        12 bytes   the nonce: 8 bytes this process drew once, then a 4-byte count
+        the rest   the sealed frame, ending in the algorithm's 16-byte tag
+
+    A request (n even) is sealed with what the setting of its memory's connection names ("protection"). A reply is
+    sealed as its request arrived: the caller gives that algorithm's name in `protection`. The message's number, the
+    algorithm's number and the key's name are bound in as associated data."""
     nb = name.encode()
     nonce = _next_nonce()
-    s = here() if n & 1 else setting_for(far)
-    return bytes([len(nb)]) + nb + nonce + _protection(s)[0](_aes(name), nonce, struct.pack("!Q", n & ~1) + nb, bytes(frame))
+    if protection is None:
+        protection = protection_name(here(ram) if n & 1 else setting_for(far, ram))
+    seal, _open, number = _protection(protection)
+    head = bytes([number, len(nb)]) + nb
+    return head + nonce + seal(_aes(name), nonce, struct.pack("!Q", n & ~1) + head, bytes(frame))
 
 
-def unprotect(n: int, blob: bytes, is_request: bool, far: Optional[str] = None) -> Tuple[bytes, str]:
-    """(the frame, the key's name). A request must be under a key the channel accepts; a reply is under the key its
-    request went out under, which this end chose."""
-    ln = blob[0]
-    name = blob[1:1 + ln].decode()
-    if is_request and name not in _accepted(here()) and name not in _accepted(read_here()):
-        raise KeyRefused("a request arrived under the key %r and the channel accepts %s" % (name, list(_accepted(here())) or "none"))
-    nonce, ct = blob[1 + ln:13 + ln], blob[13 + ln:]
+def unprotect(n: int, blob: bytes, is_request: bool, far: Optional[str] = None, ram: Optional[str] = None) -> Tuple[bytes, str]:
+    """(the frame, the key's name). See opened()."""
+    frame, name, _protection_name = opened(n, blob, is_request, far, ram)
+    return frame, name
+
+
+def opened(n: int, blob: bytes, is_request: bool, far: Optional[str] = None, ram: Optional[str] = None) -> Tuple[bytes, str, str]:
+    """(the frame, the key's name, the algorithm's name). The message itself says which algorithm and which key
+    sealed it, and it is opened from that. The setting decides only whether they are accepted: a request must be
+    sealed with an algorithm and under a key the channel accepts; a reply is as its request went out, which this end
+    chose."""
+    from core import channel_protection
+    if len(blob) < 2:
+        raise KeyRefused("a sealed message of %d byte(s): it is not one" % len(blob))
+    number, ln = blob[0], blob[1]
+    pname = channel_protection.NAMES.get(number)
+    if pname is None:
+        raise KeyRefused("a message sealed with algorithm number %d, which this build does not have (it has %s)"
+                         % (number, ", ".join("%d %s" % (k, v) for k, v in sorted(channel_protection.NAMES.items()))))
+    name = blob[2:2 + ln].decode("utf-8", "replace")
+    if is_request and name not in _accepted(here(ram)) and name not in _accepted(read_here(ram)):
+        raise KeyRefused("a request arrived under the key %r and the channel%s accepts %s"
+                         % (name, " of %s" % ram if ram else "", list(_accepted(here(ram))) or "none"))
+    if is_request and pname not in _accepted_protections(here(ram)) and pname not in _accepted_protections(read_here(ram)):
+        raise KeyRefused("a request arrived sealed with %s and the channel%s accepts %s"
+                         % (pname, " of %s" % ram if ram else "", list(_accepted_protections(here(ram)))))
+    head, nonce, ct = blob[:2 + ln], blob[2 + ln:14 + ln], blob[14 + ln:]
     try:
-        s = here() if is_request else setting_for(far)
-        return _protection(s)[1](_aes(name), nonce, struct.pack("!Q", n & ~1) + name.encode(), bytes(ct)), name
+        return _protection(pname)[1](_aes(name), nonce, struct.pack("!Q", n & ~1) + head, bytes(ct)), name, pname
     except KeyRefused:
         raise
     except Exception as e:

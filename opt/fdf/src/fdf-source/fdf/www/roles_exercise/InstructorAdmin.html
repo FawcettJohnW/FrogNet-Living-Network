@@ -1,0 +1,38 @@
+<!doctype html>
+<!-- Copyright (C) 2016-2026 Fawcett Innovations LLC. SPDX-License-Identifier: GPL-2.0-only
+     InstructorAdmin.html -- [ROLE_ADMIN_PAGES_V1] the Instructor Role's admin tool and view: every Role's ready state, the clock, the injections, any Role's view, and (the one page where the protocol layer is visible) what every end says each Role's channel is running. Start, freeze, resume and end the exercise.
+     It reads its Role's memory, and what that Role itself reads, through held reads (roles.js watch); it redraws when
+     one returns. It names memories and tuples only: no protocol and no key. -->
+<html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Roles Exercise -- InstructorAdmin</title><link rel="stylesheet" href="roles.css"></head><body>
+<h1>Roles Exercise -- InstructorAdmin <small id="clock"></small></h1>
+<div id="say"></div>
+<p><button data-c="start">start</button><button data-c="freeze">freeze</button><button data-c="resume">resume</button><button data-c="end">end</button>
+ &nbsp; a Role's view: <a href="WarningAdmin.html">Warning</a> <a href="AssessmentAdmin.html">Assessment</a> <a href="ComputeAdmin.html">Compute</a> <a href="CommandAdmin.html">Command</a> <a href="UnitsAdmin.html">Units</a> <a href="ExerciseAdmin.html">Exercise</a></p>
+<h2>Roles</h2><table id="roles"></table>
+<h2>Injections</h2><table id="inj"></table>
+<h2>Channels <small>what each end says it is running for each Role's memory</small></h2><table id="chan"></table>
+<script type="module">
+import * as R from './roles.js'
+const ROLES = ['warning', 'assessment', 'compute', 'command', 'units', 'exercise', 'instructor']
+const ready = new Map(), holds = new Map()
+let mine = new Map(), ends = new Map()
+function draw() {
+  const sc = mine.get('scenario.run'), ctl = mine.get('control.run')
+  R.table(R.$('#roles'), ['Role', 'At initial conditions', 'Values under injection'], ROLES.map((r) => [r, { html: ready.get(r) ? '<span class="ok">ready</span>' : '' },
+    { html: [...(holds.get(r) || new Map())].filter(([, h]) => !h.released).map(([n]) => '<span class="held">' + R.esc(n.replace(/^hold\./, '')) + '</span>').join(', ') }]))
+  const inj = new Map(R.family(mine, 'injection'))
+  R.table(R.$('#inj'), ['#', 'When', 'Into', 'Value', 'Applied at step', 'Released at step'], (sc?.injections || []).map((x, i) => { const a = inj.get(String(i + 1)) || {}
+    return [i + 1, x.step ? 'step ' + x.step : 'alert at most ' + x.when?.alert_at_most, x.service + ' ' + x.var + '.' + x.scope, JSON.stringify(x.value), a.at ?? '', a.released ?? ''] }))
+  const rows = []
+  for (const [name, v] of [...ends].filter(([n]) => n.startsWith('at.')).sort())
+    for (const r of ROLES) { const s = (v.rams || {})[r === 'exercise' ? 'exercisehost.frognet' : r + 'host.exercise']; if (s) rows.push([name.slice(3), r, s.driver || '', s.key || '', s.protection || (s.key ? 'aes-256-gcm' : '')]) }
+  R.table(R.$('#chan'), ['End', 'Role', 'Driver', 'Key name', 'Algorithm'], rows)
+  R.say(ctl ? 'last command: ' + ctl.command + (sc ? '; scenario ' + sc.name + ', ' + sc.steps + ' steps' : '') : '')
+}
+document.body.addEventListener('click', (e) => { const b = e.target.closest('button[data-c]'); if (b) R.write('instructor', 'control', 'run', { command: b.dataset.c }) })
+R.watch('instructor', 'SD:%', (c) => { mine = c; draw() })
+for (const r of ROLES) { R.watch(r, 'SD:ready.%', (c) => { ready.set(r, c.has('ready.run')); draw() }); R.watch(r, 'SD:hold.%', (c) => { holds.set(r, c); draw() }) }
+R.watch('channel', 'SD:at.%', (c) => { ends = c; draw() })
+R.watch('exercise', 'SD:clock.run', (c) => { const k = c.get('clock.run'); R.$('#clock').textContent = k ? 'step ' + k.step + ', ' + k.state : '' })
+</script></body></html>

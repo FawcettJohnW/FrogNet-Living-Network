@@ -1,0 +1,27 @@
+<!doctype html>
+<!-- Copyright (C) 2016-2026 Fawcett Innovations LLC. SPDX-License-Identifier: GPL-2.0-only
+     ExerciseAdmin.html -- [ROLE_ADMIN_PAGES_V1] the Exercise Role's admin tool and view: ground truth, the clock and the score.
+     It reads its Role's memory, and what that Role itself reads, through held reads (roles.js watch); it redraws when
+     one returns. It names memories and tuples only: no protocol and no key. -->
+<html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Roles Exercise -- ExerciseAdmin</title><link rel="stylesheet" href="roles.css"></head><body>
+<h1>Roles Exercise -- ExerciseAdmin <small id="clock"></small></h1>
+<div id="say"></div>
+<div class="cols"><div><div class="grid" id="grid"></div></div>
+<div><h2>Objects <small id="step"></small></h2><table id="objs"></table><h2>Score</h2><table id="score"></table></div></div>
+<script type="module">
+import * as R from './roles.js'
+let mine = new Map(), sc = null
+function draw() {
+  const t = R.latest(mine, 'truth') || { objects: [] }, s = mine.get('score.run'), k = mine.get('clock.run')
+  R.$('#clock').textContent = k ? 'step ' + k.step + ', ' + k.state : ''
+  const marks = (sc?.protected || []).map((p) => ({ x: p[0], y: p[1], cls: 'prot', text: 'P', title: 'protected' }))
+  for (const o of t.objects || []) marks.push({ x: o.x, y: o.y, cls: 'obj', text: o.id, title: 'object ' + o.id + ' moving ' + o.dx + ', ' + o.dy })
+  R.grid(R.$('#grid'), marks)
+  R.$('#step').textContent = t.step ? 'step ' + t.step : ''
+  R.table(R.$('#objs'), ['Object', 'At', 'Moving'], (t.objects || []).map((o) => [o.id, o.x + ', ' + o.y, o.dx + ', ' + o.dy]))
+  R.table(R.$('#score'), ['Score', 'Intercepted', 'Reached', 'False responses'], s ? [[s.score, s.intercepted, s.reached, s.false_responses]] : [])
+}
+R.watch('exercise', 'SD:%', (c) => { mine = c; draw() })
+R.watch('instructor', 'SD:scenario.run', (c) => { sc = c.get('scenario.run'); draw() })
+</script></body></html>

@@ -1,0 +1,200 @@
+{
+ "name": "first",
+ "steps": 60,
+ "grid": 16,
+ "protected": [
+  [
+   2,
+   2
+  ],
+  [
+   13,
+   3
+  ]
+ ],
+ "sensors": [
+  {
+   "n": 1,
+   "x": 3,
+   "y": 12,
+   "range": 5,
+   "quality": 900
+  },
+  {
+   "n": 2,
+   "x": 8,
+   "y": 8,
+   "range": 6,
+   "quality": 950
+  },
+  {
+   "n": 3,
+   "x": 12,
+   "y": 4,
+   "range": 5,
+   "quality": 900
+  },
+  {
+   "n": 4,
+   "x": 4,
+   "y": 4,
+   "range": 5,
+   "quality": 850
+  },
+  {
+   "n": 5,
+   "x": 13,
+   "y": 13,
+   "range": 4,
+   "quality": 950
+  }
+ ],
+ "units": [
+  {
+   "n": 1,
+   "x": 2,
+   "y": 4,
+   "reach": 4,
+   "stores": 6
+  },
+  {
+   "n": 2,
+   "x": 12,
+   "y": 5,
+   "reach": 4,
+   "stores": 6
+  },
+  {
+   "n": 3,
+   "x": 7,
+   "y": 7,
+   "reach": 5,
+   "stores": 5
+  }
+ ],
+ "processors": [
+  {
+   "n": 1,
+   "error_rate": 10,
+   "limit": 50
+  },
+  {
+   "n": 2,
+   "error_rate": 12,
+   "limit": 50
+  }
+ ],
+ "launches": [
+  {
+   "step": 3,
+   "id": 1,
+   "x": 15,
+   "y": 15,
+   "dx": -1,
+   "dy": -1
+  },
+  {
+   "step": 8,
+   "id": 2,
+   "x": 0,
+   "y": 15,
+   "dx": 1,
+   "dy": -1
+  },
+  {
+   "step": 18,
+   "id": 3,
+   "x": 13,
+   "y": 15,
+   "dx": 0,
+   "dy": -1
+  },
+  {
+   "step": 26,
+   "id": 4,
+   "x": 15,
+   "y": 2,
+   "dx": -1,
+   "dy": 0
+  },
+  {
+   "step": 36,
+   "id": 5,
+   "x": 2,
+   "y": 15,
+   "dx": 0,
+   "dy": -1
+  },
+  {
+   "step": 44,
+   "id": 6,
+   "x": 15,
+   "y": 3,
+   "dx": -1,
+   "dy": 0
+  },
+  {
+   "step": 50,
+   "id": 7,
+   "x": 8,
+   "y": 15,
+   "dx": 0,
+   "dy": -1
+  }
+ ],
+ "console": [
+  {
+   "step": 22,
+   "role": "command",
+   "input": {
+    "level": 2
+   }
+  }
+ ],
+ "injections": [
+  {
+   "step": 10,
+   "var": "sensor",
+   "scope": "2",
+   "value": {
+    "status": "failed"
+   },
+   "release": 30,
+   "role": "warning"
+  },
+  {
+   "step": 20,
+   "var": "phantom",
+   "scope": "1",
+   "value": {
+    "x": 9,
+    "y": 9,
+    "quality": 700
+   },
+   "release": 26,
+   "role": "warning"
+  },
+  {
+   "step": 40,
+   "var": "processor",
+   "scope": "1",
+   "value": {
+    "error_rate": 80
+   },
+   "release": 52,
+   "role": "compute"
+  },
+  {
+   "when": {
+    "alert_at_most": 2
+   },
+   "var": "unit",
+   "scope": "3",
+   "value": {
+    "comms": "lost"
+   },
+   "release_after": 6,
+   "role": "units"
+  }
+ ]
+}

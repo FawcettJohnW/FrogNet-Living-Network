@@ -91,6 +91,7 @@ def register_driver(word: str, session_kind: str) -> None:
     if session_kind not in ("tcp", "homa"):
         raise ValueError("a driver's session kind is tcp or homa, not %r" % (session_kind,))
     DRIVERS[word.lower()] = session_kind
+ON_CHORUS = {"chorus"}              # [A_CONNECTION_IS_OF_ITS_DRIVER_V1] the words whose connections chorus's carrier holds (core/openqasm.py adds its own)
 WALK = ("homa", "chorus", "tcp")    # the walk's order: equal or unmeasured carriers are taken in this order
 BUILD = "homa-carrier-v4-20261117u"
 _chosen = None
@@ -275,7 +276,7 @@ def _peer_carriers(node: str) -> Optional[Tuple[str, ...]]:
     return TH._get_mux().liveness.carriers_of(node)
 
 
-def carrier_for(host: str) -> str:
+def carrier_for(host: str, ram: str = "") -> str:
     """The driver a NEW session to `host` opens on: "homa" (the Homa driver, on kernel Homa or chorus, whichever
     this process has) or "tcp". See the module docstring for the rule."""
     mode = word_for(host)                   # [A_WORD_PER_RAM_CONNECTION_V1] the RAM's word if a named RAM is there now
@@ -283,15 +284,18 @@ def carrier_for(host: str) -> str:
         # [CHANNEL_SETTING_IS_A_TUPLE_V1] the channel's tuple, when there is one and it names a driver, is the word.
         # A process with no such tuple goes on exactly as before.
         from core import channel_setting
-        said = channel_setting.driver(host)     # [A_SETTING_PER_RAM_CONNECTION_V1] a RAM's own tuple, if one is at host
+        # [THE_SETTING_IS_READ_BY_THE_MEMORYS_NAME_V1] the tuple of the memory the session is for; with none named,
+        # [A_SETTING_PER_RAM_CONNECTION_V1] a RAM's own tuple, if one is at host
+        said = channel_setting.driver(host, ram)
         kind = DRIVERS.get(said) if said is not None else None        # [A_DRIVER_REGISTERS_ITS_WORD_V1]
         if kind == "tcp":
             return "tcp"
         if kind == "homa":
-            if said == "chorus" and _chorus_loaded() is None:
-                raise ConnectionError("the channel's tuple says chorus and this node was not told of chorus: a node "
-                                      "that was not told a driver's word does not run it")
-            if said != "chorus":
+            if said in ON_CHORUS and _chorus_loaded() is None:
+                raise ConnectionError("the channel's tuple says %s and this node was not told of chorus, whose carrier "
+                                      "holds that driver's connections: a node that was not told a driver's word does "
+                                      "not run it" % said)
+            if said not in ON_CHORUS:
                 carriers_here(said)             # a word this process cannot keep stops it here
             return "homa"
     if mode == "tcp":
@@ -351,8 +355,15 @@ def on_another_carrier(ip: str, asking) -> bool:
 
 
 def daemon_server(host: str, port: int, resolver, tcp_server_class):
-    """The daemon's listener: one per carrier this end has. Same run() as DaemonServer."""
+    """The daemon's listener: one per carrier this end has. Same run() as DaemonServer.
+
+    [ONE_PORT_THE_FRAME_SAYS_THE_PROTOCOL_V1] One port for every driver. When this end has the TCP driver, its listener
+    holds the daemon's port and reads the first four bytes of each connection: a driver's word (core/chorus.WIRES) and
+    the connection is that driver's; anything else is the TCP driver's to read, and it refuses what is not its own."""
     mine = carriers_listened()
+    if "tcp" in mine and "chorus" in mine:
+        from core import chorus
+        chorus.SHARED_PORT = True
     if mine == ("tcp",):
         return tcp_server_class(host=host, port=port, resolver=resolver)
     from daemon.engine.server_homa import MsgDaemonServer
@@ -401,3 +412,9 @@ def open_homa_socket(who: str, bind_ip: str = "0.0.0.0", server_port=None):
     s = homa_socket.HomaSocket(bind_ip=bind_ip, server_port=server_port)
     print(homa_socket.startup_line(who), flush=True)
     return s
+
+
+# [OPENQASM_DRIVER_V1] the third driver registers its word and its connection class in every process that has this
+# module, as chorus's word is here from the start.
+from core import openqasm as _openqasm  # noqa: E402
+_openqasm.register()

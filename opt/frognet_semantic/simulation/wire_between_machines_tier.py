@@ -401,6 +401,12 @@ def agent():
         print(MARK + json.dumps(r), flush=True)
 
 
+# [ROLE_MEMORIES_V1] A tier with more memories than the two every network has names each here: the memory's host name
+# -> the Machine that holds it. Their role lines are written with the election's, in every hosts file whose machine
+# knows the holder. Empty for every tier that does not set it.
+MORE_MEMORIES = {}
+
+
 def hosts_text(m, roles=True):
     """A node's hosts file after a merge: every machine in ITS block and, once the election has run, the role lines."""
     out = ["127.0.0.1 localhost"]
@@ -409,6 +415,9 @@ def hosts_text(m, roles=True):
     if roles:
         out.append("%s databasehost.frognet" % m.system.ip)
         out.append("%s databasehost_control.frognet" % m.control.ip)
+        for name in sorted(MORE_MEMORIES):
+            if MORE_MEMORIES[name] in m.block:
+                out.append("%s %s" % (MORE_MEMORIES[name].ip, name))
     return "\n".join(out) + "\n"
 
 

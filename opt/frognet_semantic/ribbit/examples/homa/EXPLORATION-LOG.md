@@ -1921,6 +1921,300 @@ of the current truth). Asked for nothing, he said two minutes later, of a networ
 is its own ram, etc., coordinated through Chorus." So it is one name on purpose: Chorus is how roles' RAMs are
 coordinated, and this driver is what carries it between machines. No file in this tree used the name before today.
 
+### 21 Nov, before 09:20: the protocol layer demonstration is designed (no code; written from that session's handoff)
+
+John asked for a demonstration of the protocol layer and then for one document that is its requirements and its
+detailed design. It is "CroakOS Protocol Layer Demonstration: Requirements and Detailed Design", version 0.1, kept as
+a document outside the repository (https://claude.ai/artifact/KfJ8yFePmt15dK7FARWrri). It is the authority for what
+follows; this file says how it was arrived at and what building it found.
+
+His statement of the goal: "This is a demonstration of the versatility and adaptability of the protocol layer,
+including the implementation of stored key exchanges. The underlying protocol is shown not to have an impact on the
+Roles executing above." And: "The objective here is actually the final run, where we mix TCP, Chorus, and OpenQASM
+across the same mesh at the same time, and have one or two change protocols, and replace their keys."
+
+The demonstration: three sites; seven Roles (Warning, Assessment, Compute, Command, Units, Exercise, Instructor),
+each with its own memory, service, admin page and channel; a warning-and-response game on a 16 by 16 grid; Compute as
+two simulated quantum processors at different sites; four runs of one scenario (all TCP, all Chorus, all OpenQASM,
+mixed with changes of driver, key and algorithm under way); the exercise record of runs 2 to 4 byte for byte that of
+run 1.
+
+His rulings, in the handoff's order (each is in the design; this thread has them from the handoff, not from the
+conversation):
+
+51. OpenQASM is the third protocol. "If the payload right now doesn't send anything, put in something that does."
+52. "Each Role is its own ram, etc., coordinated through Chorus." Roles all the way down; an external app sets up and
+    administers each Role; a view per Role in its admin tool.
+53. The Instructor "*will* write into the RAM of the other Roles" and those values "must stay".
+54. Three runs on single protocols, then the mixed run, which is the objective. "We are going to show three protocols
+    at the same time because I think it's important and because it shows that we could do a rolling update."
+55. "Go ahead and lead with Quantum, but keep the rest."
+56. "The keyed store, for example, can apply to all protocols." One key store on a machine serves every driver.
+57. "The algorithm employed is part of the capability tuple."
+58. "The receivers should be able to examine the received TCP frame and determine the underlying protocol by itself."
+    He accepted that chorus moves off port 9131 and that a connection, not each frame, says its protocol.
+59. (a reviewer's change he passed on) No first-claim race for Compute's jobs: a planner assigns by a fixed rule.
+    Processor assignments and timings are the engineering record; runs are compared on inputs, decisions, results and
+    score.
+60. The second algorithm is ChaCha20-Poly1305 from the machine's own libcrypto, standing in for a future mandated one.
+61. The document is formal and will be circulated: "When I asked for a detailed design doc, I meant a detailed design
+    doc"; "You don't coddle people like Bob".
+62. Also what it is for: "an unclassified test that I can show politicians and other interested parties, and that can
+    demonstrate perf capabilities, and that can join Quantum machines across the WAN".
+
+**The probe that placed the codex** (21 Nov, measured, then the probe removed with `git checkout`): a 171-byte
+OpenQASM program inside a 350-byte JSON write, written repeatedly over chorus between machines, reached the driver's
+`pack()` as a message of 169 to 171 bytes. The semantic layer had already cut the program to one splice. The driver
+never sees a whole circuit, so the thing that understands one belongs in the semantic layer.
+
+### 21 Nov 09:26 to 11:40: build steps 1 to 3 (`[THE_SETTING_IS_READ_BY_THE_MEMORYS_NAME_V1]`, `[A_CONNECTION_IS_FOR_A_MEMORY_V1]`, `[ONE_PORT_THE_FRAME_SAYS_THE_PROTOCOL_V1]`, `[OPENQASM_DRIVER_V1]`, `[OPENQASM_CODEX_V1]`, `[THE_TCP_DRIVER_SEALS_V1]`, `[THE_ALGORITHM_IS_PART_OF_THE_SETTING_V1]`; NOT COMMITTED: John's permission is needed each time)
+
+A new thread, from a handoff. Times are this sandbox's clock. Baseline first, at `08109549`, on this sandbox:
+`wire_between_machines_tier` chorus 40, tcp 37; the channel-setting oracle; the swap tier on a perfect link, pass.
+
+**What the code confirmed of the design's six open points.** (1) The codex's call site is not `json_handler`: that
+file returns every value, and what differs is decided in `core/codec.py` `_encode_changed`, one prefix-and-suffix
+splice a string. The codex is called there. (2) The TCP driver's daemon end is the six calls already
+(`session.TcpDaemonEnd`); the proxy end is not, and its frames leave and arrive in two places. (3) TCP's first bytes
+are a 4-byte length and then `FNW1`; chorus's are its word with no length; four bytes tell them apart. (4) A change of
+driver within one session kind was not handled (`_get_worker` compared kinds). (5) Under the simulator the tier
+writes the role lines. (6) Nothing in discovery, routing or the firewall setup names 9131.
+
+**The setting is read by the memory's name** (case 29). The setting has been the tuple (channel, setting, <a RAM's
+name>) since 19 Nov, but every reader of it asked which RAM is at an address: `setting_for(host)` took the first by
+name at that address, `here()` used this machine's address, a session was keyed by address. Two memories on one
+machine had one setting, and a request for a memory with no tuple of its own went under another memory's because it
+was on the same machine (the first run of the new tier found that at once: the ControlRam's traffic went under
+Assessment's key). Now: the proxy takes the memory a request is for from the request's own Host
+(`channel_setting.ram_of`); a session is the connection for that memory (`_worker_key`, `_MsgWorker.ram`, chorus's
+connections held by address, memory and driver word); the end that opens says which memory after its word (chorus) or
+in its HELLO after an "@" (TCP); `setting_for`, `here`, `driver`, `sending_key`, `protect` and `opened` take the
+memory. A request that names no memory with a tuple of its own is on its machine's connection under the channel's own
+setting. The swap tier's RAM phase now names the memory in its requests; the oracle checks two memories at one
+address.
+
+**One port; the first bytes say the protocol.** Chorus no longer listens on 9131. When a daemon has the TCP driver,
+its listener holds the daemon's port, looks at the first four bytes of each connection (left in place), and gives a
+connection that begins with a driver's word to that driver (`core/chorus.WIRES`, `ChorusOnTcp.adopt`); anything else
+is the TCP driver's to read and is refused, and said, if it is not its HELLO. A daemon told no TCP driver holds the
+port itself and does the same. Chorus's word is now `CHO\x02` (it is followed by the memory's name).
+
+**The OpenQASM driver** (`core/openqasm.py`): chorus's connection class with its own word, `OQ3\x01`. It seals every
+message: `pack()` fails with the reason when the setting names no key; an unsealed message ends the connection. The
+carrier holds connections by driver word, so chorus to openqasm on one memory is a new connection and the old one
+finishes and is closed (`release`). Its word is registered as a message session (`homa_transport.ON_CHORUS`).
+
+**The codex** (`core/openqasm_handler.py`, value type 12 in the codec): a program is its fixed text and its
+parameters. Against the value before it (the reference both ends hold for that tuple), a bitmap of the parameters
+that changed and those parameters; with no reference, the number of a circuit loaded on both machines before the run
+and every parameter. Nothing is numbered during a run. DIFFERENT FROM THE DESIGN's 11.7 in three ways, each because
+of what the code is: no table numbered "in order first sent" (two ends could number differently after a resend; the
+reference is already the thing both hold); numbers inside square brackets and the version line are fixed text (so the
+circuit of 10.3 has three parameters, not seventeen); and it is called from the codec, not the JSON handler.
+
+**The key store serves TCP; the algorithm is in the setting.** A sealed message is now: the algorithm's number, the
+key name's length, the name, a 12-byte nonce, the sealed bytes. It is opened from what it says; the setting says only
+whether that algorithm (`protections`) and that key (`accept`) are accepted. A reply is sealed as its request
+arrived. `chacha20-poly1305` is registered (libcrypto's `EVP_chacha20_poly1305`, the same AEAD controls). The TCP
+driver seals at both ends and marks a sealed unit in the top bit of its length word.
+
+**Measured between machines, a repeated circuit** (the design's 174-byte program, two angles changed, written from
+New-York-1 into Assessment's memory on Seattle3B; bytes the driver put on the connection for the write, median of
+five, `FROGNET_WIRE_BYTES=1`):
+
+| the channel | bytes |
+|---|---|
+| tcp | 191 |
+| chorus | 189 |
+| chorus under a key | 211 |
+| openqasm (always under a key), codex only | 145 |
+| openqasm, the whole message a difference before sealing | 57 |
+
+The codex took the circuit from about 95 bytes (one splice from the first changed angle to the last) to 11. That left
+145, and nearly all of it was the semantic wire's own envelope, the same from one write to the next: the tuple's name
+and service (the location, sent with every difference), where the request is from and for, the field order's print.
+So the driver, which always seals and so already made the first 24 bytes a difference before sealing, makes the whole
+message one (`[THE_WHOLE_MESSAGE_IS_A_DIFFERENCE_V1]`). What is left of the 57: the request's 16-byte hash and the
+16-byte tag, which have to cross. Chorus was left as it is.
+
+**Run** (all between machines): `roles_exercise_tier.py --step memories` 16 checks; `--step protocols` 46 checks
+(three protocols at once on one port; the circuit on each; tcp to chorus, a key, chorus to openqasm on one channel;
+on another, a key on the TCP driver, the key replaced, the algorithm replaced; an unsealed message refused; an unknown
+first frame refused; openqasm with no key carries nothing and says why; nothing restarted). Beside the baseline:
+`wire_between_machines_tier` chorus 40, tcp 37, `tcp,databasehost.frognet chorus` 38 (the same); the swap tier on a
+perfect link, 14 changes, pass, 27 checks (the same); the channel-setting and carrier oracles pass.
+
+**Found on the way, in the existing system, and not changed:**
+- *A broad read through a raw request can miss a tuple written up to 10 s before.* Every proxy keeps a read cache for
+  its own machine's api.php (`proxy/local_read_cache.py`); a write of a NEW name does not empty a broad read cached
+  before it (its 10 s age limit is the documented backstop). The daemon hands a RAW request to its own proxy, so in
+  that window a raw read of a whole service answers without the new tuple. The tier's first probe (write, then read
+  the whole service at once from another site, on a session too new to have a template at the far daemon) failed on
+  it one run in two. Held reads are not cached. The tier reads a tuple by its name.
+- *A held read's fire does not cross on the memory's channel.* The memory's machine sends the fire, with the tuple's
+  value, to the holder's ADDRESS (`api.php held_fire_rows`), so it rides the connection that is for no memory, under
+  the channel's own setting, whatever the memory's setting is. To put it on the memory's channel the hold has to
+  record which memory it was made at (a column in HeldRead, a parameter on the hold, a header on the fire). That is
+  api.php and every node's schema: John's to say. Recommended.
+- *A reply that lists rows crosses whole when any row changes* (a list is one value to the JSON template), on every
+  driver, so the codex does not reach a circuit inside a read's reply. The write is what was measured.
+
+### 21 Nov 11:45 to 13:30: build steps 4 to 7, and the four runs (`[ROLES_EXERCISE_V1]`, `[ROLE_ADMIN_PAGES_V1]`, `[A_DEADLOCK_IS_ISSUED_AGAIN_V1]`; NOT COMMITTED)
+
+John, 09:37: "Keep going and do not stop until you hit a blocker, or step 7 is complete."
+
+**What was built.** `simulation/roles_exercise/`: `role_service.py` (what every service is made of: a look at a memory
+is a hold, a wait is `wait_until`, a write is into the Role's own memory, an injected value is kept), `rules.py` (each
+Role's rule as the design's section 10 states it, whole numbers only), `statevector.py` (the circuit simulator, up to
+eight qubits, standard library only; the probability is rounded to parts in a million and the shots drawn from
+SHA-256, so no floating-point value leaves it), one file for each service (`exercise`, `warning`, `assessment`,
+`compute_planner`, `compute_processor`, `command`, `units`, `instructor`), `record.py`, `scenarios/first.json`. In
+`simulation/roles_exercise_tier.py`: `--run 1|2|3|4|all`, the checks, the two records, the performance table. The
+admin pages: `opt/fdf/src/fdf-source/fdf/www/roles_exercise/` (`<Role>Admin.html` for the seven Roles, `roles.js`,
+`roles.css`, and the door `roles_ram.php`, which holds a read for a page).
+
+**The four runs, 60 steps, three sites, fast link** (`--run all`, 93 checks, RESULT PASS three times; the numbers are one run's):
+
+| | run 1, TCP | run 2, Chorus | run 3, OpenQASM | run 4, mixed with 7 changes |
+|---|---|---|---|---|
+| the exercise record | 47,177 bytes | the same, byte for byte | the same | the same |
+| reads and writes of the Roles' memories / failed | 3,476 / 0 | 3,476 / 0 | 3,476 / 0 | 3,476 / 0 |
+| the run, seconds | 21.7 | 21.4 | 22.3 | 24.6 |
+| a step, median / 95th, ms | 342 / 405 | 335 / 398 | 347 / 411 | 346 / 640 |
+| bytes on the seven Roles' channels (the drivers' own count) | 1,129,149 | 1,152,519 | 623,741 | 971,480 |
+
+Run 4's changes, each made when its step was reached, each waited for at every end: Units TCP to Chorus (step 15,
+0.33 s); Assessment Chorus to OpenQASM (25, 0.33 s); Units a key (30, three writes, 1.1 s); Assessment's key replaced
+(35, 1.0 s); Units' key replaced (45, 1.0 s); Assessment's algorithm replaced (50, 1.1 s); Units' algorithm replaced
+(55, 1.0 s). In every run all four injections were in force at every step from injection to release, as the Roles
+recorded it step by step (sensor 2 failed, steps 10 to 29; a phantom, 20 to 25; processor 1 out of calibration, 40 to
+51, its jobs on processor 2; unit 3's communications lost when the alert first reached level 2, steps 9 to 14). TCP,
+Chorus and OpenQASM carried Roles' requests within the same second 1,475 times in run 4. No daemon, proxy or service
+restarted. Nothing under `simulation/roles_exercise` names a protocol or a key; `git status` of discovery and routing
+is empty.
+
+**Where the built thing differs from the design, and why** (each found by running it):
+
+1. *A tuple is its writer's.* The design has (compute, result, <track>) "written by the assigned processor", and has
+   the Instructor write a value "merged over the tuple's current value". A memory keeps each writer's tuple of a name
+   as that writer's own (its service, its name and the address it was written from): two processors writing one
+   track's result made two rows, and a reader that kept whichever came last waited for ever at step 40, the first
+   step a track went from processor 1 to processor 2. It is AI_READ_FIRST's invariant 4 and I designed against it.
+   Now a reader takes the row for the later step; and the Instructor, to write INTO a Role's tuple, writes it as that
+   tuple's writer (with the address the tuple was written from). A release marks the hold released; the hold tuple
+   stays as the record that there was one.
+2. *Each step's facts are their own tuples.* The record is read back from memory at the end, so what must be in it for
+   every step is written per step: each sensor's state in that step's detection, each track's counts in that step's
+   confidence, each unit's state in that step's action, the score per step.
+3. *A read names no more than it needs.* The first version held reads on whole families; a reply lists every tuple
+   it matches and a list crosses whole when any of them changes: 815 KB for twelve steps. Reads are by a tuple's own
+   name where one is meant: 420 KB.
+4. *The design's second angle* has a divisor of 1,000,000, which makes it zero for every track. It is 1,000.
+5. *In the exercise a circuit does not cross a link as a write.* Each Role's service is at the site of its own memory,
+   so Assessment's write of a circuit is local. Circuits cross as replies to the second processor's held reads, which
+   are row lists and cross whole on every driver. The codex's 191 to 57 bytes is the measurement of a write that
+   crosses (the protocols step). OpenQASM channels carried about half the bytes of the others in the runs above
+   because that driver makes each whole message a difference, not because of the codex.
+6. *Admin pages*: InstructorAdmin starts, freezes, resumes and ends; injections are the scenario's (it shows them and
+   their state). A Role's admin input (a sensor or processor out of service, the alert level) is a tuple the Role's
+   service honours as it does a hold. **The pages have been served and their door tested between machines; no page
+   has been looked at in a browser.**
+
+**Found in the existing system, and changed** (John's files; said here so he can refuse them):
+- `var/www/html/api.php`: a hold arriving while a fire took holds was answered 500, "Deadlock found when trying to get
+  lock; try restarting transaction" (once at step 25 of the second full run; the service that held the read ended
+  with that reason, as it should). The three HeldRead statements are issued again when the database asks, up to five
+  times, each said in the log (`[A_DEADLOCK_IS_ISSUED_AGAIN_V1]`). Every other statement is as it was. This may be
+  what the 4,800-baud swap tier's unexplained missed wait (21 Nov 07:48) was; not shown.
+- `core/frognet_held.py`: `wait_until` takes the time one hold's own request may take (10 s as before unless the
+  caller says); over 4,800 baud a hold and its rows take longer.
+
+**Found and not changed:** at a first bring-up, once in about fifteen, the owner's wait for every end to say it runs
+a setting was not met although every end's log showed it had read the setting; that run had a fire answered 503,
+"Semantic RPC failed: OSError(9, 'Bad file descriptor')", on a session being retired. A fire that fails is a hold
+taken and a holder never told. Not explained further.
+
+**At 4,800 baud the runs do NOT pass yet (the design's criterion 6).** Every uplink shaped (`--links radio-4800
+--steps 12`), three attempts, three different stops, none of them a wrong value:
+1. The first-word fault below (fixed). After it, run 1 ran its 12 steps in 365 s and then the reading of whole
+   memories across the link failed; the record is now collected at each site for the memories it holds.
+2. Two services at site C ended at their first read: the TCP driver could not open a new session in its 16 s
+   ("no daemon callback after 16s") with nine services opening a session for each memory they read, all at once. The
+   tier now starts the services one at a time. A session for each memory is more sessions to open, and on the TCP
+   driver each one runs its connect ladder; that cost is this work's and is not measured yet.
+3. The owner's wait for every end to say it runs the second starting setting was not met in 60 s.
+The fast-link result stands; the slow-link result is not there, and section 7 says so.
+
+**My own fault, found by the slow link:** the look at a connection's first four bytes set a Python timeout on the
+socket, which makes a read return whatever has arrived. At 4,800 baud a word arrived in two parts, two bytes were
+taken for the whole, and the connection was closed without a word in the log. The wait is the kernel's now and the
+read waits for all four (`chorus.first_word`); a connection that closes before four bytes is said.
+
+### 21 Nov 11:54 to 12:45: version 0.2 of the design arrives; what it replaces; the first three pieces rebuilt (NOT COMMITTED)
+
+John sent version 0.2 of "CroakOS Protocol Layer Demonstration: Requirements and Detailed Design" as the build of
+version 0.1 stood finished on the fast link. A copy is beside the 0.1 text it was compared with (outside the
+repository, in the session's design directory). What 0.2 changes, against what was built:
+
+| Built under 0.1 | Under 0.2 |
+| --- | --- |
+| A connection per memory and per driver; a protocol change opens a new one and the old finishes | One connection per destination; the protocol's word is inside the opened frame and changes on the open connection |
+| Sealing inside the chorus, OpenQASM and TCP drivers; OpenQASM refuses an unsealed message | One sealing layer outside every driver; any protocol under any key or none |
+| `key`, `accept`, `protections`; a key change in three writes; the sealed message names its algorithm and key | `seed`; one current key from a set placed offline; a call in the stream, "switch encryption"; nothing named in the message |
+| Requests in flight finish on the old connection | A thread retries with CACHE_MISS naming its request (`REQ_SAME_MISS`, which names an answer, is in `core/semcache_wire.py` today) |
+| `<role>ram.frognet`, lines placed by the tier | Application memories, `exerciseHost.frognet` and `<role>Host.exercise`, elected by `core/app_hosts.py` |
+| The Instructor writes a value and a hold into the Role's memory, as that tuple's writer | One tuple in the Instructor's own memory; the Role applies it. No tuple has a second writer |
+| The record read back at the end | Captured as values appear, by held reads |
+| The tier writes every channel's setting | Each Role's admin tool writes its own |
+| Performance reported | Criterion 7: run 1 (TCP) sets the limits for runs 2 to 4 on the same link |
+
+**Rebuilt and run so far.**
+
+- *The assessment circuit* (10.3): `ry(a) q[0]; ry(b) q[1]; ccx q[0], q[1], q[2]; measure q[2]`, with
+  `b = (4 + min(sensors, 4)) * 392699 / 1000`. `rules.REFERENCE` holds the design's reference values and
+  `rules.reference_check` runs them; each processor service runs the check before its first job and ends with the
+  reason if one differs. The built simulator gives 0.674, 0.833, 0.975, 0.426 and 0, as the design does.
+- *Injection* (10.7): `(instructor, injection, <n>) = {role, var, scope, value, from_step, state, by}`, written by
+  the Instructor in its own memory; `Role.look_mine` reads the active ones that name its Role and `Role.injected`
+  applies them to what the Role writes. Warning writes its own phantom and writes that it is gone. The hold tuples,
+  `into()` and its write as another tuple's writer are removed. Run 1 (TCP, 60 steps, three sites): 3,482 reads and
+  writes, 0 failed; the four injections in force at every step until released (20 of 20, 6 of 6, 12 of 12, 6 of 6).
+- *The election* (7.2 item 2, risk 2): `elect_memories` in the tier. Each machine writes
+  `(fdf-app, can, exercise.<memory>.<its name>)` into the SystemRam with the memories its site serves, the
+  configuration tuple `(fdf-app, config, exercise)` goes into the ControlRam, and every machine runs
+  `app_hosts.commit` on its own hosts file, as `discovery/elect.py` does on a node. `core/app_hosts.py` and
+  `fdf_select.py` are unchanged. All three machines elected the seven memories the same, where the site table puts
+  them; the memories step passes with those names (24 checks). The design's risk 2 did not happen.
+
+**Decided in the build, not in the design** (cases 35 and 36): the setting carries `switches`, raised by the owner's
+one write; each Role's requests take their packet IDs from that Role's own sequence on the connection, so the ID says
+which key opens a frame; `(channel, setting, semantic)` stays for traffic of no Role; each direction of a connection
+switches on its own (sending when the end's held read wakes it, receiving when the call arrives). These are written
+up in "CroakOS Protocol Layer Demonstration: Walkthrough and Detailed Design" (version 0.3), which John asked for
+with the human scenario first.
+
+**John, 12:33**: "Make this a good demo run that I can record." The Channel panel on each `<Role>Admin` page, and
+the pages seen working in a browser, are therefore part of the build.
+
+- *The frame* (`core/channel_frame.py`, `[ONE_FRAME_UNDER_EVERY_PROTOCOL_V1]`, with
+  `core/test_channel_frame_oracle.py`): a `Link` is one end of one connection to a destination. A frame is its
+  length, its packet ID and its data, sealed under the Role's current key or not; the data opened begins with the
+  protocol's 4-byte word. A packet ID is counter, sequence (8 bits), reply bit; the opener gives each Role a
+  sequence, and a sequence's first frame each way names the Role and states the sender's count of switches. The
+  two calls, `SWP` and `SWE`, are frames with counter 0. `key_number(seed, n, size)` is the selection rule. Sixteen
+  checks pass on a real connection between two ends in one process, each end with its own copy of the settings:
+  two Roles on one connection, one sealed; messages sent either side of a call and read only afterwards; an end
+  whose copy of the setting is behind; an algorithm switch learned at the call; encryption turned on; a connection
+  opened after a switch; no switch landing on the key in use for sets of 2 to 50 over 200 switches; a different
+  set refused with the reason; an unregistered word refused. An unsealed frame costs 2 bytes and the word: the
+  first build spent 2 bytes on the ID (a counter shifted over the sequence), and it now crosses as one (case 28's
+  rule). **It carries no traffic between machines yet**: nothing calls it.
+
+**Not rebuilt yet**: the carrier, proxy and daemon on `Link` (one connection per destination); the setting's `seed`
+and `switches` in `core/channel_setting.py`; chorus and OpenQASM as packers under the frame; CACHE_MISS naming a request;
+the record captured by held reads; the Channel panel; the tier's steps for protocols and the four runs, which still
+drive the 0.1 mechanism. The four runs do not pass at 4,800 baud.
+
 ## 4. The interventions: what was said, why it was noticed, what had not been considered
 
 John, 17 Nov, of the first version of this file: "It is not just the order. It is what I asked and why I asked it.
@@ -2264,6 +2558,78 @@ against six commits and a results document that came after it.
   part of a message that no difference had ever been made of, and I had measured it without asking why it was
   exempt. Forty minutes from his sentence to the measured result.
 
+**29. "A channel's setting applies to a machine, not to a memory"** (21 Nov, 09:35 to 09:37)
+
+- *What I said*: "One design point is false in the code and it gates step 1, so I stopped before building. A
+  channel's setting applies to a machine, not to a memory." Then a recommendation and an alternative (seven machines)
+  and: "Which do you want?"
+- *What John said*: "Bullshit. The setting in a tuple".
+- *Why it was a tell*: I had quoted the tuple's own name in the same paragraph: (channel, setting, <the memory's
+  name>). The setting was per memory the day it was written. What I was describing was my readers of it, which looked
+  it up by address. I presented a defect in the lookup as a property of the design and asked him to rule on it.
+- *Not considered or recalled, and why*: his ruling of 19 Nov ("It is a tuple... the consumer is the thing that wrote
+  it") and of 17 Nov (ruling 35, "a Setting per ram connection"). The log's section 7 carried "two named RAMs on one
+  machine" as "John has not ruled on it", and I took that line as the state of things instead of reading what the
+  tuple already said. A question that an existing ruling answers is not a question; and offering a way round (more
+  machines) was the narrow fix again.
+
+**30 to 33. Four cases from the design session of 21 Nov, written from its handoff** (this thread was not in that
+conversation; the handoff gives John's words and what came of them, and not the sentence of mine each was aimed at, so
+that part is not written here and must not be made up)
+
+- **30.** *What John said*: "The receivers should be able to examine the received TCP frame and determine the
+  underlying protocol by itself." *What came of it*: every driver on one port; the first frame of a connection begins
+  with the protocol's own word; the receiver does not use the port, the sender or the setting to know the protocol.
+  He accepted that chorus leaves port 9131 and that a connection, not each frame, says what it is. *What was already
+  there and had not been used* (seen when it was built): chorus had said a word first since that morning (`WIRE`), to
+  tell an older build apart; and the TCP driver's own first bytes, a length and `FNW1`, cannot be taken for a word.
+- **31.** *What John said*: "The algorithm employed is part of the capability tuple." *What came of it*: the setting
+  carries `protection` (what requests are sealed with) and `protections` (what is accepted); a change of algorithm is
+  three writes and the key does not change. *What was already there* (seen when it was built): `protection` had been
+  a field of the tuple since 19 Nov, and the message did not say which algorithm had sealed it, so it could not be
+  changed under a running channel. It says so now.
+- **32.** *The first-claim race, designed and withdrawn.* A reviewer's change John passed on: no first-claim race for
+  Compute's jobs; a planner assigns by a fixed rule; assignments and timings go in the engineering record. *The rule
+  it broke* is in AI_READ_FIRST in so many words: "There is no work queue... there is no atomic claim." And a record
+  that must be byte for byte the same in four runs cannot hold anything decided by which processor asked first.
+- **33.** *What John said*: "When I asked for a detailed design doc, I meant a detailed design doc." And: "You don't
+  coddle people like Bob." *What came of it*: sections 9 to 13 of the design, at the level it is built from: every
+  tuple, each Role's rule, the wire layouts, the files, the test procedure.
+
+**34. 145 bytes for an 11-byte circuit** (21 Nov, 11:20, caught by case 28's rule, not by John)
+
+- *What I had*: the codex working, and a table in which a circuit on OpenQASM was 145 bytes against 189 on chorus.
+- *What I did*: named the 134 bytes that were not circuit (the request's hash, the tuple's location, the origin, the
+  field order's print) and saw that all but the hash repeat from write to write. The driver now makes the whole
+  message a difference before it seals. 57 bytes.
+- *The rule it came from*: case 28. A cost I can name in bytes is a thing to remove.
+
+**35. Asked John how a key switch is commanded** (21 Nov, 11:57)
+
+- *What I had*: version 0.2 of the design, in which the setting holds `driver`, `seed` and `protection`, and a key
+  switch is a call in the stream "at admin command".
+- *What I did*: reported that nothing in the setting changes on a key switch, and put the question to him with a
+  recommendation.
+- *What John said*: "Really? You can't figure out which of the hundreds of ways to do this might work?"
+- *What I had not considered*: the design gave the rule (one write by the owner; the sender marks the switch in the
+  stream; both ends pick the same key from the seed). Which field the write raises is a detail of the build, and the
+  build is mine. The setting carries `switches`, a count the owner's write raises.
+- *The rule*: a question goes to John when two answers lead to different systems. When any of several would do, pick
+  one, say which, and build.
+
+**36. A byte on the frame for the Role** (21 Nov, 12:22)
+
+- *What I wrote in the walkthrough document*: a one-byte Role number ahead of each frame, "so two Roles with
+  different keys can share a connection".
+- *What John said*: "What is that for? Two roles with different keys can share the same connection through the
+  packet ID."
+- *What the code says*: every packet already carries an ID, which the sender allocates (`core/chorus.py`,
+  `_next_id`), and which is already bound into the seal. A reply carries its request's ID, so the asker knows the
+  Role. A sender that gives each Role its own sequence of IDs tells the receiver the Role of a request with nothing
+  added.
+- *The rule*: before adding a field, read what the frame already carries. (Case 28's rule again: a byte I can name
+  is a byte to remove.)
+
 ### What the cases have in common
 
 - **The fault was in a sentence I offered as plain description or as a reason.** "Listens", "because", "setting",
@@ -2316,6 +2682,13 @@ against six commits and a results document that came after it.
 | Closed a connection to change its setting (the second channel-setting build) | six findings in its own runs, 19 Nov | Do not close what is in use to change it: open the new, let the old finish. |
 | Reported a 62-byte header as the reason soft Homa was slower, and left it | John, one sentence (case 28) | A cost I can name in bytes is a thing to remove, or to ask about with a recommendation, not a thing to describe. |
 | Compared a read through the wire with the far machine's own read to check a write (they agree whatever is held) | writing the held-value check for the tier | A check has to be able to fail: say what wrong result it would catch. |
+| Said a setting kept in a tuple named for a memory "applies to a machine", and asked John to rule on it | John: "Bullshit. The setting in a tuple" (case 29) | Read what the tuple says before describing what reads it. A defect in my lookup is not a property of his design. |
+| Designed a first-claim race for Compute's jobs | a reviewer, through John (case 32) | There is no queue and no claim. A planner writes the assignment; each processor holds a read on it. |
+| Had two processors write one tuple, and the Instructor write over a Role's, as if a name had one row | step 40 of the first full run: a reader waited for ever on the other writer's row | A tuple is its writer's. Two writers of a name are two facts; the reader says which it means. To write into another's tuple is to write as its writer. |
+| Put a Python timeout on a socket and asked for four bytes | the 4,800-baud run: connections closed with no word in the log | A read under a timeout returns what has arrived. Test the slow case before the slow link does. |
+| Read a whole service at once after a write of a new name, through a raw request, and called the result the memory's | the tier failing one run in two | The proxy's local read cache answers a broad read for up to 10 s. Read a tuple by its name, or hold a read. |
+| Asked John which field a key switch's write changes, when the design had given the rule | John: "You can't figure out which of the hundreds of ways to do this might work?" (case 35) | Ask when two answers lead to different systems. When any of several would do, pick one, say which, and build. |
+| Added a byte to the frame to say which Role a packet is for | John: "through the packet ID" (case 36) | Before adding a field, read what the frame already carries. |
 
 ## 5. What Homa's mechanisms became
 
@@ -2371,6 +2744,17 @@ Nothing here may be reported as working.
 Of chorus (21 Nov): **the swap tier's owner wait at 4,800 baud was missed once in seven runs** (section 3, 21 Nov
 07:48; not explained). **`test_homa_ordering_oracle.py` sim mode not run to the end** (this sandbox cannot bind
 `homa_sim`'s address; the same on the last commit). **Not run on a node.**
+
+Of the protocol layer demonstration (21 Nov): **nothing of it is committed.** **Not built:** the design's step 8 (a
+short brief of the results); live injection and release from InstructorAdmin (the scenario's are applied). **No admin
+page has been looked at in a browser.** **Not run:** the protocols step and the swap tier at 4,800 baud on the final
+code. **The four runs do not pass at 4,800 baud** (section 3, 21 Nov 11:45: three attempts, three stops); `collective_tier` and the AIConnect oracle on the
+changed chorus (this sandbox has no torch); `run_all.py`; anything on a node. **A held read's fire does not cross on
+its memory's channel** (section 3, 21 Nov 09:26; John's to say). **The daemon's reply side does not call the codex**
+(a reply's rows are one value; nothing to call it on). **Chorus's word changed to `CHO\x02` and its port to the
+daemon's**: a node on this build and a node on the build before do not talk chorus to each other, and say so.
+**A memory whose setting tuple is emptied** leaves its session open and idle; requests for it go on the machine's
+connection again. **`0b` below is closed**: two memories on one machine each have their own connection.
 
 0. **A node whose every connection is forced to `softhoma`, while its listener is down**, can be told nothing
    except through its own hosts file (the ControlRam tells a holder through the wire). John's ruling 36: not a
@@ -2598,3 +2982,5 @@ here; where this work did one late or wrong, it says so.
 | (this commit) | 19 Nov 11:45 | Onto the channel-setting build, four pieces from a second build of the same handoff: libcrypto in place of the Python module `cryptography`, a registered protection, a registered driver word (`VALID` no longer the gate), one RAM's connection with a setting of its own. Tier: 14 changes, perfect link and 4,800 baud, 0 failed, 0 wrong; a held-value check and a shared-request workload added to it (report, "Added the same day") |
 | (this commit) | 21 Nov 08:10 | All of soft Homa's control crosses as a difference: a request at 4,800 baud 1,121 ms to 864 ms with no key (tcp 880), 1,221 ms to 934 ms keyed. Ways to send less of a gradient measured on the acceptance model: its two factors are 15.6% of it, bit for bit. |
 | (this commit) | 21 Nov 07:48 | Soft Homa is called chorus (`core/chorus.py`, the word `chorus`); the old word is refused with the reason; every earlier note keeps the old name. |
+| (not committed) | 21 Nov 11:40 | The protocol layer demonstration, steps 1 to 3: the setting read by the memory's name and a connection for each memory; every driver on the daemon's port, known by its first bytes; the OpenQASM driver and codex; the TCP driver sealing; the algorithm in the setting and in the message; `simulation/roles_exercise_tier.py` (memories 16, protocols 46). A repeated circuit: 191 bytes on tcp, 189 on chorus, 211 on chorus under a key, 57 on openqasm. |
+| (not committed) | 21 Nov 13:30 | The protocol layer demonstration, steps 4 to 7: the seven Roles' services, the scenario, the circuit simulator, the Instructor, the four runs and the admin pages. All four runs, 60 steps, fast link: the exercise record byte for byte the same (47,177 bytes), 3,476 reads and writes a run and none failed, seven changes of protocol, key and algorithm under way in run 4. api.php: a held-read statement is issued again when the database reports a deadlock. |

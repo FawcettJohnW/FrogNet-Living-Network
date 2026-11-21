@@ -1,0 +1,15 @@
+/* Copyright (C) 2016-2026 Fawcett Innovations LLC. SPDX-License-Identifier: GPL-2.0-only
+   roles.css -- [ROLE_ADMIN_PAGES_V1] the <Role>Admin pages' one style sheet. */
+body { font: 15px/1.4 system-ui, sans-serif; margin: 16px; color: #1b1f23; background: #fafafa; }
+h1 { font-size: 20px; margin: 0 0 4px; } h1 small, h2 small { font-weight: 400; color: #666; font-size: 13px; }
+h2 { font-size: 15px; margin: 16px 0 6px; }
+#say { color: #a15c00; min-height: 1.4em; }
+table { border-collapse: collapse; } th, td { border: 1px solid #d0d7de; padding: 3px 8px; text-align: left; font-size: 14px; }
+th { background: #f0f2f4; }
+.cols { display: grid; grid-template-columns: auto 1fr; gap: 20px; align-items: start; }
+@media (max-width: 800px) { .cols { grid-template-columns: 1fr; } }
+.grid { display: grid; grid-template-columns: repeat(16, 22px); grid-auto-rows: 22px; gap: 1px; background: #d0d7de; border: 1px solid #d0d7de; width: max-content; }
+.grid div { background: #fff; font-size: 11px; display: flex; align-items: center; justify-content: center; }
+.grid .cover { background: #eef6ff; } .grid .prot { background: #ffe9a8; font-weight: 700; } .grid .sensor { background: #cfe3ff; }
+.grid .down { background: #e0e0e0; color: #888; } .grid .track { background: #ffb3ad; font-weight: 700; } .grid .unit { background: #c9efc9; } .grid .obj { background: #ddd; }
+button { font: inherit; padding: 2px 10px; margin: 0 2px; } .held { color: #a40e26; font-weight: 600; } .ok { color: #1a7f37; } .bad { color: #a40e26; }

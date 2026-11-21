@@ -91,6 +91,11 @@ class SemanticCodec:
     TYPE_INT_DELTA    = 9    # varint zigzag(new - ref) of an int64, mod 2**64
     TYPE_FLOAT_DELTA  = 10   # varint zigzag(bits(new) - bits(ref)) of the IEEE-754 bits, mod 2**64
     TYPE_DECSTR_DELTA = 11   # varint zigzag(new - ref) of a canonical decimal string that fits int64
+    # [OPENQASM_CODEX_V1] an OpenQASM program as which circuit it is and its parameters (core/openqasm_handler.py):
+    # u16 length, then the codex's short form. Made only by a codec whose `qasm` is True, which is a codec for a
+    # connection whose channel setting names the driver openqasm; read by any codec, from what arrived.
+    TYPE_QASM         = 12
+    qasm = False
 
     # ========================================================================
     # DIFF Encoding
@@ -260,8 +265,21 @@ class SemanticCodec:
         v = int(s)
         return v if -(1 << 63) <= v < (1 << 63) else None
 
+    def _qasm(self, idx: int, value: Any, ref: Any) -> Optional[bytes]:
+        """[OPENQASM_CODEX_V1] the field as a circuit and its parameters, or None when it is not one this codex takes."""
+        if not self.qasm or type(value) is not str or not value.startswith("OPENQASM"):
+            return None
+        from core import openqasm_handler
+        blob = openqasm_handler.encode(value, ref)
+        if blob is None or len(blob) > 0xFFFF:
+            return None
+        return struct.pack("<HBH", idx, self.TYPE_QASM, len(blob)) + blob
+
     def _encode_changed(self, idx: int, value: Any, has_ref: bool, ref: Any) -> bytes:
         I64 = (-(1 << 63), (1 << 63) - 1)
+        q = self._qasm(idx, value, ref if has_ref else None)
+        if q is not None:
+            return q
         if has_ref:
             t = 0; z = 0; whole = 0
             if type(value) is int and type(ref) is int and I64[0] <= value <= I64[1] and I64[0] <= ref <= I64[1]:
@@ -314,6 +332,10 @@ class SemanticCodec:
 
         fb = bytearray()
         for idx, (field, value) in enumerate(merged):
+            q = self._qasm(idx, value, None)             # [OPENQASM_CODEX_V1] a loaded circuit needs no reference
+            if q is not None:
+                fb.extend(q)
+                continue
             type_id = self._type_to_id(value)
             fb.extend(struct.pack("<HB", idx, type_id))
             fb.extend(self._encode_value(type_id, value))
@@ -553,6 +575,10 @@ class SemanticCodec:
             name = fields[idx] if idx < len(fields) else None
             have = name is not None and name in reference
             rv = reference.get(name) if have else None
+            if kind == self.TYPE_QASM:                   # [OPENQASM_CODEX_V1] against the circuit this end holds there
+                from core import openqasm_handler
+                vals[idx] = openqasm_handler.decode(mid, rv if have else None)
+                continue
             if not have or (kind == self.TYPE_SPLICE and not isinstance(rv, str)):
                 raise ValueError("semcodec: a splice without its reference string (field " + (name if name is not None else "?") +
                                  (", absent from the reference" if not have else ", not a string in the reference") + ")")
@@ -592,6 +618,22 @@ class SemanticCodec:
                     raise struct.error("semcodec: short splice")
                 vals.pop(idx, None)
                 splices.append((idx, type_id, pre, suf, bytes(fb[p:p+L]))); p += L
+                continue
+            if type_id == self.TYPE_QASM:            # [OPENQASM_CODEX_V1]
+                if len(fb) - p < 2:
+                    raise struct.error("semcodec: short circuit")
+                L = struct.unpack("<H", fb[p:p+2])[0]; p += 2
+                if len(fb) - p < L or not L:
+                    raise struct.error("semcodec: short circuit")
+                blob = bytes(fb[p:p+L]); p += L
+                if blob[0] == 1:                     # against the reference: made whole in _merge_splices
+                    if splices is None:
+                        raise ValueError("semcodec: a circuit against its reference outside a difference")
+                    vals.pop(idx, None)
+                    splices.append((idx, type_id, 0, 0, blob))
+                else:
+                    from core import openqasm_handler
+                    vals[idx] = openqasm_handler.decode(blob, None)
                 continue
             if type_id in (self.TYPE_INT_DELTA, self.TYPE_FLOAT_DELTA, self.TYPE_DECSTR_DELTA):   # [NUMBER_DELTA_V1]
                 if splices is None:

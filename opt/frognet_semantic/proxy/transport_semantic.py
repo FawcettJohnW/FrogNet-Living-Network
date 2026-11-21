@@ -731,13 +731,24 @@ def _recv_exact(sock: socket.socket, n: int) -> bytes:
     return bytes(buf)
 
 
+# [THE_TCP_DRIVER_SEALS_V1] the proxy end of what daemon/engine/session.py says under the same marker: a unit sealed
+# under the key the setting of its session's memory names is marked in the top bit of its length word.
+SEALED_BIT = 0x80000000
+
+
+class Sealed(bytes):
+    """A unit of the TCP driver that crossed, or is to cross, sealed."""
+
+
 def _recv_frame(sock: socket.socket) -> bytes:
     trace_enter('transport_semantic._recv_frame', sock=repr(sock))
     hdr = _recv_exact(sock, 4)
     (n,) = struct.unpack("!I", hdr)
+    sealed, n = n & SEALED_BIT, n & ~SEALED_BIT
     if n <= 0 or n > _MAX_FRAME:
         raise RuntimeError(f"bad frame length {n}")
-    return _recv_exact(sock, n)
+    data = _recv_exact(sock, n)
+    return Sealed(data) if sealed else data
 
 
 def _send_frame(sock: socket.socket, payload: bytes) -> None:
@@ -745,7 +756,7 @@ def _send_frame(sock: socket.socket, payload: bytes) -> None:
     n = len(payload)
     if n <= 0 or n > _MAX_FRAME:
         raise RuntimeError(f"invalid frame size {n}")
-    sock.sendall(struct.pack("!I", n))
+    sock.sendall(struct.pack("!I", n | (SEALED_BIT if isinstance(payload, Sealed) else 0)))
     sock.sendall(payload)
 
 
@@ -845,9 +856,11 @@ class _DaemonWorker:
     The cleanup thread is the sole timeout mechanism.
     """
 
-    def __init__(self, host: str, port: int, set_id: int = 0):
+    def __init__(self, host: str, port: int, set_id: int = 0, ram: str = ""):
         self.host = host
         self.port = port
+        self.ram = ram          # [A_CONNECTION_IS_FOR_A_MEMORY_V1] the memory this session is for, or "" (the machine's own)
+        self._key = _worker_key(host, port, set_id, ram)
         self.q: queue.Queue[_Rpc] = queue.Queue()
         self._send_sock: Optional[socket.socket] = None
         self._recv_sock: Optional[socket.socket] = None
@@ -1123,6 +1136,21 @@ class _DaemonWorker:
               f"{' SLOPE_CLAMPED' if slope_clamped else ''}",
               flush=True)
 
+    def _packed(self, seq: int, packet: bytes) -> bytes:
+        """[THE_TCP_DRIVER_SEALS_V1] this end's pack(): the frame as it is, or sealed under the key the setting of this
+        session's memory names. Request `seq` is message 2*seq to the seal; its reply is 2*seq+1."""
+        from core import channel_setting as _cs
+        name = _cs.sending_key(self.host, self.ram)
+        if name != getattr(self, "_said_key", None):
+            print(f"[CHANNEL-KEY] {time.time():.6f} requests to {self.host}:{self.port}{' for ' + self.ram if self.ram else ''} "
+                  f"on the TCP driver now go under {('the key ' + repr(name)) if name else 'no key'}", flush=True)
+            self._said_key = name
+        out = Sealed(_cs.protect(2 * seq, packet, name, self.host, self.ram)) if name else packet
+        from core import chorus as _ch                       # [BYTES_ON_THE_CONNECTION_V1]
+        if _ch.WIRE_BYTES:
+            _ch.wire_bytes("tcp", self.ram, "req", 4 + len(out))
+        return out
+
     def _mint_session_token(self) -> str:
         """[SESSION_TOKEN_V1] Mint a unique token for one send-sock +
         return-channel pair.  Both the send HELLO and the matching
@@ -1131,7 +1159,9 @@ class _DaemonWorker:
         trace_enter('transport_semantic._DaemonWorker._mint_session_token')
         with self._state_lock:
             self._session_token_seq += 1
-            self._session_token = f"{_get_local_gw()}#{self._session_token_seq}"
+            # [A_CONNECTION_IS_FOR_A_MEMORY_V1] a session for a memory says which, after an "@": the daemon's end reads
+            # that memory's setting for what arrives on it. The part before "#" is still this node's .1.
+            self._session_token = f"{_get_local_gw()}#{self._session_token_seq}" + (f"@{self.ram}" if self.ram else "")
             return self._session_token
 
     def _open_send_sock(self) -> socket.socket:
@@ -1409,8 +1439,8 @@ class _DaemonWorker:
         # De-register under the registry lock. Idempotent: a worker reaped by
         # channel_sets is already gone from _WORKERS and pop() is a no-op.
         with _WORKERS_LOCK:
-            if _WORKERS.get((self.host, self.port, self._set_id)) is self:
-                _WORKERS.pop((self.host, self.port, self._set_id), None)
+            if _WORKERS.get(self._key) is self:
+                _WORKERS.pop(self._key, None)
 
         if err is None:
             err = RuntimeError(
@@ -1890,7 +1920,7 @@ class _DaemonWorker:
                     rpc.retry_pending = False
                     with self._pending_lock:
                         self._pending[seq] = rpc
-                    _send_frame(sock, rpc.packet)
+                    _send_frame(sock, self._packed(seq, rpc.packet))
                     print(f"[DIAG-WRITER] SENT seq={seq} {len(rpc.packet)}B "
                           f"to {self.host} attempt={rpc.attempts}/"
                           f"{rpc.max_attempts} pending={len(self._pending)}",
@@ -1965,6 +1995,12 @@ class _DaemonWorker:
                 seq = struct.unpack("!I", frame[:4])[0]
                 _last_seq = seq
                 reply_data = frame[4:]
+                if isinstance(frame, Sealed):                # [THE_TCP_DRIVER_SEALS_V1] a reply sealed as its request went out
+                    from core import channel_setting as _cs
+                    try:
+                        reply_data = _cs.opened(2 * seq + 1, bytes(reply_data), False, self.host, self.ram)[0]
+                    except _cs.KeyRefused as e:
+                        raise RuntimeError(f"reply {seq} from {self.host} on the TCP driver: {e}") from e
 
                 with self._pending_lock:
                     rpc = self._pending.pop(seq, None)
@@ -2205,7 +2241,15 @@ class _DaemonWorker:
 # PROXY CALLBACK LISTENER (port 9010) - accepts daemon return connections
 # ====================================================================
 
-_WORKERS: Dict[Tuple[str, int, int], _DaemonWorker] = {}  # (host, port, set_id)
+_WORKERS: Dict[Tuple, _DaemonWorker] = {}  # (host, port, set_id), or (host, port, set_id, memory) for a named memory
+
+
+def _worker_key(host: str, port: int, set_id: int = 0, ram: str = "") -> Tuple:
+    """[A_CONNECTION_IS_FOR_A_MEMORY_V1] A session is the connection for one memory. John, 2026-11-21: "The setting in
+    a tuple": a memory's setting is (channel, setting, <its name>), so a request for a memory that has one goes on that
+    memory's own session, opened under that setting, whichever machine the memory is on and whatever else is there.
+    A request that names no such memory is on its machine's session, keyed as it always was."""
+    return (host, port, set_id, ram) if ram else (host, port, set_id)
 _WORKERS_LOCK = threading.RLock()
 
 # Fix 3: per-target concurrency cap - one dead daemon cannot consume
@@ -2255,7 +2299,7 @@ from core.homa_transport import carrier_for, worker_idle   # [HOMA_TRANSPORT_V1]
 _DRAINING: list = []       # [CHANNEL_SETTING_IS_A_TUPLE_V1] (key, session) taken out of use with work outstanding; under _WORKERS_LOCK
 
 
-def _get_worker(host: str, port: int, set_id: int = 0) -> _DaemonWorker:
+def _get_worker(host: str, port: int, set_id: int = 0, ram: str = "") -> _DaemonWorker:
 
     trace_enter('transport_semantic._get_worker', host=repr(host), port=repr(port))
     if not _is_frognet_ip(host):
@@ -2281,7 +2325,7 @@ def _get_worker(host: str, port: int, set_id: int = 0) -> _DaemonWorker:
             f"{host} cached non-FrogNet this session; no worker built")
 
     with _WORKERS_LOCK:
-        key = (host, port, set_id)
+        key = _worker_key(host, port, set_id, ram)
         w = _WORKERS.get(key)
         if w is not None and w.is_stopped():
             # [WORKER_EXIT_REASON_V1] This is the Tier 0 wedge. _WORKERS was a
@@ -2304,7 +2348,7 @@ def _get_worker(host: str, port: int, set_id: int = 0) -> _DaemonWorker:
         # [HOMA_TRANSPORT_V1] [CARRIER_PER_HOP_V1] the one seam: which carrier's worker stands under the engine for
         # this peer (core/homa_transport.py). The engine's calls on it are the same. A session is never moved: one
         # whose carrier is no longer the choice is retired when a request finds it with nothing outstanding.
-        kind = carrier_for(host)
+        kind = carrier_for(host, ram)
         # [CHANNEL_SETTING_IS_A_TUPLE_V1] sessions the channel's tuple took out of use end here, at a request (an
         # event), once nothing is outstanding on them. Nothing outstanding is failed and nothing waits on a timer.
         for dk, dw in list(_DRAINING):
@@ -2317,12 +2361,24 @@ def _get_worker(host: str, port: int, set_id: int = 0) -> _DaemonWorker:
                 if not dw.is_stopped():
                     dw.stop()
                 print(f"[CHANNEL-SETTING] {time.time():.6f} the session to {dk[0]}:{dk[1]} set={dk[2]} on "
-                      f"{getattr(dw, 'carrier', 'tcp')} has nothing outstanding: ended", flush=True)
+                      f"{getattr(dw, 'word', getattr(dw, 'carrier', 'tcp'))} has nothing outstanding: ended", flush=True)
         from core import channel_setting as _cs
-        if w is not None and getattr(w, "carrier", "tcp") != kind and _cs.driver(host) is not None:
+        word = _cs.driver(host, ram) or ("chorus" if kind == "homa" else "tcp")
+        if w is not None and getattr(w, "carrier", "tcp") == kind == "homa" and getattr(w, "word", word) != word \
+                and _cs.driver(host, ram) is not None:
+            # [A_CONNECTION_IS_OF_ITS_DRIVER_V1] the channel's tuple changed the driver to another of the same session
+            # kind (chorus to openqasm): exactly as between tcp and chorus, new requests open a new session on the new
+            # driver's connection now, and this one finishes what it has and ends once the new one is up.
+            print(f"[CHANNEL-SETTING] {time.time():.6f} {host}:{port} set={set_id}{' for ' + ram if ram else ''}: the channel's tuple says "
+                  f"{word}; the session on {w.word} finishes what is outstanding on it and takes nothing new", flush=True)
+            w.moved_driver = True
+            _DRAINING.append((key, w))
+            _WORKERS.pop(key, None)
+            w = None
+        if w is not None and getattr(w, "carrier", "tcp") != kind and _cs.driver(host, ram) is not None:
             # the channel's tuple changed the driver: new requests open a new session now, and this one finishes
             # what it has and ends once the new one is up.
-            print(f"[CHANNEL-SETTING] {time.time():.6f} {host}:{port} set={set_id}: the channel's tuple says {kind}; the "
+            print(f"[CHANNEL-SETTING] {time.time():.6f} {host}:{port} set={set_id}{' for ' + ram if ram else ''}: the channel's tuple says {kind}; the "
                   f"session on {getattr(w, 'carrier', 'tcp')} finishes what is outstanding on it and takes nothing new",
                   flush=True)
             _DRAINING.append((key, w))
@@ -2337,10 +2393,13 @@ def _get_worker(host: str, port: int, set_id: int = 0) -> _DaemonWorker:
         if w is None:
             if kind == "homa":
                 from proxy.transport_homa import _MsgWorker
-                w = _MsgWorker(host, port, set_id)
+                w = _MsgWorker(host, port, set_id, ram, word) if (ram or word != "chorus") else _MsgWorker(host, port, set_id)
             else:
-                w = _DaemonWorker(host, port, set_id)
+                w = _DaemonWorker(host, port, set_id, ram) if ram else _DaemonWorker(host, port, set_id)
             _WORKERS[key] = w
+            if ram:
+                print(f"[SEM-TRANSPORT] [A_CONNECTION_IS_FOR_A_MEMORY_V1] {time.time():.6f} the session to {host}:{port} for "
+                      f"{ram} opened on {word}", flush=True)
         return w
 
 
@@ -2540,6 +2599,15 @@ def handle_request(
     store = get_template_store()
     codec = SemanticCodec()
 
+    # [THE_SETTING_IS_READ_BY_THE_MEMORYS_NAME_V1] the memory this request is for is the name the request itself gives
+    # (its Host), when that memory has a setting tuple of its own. Its session is that memory's, under that setting.
+    from core import channel_setting as _cs
+    ctx["ram"] = _cs.ram_of((headers or {}).get("Host") or (headers or {}).get("host"))
+    if ctx["ram"] and target_ip == _get_local_gw():
+        ctx["ram"] = ""         # the memory is on this machine: the request is where it is going, and crosses no channel
+    # [OPENQASM_CODEX_V1] the circuit codex acts on a channel whose setting names the driver openqasm, and on no other
+    codec.qasm = _cs.driver(target_ip, ctx["ram"]) == "openqasm"
+
     semantic_path = ctx.get("semantic_path", path)
     req_row, resp_row = store.lookup_by_path(method, semantic_path)
 
@@ -2638,7 +2706,7 @@ def _handle_semantic_request(
     url_vals = extract_dynamic_query_vals(path, url_keys) if url_keys else []
 
     next_hop = target_ip
-    worker = _get_worker(next_hop, _DAEMON_PORT)
+    worker = _get_worker(next_hop, _DAEMON_PORT, ram=ctx.get("ram") or "")
     # [RETRY_BUDGET_IS_ONE_SETTING_V1] This was a hard-coded local 2, shadowing
     # the module's configurable _TRANSPORT_MAX_ATTEMPTS. The proxy banner
     # reported "switch=on max_attempts=3" from the env while this loop silently
@@ -2957,7 +3025,7 @@ def _handle_raw_and_learn(
     http_req_would = _estimate_http_request_wire(method, path, headers, body)
     req_hash = hashlib.sha256(http_req).digest()[:REQ_HASH_LEN]
     next_hop = target_ip
-    worker = _get_worker(next_hop, _DAEMON_PORT)
+    worker = _get_worker(next_hop, _DAEMON_PORT, ram=ctx.get("ram") or "")
 
     # [SAME_IS_BACK_V1] REQ_REPEAT restored. It asks the daemon to re-execute a
     # request it has SEEN BEFORE, identified by hash alone -- the wire carries 16

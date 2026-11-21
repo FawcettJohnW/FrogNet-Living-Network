@@ -817,7 +817,34 @@ capability tuple in the ControlRam: (channel, setting, semantic), `opt/frognet_s
 - The owner changes a key in three writes: widen `accept`, change `key`, narrow `accept`, waiting between them on each
   end's own tuple (channel, at, ...) that says what it runs. The tuple is read over the channel it sets, so an end
   must never be sent what it does not yet accept.
-- (channel, setting, <a RAM's role name>) is the same JSON for the connection to that RAM's machine alone.
+- (channel, setting, <a memory's host name>) is the same JSON for the connection FOR that memory
+  (`[THE_SETTING_IS_READ_BY_THE_MEMORYS_NAME_V1]`, John 2026-11-21: "The setting in a tuple"). It is read by the name a
+  request gives (its Host), never by which memory is at an address: two memories on one machine are two connections
+  under two settings (`[A_CONNECTION_IS_FOR_A_MEMORY_V1]`). Do not look a setting up by address.
+- Every driver arrives on the daemon's one port and is known by the first four bytes of its connection, not by the
+  port, the sender or the setting (`[ONE_PORT_THE_FRAME_SAYS_THE_PROTOCOL_V1]`, John 2026-11-21). Three are in the
+  tree: `tcp`, `chorus`, `openqasm` (`core/openqasm.py`; it seals every message, and the circuit codex
+  `core/openqasm_handler.py` stands above it in the codec).
+- The key store serves every driver, TCP included. A sealed message says which algorithm and which key sealed it; the
+  setting says which are accepted (`protection`, `protections`, `key`, `accept`). An algorithm is replaced by three
+  writes, as a key is (`[THE_ALGORITHM_IS_PART_OF_THE_SETTING_V1]`).
+- **The design changed on 21 Nov and the code is part way across. Read the two design documents before touching
+  any of this**: `opt/frognet_semantic/docs/PROTOCOL-LAYER-DEMONSTRATION-WALKTHROUGH-AND-DESIGN-v0.3.md` (how it is
+  set up and switched, and the design as it is being built; its section 11.3 says what is built) and
+  `opt/frognet_semantic/docs/PROTOCOL-LAYER-DEMONSTRATION-REQUIREMENTS-AND-DESIGN-v0.2.md` (the exercise's rules).
+  Under them a channel has ONE current key, picked from a set placed offline by a rule on the setting's `seed` and
+  `switches`; protocol and encryption are separate and are switched separately, each by a call in the stream on the
+  open connection; one layer seals every frame and no driver does; there is one connection per destination, and the
+  packet ID says which Role a frame is for. That layer is `core/channel_frame.py` (`[ONE_FRAME_UNDER_EVERY_PROTOCOL_V1]`,
+  checked by `core/test_channel_frame_oracle.py`) and NOTHING CALLS IT YET. The bullets above this one (`key`,
+  `accept`, `protections`, three writes, a connection for each memory and driver, a driver that seals) describe the
+  0.1 mechanism, which is what still carries traffic and which the design removes. Do not build on it.
+- The demonstration these serve, and its design: `core/TRANSPORT-DRIVER-INTERFACE.md` section 9. Its tier:
+  `opt/frognet_semantic/simulation/roles_exercise_tier.py`; its Roles' services: `simulation/roles_exercise/` (read
+  `role_service.py` first); its admin pages: `opt/fdf/src/fdf-source/fdf/www/roles_exercise/`.
+- A tuple is its writer's: the memory keeps each writer's tuple of a name as that writer's own (service, name, and the
+  address it was written from). Two programs writing one name are two rows, and a reader must say which it means.
+  Do not design a tuple with two writers, and do not assume a write from another machine replaces a tuple.
 - A driver's word is registered (`core/homa_transport.register_driver`); a protection is registered
   (`core/channel_protection.register_protection`). Neither is a fixed list.
 - A node must have been told of chorus (its own word names it) before the tuple can put a session on it.

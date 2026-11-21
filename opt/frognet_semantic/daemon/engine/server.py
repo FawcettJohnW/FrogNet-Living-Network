@@ -47,11 +47,14 @@ def _recv_exact(conn, n):
 
 
 def _recv_frame(conn):
+    from .session import Sealed, SEALED_BIT              # [THE_TCP_DRIVER_SEALS_V1] the first session frame may be sealed
     hdr = _recv_exact(conn, 4)
     (n,) = struct.unpack("!I", hdr)
+    sealed, n = n & SEALED_BIT, n & ~SEALED_BIT
     if n <= 0 or n > _MAX_FRAME:
         raise RuntimeError(f"bad frame length {n}")
-    return _recv_exact(conn, n)
+    data = _recv_exact(conn, n)
+    return Sealed(data) if sealed else data
 
 
 def _send_frame(conn, payload: bytes) -> None:
@@ -142,6 +145,30 @@ class DaemonServer:
         accept loop.
         """
         peer_ip = addr[0]
+        # [ONE_PORT_THE_FRAME_SAYS_THE_PROTOCOL_V1] John, 2026-11-21: "The receivers should be able to examine the
+        # received TCP frame and determine the underlying protocol by itself." The first four bytes of the connection
+        # are looked at (and left in place). A driver's word: the connection is that driver's. Anything else is read
+        # below as the TCP driver's own first frame, a length and then FNW1 HELLO, and refused if it is not that.
+        try:
+            from core import chorus as _chorus
+            _word = _chorus.first_word(conn)
+        except OSError as e:
+            print(f"[DAEMON-SERVER] a connection from {peer_ip}:{addr[1]} said nothing ({e!r}): closed", flush=True)
+            try: conn.close()
+            except Exception: pass
+            return
+        if len(_word) < len(_chorus.WIRE):
+            print(f"[DAEMON-SERVER] a connection from {peer_ip}:{addr[1]} closed after {len(_word)} byte(s), before it had said what it is", flush=True)
+            try: conn.close()
+            except Exception: pass
+            return
+        if _word in _chorus.WIRES:
+            if _chorus.SERVER is None or not _chorus.SERVER.adopt(conn, addr, _word):
+                print(f"[DAEMON-SERVER] a connection from {peer_ip}:{addr[1]} began {_word!r} ({_chorus.WIRES[_word].name}'s "
+                      f"word) and this daemon was not told of that driver's carrier: closed", flush=True)
+                try: conn.close()
+                except Exception: pass
+            return
         # [NO_FALLBACK_V1] These five setsockopt calls were in one try with
         # `except Exception: pass`, so any of them failing silently produced a
         # connection with no keepalive. Without keepalive the kernel cannot
@@ -176,12 +203,16 @@ class DaemonServer:
             msg = try_parse(frame)
             conn.settimeout(None)
         except Exception as e:
+            print(f"[DAEMON-SERVER] [ONE_PORT_THE_FRAME_SAYS_THE_PROTOCOL_V1] a connection from {peer_ip}:{addr[1]} began "
+                  f"{_word!r}, which is no registered protocol's first frame ({e!r}): closed", flush=True)
             trace(f"[Daemon] HELLO read failed from {peer_ip}: {e!r}")
             try: conn.close()
             except Exception: pass
             return
 
         if msg is None or msg.op != OP_HELLO or not msg.body:
+            print(f"[DAEMON-SERVER] [ONE_PORT_THE_FRAME_SAYS_THE_PROTOCOL_V1] a connection from {peer_ip}:{addr[1]} began "
+                  f"{_word!r}, which is no registered protocol's first frame: closed", flush=True)
             trace(f"[Daemon] expected HELLO from {peer_ip}, "
                   f"got op={msg.op if msg else 'None'}")
             try: conn.close()
@@ -335,7 +366,7 @@ class DaemonServer:
                     # the session read loop's next outcome resolves it.
                     _phase_end = "per_frame_timeout_45s"
                     break
-                pmsg = try_parse(frame)
+                pmsg = None if type(frame) is not bytes else try_parse(frame)      # a sealed unit is a session frame
                 if pmsg is None or pmsg.op != OP_RTT_PING:
                     # First non-ping frame after HELLO is the first
                     # session frame.  Hand it to the session via

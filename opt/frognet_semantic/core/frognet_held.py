@@ -183,9 +183,11 @@ class Holder:
                                name_like=name_like, name=name, wait_s=wait_s)
 
     def wait_until(self, service: str, dbhost: str, done, name_like: Optional[str] = None,
-                   name: Optional[str] = None, wait_s: float = 30.0) -> List[Dict[str, Any]]:
+                   name: Optional[str] = None, wait_s: float = 30.0, timeout: float = 10.0) -> List[Dict[str, Any]]:
         """Hold; return the current rows as soon as done(rows), or when wait_s has passed.
-        Each wake is a fire or the hosts event; each hold's reply is the current rows."""
+        Each wake is a fire or the hosts event; each hold's reply is the current rows.
+        timeout: how long one hold's own request may take to be answered (hold()'s, 10 s as before unless the caller
+        says: over a 4,800-baud link a hold and its rows can take longer than that)."""
         deadline = time.monotonic() + wait_s
         w = _Wait()
         with self.lock:
@@ -193,7 +195,7 @@ class Holder:
         try:
             while True:
                 w.ev.clear(); w.moved = False
-                hid, rows = self.hold(service, dbhost, name_like=name_like, name=name)
+                hid, rows = self.hold(service, dbhost, name_like=name_like, name=name, timeout=timeout)
                 if done(rows):
                     return rows
                 with self.lock:

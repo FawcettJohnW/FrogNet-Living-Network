@@ -50,9 +50,10 @@ alive (a held read on the capability tuple in the ControlRam); the contents of a
 
 | word | connection | packing | where |
 |---|---|---|---|
-| `tcp` | two TCP connections the proxy opens, one each way, held open | a 4-byte length; a reply carries the 4-byte number of its request | proxy end: `proxy/transport_semantic._DaemonWorker`; daemon end: `daemon/engine/session.TcpDaemonEnd` |
-| `chorus` | one TCP connection to the daemon on port 9131, held open | `pack()` makes a Homa DATA frame in segments of at most 240,000 bytes; on the connection its header and the message's first bytes cross as a difference (section 7, item 8). Called soft Homa until 21 Nov 2026, when it stopped putting Homa's frames on the wire | `core/chorus.py` (`_Conn` is the six calls), under `proxy/transport_homa.py` and `daemon/engine/server_homa.py` |
+| `tcp` | two TCP connections the proxy opens to the daemon's port, one each way, held open | a 4-byte length; a reply carries the 4-byte number of its request; under a key the frame is sealed and the length word's top bit says so (section 9) | proxy end: `proxy/transport_semantic._DaemonWorker`; daemon end: `daemon/engine/session.TcpDaemonEnd` |
+| `chorus` | one TCP connection to the daemon's port for each memory it has something for, held open; it begins `CHO\x02` and the memory's name (section 9) | `pack()` makes a Homa DATA frame in segments of at most 240,000 bytes; on the connection its header and the message's first bytes cross as a difference (section 7, item 8). Called soft Homa until 21 Nov 2026, when it stopped putting Homa's frames on the wire | `core/chorus.py` (`_Conn` is the six calls), under `proxy/transport_homa.py` and `daemon/engine/server_homa.py` |
 | `homa` | one Homa socket (the kernel module) | the module's own: real Homa frames; it cuts, paces and resends | `core/homa_socket.HomaSocket`, under the same two files |
+| `openqasm` | as chorus, on a connection of its own that begins `OQ3\x01` | chorus's, with every message sealed and the whole message a difference before it is sealed (section 9) | `core/openqasm.py` (`OpenQasmConn`), with the circuit codex `core/openqasm_handler.py` above it |
 
 The same interface carries a second wire since 19 November: a rank's session with the FrogTorch RAM
 (`agent_workload/tuplespace/frogtorch_ram_drivers.py`). There the proxy and daemon are not involved; the rank's end
@@ -152,7 +153,73 @@ holds a read on the tuple. A process with no such tuple goes on as before, on it
 The test is `simulation/channel_swap_tier.py`; its results are in
 `ribbit/examples/homa/REPORT-channel-setting-tuple-swap-under-load-20261119.md`.
 
-## 8. Adding a driver
+## 9. One port, a connection for each memory, three drivers (21 November)
+
+The design these were built for is "CroakOS Protocol Layer Demonstration: Requirements and Detailed Design" (version
+0.1, 21 Nov 2026, https://claude.ai/artifact/KfJ8yFePmt15dK7FARWrri). The test is
+`simulation/roles_exercise_tier.py`: `--step memories`, `--step protocols`, `--step pages`, and `--run 1|2|3|4|all`,
+the exercise itself (seven Roles' services, `simulation/roles_exercise/`) on TCP, on Chorus, on OpenQASM, and mixed
+with a channel's protocol, key and algorithm changed under way; the exercise record of every run is byte for byte the
+same. The record is the exploration log's entries of 21 Nov.
+
+1. **The setting is read by the memory's name** (`[THE_SETTING_IS_READ_BY_THE_MEMORYS_NAME_V1]`; John, 21 Nov: "The
+   setting in a tuple"). Item 7 of section 7 said a RAM's tuple was the setting of the connection "to the machine that
+   RAM is on". It is the setting of the connection FOR that RAM. The proxy takes the memory a request is for from the
+   request's own Host (`channel_setting.ram_of`: a name that has a tuple of its own); `setting_for`, `here`, `driver`,
+   `sending_key`, `protect` and `opened` take the memory. Which memory is at an address is never asked. A request
+   that names no such memory (an address, or a name with no tuple) is under the channel's own setting.
+2. **A connection is for a memory** (`[A_CONNECTION_IS_FOR_A_MEMORY_V1]`). A session is keyed by address, set and
+   memory (`transport_semantic._worker_key`); chorus's carrier holds connections by address, memory and driver word.
+   The end that opens says which memory: chorus and openqasm after their word (a length byte and the name), TCP in its
+   HELLO after an "@" (`ip#set@memory`). Two memories on one machine are two connections under two settings. A
+   request for a memory on the proxy's own machine crosses no connection.
+3. **One port; the first bytes say the protocol** (`[ONE_PORT_THE_FRAME_SAYS_THE_PROTOCOL_V1]`; John, 21 Nov: "The
+   receivers should be able to examine the received TCP frame and determine the underlying protocol by itself").
+   Every driver arrives on the daemon's port. The listener looks at a connection's first four bytes and leaves them:
+   a registered word (`core/chorus.WIRES`) and the connection is that driver's (`ChorusOnTcp.adopt`); anything else
+   is the TCP driver's first frame (a length, then `FNW1` HELLO) or is closed with the reason in the log. The port,
+   the sender and the setting are not consulted. Chorus has no port of its own any more.
+4. **A driver built on chorus's connection registers its class** (`[A_CONNECTION_IS_OF_ITS_DRIVER_V1]`,
+   `chorus.register_conn`): its `name` is the word a setting names and its `WIRE` the four bytes it begins with.
+   Section 6 item 4 is narrower now: a process still has one message carrier, and that carrier holds a connection for
+   each driver word. A change between two words of the message kind (chorus to openqasm) opens a new session on the
+   new driver's connection; the old one finishes what it has and its connection is closed.
+5. **The sealed message is the same for every driver, and says how it was sealed**
+   (`[THE_ALGORITHM_IS_PART_OF_THE_SETTING_V1]`; John, 21 Nov: "The algorithm employed is part of the capability
+   tuple"; "The keyed store, for example, can apply to all protocols"):
+
+       1 byte     the algorithm's number (1 aes-256-gcm, 2 chacha20-poly1305; a registered one has its own)
+       1 byte     the length of the key's name
+       n bytes    the key's name
+       12 bytes   the nonce: 8 bytes the sending process drew once, then a 4-byte count
+       the rest   the sealed frame, ending in the algorithm's 16-byte tag
+
+   The receiver opens it from what it says. The setting decides only whether that algorithm (`protections`; absent,
+   only `protection`) and that key (`accept`) are accepted. A reply is sealed as its request arrived. The message's
+   number, the algorithm's number and the key's name are bound in. Section 7 item 6's "the tuple names it, the message
+   does not" is no longer so. An algorithm is replaced as a key is: widen `protections`, change `protection`, narrow,
+   waiting on every end between; the key does not change.
+6. **The TCP driver seals** (`[THE_TCP_DRIVER_SEALS_V1]`): at the proxy's end where a frame leaves and a reply
+   arrives (`_DaemonWorker._packed`, the reader), at the daemon's in `TcpDaemonEnd.pack` and `unpack`. Request number
+   n is message 2n to the seal and its reply 2n+1. Section 7 item 2's "the TCP driver carries no key yet" is no
+   longer so.
+7. **The OpenQASM driver** (`[OPENQASM_DRIVER_V1]`): every message sealed. `pack()` fails with the reason when the
+   setting names no key; an unsealed message ends the connection, and says so. Because it always seals, it always
+   makes a message small first, and it makes the WHOLE message a difference against the last one sealed on the
+   connection (`[THE_WHOLE_MESSAGE_IS_A_DIFFERENCE_V1]`), where chorus makes the first 24 bytes one.
+8. **The circuit codex is above the drivers** (`[OPENQASM_CODEX_V1]`, `core/openqasm_handler.py`, value type 12 in
+   `core/codec.py`): a string value that begins `OPENQASM`, on a connection whose setting names `openqasm`
+   (`SemanticCodec.qasm`, set by the proxy for a request), crosses as a bitmap of the parameters that changed against
+   the value before it and those parameters, or as a loaded circuit's number and its parameters. Circuits are loaded
+   from `/etc/frognet/openqasm_circuits` (`FROGNET_OPENQASM_CIRCUITS`), placed before a run as keys are.
+9. **Measuring**: with `FROGNET_WIRE_BYTES=1` each driver says the bytes each message put on its connection
+   (`[WIRE-BYTES] time driver memory req|rep bytes`). A repeated 174-byte circuit, 21 Nov, between machines: tcp 191,
+   chorus 189, chorus under a key 211, openqasm 57.
+
+Not so yet: a held read's fire goes to the holder's address, so it crosses on the connection that is for no memory
+(the exploration log, 21 Nov, says what would change that and that it is John's to say).
+
+## 10. Adding a driver
 
 Read `ribbit/examples/homa/EXPLORATION-LOG.md`: section 9 for the procedure, section 4 for what went wrong the first
 time, and the entries of 18 November for a driver built as an imitation of something else and then taken out.

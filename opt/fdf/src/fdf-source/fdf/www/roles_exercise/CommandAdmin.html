@@ -1,0 +1,37 @@
+<!doctype html>
+<!-- Copyright (C) 2016-2026 Fawcett Innovations LLC. SPDX-License-Identifier: GPL-2.0-only
+     CommandAdmin.html -- [ROLE_ADMIN_PAGES_V1] the Command Role's admin tool and view: tracks with confidence, the alert level, units' status and the score; the alert level set.
+     It reads its Role's memory, and what that Role itself reads, through held reads (roles.js watch); it redraws when
+     one returns. It names memories and tuples only: no protocol and no key. -->
+<html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Roles Exercise -- CommandAdmin</title><link rel="stylesheet" href="roles.css"></head><body>
+<h1>Roles Exercise -- CommandAdmin <small id="clock"></small></h1>
+<div id="say"></div>
+<div class="cols"><div><div class="grid" id="grid"></div></div>
+<div><h2>Alert level <span id="level"></span> <small>set: <button data-l="5">5</button><button data-l="4">4</button><button data-l="3">3</button><button data-l="2">2</button><button data-l="1">1</button><button data-l="0">computed</button></small></h2>
+<h2>Tracks <small id="step"></small></h2><table id="tracks"></table><h2>Units</h2><table id="units"></table><h2>Orders</h2><table id="orders"></table><h2>Score</h2><table id="score"></table></div></div>
+<script type="module">
+import * as R from './roles.js'
+let mine = new Map(), conf = new Map(), units = new Map(), score = new Map(), sc = null
+function draw() {
+  const c = R.latest(conf, 'confidence') || { tracks: [] }, o = R.latest(mine, 'order') || { orders: [] }, a = mine.get('alert.run') || {}
+  const marks = []
+  for (const p of (sc?.protected || [])) marks.push({ x: p[0], y: p[1], cls: 'prot', text: 'P', title: 'protected' })
+  for (const [n, u] of R.family(units, 'unit')) marks.push({ x: u.x, y: u.y, cls: 'unit', text: 'U' + n, title: 'unit ' + n + ': ' + u.readiness + ', comms ' + u.comms + ', stores ' + u.stores })
+  for (const t of c.tracks || []) marks.push({ x: t.x, y: t.y, cls: 'track', text: t.track, title: 'track ' + t.track + ', confidence ' + t.confidence })
+  R.grid(R.$('#grid'), marks)
+  R.$('#level').textContent = a.level ?? ''; R.$('#step').textContent = c.step ? 'step ' + c.step : ''
+  R.table(R.$('#tracks'), ['Track', 'At', 'Confidence'], (c.tracks || []).map((t) => [t.track, t.x + ', ' + t.y, t.confidence]))
+  R.table(R.$('#units'), ['Unit', 'At', 'Readiness', 'Comms', 'Stores'], R.family(units, 'unit').map(([n, u]) => [n, u.x + ', ' + u.y, u.readiness, { html: '<span class="' + (u.comms === 'ok' ? 'ok' : 'bad') + '">' + R.esc(u.comms) + '</span>' }, u.stores]))
+  R.table(R.$('#orders'), ['Unit', 'Order', 'Track'], (o.orders || []).map((x) => [x.unit, x.action, x.track || '']))
+  const s = score.get('score.run'); R.table(R.$('#score'), ['Score', 'Intercepted', 'Reached', 'False responses'], s ? [[s.score, s.intercepted, s.reached, s.false_responses]] : [])
+}
+document.body.addEventListener('click', (e) => { const b = e.target.closest('button[data-l]'); if (!b) return
+  R.write('command', 'console', 'alert.run', b.dataset.l === '0' ? { off: true } : { level: Number(b.dataset.l) }) })
+R.watch('command', 'SD:%', (c) => { mine = c; draw() })
+R.watch('assessment', 'SD:confidence.%', (c) => { conf = c; draw() })
+R.watch('units', 'SD:unit.%', (c) => { units = c; draw() })
+R.watch('exercise', 'SD:score.run', (c) => { score = c; draw() })
+R.watch('instructor', 'SD:scenario.run', (c) => { sc = c.get('scenario.run'); draw() })
+R.watch('exercise', 'SD:clock.run', (c) => { const k = c.get('clock.run'); R.$('#clock').textContent = k ? 'step ' + k.step + ', ' + k.state : '' })
+</script></body></html>

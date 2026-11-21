@@ -1,0 +1,28 @@
+<!doctype html>
+<!-- Copyright (C) 2016-2026 Fawcett Innovations LLC. SPDX-License-Identifier: GPL-2.0-only
+     ComputeAdmin.html -- [ROLE_ADMIN_PAGES_V1] the Compute Role's admin tool and view: each processor's availability, error rate and jobs this step; a processor taken out of service.
+     It reads its Role's memory, and what that Role itself reads, through held reads (roles.js watch); it redraws when
+     one returns. It names memories and tuples only: no protocol and no key. -->
+<html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Roles Exercise -- ComputeAdmin</title><link rel="stylesheet" href="roles.css"></head><body>
+<h1>Roles Exercise -- ComputeAdmin <small id="clock"></small></h1>
+<div id="say"></div>
+<h2>Processors</h2><table id="procs"></table>
+<h2>Jobs <small id="step"></small></h2><table id="jobs"></table>
+<script type="module">
+import * as R from './roles.js'
+let mine = new Map()
+function draw() {
+  const a = R.latest(mine, 'assignment') || { jobs: [] }, console_ = new Map(R.family(mine, 'console'))
+  R.$('#step').textContent = a.step ? 'step ' + a.step + (a.reason ? ': ' + a.reason : '') : ''
+  R.table(R.$('#procs'), ['Processor', 'Available', 'Error rate', 'Limit', 'Jobs this step', 'Service'], R.family(mine, 'processor').map(([n, p]) => { const out = console_.get('processor.' + n)?.available === false
+    return [n, { html: '<span class="' + (p.available ? 'ok' : 'bad') + '">' + (p.available ? 'yes' : 'no') + '</span>' }, { html: '<span class="' + (p.error_rate <= p.limit ? 'ok' : 'bad') + '">' + p.error_rate + '</span>' }, p.limit,
+            (a.jobs || []).filter((j) => String(j.processor) === n).map((j) => j.track).join(', '),
+            { html: '<button data-n="' + n + '" data-to="' + (out ? 'in' : 'out') + '">' + (out ? 'put in service' : 'take out of service') + '</button>' }] }))
+  R.table(R.$('#jobs'), ['Track', 'Processor', 'Result'], (a.jobs || []).map((j) => { const r = mine.get('result.' + j.track); return [j.track, j.processor, r && r.step === a.step ? r.ones + ' of ' + r.shots : ''] }))
+}
+R.$('#procs').addEventListener('click', (e) => { const b = e.target.closest('button'); if (!b) return
+  R.write('compute', 'console', 'processor.' + b.dataset.n, b.dataset.to === 'out' ? { available: false } : { off: true }) })
+R.watch('compute', 'SD:%', (c) => { mine = c; draw() })
+R.watch('exercise', 'SD:clock.run', (c) => { const k = c.get('clock.run'); R.$('#clock').textContent = k ? 'step ' + k.step + ', ' + k.state : '' })
+</script></body></html>

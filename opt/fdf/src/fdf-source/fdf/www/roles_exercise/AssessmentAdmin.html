@@ -1,0 +1,23 @@
+<!doctype html>
+<!-- Copyright (C) 2016-2026 Fawcett Innovations LLC. SPDX-License-Identifier: GPL-2.0-only
+     AssessmentAdmin.html -- [ROLE_ADMIN_PAGES_V1] the Assessment Role's admin tool and view: each track's detection, the counts Compute returned and the confidence.
+     It reads its Role's memory, and what that Role itself reads, through held reads (roles.js watch); it redraws when
+     one returns. It names memories and tuples only: no protocol and no key. -->
+<html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Roles Exercise -- AssessmentAdmin</title><link rel="stylesheet" href="roles.css"></head><body>
+<h1>Roles Exercise -- AssessmentAdmin <small id="clock"></small></h1>
+<div id="say"></div>
+<h2>Tracks <small id="step"></small></h2><table id="tracks"></table>
+<h2>Circuits</h2><table id="circuits"></table>
+<script type="module">
+import * as R from './roles.js'
+let mine = new Map()
+function draw() {
+  const c = R.latest(mine, 'confidence') || { tracks: [] }
+  R.$('#step').textContent = c.step ? 'step ' + c.step : ''
+  R.table(R.$('#tracks'), ['Track', 'At', 'Quality', 'Sensors', 'Ones of shots', 'Confidence'], (c.tracks || []).map((t) => [t.track, t.x + ', ' + t.y, t.quality, t.sensors, t.ones + ' of ' + t.shots, t.confidence]))
+  R.table(R.$('#circuits'), ['Track', 'Step', 'Angles'], R.family(mine, 'circuit').map(([n, v]) => [n, v.step, (String(v.qasm).match(/r[yz]\(([0-9.]+)\)/g) || []).join(' ')]))
+}
+R.watch('assessment', 'SD:%', (c) => { mine = c; draw() })
+R.watch('exercise', 'SD:clock.run', (c) => { const k = c.get('clock.run'); R.$('#clock').textContent = k ? 'step ' + k.step + ', ' + k.state : '' })
+</script></body></html>

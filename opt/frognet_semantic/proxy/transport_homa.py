@@ -201,6 +201,10 @@ class _ClientMux:
             self._workers.discard(worker)
             for c in [c for c, (w, _r) in self._waiting.items() if w is worker]:
                 self._waiting.pop(c, None)
+            last = not any(w.host == worker.host and w.port == worker.port and w.ram == worker.ram and w.word == worker.word
+                           for w in self._workers)
+        if last and getattr(worker, "moved_driver", False) and hasattr(self.carrier, "release"):
+            self.carrier.release((worker.host, worker.port), worker.ram, worker.word)     # its channel is on another driver now
         for rid in ids:
             try:
                 self.carrier.abort(rid)
@@ -249,7 +253,13 @@ class _ClientMux:
             rpc.attempts = 1
             rpc.retry_pending = False
             try:
-                rpc.seqs.append(self.carrier.send_request((worker.host, worker.port), wire, cookie))
+                if worker.ram and not getattr(self.carrier, "takes_ram", False):
+                    raise ConnectionError("this session is for the memory %s, which has a setting of its own, and this "
+                                          "process's carrier holds one connection to a machine: it cannot be opened on it"
+                                          % worker.ram)
+                rpc.seqs.append(self.carrier.send_request((worker.host, worker.port), wire, cookie, ram=worker.ram, word=worker.word)
+                                if getattr(self.carrier, "takes_ram", False)
+                                else self.carrier.send_request((worker.host, worker.port), wire, cookie))
                 WM.mark(tr, "sent.first", first=True); WM.mark(tr, "sent.last")
             except BaseException as e:
                 with self._lock:
@@ -272,7 +282,8 @@ class _ClientMux:
                     continue
                 except homa_socket.PeerConnectionEnded as e:     # [A_SESSION_ENDS_WITH_ITS_CONNECTION_V1]
                     with self._lock:
-                        on_it = [w for w in self._workers if w.host == e.peer[0]]
+                        on_it = [w for w in self._workers if w.host == e.peer[0] and w.ram == getattr(e, "ram", w.ram)
+                                 and w.word == getattr(e, "word", w.word)]
                     print("[SEM-HOMA] %s: %d session(s) on it end with it" % (e, len(on_it)), flush=True)
                     for w in on_it:
                         w._broken(PeerGone(str(e)))
@@ -337,8 +348,10 @@ class _MsgWorker:
     KEEP_ORDER = True
     carrier = "homa"
 
-    def __init__(self, host: str, port: int, set_id: int = 0):
+    def __init__(self, host: str, port: int, set_id: int = 0, ram: str = "", word: str = "chorus"):
         self.host, self.port, self._set_id = host, int(port), set_id
+        self.ram = ram                                 # [A_CONNECTION_IS_FOR_A_MEMORY_V1] the memory this session is for, or ""
+        self.word = word                               # [A_CONNECTION_IS_OF_ITS_DRIVER_V1] the driver whose connection it is on
         self.node = node_of(host)                      # the peer, for liveness; its HELLO reply names its own .1
         self._mux = _get_mux()
         self._lock = threading.Lock()
@@ -361,7 +374,8 @@ class _MsgWorker:
         self.n_sent = self.n_replies = self.n_early = self.n_failed = 0
         self.n_cut = self.n_joined = self.n_more = 0   # [FRAMES_GO_IN_PIECES_V1] frames sent as pieces / replies rebuilt / pieces asked for
         self.max_out = self.max_early = 0
-        print("[SEM-HOMA] session %s to %s:%d set=%d opened" % (self.session.hex(), host, self.port, set_id), flush=True)
+        print("[SEM-HOMA] session %s to %s:%d set=%d%s opened" % (self.session.hex(), host, self.port, set_id,
+                                                                    " for %s" % ram if ram else ""), flush=True)
         self._mux.attach(self)
         self._submit(wrap_hello(TS._get_local_gw()), None, hello=True)     # frame 0 of the session, as on TCP; its reply is in order
 

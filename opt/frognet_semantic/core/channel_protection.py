@@ -50,6 +50,7 @@ def _crypto():
             L = ctypes.CDLL(name)
             L.EVP_CIPHER_CTX_new.restype = ctypes.c_void_p
             L.EVP_aes_256_gcm.restype = ctypes.c_void_p
+            L.EVP_chacha20_poly1305.restype = ctypes.c_void_p
             for f in ("EVP_EncryptInit_ex", "EVP_DecryptInit_ex"):
                 getattr(L, f).argtypes = [ctypes.c_void_p, ctypes.c_void_p, ctypes.c_void_p, ctypes.c_char_p, ctypes.c_char_p]
             for f in ("EVP_EncryptUpdate", "EVP_DecryptUpdate"):
@@ -65,24 +66,27 @@ def _crypto():
 _GCM_SET_IVLEN, _GCM_GET_TAG, _GCM_SET_TAG = 0x9, 0x10, 0x11
 
 
-def _gcm(key: bytes, nonce: bytes, aad: bytes, data: bytes, tag: Optional[bytes]) -> bytes:
-    """Seal (tag None: returns the sealed bytes and the tag) or open (returns the frame; raises if it does not open)."""
+def _gcm(key: bytes, nonce: bytes, aad: bytes, data: bytes, tag: Optional[bytes], cipher: str = "EVP_aes_256_gcm") -> bytes:
+    """Seal (tag None: returns the sealed bytes and the tag) or open (returns the frame; raises if it does not open).
+    `cipher`: libcrypto's name for an AEAD cipher with a 12-byte nonce and a 16-byte tag (the control numbers below
+    are the AEAD ones, the same for AES-GCM and ChaCha20-Poly1305)."""
     L = _crypto()
+    which = getattr(L, cipher)
     seal = tag is None
     init, update, final = ((L.EVP_EncryptInit_ex, L.EVP_EncryptUpdate, L.EVP_EncryptFinal_ex) if seal else
                            (L.EVP_DecryptInit_ex, L.EVP_DecryptUpdate, L.EVP_DecryptFinal_ex))
     ctx = L.EVP_CIPHER_CTX_new()
     try:
         n = ctypes.c_int(0)
-        ok = (init(ctx, L.EVP_aes_256_gcm(), None, None, None) == 1
+        ok = (init(ctx, which(), None, None, None) == 1
               and L.EVP_CIPHER_CTX_ctrl(ctx, _GCM_SET_IVLEN, len(nonce), None) == 1
               and init(ctx, None, None, key, nonce) == 1
               and update(ctx, None, ctypes.byref(n), aad, len(aad)) == 1)
         if not ok:
-            raise ProtectionFailed("aes-256-gcm: libcrypto refused the key or the nonce")
+            raise ProtectionFailed("%s: libcrypto refused the key or the nonce" % cipher)
         out = ctypes.create_string_buffer(len(data) + 16)
         if update(ctx, out, ctypes.byref(n), data, len(data)) != 1:
-            raise ProtectionFailed("aes-256-gcm: libcrypto refused the data")
+            raise ProtectionFailed("%s: libcrypto refused the data" % cipher)
         got = n.value
         if not seal:
             L.EVP_CIPHER_CTX_ctrl(ctx, _GCM_SET_TAG, TAG, ctypes.c_char_p(tag))
@@ -106,12 +110,36 @@ def _aes_256_gcm_open(key: bytes, nonce: bytes, aad: bytes, sealed: bytes) -> by
     return _gcm(key, nonce, aad, sealed[:-TAG], sealed[-TAG:])
 
 
+# [THE_ALGORITHM_IS_PART_OF_THE_SETTING_V1] a second algorithm from the same library. John, 2026-11-21: "The algorithm
+# employed is part of the capability tuple." It stands in for whatever algorithm is mandated next: a channel is moved
+# to it by three writes to its setting, as a key is replaced, and the key does not change.
+def _chacha20_poly1305_seal(key: bytes, nonce: bytes, aad: bytes, frame: bytes) -> bytes:
+    return _gcm(key, nonce, aad, frame, None, "EVP_chacha20_poly1305")
+
+
+def _chacha20_poly1305_open(key: bytes, nonce: bytes, aad: bytes, sealed: bytes) -> bytes:
+    return _gcm(key, nonce, aad, sealed[:-TAG], sealed[-TAG:], "EVP_chacha20_poly1305")
+
+
 #: name -> (seal, open). Each takes (key, nonce, associated data, bytes). open raises ValueError if it does not open.
-PROTECTIONS: Dict[str, Tuple[Callable, Callable]] = {"aes-256-gcm": (_aes_256_gcm_seal, _aes_256_gcm_open)}
+PROTECTIONS: Dict[str, Tuple[Callable, Callable]] = {"aes-256-gcm": (_aes_256_gcm_seal, _aes_256_gcm_open),
+                                                     "chacha20-poly1305": (_chacha20_poly1305_seal, _chacha20_poly1305_open)}
+#: A sealed message says which algorithm sealed it, in its first byte: the algorithm's number.
+NUMBERS: Dict[str, int] = {"aes-256-gcm": 1, "chacha20-poly1305": 2}
+NAMES: Dict[int, str] = {1: "aes-256-gcm", 2: "chacha20-poly1305"}
 
 
-def register_protection(name: str, seal: Callable, open_: Callable) -> None:
-    """The owner of a channel puts what they choose at the driver's insertion and extraction points."""
+def register_protection(name: str, seal: Callable, open_: Callable, number: Optional[int] = None) -> None:
+    """The owner of a channel puts what they choose at the driver's insertion and extraction points. `number` is what a
+    sealed message carries to name it (64 to 255; both ends register the same). Not given: one is made from the name,
+    the same on every machine."""
+    if number is None:
+        import hashlib
+        number = 64 + int.from_bytes(hashlib.sha256(name.encode()).digest()[:2], "big") % 192
+    if not 3 <= number <= 255 or NAMES.get(number, name) != name:
+        raise ValueError("the protection %r cannot have the number %d: it is %s" % (name, number, "taken by " + NAMES[number] if number in NAMES else "out of range"))
     PROTECTIONS[name] = (seal, open_)
+    NUMBERS[name] = number
+    NAMES[number] = name
 
 

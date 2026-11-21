@@ -209,24 +209,36 @@ function build_where_and_params($filters, $allowList) {
     $where = $clauses ? (' WHERE ' . implode(' AND ', $clauses)) : '';
     return [$where, $params, $types];
 }
-function exec_stmt($sql, $types='', $params=[]) {
+// [A_DEADLOCK_IS_ISSUED_AGAIN_V1] $again: how many more times a statement is issued when the database answers
+// 1213, "Deadlock found when trying to get lock; try restarting transaction". Each statement here is its own
+// transaction, so issuing it again IS restarting the transaction, which is what the database asks for; it is said in
+// the log each time. Used by the held-read statements only: found 21 Nov 2026, a hold (INSERT ... ON DUPLICATE KEY
+// into HeldRead) arriving while a fire took holds (DELETE FROM HeldRead) was answered 500 once in some thousands of
+// holds, and the program that held the read was told its read had failed. Every other statement is as it was.
+function exec_stmt($sql, $types='', $params=[], $again=0) {
     $mysqli = db();
     $stmt = $mysqli->prepare($sql);
     if (!$stmt) bad(500, 'DB prepare failed', $mysqli->error);
     if ($types !== '' && count($params) > 0) {
         $stmt->bind_param($types, ...$params);
     }
-    try {
-      if (!$stmt->execute()) {
-            $err = $stmt->error; $stmt->close();
-            bad(500, 'DB execute failed', $err);
+    while (true) {
+        $errno = 0; $err = '';
+        try {
+            if ($stmt->execute()) return $stmt;
+            $errno = (int)$stmt->errno; $err = $stmt->error;
         }
-    }
-    catch(Exception $ex) {
-        $err = $stmt->error; $stmt->close();
+        catch(Exception $ex) {
+            $errno = (int)$ex->getCode(); $err = $stmt->error ?: $ex->getMessage();
+        }
+        if ($errno === 1213 && $again > 0) {
+            $again--;
+            error_log('[A_DEADLOCK_IS_ISSUED_AGAIN_V1] the database asked for this statement again (1213): ' . substr($sql, 0, 60));
+            continue;
+        }
+        $stmt->close();
         bad(500, 'DB execute failed', $err);
     }
-    return $stmt;
 }
 function fetch_all($stmt) {
     $res = $stmt->get_result();
@@ -278,13 +290,13 @@ function held_take_matching($sensorType, $sensorName) {
              WHERE SensorType = ?
                AND (NameExact = '' OR NameExact = ?)
                AND (NameLike  = '' OR ? LIKE NameLike)";
-    $stmt = exec_stmt($sql, 'sss', [$sensorType, $sensorName, $sensorName]);
+    $stmt = exec_stmt($sql, 'sss', [$sensorType, $sensorName, $sensorName], 5);
     $holds = fetch_all($stmt);
     if (!$holds) return [];
     // One-shot: take them now, before firing, so each hold fires exactly once.
     $ids = array_map(fn($h) => (int)$h['HoldID'], $holds);
     $in  = implode(',', array_fill(0, count($ids), '?'));
-    $del = exec_stmt("DELETE FROM HeldRead WHERE HoldID IN ($in)", str_repeat('i', count($ids)), $ids);
+    $del = exec_stmt("DELETE FROM HeldRead WHERE HoldID IN ($in)", str_repeat('i', count($ids)), $ids, 5);
     $del->close();
     return $holds;
 }
@@ -937,7 +949,7 @@ if ($entity === 'held' && $action === 'hold') {
     $ins = exec_stmt("INSERT INTO HeldRead (Holder, HolderID, SensorType, NameExact, NameLike)
                       VALUES (?,?,?,?,?)
                       ON DUPLICATE KEY UPDATE HoldID = LAST_INSERT_ID(HoldID), CreatedAt = CURRENT_TIMESTAMP",
-                     'sssss', [$holder, $hid, $st, $exact, $like]);
+                     'sssss', [$holder, $hid, $st, $exact, $like], 5);
     $holdId = db()->raw()->insert_id ?? null;
     $ins->close();
 

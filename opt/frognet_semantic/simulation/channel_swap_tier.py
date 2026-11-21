@@ -113,7 +113,10 @@ SHARED = False       # --shared: the programs come in pairs that send the SAME r
                      # writers of one row), so requests of one instance are outstanding together when the driver changes
 
 
-def workload(a, b, readers=6, writers=3):
+def workload(a, b, readers=6, writers=3, to=None):
+    """`to`: what the requests name. The far machine's address; or, when a memory's own setting is what is being
+    changed, that memory's name ([THE_SETTING_IS_READ_BY_THE_MEMORYS_NAME_V1]: a request for a memory names it)."""
+    b = type("To", (), {"ip": to, "name": b.name})() if to else b
     if LIGHT:
         readers, writers = 2, 1
     if SHARED:
@@ -139,11 +142,11 @@ def gap(done, lo, hi):
 
 def one_change(machines, a, b, owner, label, new, seconds, check, ram=None):
     before = pids(machines)
-    for q in [l[0] for l in workload(a, b) if l[0]["method"] == "POST"]:      # each writer's row is there before they all write at once
-        w = a.ask("req", target=b.ip, method=q["method"], path=q["path"], body=q["body"])
+    for q in [l[0] for l in workload(a, b, to=ram) if l[0]["method"] == "POST"]:      # each writer's row is there before they all write at once
+        w = a.ask("req", target=ram or b.ip, method=q["method"], path=q["path"], body=q["body"])
         if w.get("status") != 200:
             check(False, "%s: %s could not write its first row on %s: %s" % (label, a.name, b.name, str(w)[:200])); return None
-    a.proxy.stdin.write(json.dumps({"op": "timed", "lists": workload(a, b), "seconds": seconds}) + "\n"); a.proxy.stdin.flush()
+    a.proxy.stdin.write(json.dumps({"op": "timed", "lists": workload(a, b, to=ram), "seconds": seconds}) + "\n"); a.proxy.stdin.flush()
     time.sleep(seconds / 2.0)
     t_w0, t_w1 = owner_writes(owner, new, ram)
     ans = a.ask(None, wait_s=seconds + 300)
@@ -359,7 +362,7 @@ def main():
                 r["links"] = a.links
                 results.append(r)
                 if new.get("key"):
-                    to_ram = said(src, r"\[CHANNEL-KEY\] ([0-9.]+) requests to %s:\d+ now go under the key 'A'" % re.escape(dst.ip), t_mark)
+                    to_ram = said(src, r"\[CHANNEL-KEY\] ([0-9.]+) requests to %s:\d+ for %s now go under the key 'A'" % (re.escape(dst.ip), re.escape(role)), t_mark)
                     g = src.ask("req", target=other.ip, method="GET", path=W.RPATH % ("none", 1))
                     to_other = said(src, r"\[CHANNEL-KEY\] ([0-9.]+) requests to %s:\d+ now go under the key" % re.escape(other.ip), t_mark)
                     drv = re.findall(r"\[CHANNEL-SETTING\] ([0-9.]+) %s:\d+ set=\d+: the channel's tuple says homa" % re.escape(other.ip), open(src.proxy_log, errors="replace").read())
