@@ -226,14 +226,24 @@ def run_one(root, seq):
     class _Latency:
         def retry_budget(self): return 1.0
 
-    class W:
-        _peer_latency = _Latency()
-        def submit(self, wire_req, gate=None):
-            rpc = types.SimpleNamespace(gate=gate, ticket=0, reply=None)
-            _seq, reply, _w = sess._process_frame_inner(wire_req, 1, len(wire_req))
-            rpc.reply = reply; return rpc
-        def wait(self, rpc): return rpc.reply
-        def call(self, wire_req): return self.wait(self.submit(wire_req))
+    # This tier runs trees of two ages: the nodes' tree of 2 Nov ("must FAIL") and this one. A session's stand-in is
+    # what each tree's engine calls. (22 Nov 2026: written for this tree only on 21 Nov, it stopped the old tree's
+    # run with an AttributeError; this checkout was shallow then and the tier could not run at all, so nothing said.)
+    if hasattr(TS, "_InLine"):
+        class W(TS._InLine):                   # what a session's writer and reader do, on the calling thread
+            _peer_latency = _Latency()
+            def answer(self, wire_req):
+                _seq, reply, _w = sess._process_frame_inner(wire_req, 1, len(wire_req))
+                return reply
+    else:
+        class W:                               # the engine before each session had one writer
+            _peer_latency = _Latency()
+            def submit(self, wire_req, gate=None):
+                rpc = types.SimpleNamespace(gate=gate, ticket=0, reply=None)
+                _seq, reply, _w = sess._process_frame_inner(wire_req, 1, len(wire_req))
+                rpc.reply = reply; return rpc
+            def wait(self, rpc): return rpc.reply
+            def call(self, wire_req): return self.wait(self.submit(wire_req))
     end_hop = None
     if SOCKET_HOP is None:
         TS._get_worker = lambda host, port, set_id=0: W()

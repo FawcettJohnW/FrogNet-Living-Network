@@ -72,9 +72,8 @@ def py_dreply(req_hash, dyn, status, ref, craw, csid, op, consider):
     if consider and cached and cached[1] and raw == cached[1] and cached[2] and len(cached[2]) == 16:
         return 'ok %s %s - -' % (W.wrap_resp_same(csid).hex(), cv({k: v for k, v in dyn}))
     sid = I.same_id(req_hash, raw)
-    with S._ref_lock:
-        S._response_references.pop((peer, op), None)
-        if ref is not None: S._response_references[(peer, op)] = dict(ref)
+    S._response_references.pop((peer, op), None)          # (no lock: the session's writer owns its references)
+    if ref is not None: S._response_references[(peer, op)] = dict(ref)
     with contextlib.redirect_stdout(io.StringIO()):
         payload = S._diff_encode_response(peer, op, dyn, {})
     newref = S._get_response_reference(peer, op)

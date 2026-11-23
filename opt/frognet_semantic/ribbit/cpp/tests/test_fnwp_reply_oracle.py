@@ -60,9 +60,8 @@ for i in range(a.n):
     elif r < .7: ref = {k: v for k, v in JS.extract_reply_dynamic(json.dumps(body()), frag)}
     else: ref = {k: v for k, v in fields}
     op = 7; peer = '10.1.1.1'
-    with S._ref_lock:
-        S._response_references.pop((peer, op), None)
-        if ref is not None: S._response_references[(peer, op)] = dict(ref)
+    S._response_references.pop((peer, op), None)          # (no lock: the session's writer owns its references)
+    if ref is not None: S._response_references[(peer, op)] = dict(ref)
     with contextlib.redirect_stdout(io.StringIO()):
         blob = S._diff_encode_response(peer, op, fields, frag.get('type_map') or {})
     def py(frag=frag, blob=blob, ref=ref):

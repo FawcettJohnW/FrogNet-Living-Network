@@ -43,10 +43,11 @@ from core import channel_frame as F
 from core.homa_socket import Msg, RpcFailed, CarrierClosed, HomaUnavailable, PeerConnectionEnded
 from core.transport_driver import ConnectionGone
 
-BUILD = "channel-carrier-v3-20261121c"
+BUILD = "channel-carrier-v7-20261123a"
 WORD = b"FRM\x01"                     # what the end that opens a connection says first
 DEFAULT_DRIVER = "chorus"            # the protocol of a Role (or of no Role) whose setting names none: this carrier's own
 SERVER = None                        # this process's daemon end, when it has one: adopt() is its call
+SERVER_UP = threading.Event()        # set when SERVER exists (core/homa_transport.frame_end_for waits on it)
 SHARED_PORT = False                  # True when the daemon's TCP listener holds the port and hands connections over
 WIRE_BYTES = os.environ.get("FROGNET_WIRE_BYTES") == "1"      # [BYTES_ON_THE_CONNECTION_V1] a measurement's switch
 
@@ -56,6 +57,13 @@ def _setting(role: str) -> dict:
     s = dict(channel_setting.setting_of(role) or {})
     s.setdefault("driver", DEFAULT_DRIVER)
     return s
+
+
+def _secret(role: str) -> bytes:
+    """[A_ROLES_OWN_SECRET_MOVES_FORWARD_V1] the secret a Role's keys are computed from in this process: the one that
+    goes with the setting this process holds (core/channel_setting.secret_in_use)."""
+    from core import channel_setting
+    return channel_setting.secret_in_use(role)
 
 
 def first_word(sock: socket.socket, wait_s: float = 45.0) -> bytes:
@@ -89,6 +97,9 @@ class FrameCarrier:
         self._by_pid: Dict[Tuple[int, int], int] = {}            # proxy: (a link, a request's packet ID) -> request id
         self._owed: Dict[Tuple[Tuple[str, int], int], tuple] = {}  # daemon: (asker, packet ID) -> (link, Role, sequence, counter)
         self._accepted: set = set()                              # daemon: the connections that are open to it
+        # [A_NODE_TURNED_AWAY_DOES_NOT_KEEP_DIALLING_V1] proxy: a destination that would not take this end's connection
+        # -> how many times running
+        self._turned_away: Dict[Tuple[str, int], int] = {}
         self._next_id = 2
         self._closed = False
         self.n_req_out = self.n_req_in = self.n_rep_out = self.n_rep_in = self.n_failed = 0
@@ -100,6 +111,9 @@ class FrameCarrier:
         if self.server:
             global SERVER
             SERVER = self
+            SERVER_UP.set()
+            from core import held_fire                # [THE_FIRE_RIDES_THE_HOLDERS_CONNECTION_V1]
+            held_fire.add_sender(self._fire_to)
         if self.server and not SHARED_PORT:
             ls = socket.socket()
             ls.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
@@ -151,9 +165,9 @@ class FrameCarrier:
                 return False
             got += part
         s.setsockopt(socket.IPPROTO_TCP, socket.TCP_NODELAY, 1)
-        link = F.Link(s, (addr[0], addr[1]), False, _setting, say=self._say)
+        link = F.Link(s, (addr[0], addr[1]), False, _setting, secret=_secret, say=self._say)
         link._deliver = lambda *got, _l=link: self._arrived(_l, *got)
-        link.on_broken = lambda why, _l=link: self._ended(_l, "its writer stopped: %s" % why)
+        link.on_broken = lambda why, _l=link: self._ended(_l, "its writer stopped: %s" % why, ours=True)
         link.on_sent = self._sent
         link.on_running = self._report
         with self._lock:
@@ -196,10 +210,12 @@ class FrameCarrier:
                 s.sendall(WORD)
             except OSError as e:
                 s.close()
+                # (not _away: a node that cannot be connected to is down or unreachable. Seen in the simulator, 22 Nov:
+                # a restarting daemon was reported as "does not take this node's framed connection".)
                 raise ConnectionGone("no connection to %s:%d: %s" % (far[0], far[1], e)) from e
-            link = F.Link(s, far, True, _setting, say=self._say)
+            link = F.Link(s, far, True, _setting, secret=_secret, say=self._say)
             link._deliver = lambda *got, _l=link: self._arrived(_l, *got)
-            link.on_broken = lambda why, _l=link: self._ended(_l, "its writer stopped: %s" % why)
+            link.on_broken = lambda why, _l=link: self._ended(_l, "its writer stopped: %s" % why, ours=True)
             link.on_sent = self._sent
             link.on_running = self._report
             with self._lock:
@@ -209,12 +225,61 @@ class FrameCarrier:
             threading.Thread(target=self._read, args=(link,), daemon=True, name="frame-read-%s" % far[0]).start()
             return link
 
+    def _fire_to(self, ip: str, raw: bytes) -> Optional[str]:
+        """[THE_FIRE_RIDES_THE_HOLDERS_CONNECTION_V1] The daemon's end: a held read's fire for a holder on the node `ip`
+        is handed to the writer of the framed connection that node opened here. It crosses as traffic of no Role,
+        under that sequence's protocol and key like anything else. Returns what it was handed to, or None."""
+        from core import held_fire
+        with self._lock:
+            links = [l for l in self._accepted if l.far[0] == ip and l.sock is not None]
+        for link in reversed(links):
+            # Only the end that opened a connection names a sequence on it. The fire rides one the holder's node has
+            # named: the one for traffic of no Role if it is there, else a Role's (found between machines, 22 Nov:
+            # handed to a sequence that node had not named, the writer stopped and the connection ended with it).
+            named = link.named_to_this_end()
+            if not named:
+                continue
+            stream = next((n for n, r in named.items() if r == ""), next(iter(named)))
+            link.submit_on(stream, named[stream], held_fire.FRAME_MARK + raw)
+            return "the framed connection from %s%s" % (ip, "" if named[stream] == "" else " (on its sequence for %s)" % named[stream])
+        return None
+
+    def _away(self, far: Tuple[str, int], why: str, locked: bool = False) -> str:
+        """[A_NODE_TURNED_AWAY_DOES_NOT_KEEP_DIALLING_V1] Found on John's network, 22 Nov 2026: Seattle7's file said to
+        reach the ControlRam on chorus, the node it was on had been set back to tcp, and Seattle7 opened a framed
+        connection to it ten times a second, each reset, each ending three requests, with nothing to say why.
+
+        A destination that ends this end's connection before it has said anything, or that cannot be connected to,
+        has turned this end away. That is said here, with what to look at, the 1st, 2nd, 4th, 8th... time running, and
+        it is the reason every request for that destination fails with. It is NOT an event (_ended): nothing was
+        missed on a connection that said nothing, so nothing is read because of it. The ten a second were this
+        process's own reads, each made because the last one's connection had ended. The destination is dialled again
+        when there is next a request for it, and at no other time. Returns the reason."""
+        if locked:
+            n = self._turned_away[far] = self._turned_away.get(far, 0) + 1
+        else:
+            with self._lock:
+                n = self._turned_away[far] = self._turned_away.get(far, 0) + 1
+        what = ("%s:%d does not take this node's framed connection (%s). This node's settings put traffic for it on "
+                "the frame carrier; if its daemon was not told of that carrier, its /etc/frognet/semantic_transport "
+                "and this node's disagree, and one of the two is to change" % (far[0], far[1], why))
+        if n & (n - 1) == 0:
+            self._say("%s %s, %d time(s) running. It is dialled again when there is next a request for it."
+                      % (BUILD, what, n))
+        return what
+
     def send_request(self, dest: Tuple[str, int], payload: bytes, cookie: int, ram: str = "", word: str = "") -> int:
         """One request for the Role `ram` ("" for none), handed to the writer of the one connection to that
         destination. `word` is not consulted: the Role's setting says the protocol."""
         far = (dest[0], int(dest[1]))
         link = self._link_to(far)
         with self._lock:
+            # [A_REQUEST_HANDED_TO_AN_ENDED_CONNECTION_IS_REFUSED_V1] found by core/test_turned_away_oracle.py, 22 Nov:
+            # a connection reset between being opened and this line had already failed its requests (none), and a
+            # request registered after that was handed to a writer that had stopped: it never ended.
+            if self._links.get(far) is not link:
+                raise ConnectionGone("the connection to %s:%d ended before the request was handed to it (%s)"
+                                     % (far[0], far[1], getattr(link, "gone", None) or "it was closed"))
             rid = self._next_id
             self._next_id += 2
             self._out[rid] = [cookie, far, link, None]
@@ -254,6 +319,8 @@ class FrameCarrier:
         ends with it."""
         with self._lock:
             ls = [l for far, l in self._links.items() if far[0] == peer[0]]
+            for far in [f for f in self._turned_away if f[0] == peer[0]]:
+                del self._turned_away[far]
         return sum(self._ended(l, "its machine left") for l in ls)
 
     # --------------------------------------------------------------------------------------------------- both ends
@@ -261,6 +328,7 @@ class FrameCarrier:
         """This process's held read on the settings woke it: every connection puts its calls into its stream now, and
         this end says what it is running."""
         with self._lock:
+            self._turned_away.clear()                 # counted afresh under the new settings
             links = list(self._links.values()) + list(self._accepted)
         for link in links:
             try:
@@ -274,15 +342,16 @@ class FrameCarrier:
         channel_setting.report()
 
     def running(self) -> Dict[str, dict]:
-        """What this process is sending under, for each Role it carries: {Role: {driver, switches, protection, sealed}}.
+        """What this process is sending under, for each Role it carries: {Role: {driver, number, protection, sealed}}.
         Every connection of a process runs a Role the same way once its calls are out; a Role on two connections that
-        differ is said as the one furthest behind, so a switch is not reported until every connection has made it."""
+        differ is said as one that is not yet on the setting's number, so a switch is not reported until every
+        connection has made it."""
         with self._lock:
             links = list(self._links.values()) + list(self._accepted)
         out: Dict[str, dict] = {}
         for link in links:
             for role, how in link.running().items():
-                if role not in out or how["switches"] < out[role]["switches"]:
+                if role not in out or how["number"] != F.wanted(_setting(role))[0]:
                     out[role] = how
         return out
 
@@ -300,6 +369,16 @@ class FrameCarrier:
                 self._owed[(link.far, pid)] = (link, role, stream, counter)
             self.n_req_in += 1
             self._inbox.put(Msg(pid, 0, link.far, payload, True))
+            return
+        if not reply:
+            # [THE_FIRE_RIDES_THE_HOLDERS_CONNECTION_V1] this end asks and the far end answers; the one thing the far
+            # end (a role host's daemon) puts on this connection of its own accord is a held read's fire
+            from core import held_fire
+            if payload.startswith(held_fire.FRAME_MARK):
+                held_fire.deliver_here(payload[len(held_fire.FRAME_MARK):], "from %s on its framed connection" % link.far[0])
+            else:
+                self._say("%s %s:%d sent something that answers no request and is not a fire (%d bytes): dropped"
+                          % (BUILD, link.far[0], link.far[1], len(payload)))
             return
         with self._lock:
             rid = self._by_pid.pop((id(link), F.packet_id(counter, stream, False)), None)
@@ -319,16 +398,28 @@ class FrameCarrier:
             why = "%s: %r" % (type(e).__name__, e)
         self._ended(link, why)
 
-    def _ended(self, link: F.Link, why: str) -> int:
+    def _ended(self, link: F.Link, why: str, ours: bool = False) -> int:
         """A connection has ended. Gone is gone: every request outstanding on it ends here, and nothing is used in its
         place. It is opened again when there is next something to send."""
-        if not self._closed:
+        if not self._closed and (self.server or link.received):
+            # An event: read what the settings are now. A connection the far end said nothing on is not one: nothing
+            # was missed on it, and the read would go to what has just turned this end away.
             from core import channel_setting
-            channel_setting.connection_ended()        # an event: read what the settings are now
+            channel_setting.connection_ended()
         with self._lock:
             mine = self._links.get(link.far) is link
             if mine:
                 del self._links[link.far]
+                if ours and link.wire_failed:
+                    ours = False                      # the writer stopped because the connection failed under it
+                if not self.server and not self._closed and not ours:     # (ours: this end's own writer stopped)
+                    if link.received == 0:
+                        why = self._away(link.far, "it ended the connection before it had said anything: %s" % why, True)
+                    else:
+                        self._turned_away.pop(link.far, None)     # it spoke on this one: it takes frames
+                # [A_REQUEST_HANDED_TO_AN_ENDED_CONNECTION_IS_REFUSED_V1] said under the lock send_request registers
+                # under: a request is either among `failed` below or sees this and is refused. Never neither.
+                link.gone = why
             failed = [(rid, hit[0]) for rid, hit in self._out.items() if hit[2] is link]
             for rid, _ck in failed:
                 hit = self._out.pop(rid)
@@ -346,7 +437,8 @@ class FrameCarrier:
                      "" if self.server else "; it is opened again when there is next something to send"))
         for rid, ck in failed:
             self.n_failed += 1
-            self._inbox.put(RpcFailed(rid, ck, errno.EHOSTUNREACH))
+            self._inbox.put(RpcFailed(rid, ck, errno.EHOSTUNREACH, "the framed connection %s %s:%d ended (%s)"
+                                      % ("from" if self.server else "to", link.far[0], link.far[1], why)))
         if (mine or was_open) and not self._closed:
             self._inbox.put(PeerConnectionEnded(link.far, why))      # [A_SESSION_ENDS_WITH_ITS_CONNECTION_V1] every session on it
         return len(failed)

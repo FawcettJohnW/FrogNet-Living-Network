@@ -256,6 +256,8 @@ class _MsgSession(S.EngineSession):
         try:
             while True:
                 seq, reply, wire_in = self._reply_q.get()
+                if isinstance(reply, S._Deferred):       # [REFERENCES_MOVE_IN_WIRE_ORDER_V1] the reference moves here, in wire order
+                    reply = reply.resolve()
                 tr = self._tr.pop(seq, None)
                 put_at = self._reply_q.put_ns.pop(seq, None)
                 if tr is not None:
@@ -416,6 +418,13 @@ class MsgDaemonServer:
 
     def _listen(self) -> None:
         self._carrier = self._server_carrier()
+        # [THE_FIRE_RIDES_THE_HOLDERS_CONNECTION_V1] this node's api.php hands its held reads' fires to this daemon
+        # (core/held_fire.py); the carrier registered how it puts one on a node's connection. Started once a process.
+        from core import held_fire
+        from daemon.util.ip import local_ips
+        held_fire.start_intake(local_ips)
+        from core import channel_setting             # [AN_END_HOLDS_THE_SETTINGS_FROM_ITS_START_V1] (daemon/engine/server.py)
+        channel_setting.start()
         if self.liveness is None:
             self.liveness = self._peer_liveness()
         print("[DAEMON-HOMA] [HOMA_TRANSPORT_V1] semantic wire on Homa at %s:%d. [LIVENESS_IS_A_HELD_READ_V1] a peer "

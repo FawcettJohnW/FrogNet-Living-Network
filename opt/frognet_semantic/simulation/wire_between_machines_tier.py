@@ -260,6 +260,7 @@ class Machine:
     def start_wire(self, word):
         """This machine's daemon and proxy (the processes a node runs, as its units start them) told the transport
         `word`, and a client on the machine."""
+        word = getattr(self, "setting", None) or word     # [THE_FILE_SAYS_WHAT_A_NODE_SENDS_V1] --tcp-machine: its own file
         env = dict(self.env, FROGNET_SEM_TRANSPORT=word)
         self.daemon_log = os.path.join(self.dir, "daemon.log")
         self.daemon = self.run([PY, os.path.join(SEM, "daemon", "daemon_main.py"), "--listen", "0.0.0.0:9009"], env=env, cwd=SEM,
@@ -939,7 +940,8 @@ def battery_carried(machines, word, check):
         tcp = sorted(set(re.findall(r"\[RPC-TRACE\] event=connect_ok host=([0-9.]+) ", log)))
         unknown = "LOCAL GW UNKNOWN" in log or "LOCAL GW UNKNOWN" in open(m.daemon_log, errors="replace").read()
         others = [o for o in machines if o is not m]
-        want = {o.ip: word_between(word, m, o) for o in others}          # [A_WORD_PER_RAM_CONNECTION_V1] per connection
+        # [A_WORD_PER_RAM_CONNECTION_V1] per connection. [THE_FILE_SAYS_WHAT_A_NODE_SENDS_V1] the word is the SENDER's
+        want = {o.ip: word_between(getattr(m, "setting", None) or word, m, o) for o in others}
         fine = "LD_PRELOAD" not in log and sorted(set(homa) | set(tcp)) == sorted(want)
         for ip, w in want.items():
             if w == "tcp":
@@ -977,6 +979,34 @@ def every_topology(setting, links="none"):
     return 0 if good == len(rows) else 1
 
 
+def _keep_what_is_said(a):
+    """[A_TIER_KEEPS_WHAT_IT_SAID_V1] run_all.py runs this tier with its output thrown away. Found 22 Nov 2026: the
+    all-topologies run failed inside the full simulator twice and passed alone, and there was nothing to read.
+    Everything this run prints is also kept in /tmp, one file for each transport and topology, replaced each run."""
+    import re
+    name = "/tmp/wire_between_machines_tier.%s.%s.last.txt" % (re.sub(r"[^A-Za-z0-9_.-]+", "_", a.transport), re.sub(r"[^A-Za-z0-9_.-]+", "_", a.topology))
+    try:
+        kept = open(name, "w", buffering=1)
+    except OSError:
+        return
+    out = sys.stdout
+
+    class Both:
+        def write(self, text):
+            try:
+                kept.write(text)
+            except (OSError, ValueError):
+                pass
+            return out.write(text)
+
+        def flush(self):
+            out.flush()
+
+        def __getattr__(self, n):
+            return getattr(out, n)
+    sys.stdout = Both()
+
+
 def main():
     if "--agent" in sys.argv:
         return agent()
@@ -984,6 +1014,8 @@ def main():
     ap.add_argument("--transport", default="tcp",
                     help="every machine's transport setting, as /etc/frognet/semantic_transport holds it, lines joined by "
                          "commas: tcp | chorus | auto | 'chorus,databasehost_control.frognet tcp' ...")
+    ap.add_argument("--tcp-machine", default="",
+                    help="one machine whose own file says tcp, whatever --transport gives the others (Seattle3B, say)")
     ap.add_argument("--topology", default="trial3", choices=sorted(TOPOLOGIES) + simulator_topologies() + ["all"],
                     help="trial3, one of the simulator's topologies with a hardware baseline, or all (every one of them, each "
                          "in a run of its own)")
@@ -992,6 +1024,7 @@ def main():
                          "geo, wan-100ms, 4g-lossy, wifi-lossy, halow-lossy, jammed), or mixed (one drawn per machine)")
     ap.add_argument("--keep", action="store_true", help="leave the namespaces and their files up at the end")
     a = ap.parse_args()
+    _keep_what_is_said(a)
     if a.topology == "all":
         return every_topology(a.transport, a.links)
     ok = True
@@ -1035,6 +1068,9 @@ def main():
 
         # ---- the wire: every machine's daemon and proxy, on the transport given
         for m in machines:
+            # [THE_FILE_SAYS_WHAT_A_NODE_SENDS_V1] John's network, 22 Nov: one node's file says tcp, the others send it
+            # framed connections. Its daemon takes them; what it sends is tcp.
+            m.setting = "tcp" if m.name == a.tcp_machine else None
             m.start_wire(a.transport)
         up = [m.ask(None, wait_s=60) for m in machines]
         def answering():

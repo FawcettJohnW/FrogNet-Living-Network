@@ -27,14 +27,12 @@ def check(cond, msg):
 
 
 def main():
-    keys = tempfile.mkdtemp(prefix="channel-keys-")
-    os.environ["FROGNET_CHANNEL_KEYS"] = keys
+    secrets = tempfile.mkdtemp(prefix="channel-secrets-")
+    os.environ["FROGNET_CHANNEL_SECRETS"] = secrets
     os.environ["FROGNET_SEM_TRANSPORT"] = "tcp"
     for role in ("units", "assessment"):
-        os.makedirs(os.path.join(keys, role))
-        for i in range(20):
-            with open(os.path.join(keys, role, "%02d" % i), "wb") as f:
-                f.write(hashlib.sha256(("%s %d" % (role, i)).encode()).digest())
+        with open(os.path.join(secrets, role), "wb") as f:
+            f.write(hashlib.sha256(("the secret of %s" % role).encode()).digest())
     from core import channel_setting as C
     from core import channel_protection as P
     from core import homa_transport as HT
@@ -52,42 +50,37 @@ def main():
     # ---- a setting proves itself
     def signed(role, **v):
         v = dict(v); v["check"] = C.check_of(role, v); return v
-    first = signed("units", driver="tcp", switches=0)
+    first = signed("units", driver="tcp")
     C._take(None, "the oracle", {"units": first})
     check(C.setting_of("units") == first and C.ram_of("unitsHost.exercise") == "units" and C.ram_of("commandHost.exercise") == "",
           "a setting with its check is taken, and a request for that Role's memory is that Role's; a Role with no setting is traffic of no Role")
-    sealed = signed("units", driver="tcp", seed="s", protection="aes-256-gcm", switches=1)
+    sealed = signed("units", driver="tcp", protection="aes-256-gcm", number=771203)
     C._take(None, "the oracle", {"units": sealed})
-    check(C.setting_of("units") == sealed, "the owner turns encryption on with a new write and a higher count: taken")
-    forged = dict(sealed, seed="", switches=2)              # written by someone who does not hold the set: the old check, or none
+    check(C.setting_of("units") == sealed, "the owner turns encryption on: a new write that carries a number, with its check: taken")
+    forged = dict(sealed, number=0)                         # written by someone who does not hold the secret: the old check, or none
     C._take(None, "the oracle", {"units": forged})
     kept1 = C.setting_of("units") == sealed
-    C._take(None, "the oracle", {"units": {"driver": "tcp", "seed": "", "switches": 2}})
+    C._take(None, "the oracle", {"units": {"driver": "tcp", "number": 0}})
     kept2 = C.setting_of("units") == sealed
     C._take(None, "the oracle", {"units": dict(forged, check=C.check_of("assessment", {k: v for k, v in forged.items() if k != "check"}))})
     kept3 = C.setting_of("units") == sealed
     check(kept1 and kept2 and kept3, "a setting that turns the encryption off, with a check copied from another setting, with none, or "
-          "made with another Role's set: ignored each time, and this end keeps running the setting it has")
-    C._take(None, "the oracle", {"units": first})           # the Role's first, unsealed setting, written again: valid when it was made
-    check(C.setting_of("units") == sealed, "an old valid setting written again (the Role's first, unsealed one, count 0): ignored, "
-          "because its count is lower than the one this end is running")
-    C.RUNNING = lambda: {"units": {"switches": 3}}
-    late = signed("units", driver="chorus", seed="s", protection="aes-256-gcm", switches=2)
-    C._take(None, "the oracle", {"units": late})
-    check(C.setting_of("units") == sealed, "the count compared with is the one this end is RUNNING on its connections, when that is ahead of the setting it holds")
-    C.RUNNING = None
-    off = signed("units", driver="tcp", seed="", switches=2)
+          "made with another Role's secret: ignored each time, and this end keeps running the setting it has")
+    lower = signed("units", driver="chorus", protection="aes-256-gcm", number=12)
+    C._take(None, "the oracle", {"units": lower})
+    check(C.setting_of("units") == lower, "the number is not a count: a lower one, with its check, is a change like any other and is taken")
+    off = signed("units", driver="tcp", number=0)
     C._take(None, "the oracle", {"units": off})
-    check(C.setting_of("units") == off, "the owner turns encryption off: a new write, with its check, and a higher count: taken")
-    C._take(None, "the oracle", {"units": off, "command": {"driver": "chorus", "seed": "x", "switches": 0}})
-    check(C.setting_of("command") == {"driver": "chorus", "seed": "x", "switches": 0},
-          "a Role this machine holds no set for: it has nothing to verify with and nothing to protect, and takes the setting as written")
+    check(C.setting_of("units") == off, "the owner turns encryption off: a new write, with its check: taken")
+    C._take(None, "the oracle", {"units": off, "command": {"driver": "chorus", "number": 5}})
+    check(C.setting_of("command") == {"driver": "chorus", "number": 5},
+          "a Role this machine holds no secret for: it has nothing to verify with and nothing to protect, and takes the setting as written")
     check(C.check_of("units", off) != C.check_of("assessment", off) and C.check_of("command", off) is None
-          and C.check_text("units", {"switches": 2, "driver": "tcp", "seed": "", "check": "x", "ts": 9}) == b"units\ndriver=tcp\nseed=\nswitches=2",
-          "the check is of the Role's name and the setting's other fields, as text any language can make the same, keyed from the Role's whole set")
+          and C.check_text("units", {"number": 2, "driver": "tcp", "check": "x", "ts": 9}) == b"units\ndriver=tcp\nnumber=2",
+          "the check is of the Role's name and the setting's other fields, as text any language can make the same, keyed from the Role's secret")
 
     # ---- a registered protocol's word
-    C._take(None, "the oracle", {"units": signed("units", driver="openqasm", switches=3), "assessment": signed("assessment", driver="no-such", switches=0)})
+    C._take(None, "the oracle", {"units": signed("units", driver="openqasm", number=3), "assessment": signed("assessment", driver="no-such")})
     check(C.driver(None, "units") == "openqasm" and C.driver(None, "assessment") is None,
           "the protocol a setting names is taken when a driver has registered that word (%s), and a word nobody registered is said and is no word"
           % ", ".join(sorted(HT.DRIVERS)))
@@ -104,6 +97,16 @@ def main():
                 open_(bad[0], bad[1], bad[2], blob); ok = False
             except ValueError:
                 pass
+    # [THE_NEWEST_CELL_IS_THE_SETTING_V1] one setting written from two machines is two cells: the store's newest stands
+    T_ = C._tuples()[0]
+    name = T_.var_name(C.VAR, "units")
+    older = {"SensorName": name, "SensorAddress": "10.2.2.1", "SensorID": 9, "UpdatedAtEpoch": 100, "data": {"driver": "tcp", "number": 1}}
+    newer = {"SensorName": name, "SensorAddress": "10.1.1.1", "SensorID": 4, "UpdatedAtEpoch": 200, "data": {"driver": "chorus", "number": 2}}
+    same_second = {"SensorName": name, "SensorAddress": "10.3.3.1", "SensorID": 12, "UpdatedAtEpoch": 200, "data": {"driver": "homa", "number": 3}}
+    check(C._rams_of([newer, older])["units"]["number"] == 2 and C._rams_of([older, newer])["units"]["number"] == 2,
+          "a setting written from two machines: the cell the store stamped newest is the setting, whichever order the store hands them back in")
+    check(C._rams_of([same_second, newer, older])["units"]["number"] == 3 and C._rams_of([older, same_second, newer])["units"]["number"] == 3,
+          "two cells stamped in the same second: the one made later, the same on every end")
     check(ok, "aes-256-gcm and chacha20-poly1305, from the machine's own libcrypto: each opens what it sealed, and not under another key or for another packet")
     print("ALL CHANNEL-SETTING ORACLE CHECKPOINTS PASS" if not FAILED else "CHANNEL-SETTING ORACLE: %d FAILED" % len(FAILED))
     return 1 if FAILED else 0

@@ -115,9 +115,13 @@ class HomaUnavailable(RuntimeError):
 class RpcFailed(OSError):
     """One RPC ended without its response. errno is the kernel's (ETIMEDOUT: the peer went silent for timeout_ticks)."""
 
-    def __init__(self, rpc_id: int, cookie: int, err: int):
-        super().__init__(err, "homa rpc %d (cookie %d): %s" % (rpc_id, cookie, os.strerror(err)))
-        self.rpc_id, self.cookie = rpc_id, cookie
+    def __init__(self, rpc_id: int, cookie: int, err: int, why: str = ""):
+        # [THE_FAILURE_SAYS_WHY_V1] (22 Nov 2026) A carrier that holds connections ends a request when its connection
+        # ends, and knows why. It says so here. Without it the text was the errno's ("No route to host"), which read
+        # as a routing fault on John's node when it was a connection the far end had closed.
+        super().__init__(err, "request %d (cookie %d) did not get its reply: %s" % (rpc_id, cookie, why) if why
+                         else "homa rpc %d (cookie %d): %s" % (rpc_id, cookie, os.strerror(err)))
+        self.rpc_id, self.cookie, self.why = rpc_id, cookie, why
 
 
 class PeerConnectionEnded(ConnectionError):

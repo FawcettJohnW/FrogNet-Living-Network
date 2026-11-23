@@ -32,6 +32,7 @@ from .config import (CP_GREEN, CP_RED, CP_YELLOW, CP_CYAN, CP_DIM,
 from .formatting import fmt_bytes, fmt_bps, fmt_ratio, safe_get, num
 from .merge import merge_state, fmt_since
 from .ui_helpers import safe_addstr
+from .channel import channel_texts
 
 
 def title_text(snap) -> str:
@@ -91,6 +92,9 @@ def draw_title(win, row: int, snap=None) -> int:
     row += 1
     for text, cp in node_lines(snap):                 # [ONE_MONITOR_TRUTH_V1] mode, build, ponds, hub link
         safe_addstr(win, row, 1, text[:78], curses.color_pair(cp))
+        row += 1
+    for text in channel_texts():                      # [THE_MONITOR_SHOWS_THE_PROTOCOL_V1] this node's protocol; its secrets by a hash
+        safe_addstr(win, row, 1, text[:78], curses.color_pair(CP_YELLOW if "the file now says" in text else CP_CYAN))
         row += 1
     safe_addstr(win, row, 1, bar, curses.color_pair(CP_TITLE) | curses.A_BOLD)
     return row + 2

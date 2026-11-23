@@ -853,6 +853,10 @@ def _serve_then(srv, boot_step):
     global _SERVE_THREAD
     _SERVE_THREAD = threading.Thread(target=srv.serve_forever, name="proxy-serve")
     _SERVE_THREAD.start()
+    # [AN_END_HOLDS_THE_SETTINGS_FROM_ITS_START_V1] this proxy holds its read on the channel settings, and reports what
+    # it runs, from its start and not from its first session (daemon/engine/server.py says what was found)
+    from core import channel_setting as _channel_setting
+    _channel_setting.start()
     try:
         boot_step()
     except BaseException as e:

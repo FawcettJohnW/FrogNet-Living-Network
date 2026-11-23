@@ -24,6 +24,7 @@ import time
 
 from . import discovery
 from .draw_dashboard import title_text, node_lines
+from .channel import channel_texts
 from .draw_ponds import pond_lines
 from .probes import probe_all
 
@@ -32,6 +33,7 @@ def frame_lines(snap, results):
     """The frame, pure: (snapshot summary, probe results) -> [str]. Marks: * databasehost, + control host, # both."""
     out = [title_text(snap) + "   " + time.strftime("%Y-%m-%d %H:%M:%S")]
     out += [t for t, _ in node_lines(snap)]
+    out += channel_texts()                 # [THE_MONITOR_SHOWS_THE_PROTOCOL_V1]
     if not snap:
         return out
     raw = snap["raw"]

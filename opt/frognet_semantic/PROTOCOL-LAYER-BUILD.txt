@@ -1,0 +1,250 @@
+PROTOCOL LAYER BUILD  frognet-protocol-layer-20261121-frame-v7h
+Branch homa-under-croakos-20261116, on commit b938ac9 plus work of 21 November 2026 that is not yet committed.
+
+WHAT IT IS
+  The CroakOS protocol layer. A Role is a service; the name before "Host" in its memory's name is the Role
+  (unitsHost.exercise is the Role "units"). Each Role's traffic has its own protocol (tcp, chorus, openqasm) and its
+  own encryption, set by that Role's owner in one tuple in the ControlRam, (channel, setting, <Role>).
+  No key is stored. A node computes the key it sends a Role's traffic under:
+      the first 32 bytes of HMAC-SHA384(the Role's secret on the machine, this node's FNID, the Role's name,
+      the number in the setting)        (SHA-384 from update 20261122f; SHA-256 before it)
+  The number is random and its owner sets it. A switch of key is the number changing.
+  A frame that does not open is not tried under any other key: it goes back and is sent again.
+  The design: opt/frognet_semantic/docs/PROTOCOL-LAYER-DEMONSTRATION-WALKTHROUGH-AND-DESIGN-v0.5.md (in this file set).
+
+WHAT IS IN THE TARBALL
+  The runtime files under opt/frognet_semantic (core, daemon, proxy, agent_workload) and usr/local/frognet-ai that
+  differ from main (948b435), core/channel_admin.py, the design document and this note. One tarball, the same for
+  every node. Nothing under /usr/local/bin. Nothing under discovery or routing.
+  One file of main is no longer used and is not removed by a tarball:
+  opt/frognet_semantic/agent_workload/tuplespace/memory_plane.py. Nothing imports it. Leave it or delete it.
+
+INSTALL, ON EVERY NODE
+  cd / && tar xvzf - < /tmp/frognet-protocol-layer-20261121-frame-v7h.tgz
+  systemctl restart frognet-daemon frognet-proxy
+
+EVERY NODE GETS IT
+  Install it on every node of the network. A node with this build and a node without it have not been run against
+  each other.
+
+A NODE'S SETTING FILE
+  A node with no /etc/frognet/semantic_transport, or whose file says tcp, keeps its traffic on its TCP sessions: no
+  frame, key or channel setting of this layer applies to it. (The proxy's and the daemon's own handling of the
+  semantic wire changed on this branch for every transport; the wire test between machines passes on tcp.)
+  To have a node carry Roles' traffic under this layer its file names chorus on one line:
+      auto
+      databasehost_control.frognet chorus
+  (FROGNET_SEM_TRANSPORT_FILE names another file.) Restart the daemon and the proxy after changing it. Every node
+  that is to carry a Role's traffic needs it, at both ends of the connection.
+
+THE FILE IS WATCHED (added 22 November; frognet-transport-watch-and-monitor-20261122a.tgz)
+  Change /etc/frognet/semantic_transport and the daemon and the proxy are restarted for you, when the file says
+  something other than what they read at start. A file they could not start on restarts nothing, and the reason is
+  in:   journalctl -u frognet-transport-watch
+  The watch starts with the daemon. frognet_monitor shows, under the node's own lines:
+      protocol  what the running daemon and proxy read (and what the file says now, if that differs)
+      secret    for each Role with a secret on this node, eight hex digits that are the same on every node holding
+                the same file
+
+WHAT A NODE NEEDS FOR A SEALED ROLE
+  /etc/fnid                               the node's own identity. Every node has it already.
+  /etc/frognet/channel_secrets/<role>     the Role's secret, at least 32 bytes, mode 600. The SAME file on every node
+                                          that carries the Role's traffic. Placed by you, offline. It is never sent.
+  Make it on one node:
+      /opt/frognet_semantic/venv/bin/python3 /opt/frognet_semantic/core/channel_admin.py secret <role>
+  and copy that one file to the same path on the other nodes that carry the Role.
+
+THE OWNER'S COMMANDS (run on a node that holds the Role's secret; each is one write, and returns when every end
+that carries the Role reports it is sending the new way)
+      A=/opt/frognet_semantic/venv/bin/python3\ /opt/frognet_semantic/core/channel_admin.py
+      $A show
+      $A set <role> --protocol chorus          (tcp | chorus | openqasm)
+      $A set <role> --seal                     (encryption on: a new random number goes into the setting)
+      $A set <role> --new-key                  (a new random number: every sender computes a new key)
+      $A set <role> --algorithm chacha20-poly1305
+      $A set <role> --unseal
+  A protocol and an encryption are not changed in one command.
+
+WHAT THE LOGS SAY (journalctl -u frognet-daemon -u frognet-proxy)
+  [SEM-TRANSPORT] build semantic-wire-one-writer-v1-20261121e ...      the proxy's wire engine, at start
+  [CHANNEL-FRAME] ... sequence N is '<role>': {...}                    a Role's first use of a connection, and how
+  [CHANNEL-FRAME] ... SWITCH PROTOCOL sent / read                      a protocol switch, at each end
+  [CHANNEL-FRAME] ... SWITCH ENCRYPTION sent; now {...} / read         a key or algorithm switch, at each end
+  [CHANNEL-FRAME] ... a frame did not open (...). It goes back for a retry
+  [CHANNEL-FRAME] ... NOT OPENED sent ... / N message(s) sent again    the retry, at each end
+  [CHANNEL-SETTING] ... its check does not verify ...                  a setting this node ignored, and why
+  [CHANNEL-ADMIN] channel-admin-v1-20261121a                           the owner's command
+  core/channel_frame.py is channel-frame-v7-20261121h.
+
+WHAT HAS BEEN RUN
+  Between three simulated machines running this software (Seattle5, Seattle3B, New-York-1), fast link: the Roles
+  exercise four times (all TCP, all Chorus, all OpenQASM, mixed with seven changes under way). Its record was the
+  same 46,957 bytes all four times; 3,482 reads and writes a run, none failed; each change reached every end 173 to
+  263 ms after its one write; nine frames went back for a retry in the mixed run and none was lost or taken twice.
+  The owner's commands above, between the same three machines: each one write, all six ends on it 129 to 189 ms later.
+  This tarball extracted over a tree at main and run from there: see the last lines of this note.
+
+WHAT HAS NOT BEEN RUN
+  Nothing here has been run on a real node. No run at 4,800 baud passes yet (the test's own setup fails there).
+  The Roles exercise itself is started by the simulator; nothing in this tarball starts its seven services on a node.
+  FrogTorch (agent_workload) has not been run on the changes of 21 November: there is no torch where this was built.
+  The admin pages' Channel panel is not built; the commands above stand in for it.
+
+THIS TARBALL, OVER A TREE AT MAIN
+  Extracted over a clean checkout of main (948b435) and run from that tree, with the tests and the simulator copied
+  in beside it (they are not in the tarball): core/test_channel_frame_oracle.py 30 pass, 0 fail;
+  core/test_channel_setting_oracle.py 10 pass, 0 fail; the mixed run of the Roles exercise between three simulated
+  machines, 35 checks pass, 0 fail; the owner's commands between the same machines, all pass.
+
+UPDATE 20261122c (22 Nov 2026): A DAEMON TAKES WHAT ARRIVES
+  Found on John's network, 22 Nov: Seattle7 sent framed (Chorus) connections to Seattle3B, whose file said tcp.
+  Seattle3B's daemon closed each one, and Seattle7 dialled it again ten times a second.
+  /etc/frognet/semantic_transport says what THIS NODE SENDS. It does not say what the node will take:
+    * a daemon whose file says tcp or auto now takes a framed connection. It starts its receiving end for them at
+      the first one that arrives and logs
+        [SEM-TRANSPORT] [THE_FILE_SAYS_WHAT_A_NODE_SENDS_V1] ... a framed connection arrived ... one is started
+      Until one arrives, that daemon runs exactly the listener it always did.
+    * a daemon whose file says chorus now also takes TCP connections.
+  The ten a second were this software's own reads, each made because the last one's connection had ended. A
+  connection the far end said nothing on is no longer an event. If a destination does turn a framed connection
+  away, the log says so the 1st, 2nd, 4th, 8th... time and every request for it fails with that reason:
+        [CHANNEL-FRAME] ... <ip>:9009 does not take this node's framed connection (...)
+  A request handed to a connection that had just ended used to wait for ever; it is refused with the reason.
+  Builds: homa-carrier-v6-20261122b, channel-carrier-v4-20261122a, channel-frame-v8-20261122a.
+  Run between three simulated machines: Seattle3B's file tcp and the others chorus, 41 checks pass, 0 fail (before
+  the change: 5 fail); all tcp, 38 pass; all chorus, 41 pass; the Roles exercise four times, record 46,957 bytes
+  each time, 3,482 reads and writes a run, 0 failed. core/test_turned_away_oracle.py 17 pass, 20 runs of 20.
+  Not run on a real node.
+
+UPDATE 20261122d (22 Nov 2026): A REPORT ENDS WITH ITS PROCESS
+  Found on John's network, 22 Nov: `channel_admin.py set units --seal` said "NOT every end is on it ... Behind:
+  10.251.251.1:proxy_main.py.103110, 10.251.251.1:proxy_main.py.91684". A node runs one proxy; those were reports
+  left by proxies that had been restarted while their ControlRam (on the same node) was down.
+  A daemon or proxy, at its first report, now removes the reports of its own node's processes that are no longer
+  running, and logs
+        [CHANNEL-SETTING] ... [A_REPORT_ENDS_WITH_ITS_PROCESS_V1] removed the report(s) of N process(es) ...
+  Build: channel-setting-is-a-tuple-v4-20261122a. core/test_report_ends_with_its_process_oracle.py passes; the
+  Admin's commands between three simulated machines, 18 checks pass, 0 fail. Not run on a real node.
+
+UPDATE 20261122f (22 Nov 2026): A HELD READ'S FIRE RIDES THE HOLDER'S OWN CONNECTION
+  John, 22 Nov: "You cannot make a connection down; only up." Until this build a role host fired a held read by
+  making a new HTTP POST to http://<holder>/held_fire.php (5 s limit). Now:
+    api.php (role host) -> its own daemon (a datagram to /run/frognet/held/role-host-fires.sock)
+    -> the connection the holder's node opened to that daemon -> the holder's proxy -> the holder's socket.
+  EVERY NODE NEEDS THIS BUILD, AND var/www/html/api.php IS IN THE TARBALL: a role host on this build does not call
+  held_fire.php, and a proxy on an older build does not know a fire on its connection.
+  What the logs say (journalctl -u frognet-daemon -u frognet-proxy | grep HELD-FIRE):
+    on the role host:   fire hold=N hid=<holder> <tuple> for <node>: on the TCP driver's return channel to <node>
+                        fire ... for <node>: on the framed connection from <node>
+                        a fire for <node> has nowhere to go: that node has no connection open to this daemon
+    on the holder's node: fire ... arrived from <role host> on ...: handed to the holder's socket
+                          fire ... arrived ... and there is no such holder here
+  Also in this build: a node changing carrier brings the new session up before the old one ends (a daemon that saw
+  a node with no session removed its tuples and holds); every daemon and proxy holds the settings and reports from
+  its start; the Admin's command no longer writes the store's "ts" back into a setting.
+  KEYS AND CHECKS ARE SHA-384 FROM THIS BUILD (John, 22 Nov 13:58): a node on this build and a node on the build
+  before it compute different keys and different checks. A sealed Role's frames do not open between them, and a
+  setting written from one is ignored by the other where it holds the Role's secret. Install on every node, then
+  write each sealed Role's setting again (channel_admin.py set <role> --new-key) so its check is the new one.
+
+UPDATE 20261123g (23 Nov 2026): A ROLE'S OWN SECRET MOVES FORWARD; THE NETWORK'S DEFAULT SECRET
+  John, 22 Nov 23:48. Two kinds of secret in /etc/frognet/channel_secrets:
+    default    the network's. Every Role with no file of its own uses it. It never moves.
+               make it on one node:   channel_admin.py secret default     then place the same file on every node.
+    <role>     a Role's own. It MOVES FORWARD one step at every key switch of that Role, on every machine that holds it.
+  A Role's setting has "step". At a key switch (--seal, --new-key, --algorithm) the command draws a new number and
+  raises step by one, in one write. Each machine that sees step s works out secret(s) in memory
+  (secret(s) = HMAC-SHA384(secret(s-1), "next", the Role's name, s), once for each step it missed), verifies the
+  setting's check under it, and only then writes it over the Role's file and erases the one before. The file is then
+      FROGNET ROLE SECRET AT STEP <s>
+      <48 bytes>
+  WHAT THIS MEANS FOR PLACING A ROLE'S SECRET:
+    * place the file as made (step 0) on every node that carries the Role. A node that gets it late catches up by
+      itself, however many switches it missed, as long as its file is at a step no later than the setting's.
+    * a file copied from a node AFTER a switch is at that node's step; that works too.
+    * an earlier secret cannot be got back from a later one, on any node. That is the purpose.
+  frognet_monitor shows each secret's hash and, for a moved one, its step:  secret  default 1a2b3c4d   units 9f8e7d6c step 3
+  Two nodes hold the same secret when hash AND step are the same.
+  What the logs say (journalctl -u frognet-daemon -u frognet-proxy | grep A_ROLES_OWN_SECRET):
+      units: the setting is at step 3 and this machine's secret was at step 2: moved forward 1 step(s), written over
+      the Role's file, and the earlier secret erased (hash ...)
+      ... another process of this machine had already written it          (the daemon and the proxy both see it)
+      a setting for units is IGNORED: step 2 is lower than the step this machine's secret for 'units' is at (3)
+      a setting for units is IGNORED: its check does not verify against this machine's secret for units at step 3
+  A node that does not hold a Role's own secret ignores that Role's setting; channel_admin.py lists such ends as
+  "IGNORED it" and does not wait for them.
+
+UPDATE 20261123h (23 Nov 2026): THE TEST FOR A REAL NETWORK; A SECRET IS NOT READ WHILE IT IS BEING REPLACED
+  John, 23 Nov: "a test that proves it works, both positive and negative".
+  ONE COMMAND, on any node that holds the test Role's own secret (units unless --role says another):
+      /opt/frognet_semantic/venv/bin/python3 /opt/frognet_semantic/core/channel_test.py
+  It logs into nothing and sends nothing to a node. Every daemon and proxy already advertises itself (its report
+  tuple); the instructions are the Role's setting tuple, which this command owns; the results are the reports, taken
+  on a held read. It takes about 10 seconds and prints one [PASS] or [FAIL] line per check, then RESULT PASS or FAIL.
+    A  who is there: every end by node, daemon AND proxy on each, every end on this node's build (each report now
+       carries "build")
+    B  one write reaches every end within 5 s (--within): sealing on, a new key, a new key again, another algorithm,
+       another protocol. A held read's own bound is 300 s, so an end not woken by its fire FAILS here, by name.
+    C  each key switch moved the Role's secret one step on every end that holds it; a protocol change did not;
+       no end that holds the secret ignored a valid setting
+    D  NEGATIVE a forged setting (a check nobody could make): every holder says it IGNORED it, none took it, no
+       secret moved
+    E  NEGATIVE a valid setting with one field changed and its old check: the same three
+    F  NEGATIVE a setting that was valid at a step already passed, written again: the same three
+    G  after the refusals, one valid write (sealing off) reaches every end. This is what the test leaves behind.
+    H  traffic in the Role's memory, sealed, after a key switch, unsealed: ONLY if the network has that memory
+       (<role>Host.<app> in /etc/hosts). Otherwise it prints SKIPPED and says sealed frames were not exercised.
+  It moves the Role's secret 4 steps a run (6 with part H). Ends that do not hold the Role's own secret are listed,
+  not failed; the test fails if no end on ANOTHER node holds it.
+  A DEFECT THE TEST FOUND (in the simulator, before any node ran it): keep_secret renames the new secret file onto
+  the Role's name and then zeroes the old one. A process that had the old file open read zeros as "a secret at step
+  0", failed a VALID setting's check, and ignored it: one end of a machine stayed a step behind until the next
+  switch. Measured alone: 24 wrong reads of 2,873 before; 0 of 8,831 and 0 of 7,929 after. A read now holds the
+  secrets directory shared while it has the file open [A_SECRET_IS_NOT_READ_WHILE_IT_IS_BEING_REPLACED_V1]
+  (channel-frame-v12). Builds g and earlier have this defect.
+  channel-test-v3 (23 Nov, John: "a summary of the tests that were run and Pass or Fail for each, as a table, so I
+  can make a video"): the test ends with a SUMMARY table, one row per test: Part, Test, Measured, Result (PASS, FAIL
+  or SKIP), then the counts. The tuple layer's [DIAG-STORE] and [HELD] lines are no longer in its output; --verbose
+  brings them back. Only core/channel_test.py changed, and only the node the test is run from needs it.
+
+UPDATE 20261123i (23 Nov 2026): THE FULL TEST, WITH TRAFFIC AND YOUR OWN CHANGES; THE NEWEST CELL IS THE SETTING
+  John, 23 Nov: "Make this a full test. I should be able to change the protocol and force a change of encryption
+  during the run." and "a summary of the tests that were run and Pass or Fail for each, as a table".
+  ONE COMMAND, on any node that holds the test Role's own secret (units unless --role says another):
+      /opt/frognet_semantic/venv/bin/python3 /opt/frognet_semantic/core/channel_test.py
+  WHY THE EARLIER TEST SAID "SKIPPED": a Role's traffic is traffic to a memory named <role>Host.<app>, and no node of
+  the network served one for units. The test only looked for one. Now it asks the network's own application election
+  (core/app_hosts.py, run by the tunnel daemon on a held read) for a memory of the Role on EVERY OTHER node, one small
+  application each (protocoltest-<address>), and removes them when it ends. Starting and ending therefore each run
+  the election on every node once; the end takes up to about 30 s for the names to leave the hosts file.
+  WHAT IT DOES
+    A  who is there (nodes, daemon and proxy, one build)
+    M  the memories placed, one on each other node
+    T  TRAFFIC from this node to every one of them, a write and a read back about five times a second each, from here
+       until the end. Every failure is counted and shown with its time and its error.
+    B,C  sealing on, a new key twice, another algorithm, another protocol: each reaches every end within 5 s, the
+       secret moves a step at each key switch, traffic goes on with nothing lost, and the ends that carry the Role's
+       traffic (this node's proxy, each memory's daemon) report they are sending it that way: SEALED, which
+       algorithm, which protocol
+    D,E,F  NEGATIVE, with sealed traffic running: a forged setting, a changed one, one from a step already passed.
+       Each ignored by every end, no secret moved, traffic not disturbed
+    L  YOURS. Press  p (the other protocol)  k (a new key)  a (the other algorithm)  s (sealing on/off)  q (finish).
+       Each is one write, timed and checked like the scripted ones. A change made ANYWHERE ELSE, for instance
+           channel_admin.py set units --new-key        on another node
+       is seen on a held read and timed and checked the same way ("Changed elsewhere" in the table).
+    G  sealing off; the memories given back
+  Then a SUMMARY table, one row per test: Part, Test, Measured, Result; and RESULT PASS or FAIL.
+  --no-keys leaves L out. --verbose puts the tuple layer's [DIAG-STORE] lines back.
+  NOT COVERED: traffic between two nodes neither of which is the one the test runs on. All sealed traffic in this
+  test starts at the node it is run from and goes to each other node and back.
+  A DEFECT THE FULL TEST FOUND [THE_NEWEST_CELL_IS_THE_SETTING_V1]: a tuple is one cell per machine that wrote it.
+  A Role's setting written from two nodes was two cells with one name, and every end took whichever the store handed
+  back last: the cell MADE last, not the one WRITTEN last. A change from the node that wrote first was then ignored
+  by every end. Now every end takes the cell the store stamped newest (same second: the cell made later), and a
+  write removes the earlier writers' cells it supersedes, which the journal says:
+      the setting of units written earlier from 10.123.123.1 is superseded by this write and removed
+  ALSO [A_HOSTS_EVENT_IS_NOT_THE_ANSWER_V1]: channel_admin.py's wait for the ends ended early, as "not done", if the
+  hosts file was rewritten while it waited. It holds again until done or its bound.
+  Builds: channel-setting v10, channel-admin v5, channel-test v4. All nodes need this tarball (the test fails an end
+  on another build, by name).
+

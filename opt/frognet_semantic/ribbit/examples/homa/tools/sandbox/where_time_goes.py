@@ -1,4 +1,8 @@
 #!/usr/bin/env python3
+################################################################
+#  Copyright (C) 2016-2026 Fawcett Innovations LLC             #
+#  SPDX-License-Identifier: GPL-2.0-only                       #
+################################################################
 """where_time_goes.py <dir of *.metrics.txt>: one table per end and frame size from the [WIRE-METRICS] tables the
 drivers print ([WHERE_THE_TIME_GOES_V1]), and one per size from the Homa API interface's [SOFTHOMA-METRICS] lines.
 The last table each process printed for a kind and size is the one counted. Shares are of all the time the requests

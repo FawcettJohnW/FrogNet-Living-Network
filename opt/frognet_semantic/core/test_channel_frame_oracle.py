@@ -7,19 +7,32 @@
 ends in one process. Each end has its OWN copy of the settings, as two machines do, so a check can leave one end
 behind the other. It is the mechanism's own check; that it works between machines is the Roles exercise tier's.
 
+Real: channel_frame.Link at both ends (its writer thread, its reading, its calls), a socket pair, the algorithms.
+Substituted: the settings (a dict for each end, changed by this file as a held read would change it), the secrets (a
+directory for each end) and each end's FNID.
+
+Nothing here waits by asking again: each end's reader hands what it opens to a queue, and a check takes from the queue.
+
     python3 core/test_channel_frame_oracle.py
 """
 import copy
 import hashlib
 import os
+import queue
 import socket
 import sys
 import tempfile
+import threading
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 from core import channel_frame as F  # noqa: E402
+from core import chorus as _chorus  # noqa: E402,F401  (registers the protocol "chorus")
+from core import openqasm as _openqasm  # noqa: E402
+
+_openqasm.register()
 
 FAILED = []
+NOTHING_S = 0.4          # how long "nothing arrives" is given, where a check says nothing must
 
 
 def check(ok, what):
@@ -41,203 +54,263 @@ class Tap:
         return getattr(self._s, n)
 
 
-def key_dir(roles, size=20, salt=""):
-    d = tempfile.mkdtemp(prefix="channel-keys-")
+def secrets(roles, salt=""):
+    d = tempfile.mkdtemp(prefix="channel-secrets-")
     for r in roles:
-        os.makedirs(os.path.join(d, r))
-        for i in range(size):
-            with open(os.path.join(d, r, "%02d" % i), "wb") as f:
-                f.write(hashlib.sha256(("%s%s key %d" % (salt, r, i)).encode()).digest())
+        with open(os.path.join(d, r), "wb") as f:
+            f.write(hashlib.sha256(("%sthe secret of %s" % (salt, r)).encode()).digest())
     return d
+
+
+class End:
+    """One end: its Link, its reader thread, what it has taken, what it said."""
+    def __init__(self, sock, opener, settings, secret_dir, fnid, far):
+        self.settings, self.taken, self.said, self.why = settings, queue.Queue(), [], None
+        self.link = F.Link(sock, (far, 1), opener, lambda r: self.settings.get(r),
+                           deliver=lambda *m: self.taken.put(m), secret=lambda r: F.secret_of(r, secret_dir),
+                           say=self.said.append, fnid=fnid)
+        threading.Thread(target=self._read, daemon=True).start()
+
+    def _read(self):
+        try:
+            self.link.pump()
+        except Exception as e:
+            self.why = str(e)
+
+    def take(self, n=1, wait_s=5.0):
+        """The next n messages this end took, in order ([] short if they do not come)."""
+        out = []
+        for _ in range(n):
+            try:
+                out.append(self.taken.get(timeout=wait_s))
+            except queue.Empty:
+                break
+        return out
+
+    def nothing(self):
+        try:
+            return [self.taken.get(timeout=NOTHING_S)]
+        except queue.Empty:
+            return []
+
+    def set(self, role, **changes):
+        """This end's held read on the Role's setting woke with a new value."""
+        self.settings[role] = dict(self.settings.get(role) or {}, **changes)
+        self.link.setting_changed(role)
 
 
 def pair(set_a, set_b, dir_a, dir_b):
     a, b = socket.socketpair()
     tap = Tap(a)
-    quiet = lambda text: None
-    A = F.Link(tap, ("b", 1), True, lambda r: set_a.get(r), keys=lambda r: F.key_set(r, dir_a), say=quiet)
-    B = F.Link(b, ("a", 1), False, lambda r: set_b.get(r), keys=lambda r: F.key_set(r, dir_b), say=quiet)
+    A = End(tap, True, set_a, dir_a, "fnid-of-node-a", "b")
+    B = End(b, False, set_b, dir_b, "fnid-of-node-b", "a")
     return A, B, tap
 
 
+def texts(msgs):
+    return [m[4] for m in msgs]
+
+
 def main():
-    F.register_driver("turned", b"TRN\x01", lambda st, pid, m: bytes(m)[::-1], lambda st, pid, d: bytes(d)[::-1])
-    keys = key_dir(["assessment", "units"])
-    truth = {"units": {"driver": "tcp"}, "assessment": {"driver": "tcp", "seed": "seed-a", "protection": "aes-256-gcm", "switches": 0}}
-    sa, sb = copy.deepcopy(truth), copy.deepcopy(truth)
-    A, B, tap = pair(sa, sb, keys, keys)
+    print("ORACLE channel frame (%s)" % F.BUILD)
+    S = secrets(["assessment", "units", "warning"])
+    sec = hashlib.sha256(b"the secret of assessment").digest()
 
-    # two Roles with different settings on one connection, told apart by the packet ID
-    A.submit("units", b"units asks one")
-    A.submit("assessment", b"assessment asks one SECRET")
-    A.submit("units", b"units asks two")
-    got = [B.receive() for _ in range(3)]
-    check([(g[0], g[2], g[3], g[4]) for g in got] == [("units", 1, False, b"units asks one"), ("assessment", 1, False, b"assessment asks one SECRET"),
-                                                      ("units", 2, False, b"units asks two")],
-          "two Roles on one connection, one sealed and one not: each message arrives for its Role, in order, by its packet ID alone")
-    check(b"units asks one" in tap.seen and b"SECRET" not in tap.seen, "on the link the unsealed Role's message is readable and the sealed Role's is not")
-    B.submit_reply("assessment", got[1][1], 1, b"assessment answers one")
-    r = A.receive()
-    check((r[0], r[2], r[3], r[4]) == ("assessment", 1, True, b"assessment answers one"), "a reply comes back on its request's sequence, sealed under the same Role's key")
+    # ---- the key
+    k = F.key_for(sec, "fnid-of-node-a", "assessment", 7001)
+    check(len(k) == 32 and k == F.key_for(sec, "fnid-of-node-a", "assessment", 7001),
+          "the key is computed, and the same four values give the same 32 bytes every time")
+    others = {F.key_for(sec, "fnid-of-node-b", "assessment", 7001), F.key_for(sec, "fnid-of-node-a", "units", 7001),
+              F.key_for(sec, "fnid-of-node-a", "assessment", 7002), F.key_for(hashlib.sha256(b"x").digest(), "fnid-of-node-a", "assessment", 7001),
+              }
+    check(k not in others and len(others) == 4,
+          "another node, another Role, another number or another secret gives another key")
+    # [KEY_AND_CHECK_USE_SHA_384_V1] the computation, written out here a second time, independently of core/channel_frame.py
+    import hmac as _hmac
+    want = _hmac.new(sec, b"frognet channel key\nfnid-of-node-a\nassessment\n7001", hashlib.sha384).digest()[:32]
+    check(k == want, "the key is the first 32 bytes of HMAC-SHA384(secret, the sender's FNID, the Role's name, the number)")
 
-    # a protocol switch: one call at one place in the stream; the encryption does not move
-    for i in (3, 4):
-        A.submit("assessment", b"before %d" % i)
-    sa["assessment"]["driver"] = "turned"
-    A.setting_changed("assessment")
-    for i in (5, 6):
-        A.submit("assessment", b"after %d" % i)
-    got = [B.receive()[4] for _ in range(4)]
-    check(got == [b"before 3", b"before 4", b"after 5", b"after 6"] and A.calls["protocol"][0] == 1 and B.calls["protocol"][1] == 1,
-          "a protocol switch: two messages sent before the call and two after it, read only afterwards, all arrive right; one call sent, one read")
-    check(B.running() == {"assessment": {"driver": "tcp", "switches": 0, "protection": "aes-256-gcm", "sealed": True}},
-          "each direction is its own stream: the other end still sends the old protocol until its own held read wakes it (%s)" % B.running())
-    sb["assessment"]["driver"] = "turned"
-    B.setting_changed("assessment")
-    B.settle()
-    B.submit_reply("assessment", 1, 5, b"answer 5")
-    check(A.receive()[4] == b"answer 5" and B.running()["assessment"]["driver"] == "turned", "and then it switches its own sending the same way")
+    # ---- not sealed, and sealed
+    base = {"warning": {"driver": "tcp"}, "assessment": {"driver": "tcp", "number": 7001}, "units": {"driver": "chorus", "number": 9001}}
+    A, B, tap = pair(copy.deepcopy(base), copy.deepcopy(base), S, S)
+    A.link.submit("warning", b"plain words"); A.link.settle()
+    got = B.take()
+    named = len(tap.seen)
+    A.link.submit("warning", b"plain words"); A.link.settle()
+    check(texts(got) == [b"plain words"] and len(tap.seen) - named == 2 + 4 + len(b"plain words") and b"plain words" in tap.seen,
+          "a Role with no number is not sealed: a message costs 2 bytes and the protocol's word")
+    B.take()
+    was = len(tap.seen)
+    A.link.submit("assessment", b"secret words"); A.link.settle()
+    first = len(tap.seen)
+    A.link.submit("assessment", b"secret words"); A.link.settle()
+    got = B.take(2)
+    check(texts(got) == [b"secret words"] * 2 and b"secret words" not in tap.seen[was:]
+          and len(tap.seen) - first == 2 + 12 + 16 + 4 + len(b"secret words"),
+          "a Role with a number is sealed under the key computed from it: 28 bytes more, and the words are not on the connection")
+    check(b"fnid-of-node-a" in tap.seen[was:first] and b"assessment" in tap.seen[was:first],
+          "the first frame of the Role's sequence states the sending node's FNID and the number, once")
 
-    # a key switch: the receiver is told nothing by the sender; it follows the call
-    seen = len(tap.seen)
-    for i in (7, 8, 9):
-        A.submit("assessment", b"old key %d" % i)
-    sa["assessment"]["switches"] = 1
-    A.setting_changed("assessment")
-    for i in (10, 11, 12):
-        A.submit("assessment", b"new key %d" % i)
-    got = [B.receive()[4] for _ in range(6)]             # B's own copy of the setting still says 0 switches
-    check(got == [b"old key %d" % i for i in (7, 8, 9)] + [b"new key %d" % i for i in (10, 11, 12)] and B.calls["encryption"][1] == 1 and B.found == 0,
-          "a key switch: three messages under the old key, the call, three under the next, read only afterwards by an end whose own "
-          "copy of the setting has not changed: all six open, by the rule, with no search")
-    k0, k1 = F.key_number("seed-a", 0, 20), F.key_number("seed-a", 1, 20)
-    check(k0 != k1 and A._out[1].k == k1 and B._in[1].k == k1 and A._out[1].n == 1,
-          "both ends are at the same key of the set, by the rule on the seed and the count (key %d, then key %d)" % (k0, k1))
-    check(b"seed-a" not in tap.seen[seen:] and all(open(os.path.join(keys, "assessment", "%02d" % k), "rb").read() not in tap.seen for k in range(20)),
-          "nothing about the key crossed the link: no key, no seed")
+    # ---- replies come back under the replying node's own key
+    B.link.submit_reply("assessment", got[0][1], got[0][2], b"an answer")
+    r = A.take()
+    kb = F.key_for(sec, "fnid-of-node-b", "assessment", 7001)
+    check(texts(r) == [b"an answer"] and r[0][3] is True and A.link._in[got[0][1]].key == kb != B.link._in[got[0][1]].key,
+          "each direction is under its sender's key: node b's replies under the key of node b's FNID")
 
-    # an algorithm switch reaches an end before its own setting: the pair that opens is the current one
-    newer = copy.deepcopy(sa); newer["assessment"].update(switches=2, protection="chacha20-poly1305")
-    s2a, s2b = copy.deepcopy(sa), copy.deepcopy(sa)
-    A2, B2, _t = pair(s2a, s2b, keys, keys)
-    A2.submit("assessment", b"under aes")
-    s2a.update(newer)
-    A2.setting_changed("assessment")
-    A2.submit("assessment", b"under chacha")
-    A2.submit("assessment", b"under chacha again")
-    got = [B2.receive()[4] for _ in range(3)]
-    check(got == [b"under aes", b"under chacha", b"under chacha again"] and B2._in[0].protection == "chacha20-poly1305"
-          and B2._in[0].k == A2._out[0].k and B2.found == 1,
-          "an algorithm switch reaches an end whose setting is behind: the next frame does not open under what it held, it runs "
-          "through the set under every algorithm, takes the pair that opens, and the frame after needs no search (%d found)" % B2.found)
+    # ---- two Roles, one connection
+    A.link.submit("units", b"for units"); A.link.submit("assessment", b"for assessment")
+    got = B.take(2)
+    check([(m[0], m[4]) for m in got] == [("units", b"for units"), ("assessment", b"for assessment")]
+          and B.link._in[got[0][1]].key != B.link._in[got[1][1]].key,
+          "two Roles with different keys share the connection, told apart by the packet ID")
 
-    # three switches commanded faster than an end's setting can follow, two of them algorithms
-    s4a, s4b = copy.deepcopy(sa), copy.deepcopy(sa)
-    A7, B7, _t = pair(s4a, s4b, keys, keys)
-    A7.submit("assessment", b"one")
-    for n, alg in ((2, "chacha20-poly1305"), (3, "aes-256-gcm"), (4, "chacha20-poly1305")):
-        s4a["assessment"].update(switches=n, protection=alg)
-        A7.setting_changed("assessment")
-        A7.submit("assessment", b"after switch %d" % n)
-    got = [B7.receive()[4] for _ in range(4)]
-    check(got == [b"one"] + [b"after switch %d" % n for n in (2, 3, 4)] and B7._in[0].k == A7._out[0].k and B7._in[0].n == 4,
-          "three switches in a row, two of them of algorithm, to an end that holds none of the three settings: every frame opens (%d found by search)" % B7.found)
+    # ---- a switch the receiver already knows of
+    B.set("assessment", number=7002)
+    A.link.submit("assessment", b"before"); A.link.settle()
+    A.set("assessment", number=7002)
+    A.link.submit("assessment", b"after"); A.link.settle()
+    got = B.take(2)
+    check(texts(got) == [b"before", b"after"] and B.link.not_opened == 0 and A.link.calls["encryption"][0] == 1,
+          "a key switch: the number changed, one call in the stream; the receiver's setting had it already and every frame opens")
+    check(B.link._in[got[0][1]].key == F.key_for(sec, "fnid-of-node-a", "assessment", 7002),
+          "after it the receiver holds the key for the new number and nothing of the old one")
 
-    # an end that holds the set and no setting at all for the Role
-    A8, B8, _t = pair(copy.deepcopy(sa), {}, keys, keys)
-    A8.submit("assessment", b"to an end with no setting")
-    check(B8.receive()[4] == b"to an end with no setting" and B8.found == 1,
-          "an end that holds the Role's set and no setting for it yet: the first frame is opened by the key of the set that opens it")
+    # ---- "did it change", not "one more": any number, and many changes are one switch
+    for n in (5, 123456789012345, 42):
+        B.settings["assessment"]["number"] = n
+        A.settings["assessment"]["number"] = n
+    B.link.setting_changed("assessment"); A.link.setting_changed("assessment")
+    A.link.submit("assessment", b"three changes later"); A.link.settle()
+    check(texts(B.take()) == [b"three changes later"] and A.link.calls["encryption"][0] == 2 and B.link.not_opened == 0,
+          "the number went through three values, lower and higher: one more call, and the frame opens under the last")
 
-    # encryption turned on for a Role that had none
-    sa["units"].update(seed="seed-u", switches=1); sb["units"].update(seed="seed-u", switches=1)
-    seen = len(tap.seen)
-    A.setting_changed("units")
-    A.submit("units", b"units asks three HIDDEN")
-    g = B.receive()
-    check(g[4] == b"units asks three HIDDEN" and b"HIDDEN" not in tap.seen[seen:], "encryption turned on: the call crosses unsealed, and every frame after it is sealed")
+    # ---- the receiver is behind: it goes back for a retry
+    A.set("assessment", number=8001)
+    for i in range(5):
+        A.link.submit("assessment", b"while b is behind %d" % i)
+    A.link.settle()
+    check(B.nothing() == [] and B.link.not_opened >= 5 and B.why is None,
+          "the receiver's setting is behind: the frames do not open under the one key it holds, none is taken, the connection stays")
+    check(B.link.calls["not opened"][0] == 0,
+          "and it has not asked yet: nothing has happened that would make a retry open")
+    B.set("assessment", number=8001)
+    got = B.take(5)
+    check(texts(got) == [b"while b is behind %d" % i for i in range(5)] and B.nothing() == [],
+          "its setting arrives: it says NOT OPENED, the sender sends the five again under the current key, and they are taken once each, in order")
+    check(B.link.calls["not opened"][0] == 1 and A.link.calls["again"][0] >= 1 and A.link.sent_again == 5,
+          "one NOT OPENED, one start again, five messages sent a second time")
+    A.link.submit("assessment", b"and on"); A.link.settle()
+    check(texts(B.take()) == [b"and on"], "and the sequence goes on")
 
-    # encryption turned off: taken only from a setting this end holds
-    sa["units"].update(seed="", switches=2)
-    A.setting_changed("units")
-    A.submit("units", b"units asks four, unsealed")
-    try:
-        B.receive(); said = ""
-    except F.DoesNotOpen as e:
-        said = str(e)
-    check("an unsealed frame is taken only when the setting this end holds shows no seed" in said,
-          "encryption turned off, at an end whose own setting still shows a seed: the unsealed frame is refused with the reason (a plain frame is what a forgery looks like)")
-    s9a = {"units": {"driver": "tcp", "seed": "seed-u", "switches": 1}}; s9b = copy.deepcopy(s9a)
-    A9, B9, _t = pair(s9a, s9b, keys, keys)
-    A9.submit("units", b"sealed")
-    s9a["units"].update(seed="", switches=2); s9b["units"].update(seed="", switches=2)
-    A9.setting_changed("units")
-    A9.submit("units", b"not sealed")
-    check([B9.receive()[4] for _ in range(2)] == [b"sealed", b"not sealed"], "and at an end whose setting shows no seed, it is taken")
+    # ---- the receiver is ahead (it took a number the sender has not reached yet)
+    A.set("assessment", number=8002)
+    A.link.submit("assessment", b"at 8002"); A.link.settle()
+    B.settings["assessment"]["number"] = 8003            # b's held read brought both changes at once; a's has one
+    B.link.setting_changed("assessment")
+    opened_before = B.take()                              # (b had not been told of 8002 before the call: see below)
+    A.link.submit("assessment", b"still at 8002"); A.link.settle()
+    lost = B.nothing()
+    A.set("assessment", number=8003)
+    got = opened_before + lost + B.take(2 - len(opened_before) - len(lost))
+    check(texts(got) == [b"at 8002", b"still at 8002"] and B.nothing() == [],
+          "the receiver went to a number the sender had not reached: what the sender sent under the number between goes back, "
+          "and is taken once the sender reaches it")
 
-    # a connection opened after switches starts from the setting's count
-    s3b = {"assessment": dict(truth["assessment"], driver="turned")}
-    A3, B3, _t = pair(copy.deepcopy(sa), s3b, keys, keys)
-    A3.submit("assessment", b"a later connection")
-    check(B3.receive()[4] == b"a later connection" and B3._in[0].n == 1 and B3.found == 0,
-          "a connection opened after a switch states its count in its sequence's first frame; the far end starts from the same key, by "
-          "the rule, though its own copy of the setting is behind")
+    # ---- the algorithm
+    A.set("assessment", number=8100, protection="chacha20-poly1305")
+    A.link.submit("assessment", b"under the other algorithm"); A.link.settle()
+    check(B.nothing() == [], "an algorithm switch reaches a receiver whose setting is behind: the frame does not open and is not taken")
+    B.set("assessment", number=8100, protection="chacha20-poly1305")
+    got = B.take()
+    check(texts(got) == [b"under the other algorithm"] and B.link._in[got[0][1]].protection == "chacha20-poly1305",
+          "its setting arrives and the frame comes again and opens")
 
-    # the rule never lands on the key in use, for any size of set
-    ok = True
-    for size in range(2, 51):
-        ks = [F.key_number("any seed", n, size) for n in range(200)]
-        ok = ok and all(x != y for x, y in zip(ks, ks[1:])) and all(0 <= x < size for x in ks)
-    check(ok, "the selection rule: over 200 switches, for every set of 2 to 50 keys, no switch lands on the key in use")
+    # ---- encryption turned on
+    A.set("warning", number=31337)
+    A.link.submit("warning", b"sealed from here"); A.link.settle()
+    check(B.nothing() == [] and B.why is None, "encryption turned on for a Role: a receiver that has not heard takes nothing")
+    B.set("warning", number=31337)
+    check(texts(B.take()) == [b"sealed from here"], "and takes it when it has")
 
-    # what does not open ends the connection with the reason
-    other = key_dir(["assessment", "units"], salt="another site's ")
-    A4, B4, _t = pair(copy.deepcopy(sa), copy.deepcopy(sa), keys, other)
-    A4.submit("assessment", b"x")
-    try:
-        B4.receive(); said = ""
-    except F.DoesNotOpen as e:
-        said = str(e)
-    check("not under any of the 20 keys" in said, "an end holding a different set: no key of its set opens the frame, and the connection ends with the reason")
-    A5, B5, _t = pair({"units": {"driver": "tcp"}}, {"units": {"driver": "tcp"}}, keys, keys)
-    A5.submit("units", b"x")
-    B5.receive()
-    A5.settle()
-    A5._put(F.packet_id(2, 0, False), b"XYZ\x01 not a protocol")      # (the check writing what no writer would)
-    try:
-        B5.receive(); said = ""
-    except F.ConnectionGone as e:
-        said = str(e)
-    check("no registered protocol's word" in said, "data that begins with no registered word is refused, with the reason")
+    # ---- the protocol
+    for e in (B, A):
+        e.set("units", driver="openqasm")
+    A.link.submit("units", b"x" * 200); A.link.submit("units", b"x" * 199 + b"y"); A.link.settle()
+    was = len(tap.seen)
+    A.link.submit("units", b"x" * 199 + b"z"); A.link.settle()
+    got = B.take(3)
+    check(texts(got) == [b"x" * 200, b"x" * 199 + b"y", b"x" * 199 + b"z"] and A.link.calls["protocol"][0] == 1
+          and len(tap.seen) - was < 60,
+          "a protocol switch is one call; the key did not change; the new protocol's differences cross in place of the message")
 
-    # what the frame costs
-    A6, B6, t6 = pair({"units": {"driver": "tcp"}}, {"units": {"driver": "tcp"}}, keys, keys)
-    A6.submit("units", b"")
-    A6.settle()
-    first = len(t6.seen)
-    A6.submit("units", b"")
-    A6.settle()
-    check(len(t6.seen) - first == 2 + 4, "an unsealed frame adds 2 bytes to its data (its length and its packet ID as small numbers) and the 4-byte word (%d)" % (len(t6.seen) - first))
+    # ---- replies go back for a retry the same way
+    A.link.submit("assessment", b"a question"); A.link.settle()
+    q = B.take()[0]
+    B.set("assessment", number=8200)
+    B.link.submit_reply("assessment", q[1], q[2], b"the answer")
+    B.link.settle()
+    check(A.nothing() == [], "a reply sealed under a number the asking end has not heard of does not open there")
+    A.set("assessment", number=8200)
+    r = A.take()
+    check(texts(r) == [b"the answer"] and r[0][2] == q[2] and r[0][3] is True,
+          "the asking end's setting arrives: the reply comes again, under the same packet ID")
 
-    # one writer: many threads hand one connection their requests, and every one arrives whole, each Role's in order
-    import threading
-    A10, B10, _t = pair(copy.deepcopy(truth), copy.deepcopy(truth), keys, keys)
-    def many(role, k):
-        for i in range(200):
-            A10.submit(role, b"%s thread %d message %03d" % (role.encode(), k, i))
-    ts = [threading.Thread(target=many, args=(r, k)) for k in range(4) for r in ("units", "assessment")]
-    [t.start() for t in ts]
-    got = [B10.receive() for _ in range(1600)]
-    [t.join() for t in ts]
-    per = {}
-    for g in got:
-        role, k, i = g[4].split()[0].decode(), int(g[4].split()[2]), int(g[4].split()[4])
-        per.setdefault((role, k), []).append(i)
-    counters = {r: [g[2] for g in got if g[0] == r] for r in ("units", "assessment")}
-    check(len(per) == 8 and all(v == list(range(200)) for v in per.values()) and all(c == list(range(1, 801)) for c in counters.values())
-          and not hasattr(A10, "_send_lock"),
-          "eight threads hand one connection 1,600 requests for two Roles, one of them sealed: its one writer puts each on the wire whole, "
-          "every thread's in the order it handed them, each Role's counters 1 to 800 in order; there is no lock on sending")
+    # ---- a sender keeps a message only until it is said to be received
+    for i in range(F.SAY_RECEIVED_EVERY * 2 + 3):
+        A.link.submit("units", b"m%d" % i)
+    A.link.settle()
+    got = B.take(F.SAY_RECEIVED_EVERY * 2 + 3)
+    B.link.settle(); A.link.settle()
+    A.link.submit("units", b"last"); A.link.settle(); B.take()
+    side = A.link._out[A.link._stream["units"]]
+    check(len(got) == F.SAY_RECEIVED_EVERY * 2 + 3 and side.base >= F.SAY_RECEIVED_EVERY * 2 and len(side.kept) <= F.SAY_RECEIVED_EVERY + 4,
+          "the receiver says RECEIVED every %d messages and the sender lets those go (%d kept, %d let go)"
+          % (F.SAY_RECEIVED_EVERY, len(side.kept), side.base))
+
+    # ---- asked twice, sent twice, taken once
+    A.set("assessment", number=8300)
+    for i in range(3):
+        A.link.submit("assessment", b"once %d" % i)
+    A.link.settle()
+    B.nothing()
+    B.settings["assessment"]["number"] = 8300
+    B.link.setting_changed("assessment"); B.link.setting_changed("assessment")
+    got = B.take(3)
+    check(texts(got) == [b"once %d" % i for i in range(3)] and B.nothing() == [] and B.link.calls["not opened"][0] >= 2,
+          "the receiver's held read woke twice and it asked twice: what was sent again twice is taken once")
+
+    # ---- a connection opened later states the number
+    behind = copy.deepcopy(A.settings)
+    behind["assessment"] = dict(behind["assessment"], number=1)
+    A3, B3, _t = pair(copy.deepcopy(A.settings), behind, S, S)
+    A3.link.submit("assessment", b"a later connection"); A3.link.settle()
+    check(texts(B3.take()) == [b"a later connection"] and B3.link.not_opened == 0,
+          "a connection opened after switches states its number in the sequence's first frame: the far end computes the same key "
+          "though its own copy of the setting is behind")
+
+    # ---- an end with another secret, and an end with none
+    A4, B4, _t = pair(copy.deepcopy(base), copy.deepcopy(base), S, secrets(["assessment", "units"], salt="another site's "))
+    A4.link.submit("assessment", b"x"); A4.link.settle()
+    check(B4.nothing() == [] and B4.link.not_opened == 1 and any("did not open" in t for t in B4.said),
+          "an end holding another secret: the frame does not open, is not taken, and the end says so")
+    A5, B5, _t = pair(copy.deepcopy(base), copy.deepcopy(base), S, secrets(["units"]))
+    A5.link.submit("assessment", b"x"); A5.link.settle()
+    check(B5.nothing() == [] and any("holds no secret" in t for t in B5.said),
+          "an end with no secret for the Role does not carry it: nothing is taken, and it says why")
+
+    # ---- an unsealed Role takes nothing that is not a protocol's
+    A6, B6, _t = pair(copy.deepcopy(base), copy.deepcopy(base), S, S)
+    A6.link.submit("warning", b"x"); A6.link.settle(); B6.take()
+    A6.link._todo.put(("mark", threading.Event()))
+    A6.link.sock.sendall(bytes([9, 5]) + b"not a word")          # a frame on warning's sequence whose data is no protocol's
+    B6.nothing()
+    check(B6.why is not None and "no registered protocol's word" in B6.why,
+          "data for an unsealed Role that begins with no protocol's word ends the connection with the reason")
+
+    # ---- every build says what it is
+    check("v12" in F.BUILD, "the build is named (%s)" % F.BUILD)
+
     print("RESULT %s (%s)" % ("FAIL" if FAILED else "PASS", F.BUILD))
     return 1 if FAILED else 0
 

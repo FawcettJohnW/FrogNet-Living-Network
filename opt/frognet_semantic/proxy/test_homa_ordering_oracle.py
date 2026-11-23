@@ -247,16 +247,18 @@ def run(mode):
     _send, _hand_up = TH._ClientMux.send, TH._MsgWorker._hand_up
 
     def send(self, worker, rpc, wire):
-        if rpc.gate is not None:
+        key = getattr(rpc, "key", None)        # the instance: (target_ip, opcode, instance)
+        if key is not None:
             with watch:
-                inflight[rpc.gate] = inflight.get(rpc.gate, 0) + 1
-                worst["n"] = max(worst["n"], inflight[rpc.gate])
+                inflight[key] = inflight.get(key, 0) + 1
+                worst["n"] = max(worst["n"], inflight[key])
         return _send(self, worker, rpc, wire)
 
     def hand_up(self, rpc, frame):
-        if rpc.gate is not None:
+        key = getattr(rpc, "key", None)
+        if key is not None:
             with watch:
-                inflight[rpc.gate] -= 1
+                inflight[key] -= 1
         return _hand_up(self, rpc, frame)
     TH._ClientMux.send, TH._MsgWorker._hand_up = send, hand_up
 

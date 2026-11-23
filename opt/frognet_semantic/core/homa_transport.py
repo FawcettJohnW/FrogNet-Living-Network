@@ -77,6 +77,33 @@ import threading
 from typing import Dict, Optional, Tuple
 
 TRANSPORT_FILE = os.environ.get("FROGNET_SEM_TRANSPORT_FILE", "/etc/frognet/semantic_transport")
+# [THE_TRANSPORT_FILE_IS_WATCHED_V1] (John, 22 Nov 2026: "There needs to be a file watcher on it that restarts the
+# proxy and daemon when it changes.") A process reads the file once, at start, and writes here what it read. The
+# watcher (core/transport_file_watch.py, started by frognet-transport-watch.path when the file changes) restarts the
+# daemon and the proxy when the file no longer says what they read.
+TRANSPORT_READ = os.environ.get("FROGNET_SEM_TRANSPORT_READ", "/run/frognet/semantic_transport.read")
+
+
+def transport_file_text() -> str:
+    """What the transport file says now, as a process reads it: lower case, its words one space apart, no empty
+    lines; "auto" when there is no file. Two files that mean the same to a process give the same text."""
+    try:
+        with open(TRANSPORT_FILE) as f:
+            return "\n".join(" ".join(l.split()) for l in f.read().lower().splitlines() if l.strip())
+    except FileNotFoundError:
+        return "auto"
+
+
+def _note_read(text: str) -> None:
+    try:
+        os.makedirs(os.path.dirname(TRANSPORT_READ), exist_ok=True)
+        tmp = "%s.%d" % (TRANSPORT_READ, os.getpid())
+        with open(tmp, "w") as f:
+            f.write(text + "\n")
+        os.replace(tmp, TRANSPORT_READ)
+    except OSError as e:
+        print("[SEM-TRANSPORT] [THE_TRANSPORT_FILE_IS_WATCHED_V1] could not write %s (%s): a change to %s will restart "
+              "this node's daemon and proxy once more than it needs to" % (TRANSPORT_READ, e, TRANSPORT_FILE), flush=True)
 VALID = ("auto", "tcp", "homa", "chorus", "homasim")
 # [A_DRIVER_REGISTERS_ITS_WORD_V1] John, 2026-11-19: "There is not a fixed form, and the consumer is the thing that
 # wrote it." The words a setting may use (the file's, and the channel's tuple's) are the words drivers have
@@ -94,7 +121,7 @@ def register_driver(word: str, session_kind: str) -> None:
 ON_CHORUS = {"chorus"}              # [A_CONNECTION_IS_OF_ITS_DRIVER_V1] the words whose connections chorus's carrier holds (core/openqasm.py adds its own)
 FRAMED = {"tcp", "chorus", "openqasm"}   # the protocols core/channel_frame.py carries inside its frame
 WALK = ("homa", "chorus", "tcp")    # the walk's order: equal or unmeasured carriers are taken in this order
-BUILD = "homa-carrier-v4-20261117u"
+BUILD = "homa-carrier-v6-20261122b"
 _chosen = None
 _ram_words: Dict[str, str] = {}              # [A_WORD_PER_RAM_CONNECTION_V1] RAM's role name -> the word for this node's connection to it
 _here: Dict[str, Tuple[str, ...]] = {}       # word -> what this end carries the wire on under that word
@@ -108,12 +135,10 @@ def semantic_transport() -> str:
     if _chosen is not None:
         return _chosen
     text, src = os.environ.get("FROGNET_SEM_TRANSPORT", "").strip().lower().replace(",", "\n"), "FROGNET_SEM_TRANSPORT"
+    _note_read(transport_file_text())        # what the file said when this process started, whichever it goes by
     if not text:
-        try:
-            with open(TRANSPORT_FILE) as f:
-                text, src = f.read().strip().lower(), TRANSPORT_FILE
-        except FileNotFoundError:
-            text, src = "auto", "no %s (the default)" % TRANSPORT_FILE
+        text = transport_file_text()
+        src = TRANSPORT_FILE if os.path.exists(TRANSPORT_FILE) else "no %s (the default)" % TRANSPORT_FILE
     lines = [l.split() for l in text.splitlines() if l.strip()]
     word = lines[0][0] if lines and len(lines[0]) == 1 else " ".join(lines[0]) if lines else ""
     if "softhoma" in [l[-1] for l in lines if l]:
@@ -247,6 +272,14 @@ def carriers_listened() -> Tuple[str, ...]:
     (the node's word and each RAM's), in the walk's order."""
     words = [semantic_transport()] + sorted(set(_ram_words.values()))
     have = set(c for w in words for c in carriers_here(w))
+    if _frame_end_started:
+        have.add("chorus")                  # [THE_FILE_SAYS_WHAT_A_NODE_SENDS_V1] it is listened on from then on, and said
+    if "chorus" in have:
+        # [THE_FILE_SAYS_WHAT_A_NODE_SENDS_V1] found between machines, 22 Nov: a node whose file said only chorus had no
+        # TCP listener, and a node whose file said tcp was refused by it. A daemon takes what arrives: the TCP driver's
+        # listener holds the port and reads each connection's first word. (Kernel Homa's word and the simulator's are
+        # left as they were: neither is on John's network, and a kernel Homa node has no port to share.)
+        have.add("tcp")
     return tuple(c for c in WALK if c in have)
 
 
@@ -360,6 +393,60 @@ def on_another_carrier(ip: str, asking) -> bool:
     return False
 
 
+_frame_end_started = False
+_frame_end_lock = threading.Lock()
+
+
+def frame_end_for(tcp_server) -> bool:
+    """[THE_FILE_SAYS_WHAT_A_NODE_SENDS_V1] John, 22 Nov 2026: "I should never have to tell the system what protocol a
+    distant node is using... The only reason this file exists is to set the protocol for the SENDER."
+
+    Found on his network that day: Seattle3B's file said tcp, so its daemon closed Seattle7's framed connections.
+    A daemon takes what arrives. Its TCP listener reads each connection's first word
+    ([ONE_PORT_THE_FRAME_SAYS_THE_PROTOCOL_V1]); when that is the frame carrier's word and this daemon has no
+    receiving end for it, this starts one, once, on the same port, and the connection is handed to it. The node's
+    file is not consulted: its words choose what the node SENDS (carrier_for) and nothing else.
+
+    It is started at the first framed arrival and not at the daemon's start, so a network that sends no framed
+    connection runs exactly the listener it always did (John, 17 Nov: "There should be no risk to existing systems at
+    all"). Returns whether there is now a receiving end."""
+    global _frame_end_started
+    from core import channel_carrier
+    with _frame_end_lock:
+        if channel_carrier.SERVER is not None:
+            return True
+        if _frame_end_started or semantic_transport() == "homasim":
+            return False                    # it was started and did not come up (said then), or this is the simulator's word
+        _frame_end_started = True
+        from core import chorus
+        chorus.SHARED_PORT = True
+        channel_carrier.SHARED_PORT = True
+        from daemon.engine.server_homa import MsgDaemonServer
+        homa = MsgDaemonServer(host=tcp_server.host, port=tcp_server.port, resolver=tcp_server.resolver)
+        _still_here.append((tcp_server, lambda ip: bool(tcp_server._live_by_ip.get(ip))))
+        _still_here.append((homa, lambda ip: any(getattr(x, "node", None) == ip for x in list(homa._sessions.values()))))
+
+        def run():
+            try:
+                homa.run()
+            except BaseException as e:
+                print("[SEM-TRANSPORT] [THE_FILE_SAYS_WHAT_A_NODE_SENDS_V1] the daemon's receiving end for framed "
+                      "connections stopped: %s: %r" % (type(e).__name__, e), flush=True)
+            finally:
+                channel_carrier.SERVER_UP.set()       # whoever waits for it learns it is not coming
+        channel_carrier.SERVER_UP.clear()
+        threading.Thread(target=run, daemon=True, name="daemon-frame-listener").start()
+        channel_carrier.SERVER_UP.wait()              # set when the receiving end exists, or when it has stopped
+        up = channel_carrier.SERVER is not None
+        print("[SEM-TRANSPORT] [THE_FILE_SAYS_WHAT_A_NODE_SENDS_V1] %s a framed connection arrived and this daemon had "
+              "no receiving end for the frame carrier (its file's words are %s): %s"
+              % (BUILD, ", ".join([semantic_transport()] + sorted(set(_ram_words.values()))),
+                 "one is started on port %d, and is there from now on. What this node sends is unchanged"
+                 % tcp_server.port if up else "one could NOT be started (the reason is above); the connection is closed"),
+              flush=True)
+        return up
+
+
 def daemon_server(host: str, port: int, resolver, tcp_server_class):
     """The daemon's listener: one per carrier this end has. Same run() as DaemonServer.
 
@@ -404,7 +491,7 @@ def open_homa_socket(who: str, bind_ip: str = "0.0.0.0", server_port=None):
         s = homa_sim.HomaSimSocket(bind_ip=bind_ip, server_port=server_port)
         print(homa_sim.startup_line(who, s), flush=True)
         return s
-    if _chorus_loaded():                        # [WE_OWN_THE_WIRE_V1] Homa's frames on connections the driver holds open
+    if _chorus_loaded() or (server_port is not None and _frame_end_started):
         from core import chorus, frognet_tuples
         try:
             src = frognet_tuples.my_ip()

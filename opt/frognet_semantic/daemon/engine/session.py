@@ -177,7 +177,8 @@ HEALTH_CHECK_SAME_ID = b'\xff' * 16
 # [INSTANCE_REFERENCES_V1] Keyed (peer_ip, opcode, instance): an answer is differenced against the last answer for the
 # SAME instance (the location in the request, core/tuple_key.py), never against another instance of the template.
 _response_references: Dict[Tuple[str, int, str], Optional[Dict[str, Any]]] = {}
-_ref_lock = threading.RLock()
+# (No lock. Each of these is one operation on the dict, and a reference is replaced whole, never changed in place; what
+# has to happen in order, read, encode, set, happens on the session's writer: see _Deferred.)
 
 
 
@@ -203,21 +204,18 @@ def _diag_ref(side, peer, opcode, inst, action, ref, extra=""):
 
 
 def _get_response_reference(peer_ip: str, opcode: int, inst: str) -> Optional[Dict[str, Any]]:
-    with _ref_lock:
-        ref = _response_references.get((peer_ip, opcode, inst))
-        return ref.copy() if ref is not None else None
+    ref = _response_references.get((peer_ip, opcode, inst))
+    return ref.copy() if ref is not None else None
 
 
 def _set_response_reference(peer_ip: str, opcode: int, inst: str, ref: Dict[str, Any]) -> None:
-    with _ref_lock:
-        _response_references[(peer_ip, opcode, inst)] = ref.copy()
+    _response_references[(peer_ip, opcode, inst)] = ref.copy()
     _diag_ref("daemon", peer_ip, opcode, inst, "set", ref)
 
 
 def _clear_response_reference(peer_ip: str, opcode: int, inst: str) -> None:
     """Clear response ref on REQ_FULL so diff-encode sends all fields."""
-    with _ref_lock:
-        _response_references.pop((peer_ip, opcode, inst), None)
+    _response_references.pop((peer_ip, opcode, inst), None)
     _diag_ref("daemon", peer_ip, opcode, inst, "clear", None)
 # ====================================================================
 # REQUEST COALESCING (cross-session)
@@ -537,30 +535,59 @@ def _make_full_req_blob(
 # SemanticSession - two-socket, dedicated reader + writer threads
 # ====================================================================
 
+class _Deferred:
+    """[REFERENCES_MOVE_IN_WIRE_ORDER_V1] [A_CONNECTIONS_WIRE_HAS_ONE_OWNER_V1] A reply whose reference-moving part has
+    not run yet. John, 2026-11-21: "Move everything that depends on wire order into that writer and the reader: the
+    difference encoding, references... Nothing replaces [the locks]." A handler does everything that does not depend
+    on the order of the wire on its own thread (it runs the request), and hands the rest, which reads and moves the
+    response reference and builds the reply, to the session's writer as this. The writer runs it when it takes the
+    reply off its queue, so the order references move IS the order replies go on the wire, with no lock. Until 21 Nov
+    a per-session lock (_encode_lock) was taken from the reference's move to the queue's put to get the same order."""
+    __slots__ = ("fn", "value", "done", "on_done")
+
+    def __init__(self, fn, on_done=None):
+        self.fn, self.value, self.done, self.on_done = fn, None, threading.Event(), on_done
+
+    def resolve(self) -> bytes:
+        """The writer's call: run it, once, and give the reply's bytes."""
+        if not self.done.is_set():
+            try:
+                self.value = self.fn()
+            except Exception as e:
+                debug(f"[Daemon PROCESS ERROR] the deferred part of a reply raised: {e!r}")
+                self.value = wrap_error(503, f"process error: {e!r}")
+            self.fn = None
+            self.done.set()
+            if self.on_done is not None:
+                try:
+                    self.on_done(self.value)
+                except Exception as e:
+                    debug(f"[Daemon PROCESS ERROR] after a deferred reply: {e!r}")
+        return self.value
+
+    def wait(self) -> bytes:
+        """Another request that shares this one's execution (coalescing): held until the writer has run it."""
+        self.done.wait()
+        return self.value
+
+
 class _Emitter:
-    """[REFERENCES_MOVE_IN_WIRE_ORDER_V1] Encode-and-queue as one step. begin() takes the session's encode lock just
-    before the response reference moves (RESP_SAME sets it, RESP_DIFF's encode moves it); send() puts the reply on the
-    writer's queue and releases the lock. So the order references move is the order replies go on the return socket,
-    which is the order the proxy applies them. A harness that calls _process_frame_inner directly gets no queue: the
-    reply is returned as before."""
-    __slots__ = ("seq", "wire_in", "q", "lock", "held", "sent")
+    """What a handler hands the reference-moving part of its reply to. With a queue (a session), defer() puts a
+    _Deferred on the writer's queue and returns it. A harness that calls _process_frame_inner directly has no queue:
+    the part runs at once and the reply is returned as before."""
+    __slots__ = ("seq", "wire_in", "q", "sent", "on_done")
 
-    def __init__(self, seq=0, wire_in=0, q=None, lock=None):
-        self.seq, self.wire_in, self.q, self.lock = seq, wire_in, q, lock
-        self.held = self.sent = False
+    def __init__(self, seq=0, wire_in=0, q=None):
+        self.seq, self.wire_in, self.q = seq, wire_in, q
+        self.sent, self.on_done = False, None
 
-    def begin(self):
-        if self.q is not None and not self.held:
-            self.lock.acquire(); self.held = True
-
-    def send(self, reply: bytes):
-        if self.q is not None:
-            self.q.put((self.seq, reply, self.wire_in)); self.sent = True
-        self.release()
-
-    def release(self):
-        if self.held:
-            self.held = False; self.lock.release()
+    def defer(self, fn):
+        if self.q is None:
+            return fn()
+        d = _Deferred(fn, self.on_done)
+        self.q.put((self.seq, d, self.wire_in))
+        self.sent = True
+        return d
 
 
 _NO_EMIT = _Emitter()
@@ -578,7 +605,6 @@ class EngineSession:
     def __init__(self, peer_ip: str, resolver, http_client=None):
         from core import channel_setting                 # [CHANNEL_SETTING_IS_A_TUPLE_V1] a session arriving is an event:
         channel_setting.current()                        # a hold on the channel's tuple that was not taken is held again
-        self._encode_lock = threading.Lock()             # [REFERENCES_MOVE_IN_WIRE_ORDER_V1]
         self.peer_ip = peer_ip
         self.established = False      # [WRITER_GONE_V1] set once the permanent connection is up
         self.on_established = None    # the server's count of live sessions per peer
@@ -641,31 +667,31 @@ class EngineSession:
         # send and t1 after the reply).
         _t0_link = time.monotonic()
         _status = "ok"
-        emit = _Emitter(seq, wire_in, self._reply_q, self._encode_lock)
+        emit = _Emitter(seq, wire_in, self._reply_q)
+
+        def _sample(reply_bytes, status="ok"):
+            # bytes_out is the reply about to go on the wire, not "what actually went": the write_loop may later fail
+            # to send it. That is fine: from the link's perspective this frame contributes (wire_in inbound,
+            # len(reply) outbound) to demand on the path; a write_loop failure shows up downstream as session
+            # teardown plus a gap in samples.
+            bump_link_quality(
+                peer_ip=self.peer_ip,
+                rtt_ms=(time.monotonic() - _t0_link) * 1000.0,
+                bytes_out=len(reply_bytes),
+                bytes_in=wire_in,
+                status=status,
+            )
+        emit.on_done = _sample                           # a reply finished by the writer is sampled there
         try:
             _, reply, _ = self._process_frame_inner(frame, seq, wire_in, emit=emit, prepared=prepared)
         except Exception as e:
             debug(f"[Daemon PROCESS ERROR] seq={seq} peer={self.peer_ip}: {e!r}")
             reply = wrap_error(503, f"process error: {e!r}")
             _status = "fail"
-        finally:
-            emit.release()
-        _rtt_ms = (time.monotonic() - _t0_link) * 1000.0
-        # bytes_out is the reply we are about to enqueue for sending,
-        # not "what actually went on the wire" - the write_loop may
-        # later fail to send it.  That's fine: from the link's
-        # perspective, this frame contributes (wire_in inbound,
-        # len(reply) outbound) to demand on the path; a write_loop
-        # failure shows up downstream as session teardown plus a
-        # gap in samples.
-        bump_link_quality(
-            peer_ip=self.peer_ip,
-            rtt_ms=_rtt_ms,
-            bytes_out=len(reply),
-            bytes_in=wire_in,
-            status=_status,
-        )
         if not emit.sent:
+            if isinstance(reply, _Deferred):             # another request's execution, shared (coalescing)
+                reply = reply.wait()
+            _sample(reply, _status)
             self._reply_q.put((seq, reply, wire_in))
 
     def _process_frame_inner(self, frame: bytes, seq: int, wire_in: int, emit=_NO_EMIT, prepared=None) -> Tuple[int, bytes, int]:
@@ -704,7 +730,7 @@ class EngineSession:
                     if existing.error is None and existing.reply is not None:
                         _debug(f"COALESCE: served from in-flight result for hash={req_hash.hex()} ({len(existing.reply)}B)")
                         bump_daemon_coalesce(peer_ip=self.peer_ip)
-                        return (seq, existing.reply, wire_in)
+                        return (seq, existing.reply.wait() if isinstance(existing.reply, _Deferred) else existing.reply, wire_in)
                 _debug(f"COALESCE: timeout/fail for hash={req_hash.hex()}, executing independently")
                 reply = self._dispatch_fnw1(msg, emit, prepared)
                 return (seq, reply, wire_in)
@@ -755,7 +781,10 @@ class EngineSession:
         if a[0] == "raw":
             _, status, headers_bytes, body = a
             return wrap_resp_raw(same_id, status, headers_bytes, body)
-        if a[0] == "sem":
+        if a[0] != "sem":
+            return wrap_resp_diff(same_id, a[1])
+
+        def _finish():                               # on the session's writer: it sets the reference aside and puts it back
             # encoded against NO reference, and the daemon's own reference left exactly as it is: later replies of
             # this instance may already have been encoded against it (the proxy applies them after this, in turn)
             _, resp_opcode, inst, dyn_vals, type_map = a
@@ -766,9 +795,8 @@ class EngineSession:
             finally:
                 if _cur is None: _clear_response_reference(self.peer_ip, resp_opcode, inst)
                 else: _set_response_reference(self.peer_ip, resp_opcode, inst, _cur)
-        else:
-            wire_resp = a[1]
-        return wrap_resp_diff(same_id, wire_resp)
+            return wrap_resp_diff(same_id, wire_resp)
+        return emit.defer(_finish)
 
     # [SAME_IS_BACK_V1] Restored dispatcher. The purge stub returned REQ_MISS
     # unconditionally -- "Nothing is kept, so the honest answer is always
@@ -973,57 +1001,57 @@ class EngineSession:
 
         if new_raw_hash == old_raw_hash and semcache_db.answer_held(old_same_id):   # [SAME_MISS_FROM_CACHE_V1]
             # Response unchanged - RESP_SAME
-            emit.begin()                                 # [REFERENCES_MOVE_IN_WIRE_ORDER_V1]
-            if dyn_vals is not None and resp_opcode is not None:
-                new_ref = {k: v for k, v in dyn_vals}
-                _set_response_reference(self.peer_ip, resp_opcode, inst, new_ref)
+            def _finish():                               # [REFERENCES_MOVE_IN_WIRE_ORDER_V1] on the session's writer
+                if dyn_vals is not None and resp_opcode is not None:
+                    new_ref = {k: v for k, v in dyn_vals}
+                    _set_response_reference(self.peer_ip, resp_opcode, inst, new_ref)
 
-            _debug(f"REQ_REPEAT->RESP_SAME for {req_hash.hex()}")
-            reply = wrap_resp_same(old_same_id)
-            emit.send(reply)
-            bump_daemon_cache(
-                peer_ip=self.peer_ip,
-                req_type="req_repeat",
-                resp_type="resp_same",
-                bytes_in=REQ_HASH_LEN,
-                bytes_out=len(reply),
-                bytes_full_response=len(sem_resp),
-                exec_ms=exec_ms,
-            )
-            return reply
+                _debug(f"REQ_REPEAT->RESP_SAME for {req_hash.hex()}")
+                reply = wrap_resp_same(old_same_id)
+                bump_daemon_cache(
+                    peer_ip=self.peer_ip,
+                    req_type="req_repeat",
+                    resp_type="resp_same",
+                    bytes_in=REQ_HASH_LEN,
+                    bytes_out=len(reply),
+                    bytes_full_response=len(sem_resp),
+                    exec_ms=exec_ms,
+                )
+                return reply
+            return emit.defer(_finish)
         else:
             # Response changed - RESP_DIFF
             new_same_id = compute_same_id(req_hash, new_raw_hash)
 
-            emit.begin()                                 # [REFERENCES_MOVE_IN_WIRE_ORDER_V1]
+            def _finish():                               # [REFERENCES_MOVE_IN_WIRE_ORDER_V1] on the session's writer
 
-            if dyn_vals is not None and resp_opcode is not None:
-                wire_resp = _diff_encode_response(
-                    self.peer_ip, resp_opcode, inst, dyn_vals, type_map or {}
+                if dyn_vals is not None and resp_opcode is not None:
+                    wire_resp = _diff_encode_response(
+                        self.peer_ip, resp_opcode, inst, dyn_vals, type_map or {}
+                    )
+                else:
+                    wire_resp = sem_resp
+
+                # CACHE POISON GUARD: never cache error responses
+                if status < 400:
+                    # [SAME_CACHE_IS_MEMORY_ONLY_V1] LRU only; see the REQ_FULL writer.
+                    semcache_db._lru_put(req_hash, (sem_req, new_raw_hash, new_same_id, False))
+                    semcache_db.answer_put(new_same_id, ("sem", resp_opcode, inst, dyn_vals, type_map) if (dyn_vals is not None and resp_opcode is not None) else ("blob", sem_resp), len(sem_resp))   # [SAME_MISS_FROM_CACHE_V1]
+                else:
+                    _debug(f"SKIP CACHE: status={status} for {req_hash.hex()}")
+                _debug(f"REQ_REPEAT->RESP_DIFF for {req_hash.hex()}")
+                reply = wrap_resp_diff(new_same_id, wire_resp)
+                bump_daemon_cache(
+                    peer_ip=self.peer_ip,
+                    req_type="req_repeat",
+                    resp_type="resp_diff",
+                    bytes_in=REQ_HASH_LEN,
+                    bytes_out=len(reply),
+                    exec_ms=exec_ms,
+                    opcode=opcode,
                 )
-            else:
-                wire_resp = sem_resp
-
-            # CACHE POISON GUARD: never cache error responses
-            if status < 400:
-                # [SAME_CACHE_IS_MEMORY_ONLY_V1] LRU only; see the REQ_FULL writer.
-                semcache_db._lru_put(req_hash, (sem_req, new_raw_hash, new_same_id, False))
-                semcache_db.answer_put(new_same_id, ("sem", resp_opcode, inst, dyn_vals, type_map) if (dyn_vals is not None and resp_opcode is not None) else ("blob", sem_resp), len(sem_resp))   # [SAME_MISS_FROM_CACHE_V1]
-            else:
-                _debug(f"SKIP CACHE: status={status} for {req_hash.hex()}")
-            _debug(f"REQ_REPEAT->RESP_DIFF for {req_hash.hex()}")
-            reply = wrap_resp_diff(new_same_id, wire_resp)
-            emit.send(reply)
-            bump_daemon_cache(
-                peer_ip=self.peer_ip,
-                req_type="req_repeat",
-                resp_type="resp_diff",
-                bytes_in=REQ_HASH_LEN,
-                bytes_out=len(reply),
-                exec_ms=exec_ms,
-                opcode=opcode,
-            )
-            return reply
+                return reply
+            return emit.defer(_finish)
 
     def _reexecute_raw(
         self,
@@ -1209,45 +1237,45 @@ class EngineSession:
         # Response is new or changed - RESP_DIFF path
         sid = compute_same_id(req_hash, new_raw_hash)
 
-        emit.begin()                                 # [REFERENCES_MOVE_IN_WIRE_ORDER_V1]
+        def _finish():                               # [REFERENCES_MOVE_IN_WIRE_ORDER_V1] on the session's writer
 
-        if dyn_vals is not None and resp_opcode is not None:
-            wire_resp = _diff_encode_response(
-                self.peer_ip, resp_opcode, inst, dyn_vals, type_map or {}
+            if dyn_vals is not None and resp_opcode is not None:
+                wire_resp = _diff_encode_response(
+                    self.peer_ip, resp_opcode, inst, dyn_vals, type_map or {}
+                )
+            else:
+                wire_resp = sem_resp
+
+            # [SAME_IS_BACK_V1] Store the entry a later REQ_DIFF/REQ_REPEAT compares
+            # against. Without this writer the SAME check above can never hit -- the
+            # lookup returns nothing, forever.
+            #
+            # CACHE POISON GUARD: never store an error response, or a transient 500
+            # becomes the thing every later request is declared "the same" as.
+            if status < 400:
+                # [SAME_CACHE_IS_MEMORY_ONLY_V1] (req_blob, raw_hash, same_id,
+                # is_raw) -- the exact tuple lookup_for_repeat returns.
+                semcache_db._lru_put(req_hash, (sem_req, new_raw_hash, sid, False))
+                semcache_db.answer_put(sid, ("sem", resp_opcode, inst, dyn_vals, type_map) if (dyn_vals is not None and resp_opcode is not None) else ("blob", sem_resp), len(sem_resp))   # [SAME_MISS_FROM_CACHE_V1]
+            else:
+                _debug(f"SKIP CACHE: status={status} for {req_hash.hex()}")
+
+            exec_ms = (time.time() - t0) * 1000
+
+            _debug(f"REQ_FULL->RESP_DIFF for {req_hash.hex()}")
+            reply = wrap_resp_diff(sid, wire_resp)
+            _resp_type = "resp_diff"
+            bump_daemon_cache(
+                peer_ip=self.peer_ip,
+                req_type="req_full",
+                resp_type=_resp_type,
+                bytes_in=len(sem_req),
+                bytes_out=len(reply),
+                exec_ms=exec_ms,
+                opcode=opcode,
             )
-        else:
-            wire_resp = sem_resp
-
-        # [SAME_IS_BACK_V1] Store the entry a later REQ_DIFF/REQ_REPEAT compares
-        # against. Without this writer the SAME check above can never hit -- the
-        # lookup returns nothing, forever.
-        #
-        # CACHE POISON GUARD: never store an error response, or a transient 500
-        # becomes the thing every later request is declared "the same" as.
-        if status < 400:
-            # [SAME_CACHE_IS_MEMORY_ONLY_V1] (req_blob, raw_hash, same_id,
-            # is_raw) -- the exact tuple lookup_for_repeat returns.
-            semcache_db._lru_put(req_hash, (sem_req, new_raw_hash, sid, False))
-            semcache_db.answer_put(sid, ("sem", resp_opcode, inst, dyn_vals, type_map) if (dyn_vals is not None and resp_opcode is not None) else ("blob", sem_resp), len(sem_resp))   # [SAME_MISS_FROM_CACHE_V1]
-        else:
-            _debug(f"SKIP CACHE: status={status} for {req_hash.hex()}")
-
-        exec_ms = (time.time() - t0) * 1000
-
-        _debug(f"REQ_FULL->RESP_DIFF for {req_hash.hex()}")
-        reply = wrap_resp_diff(sid, wire_resp)
-        emit.send(reply)
-        _resp_type = "resp_diff"
-        bump_daemon_cache(
-            peer_ip=self.peer_ip,
-            req_type="req_full",
-            resp_type=_resp_type,
-            bytes_in=len(sem_req),
-            bytes_out=len(reply),
-            exec_ms=exec_ms,
-            opcode=opcode,
-        )
-        return reply
+            return reply
+        return emit.defer(_finish)
 
     # ================================================================
     # REQ_DIFF handler - diff-encoded request (changed fields only)
@@ -1406,91 +1434,91 @@ class EngineSession:
             if (old_raw_hash and new_raw_hash == old_raw_hash
                     and old_same_id and len(old_same_id) == 16
                     and semcache_db.answer_held(old_same_id)):   # [SAME_MISS_FROM_CACHE_V1]
-                emit.begin()                             # [REFERENCES_MOVE_IN_WIRE_ORDER_V1]
-                if dyn_vals is not None and resp_opcode is not None:
-                    new_ref = {k: v for k, v in dyn_vals}
-                    _set_response_reference(self.peer_ip, resp_opcode, inst, new_ref)
-                exec_ms = (time.time() - t0) * 1000
-                _debug(f"REQ_DIFF->RESP_SAME for {req_hash.hex()}")
-                reply = wrap_resp_same(old_same_id)
-                emit.send(reply)
-                bump_daemon_cache(
-                    peer_ip=self.peer_ip,
-                    req_type="req_diff",
-                    resp_type="resp_same",
-                    bytes_in=len(diff_payload),
-                    bytes_out=len(reply),
-                    bytes_full_response=len(sem_resp),
-                    exec_ms=exec_ms,
-                    opcode=opcode,
-                )
-                return reply
+                def _finish():                               # [REFERENCES_MOVE_IN_WIRE_ORDER_V1] on the session's writer
+                    if dyn_vals is not None and resp_opcode is not None:
+                        new_ref = {k: v for k, v in dyn_vals}
+                        _set_response_reference(self.peer_ip, resp_opcode, inst, new_ref)
+                    exec_ms = (time.time() - t0) * 1000
+                    _debug(f"REQ_DIFF->RESP_SAME for {req_hash.hex()}")
+                    reply = wrap_resp_same(old_same_id)
+                    bump_daemon_cache(
+                        peer_ip=self.peer_ip,
+                        req_type="req_diff",
+                        resp_type="resp_same",
+                        bytes_in=len(diff_payload),
+                        bytes_out=len(reply),
+                        bytes_full_response=len(sem_resp),
+                        exec_ms=exec_ms,
+                        opcode=opcode,
+                    )
+                    return reply
+                return emit.defer(_finish)
 
         # Response is new or changed - RESP_DIFF path
         sid = compute_same_id(req_hash, new_raw_hash)
 
-        emit.begin()                                 # [REFERENCES_MOVE_IN_WIRE_ORDER_V1]
+        def _finish():                               # [REFERENCES_MOVE_IN_WIRE_ORDER_V1] on the session's writer
 
-        if dyn_vals is not None and resp_opcode is not None:
-            wire_resp = _diff_encode_response(
-                self.peer_ip, resp_opcode, inst, dyn_vals, type_map or {}
+            if dyn_vals is not None and resp_opcode is not None:
+                wire_resp = _diff_encode_response(
+                    self.peer_ip, resp_opcode, inst, dyn_vals, type_map or {}
+                )
+            else:
+                wire_resp = sem_resp
+
+            # [NO_CACHES_V1] the response is not stored.
+
+            # [SAME_IS_BACK_V1] REQ_DIFF writer. Same guard as REQ_FULL.
+            # [SAME_CACHE_IS_MEMORY_ONLY_V1] LRU only -- no MySQL on the response
+            # path. semcache_db.upsert() writes MySQL and does NOT populate the
+            # daemon's own LRU, so it cost a disk round-trip HERE and the next
+            # lookup_for_repeat still had to fault the row back in. Worst of both.
+            # lookup_for_repeat's fast path is _lru_get, which is what actually
+            # serves REQ_REPEAT.
+            if status < 400:
+                if not hasattr(self, "_same_wrote"):
+                    self._same_wrote = set()
+                if req_hash not in self._same_wrote:
+                    self._same_wrote.add(req_hash)
+                    print("[SAME-WHY] %s: WROTE semcache entry raw_hash=%s "
+                          "fields=%r"
+                          % (req_hash.hex()[:8], new_raw_hash.hex()[:16],
+                             [(k, (v[:40] if isinstance(v, str) else v))
+                              for k, v in (dyn_vals or [])][:10]), flush=True)
+                # diff_payload is NOT self-contained: decoding it needs the request
+                # reference in exactly the state it was at this moment. A future
+                # REQ_REPEAT re-executes by handing this blob to engine.execute(),
+                # which merges against the CURRENT reference -- and that will have
+                # advanced. Re-encode the fully-merged values as a FLAG_DIFF=0 full
+                # packet so it decodes correctly at any time.
+                #
+                # I stored diff_payload directly here; the original did not, and its
+                # comment says why. A REQ_REPEAT against that entry would have
+                # reconstructed the WRONG request and returned a confidently wrong
+                # answer -- worse than a miss.
+                trailer = diff_payload[len(normalized):]
+                _req_blob = (_make_full_req_blob(self.engine, opcode, prepared, trailer) or diff_payload)
+                # [SAME_CACHE_IS_MEMORY_ONLY_V1] (req_blob, raw_hash, same_id,
+                # is_raw) -- the exact tuple lookup_for_repeat returns.
+                semcache_db._lru_put(req_hash, (_req_blob, new_raw_hash, sid, False))
+                semcache_db.answer_put(sid, ("sem", resp_opcode, inst, dyn_vals, type_map) if (dyn_vals is not None and resp_opcode is not None) else ("blob", sem_resp), len(sem_resp))   # [SAME_MISS_FROM_CACHE_V1]
+            else:
+                _debug(f"SKIP CACHE: status={status} for {req_hash.hex()}")
+
+            exec_ms = (time.time() - t0) * 1000
+            _debug(f"REQ_DIFF->RESP_DIFF for {req_hash.hex()}")
+            reply = wrap_resp_diff(sid, wire_resp)
+            bump_daemon_cache(
+                peer_ip=self.peer_ip,
+                req_type="req_diff",
+                resp_type="resp_diff",
+                bytes_in=len(diff_payload),
+                bytes_out=len(reply),
+                exec_ms=exec_ms,
+                opcode=opcode,
             )
-        else:
-            wire_resp = sem_resp
-
-        # [NO_CACHES_V1] the response is not stored.
-
-        # [SAME_IS_BACK_V1] REQ_DIFF writer. Same guard as REQ_FULL.
-        # [SAME_CACHE_IS_MEMORY_ONLY_V1] LRU only -- no MySQL on the response
-        # path. semcache_db.upsert() writes MySQL and does NOT populate the
-        # daemon's own LRU, so it cost a disk round-trip HERE and the next
-        # lookup_for_repeat still had to fault the row back in. Worst of both.
-        # lookup_for_repeat's fast path is _lru_get, which is what actually
-        # serves REQ_REPEAT.
-        if status < 400:
-            if not hasattr(self, "_same_wrote"):
-                self._same_wrote = set()
-            if req_hash not in self._same_wrote:
-                self._same_wrote.add(req_hash)
-                print("[SAME-WHY] %s: WROTE semcache entry raw_hash=%s "
-                      "fields=%r"
-                      % (req_hash.hex()[:8], new_raw_hash.hex()[:16],
-                         [(k, (v[:40] if isinstance(v, str) else v))
-                          for k, v in (dyn_vals or [])][:10]), flush=True)
-            # diff_payload is NOT self-contained: decoding it needs the request
-            # reference in exactly the state it was at this moment. A future
-            # REQ_REPEAT re-executes by handing this blob to engine.execute(),
-            # which merges against the CURRENT reference -- and that will have
-            # advanced. Re-encode the fully-merged values as a FLAG_DIFF=0 full
-            # packet so it decodes correctly at any time.
-            #
-            # I stored diff_payload directly here; the original did not, and its
-            # comment says why. A REQ_REPEAT against that entry would have
-            # reconstructed the WRONG request and returned a confidently wrong
-            # answer -- worse than a miss.
-            trailer = diff_payload[len(normalized):]
-            _req_blob = (_make_full_req_blob(self.engine, opcode, prepared, trailer) or diff_payload)
-            # [SAME_CACHE_IS_MEMORY_ONLY_V1] (req_blob, raw_hash, same_id,
-            # is_raw) -- the exact tuple lookup_for_repeat returns.
-            semcache_db._lru_put(req_hash, (_req_blob, new_raw_hash, sid, False))
-            semcache_db.answer_put(sid, ("sem", resp_opcode, inst, dyn_vals, type_map) if (dyn_vals is not None and resp_opcode is not None) else ("blob", sem_resp), len(sem_resp))   # [SAME_MISS_FROM_CACHE_V1]
-        else:
-            _debug(f"SKIP CACHE: status={status} for {req_hash.hex()}")
-
-        exec_ms = (time.time() - t0) * 1000
-        _debug(f"REQ_DIFF->RESP_DIFF for {req_hash.hex()}")
-        reply = wrap_resp_diff(sid, wire_resp)
-        emit.send(reply)
-        bump_daemon_cache(
-            peer_ip=self.peer_ip,
-            req_type="req_diff",
-            resp_type="resp_diff",
-            bytes_in=len(diff_payload),
-            bytes_out=len(reply),
-            exec_ms=exec_ms,
-            opcode=opcode,
-        )
-        return reply
+            return reply
+        return emit.defer(_finish)
 
     # ================================================================
     # REQ_RAW handler
@@ -1806,6 +1834,8 @@ class SemanticSession(EngineSession):
                 # Sentinel
                 if seq == -1:
                     break
+                if isinstance(reply, _Deferred):         # [REFERENCES_MOVE_IN_WIRE_ORDER_V1] the reference moves here, in wire order
+                    reply = reply.resolve()
 
                 try:
                     for unit in self.driver.pack(seq, reply):

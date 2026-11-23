@@ -8,6 +8,11 @@
  **************************************************************/
 // held_fire.php -- [HELD_READ_IN_API_V1 - John 2026-11-07] the holder's end of a held read.
 //
+// [THE_FIRE_RIDES_THE_HOLDERS_CONNECTION_V1 - John 2026-11-22] NOT IN THE PATH ANY MORE. A role host no longer
+// makes a request toward a holder ("You cannot make a connection down; only up"): its daemon puts the fire on the
+// connection the holder's node opened, and that node's proxy hands it to the holder's socket
+// (opt/frognet_semantic/core/held_fire.py). This file is what a role host on a build before 22 Nov still calls.
+//
 // A role host's api.php fires a held read by POSTing here, through this node's port 80
 // (proxy -> daemon -> Apache, the path every daemon-to-daemon call takes). The body is
 // {hold, hid, build, SensorID, SensorType, SensorName, SensorAddress, UpdatedAtEpoch, data}.

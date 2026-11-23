@@ -579,6 +579,12 @@ def main():
     # six minutes. Needs what the tier above needs.
     results.append(_run_proc("the four runs of the Roles exercise between machines (roles_exercise_tier --run all)",
                              ["simulation/roles_exercise_tier.py", "--run", "all"], retry=False))
+    # [THE_FULL_TEST_FOR_A_REAL_NETWORK_V1] core/channel_test.py, the test John runs on his real network, between
+    # machines: a memory for the Role on each other machine, traffic throughout, the settings, the three refusals,
+    # the keys of its part L, one change made from another machine; then with one machine holding another secret,
+    # where it must say FAIL and name that machine. About four minutes.
+    results.append(_run_proc("the full test for a real network, between machines, passing and failing (roles_exercise_tier --step test)",
+                             ["simulation/roles_exercise_tier.py", "--step", "test"], retry=False))
     results.append(_run_proc("transport factory self-test (sim+loopback+netem, 12)",
                              ["simulation/transport_factories.py"]))
     # [AICONNECT_RAMP_IS_GATED_V1] The AIConnect workload had no tier at all --

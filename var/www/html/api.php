@@ -18,7 +18,7 @@
  **************************************************************/
 require_once __DIR__ . '/config.php';
 // [HELD_READ_IN_API_V1] api.php reports its own build on every response.
-const API_BUILD = 'api.php 20261107-held2 [HELD_READ_IN_API_V1][WRITER_GONE_V1]';
+const API_BUILD = 'api.php 20261122-held3 [HELD_READ_IN_API_V1][WRITER_GONE_V1][THE_FIRE_RIDES_THE_HOLDERS_CONNECTION_V1]';
 header('X-FrogNet-Api-Build: ' . API_BUILD);
 header('Content-Type: application/json');
 header('Access-Control-Allow-Origin: *');
@@ -250,19 +250,27 @@ function fetch_all($stmt) {
 // ---- [HELD_READ_IN_API_V1 - John 2026-11-07] held reads --------------------------
 //
 // A held read is a core function, so it lives here. The host accepts an update to a
-// tuple and completes it; the writer gets its reply; then the host runs down the
-// holders of that tuple or its family and fires each one, once, down the holder's
-// port 80 (proxy -> daemon -> Apache: the path every daemon-to-daemon call takes) to
-// its held_fire.php. A fired hold is deleted; the holder re-arms by holding again,
-// and the hold's own reply is the current value -- a cell holds one value, so there
-// is nothing to catch up on. No polling anywhere: not here, not in the holder.
+// tuple and completes it; then it runs down the holders of that tuple or its family
+// and fires each one, once. A fired hold is deleted; the holder re-arms by holding
+// again, and the hold's own reply is the current value -- a cell holds one value, so
+// there is nothing to catch up on. No polling anywhere: not here, not in the holder.
+//
+// [THE_FIRE_RIDES_THE_HOLDERS_CONNECTION_V1 - John 2026-11-22] "You cannot make a
+// connection down; only up." A fire is NOT a request made toward the holder. It is
+// handed to this node's daemon (a datagram, nothing waited for), which puts it on the
+// connection the holder's node opened to this host; that node's proxy hands it to the
+// waiting process (opt/frognet_semantic/core/held_fire.py). From 7 Nov to 22 Nov it
+// was an HTTP POST to http://<holder>/held_fire.php with a 5 s limit, which a node
+// behind a firewall could never receive and a node whose web server refused it never
+// heard. held_fire.php is no longer in the path.
+//
 // The holder list lives only in this host's HeldRead table. A split or merge ends it
 // (the machines go away); each holder re-registers at the role's new address on the
-// /etc/hosts event. A holder that is not there (410, or no answer) loses its hold:
-// gone is gone, and it re-registers on its next event.
+// /etc/hosts event. A holder whose node has no connection here loses its hold: the
+// daemon says so, gone is gone, and it re-registers on its next event.
 
-const HELD_FIRE_PATH      = '/held_fire.php';
-const HELD_FIRE_TIMEOUT_S = 5;
+const HELD_DIR_DEFAULT = '/run/frognet/held';
+const HELD_FIRE_INTAKE = 'role-host-fires.sock';      // the daemon's: opt/frognet_semantic/core/held_fire.py INTAKE
 
 function held_valid_holder($ip) {
     return is_string($ip) && filter_var($ip, FILTER_VALIDATE_IP, FILTER_FLAG_IPV4) !== false && $ip !== '0.0.0.0';
@@ -333,27 +341,25 @@ function held_fire_rows($rows, $gone) {
         }
     }
     if (!$fires) return;
-    // All fires in parallel; none waits on another.
-    $mh = curl_multi_init(); $hs = [];
+    // [THE_FIRE_RIDES_THE_HOLDERS_CONNECTION_V1] John, 22 Nov 2026: "The held read should stick a message directly
+    // onto the outgoing socket. You cannot fire an API down to something behind a firewall."
+    // Each fire is handed to THIS node's daemon, one datagram to its socket in the held directory, and this request
+    // is done with it: nothing is waited for and there is no time limit. The daemon puts it on a connection the
+    // holder's node opened to it (opt/frognet_semantic/core/held_fire.py), and that node's proxy hands it to the
+    // waiting process. Until this build a fire was a new HTTP POST to http://<holder>/held_fire.php with a 5 s limit.
+    $dir  = getenv('FROGNET_HELD_DIR') ?: HELD_DIR_DEFAULT;
+    $sock = $dir . '/' . HELD_FIRE_INTAKE;
+    $s = @stream_socket_client('udg://' . $sock, $errno, $errstr, 1);
     foreach ($fires as [$holder, $msg]) {
-        $ch = curl_init('http://' . $holder . HELD_FIRE_PATH);
-        curl_setopt_array($ch, [CURLOPT_POST => true, CURLOPT_POSTFIELDS => json_encode($msg),
-            CURLOPT_HTTPHEADER => ['Content-Type: application/json'], CURLOPT_RETURNTRANSFER => true,
-            CURLOPT_TIMEOUT => HELD_FIRE_TIMEOUT_S, CURLOPT_CONNECTTIMEOUT => HELD_FIRE_TIMEOUT_S]);
-        curl_multi_add_handle($mh, $ch); $hs[] = [$ch, $holder, $msg];
-    }
-    do { $st = curl_multi_exec($mh, $running); if ($running) curl_multi_select($mh, 1.0); }
-    while ($running && $st === CURLM_OK);
-    foreach ($hs as [$ch, $holder, $msg]) {
-        $code = (int)curl_getinfo($ch, CURLINFO_HTTP_CODE);
-        if ($code !== 200) {   // the hold is already gone; the holder re-registers on its next event
-            error_log(sprintf('[HELD_READ_IN_API_V1] fire hold=%d hid=%s holder=%s %s.%s -> %s',
-                $msg['hold'], $msg['hid'], $holder, $msg['SensorType'], $msg['SensorName'],
-                $code ? "HTTP $code" : ('no answer: ' . curl_error($ch))));
+        $out = json_encode(['holder' => $holder, 'fire' => $msg]);
+        $n = $s ? @fwrite($s, $out) : false;
+        if ($n !== strlen($out)) {   // the hold is already gone; the holder holds again at its next event
+            error_log(sprintf('[HELD_READ_IN_API_V1] fire hold=%d hid=%s holder=%s %s.%s -> not handed to this node\'s daemon (%s): %s',
+                $msg['hold'], $msg['hid'], $holder, $msg['SensorType'], $msg['SensorName'], $sock,
+                $s ? 'the datagram was not taken' : ('its socket is not there: ' . $errstr)));
         }
-        curl_multi_remove_handle($mh, $ch); curl_close($ch);
     }
-    curl_multi_close($mh);
+    if ($s) fclose($s);
 }
 
 $entity = $_GET['entity'] ?? null;

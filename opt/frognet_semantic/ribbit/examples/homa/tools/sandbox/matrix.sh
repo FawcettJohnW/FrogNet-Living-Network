@@ -1,4 +1,8 @@
 #!/bin/bash
+################################################################
+#  Copyright (C) 2016-2026 Fawcett Innovations LLC             #
+#  SPDX-License-Identifier: GPL-2.0-only                       #
+################################################################
 # matrix.sh <transport setting> <links> <seconds budget>: runs the topologies not yet run for that setting, one after
 # another, until the budget is used. One result file per topology: /home/claude/logs/final/<tag>/<topology>.txt
 set -u

@@ -86,28 +86,19 @@ def main():
     class _Latency:
         def retry_budget(self): return 1.0
 
-    class W:
-        """The socket hop, substituted: submit() hands the frame to the daemon session and holds the reply; wait()
-        returns it. The proxy's real _dispatch_begin/_dispatch_end run around it ([REFERENCES_MOVE_IN_WIRE_ORDER_V1])."""
+    class W(TS._InLine):
+        """The socket hop, substituted: the frame goes to the daemon session and its reply comes back, on the calling
+        thread. TS._InLine does around it what a session's writer and reader do (build the frame, apply the reply),
+        and the proxy's real _dispatch_begin/_dispatch_end run around that ([ONE_WRITER_OWNS_THE_WIRE_V1])."""
         _peer_latency = _Latency()
 
-        def submit(self, wire_req, gate=None):
-            import types
-            rpc = types.SimpleNamespace(gate=gate, ticket=0, reply=None)
+        def answer(self, wire_req):
             msg = DS.try_parse(wire_req)
             SEEN.append(DS.op_name(msg.op) if msg else "?")
             _seq, reply, _w = sess._process_frame_inner(wire_req, 1, len(wire_req))
             r = DS.try_parse(reply)
             SEEN.append(DS.op_name(r.op) if r else "?")
-
-            rpc.reply = reply
-            return rpc
-
-        def wait(self, rpc):
-            return rpc.reply
-
-        def call(self, wire_req):                       # the RAW bootstrap path still uses call()
-            return self.wait(self.submit(wire_req))
+            return reply
 
     TS._get_worker = lambda host, port, set_id=0: W()
 

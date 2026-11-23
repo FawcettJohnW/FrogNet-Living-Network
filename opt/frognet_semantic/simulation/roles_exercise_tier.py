@@ -54,6 +54,8 @@ Passing on the fast link (21 Nov 2026). NOT passing at 4,800 baud yet: EXPLORATI
 import argparse
 import json
 import os
+import subprocess
+import threading
 import re
 import sys
 import tempfile
@@ -65,7 +67,7 @@ import wire_between_machines_tier as W  # noqa: E402
 
 BUILD = "roles-exercise-tier-v4-20261121d"
 PY, SEM = W.PY, W.SEM
-START = "auto,databasehost_control.frognet chorus"       # every machine is told of chorus and listens on both
+START = os.environ.get("ROLES_TIER_START") or "auto,databasehost_control.frognet chorus"       # every machine is told of chorus and listens on both
 SITES = {"A": "Seattle5", "B": "Seattle3B", "C": "New-York-1"}
 ROLES = (("warning", "A"), ("exercise", "A"), ("assessment", "B"), ("compute", "B"), ("instructor", "B"),
          ("command", "C"), ("units", "C"))
@@ -90,8 +92,9 @@ def channel(role):
     return role
 
 
-KEYS_IN_A_SET = 20
-SEALED = lambda role, switches=0, protection="aes-256-gcm": {"seed": "the seed of %s" % role, "protection": protection, "switches": switches}
+# The Admin's number for a sealed Role ([THE_KEY_IS_COMPUTED_V1], core/channel_frame.py): random, new at every call,
+# so every setting made here for a sealed Role is a change of key. This tier is the Admin.
+SEALED = lambda role, protection="aes-256-gcm": {"number": __import__("secrets").randbits(62) + 1, "protection": protection}
 
 
 def elect_memories(machines, by, check):
@@ -138,11 +141,12 @@ def elect_memories(machines, by, check):
     W.MORE_MEMORIES.update({name: [m for m in machines if m.ip == ip][0] for name, ip in elected[machines[0].name].items()})
 
 
-def key_bytes(role, i):
-    """One key of a Role's set for the demonstration: 32 bytes made from the Role and its place in the set, the same
-    on every machine, placed in each machine's key store before the run. It never crosses a link."""
+def secret_bytes(role):
+    """A Role's secret for the demonstration: 32 bytes made from the Role's name, the same on every machine that
+    carries the Role, placed on each machine before the run. It never crosses a link, and no key is stored: each
+    node computes the key it sends under from this, its own FNID, the Role's name and the number in the setting."""
     import hashlib
-    return hashlib.sha256(("roles-exercise key %s %d" % (role, i)).encode()).digest()
+    return hashlib.sha256(("roles-exercise secret %s" % role).encode()).digest()
 
 
 def on(m, code, wait_s=120):
@@ -150,7 +154,7 @@ def on(m, code, wait_s=120):
     r = m.exec([PY, "-c", "import sys, json, time; sys.path.insert(0, %r); sys.path.insert(0, %r)\n" % (SEM, os.path.join(SEM, "core")) + code], env=m.env)
     line = [l for l in r.stdout.splitlines() if l.startswith("@@ ")]
     if not line:
-        return {"error": (r.stdout[-300:] + " " + r.stderr[-600:]).strip()}
+        return {"error": (r.stdout[-300:] + " " + r.stderr[-1500:]).strip()}
     return json.loads(line[-1][3:])
 
 
@@ -170,15 +174,18 @@ def sites_up(a, check):
     print("== %s, links %s: %s" % (BUILD, a.links, ", ".join("%s %s" % (m.name, m.ip) for m in machines)), flush=True)
     W.bring_up(machines, dbc, net)
     for m in machines:
-        kd = os.path.join(m.dir, "channel_keys"); os.makedirs(kd, exist_ok=True)
-        # A machine holds a Role's set only if it carries that Role's traffic (R42). In this exercise every site's
-        # admin pages read every Role's memory, so all three machines carry all seven and hold all seven sets.
+        kd = os.path.join(m.dir, "channel_secrets"); os.makedirs(kd, exist_ok=True)
+        # A machine holds a Role's secret only if it carries that Role's traffic (R42). In this exercise every site's
+        # admin pages read every Role's memory, so all three machines carry all seven and hold all seven secrets.
         for role, _site in ROLES:
-            os.makedirs(os.path.join(kd, role), exist_ok=True)
-            for i in range(KEYS_IN_A_SET):
-                with open(os.path.join(kd, role, "%02d" % i), "wb") as f:
-                    f.write(key_bytes(role, i))
-        m.env["FROGNET_CHANNEL_KEYS"] = kd
+            with open(os.path.join(kd, role), "wb") as f:
+                f.write(secret_bytes(role))
+        m.env["FROGNET_CHANNEL_SECRETS"] = kd
+        # the node's FNID, as /etc/fnid holds it on a node (FROGNET_GUID_FILE is the node scripts' own name for it)
+        import uuid
+        with open(os.path.join(m.dir, "fnid"), "w") as f:
+            f.write(str(uuid.uuid5(uuid.NAMESPACE_DNS, "%s.roles-exercise.frognet" % m.name)) + "\n")
+        m.env["FROGNET_GUID_FILE"] = os.path.join(m.dir, "fnid")
         cd = os.path.join(m.dir, "openqasm_circuits"); os.makedirs(cd, exist_ok=True)     # the circuit file, placed as keys are
         with open(os.path.join(cd, "01-track.qasm"), "w") as f:
             f.write(_rules().CIRCUIT % ("0.000", "0.000"))
@@ -221,26 +228,10 @@ def owner_sets(machines, role, value, wait_s=60):
     every daemon and proxy holds the setting and every one that carries the Role says it is sending that way.
     Returns (it was so, seconds from the write to the last report, what was seen)."""
     m = [x for x in machines if x.name == SITES[dict(ROLES)[role]]][0]
-    r = on(m, "from core import channel_setting as C\n"
-              "T, H = C._tuples()\n"
-              "value = json.loads(%r)\n"
-              "t0 = time.time()\n"
-              "ok = C.write(value, ram=%r)\n"
-              "pre, last = T.var_name('at', ''), {}\n"
-              "def fits(run):\n"
-              "    return (run.get('driver') == value.get('driver') and run.get('switches') == int(value.get('switches') or 0)\n"
-              "            and bool(run.get('sealed')) == bool(value.get('seed'))\n"
-              "            and (not value.get('seed') or run.get('protection') == (value.get('protection') or 'aes-256-gcm')))\n"
-              "def done(rows):\n"
-              "    at = [r.get('data') or {} for r in rows if str(r.get('SensorName') or '').startswith(pre)]\n"
-              "    last['ends'] = len(at)\n"
-              "    last['hold'] = sum(1 for d in at if fits((d.get('rams') or {}).get(%r) or {}))\n"
-              "    last['carry'] = sum(1 for d in at if %r in (d.get('running') or {}))\n"
-              "    last['run'] = sum(1 for d in at if %r in (d.get('running') or {}) and fits(d['running'][%r]))\n"
-              "    return last['ends'] >= %d and last['hold'] == last['ends'] and last['run'] == last['carry']\n"
-              "rows = H.holder().wait_until(C.SERVICE, C.CONTROL_RAM, done, name_like=T.var_name('at', '%%'), wait_s=%f)\n"
-              "print('@@ ' + json.dumps(dict(last, ok=bool(ok), done=done(rows), took=time.time() - t0)))"
-           % (json.dumps(value), role, role, role, role, role, 2 * len(machines), wait_s), wait_s=wait_s + 60)
+    # the Admin's own tool does it (core/channel_admin.py: what a node's Admin runs, and what the Channel panel will do)
+    r = on(m, "from core import channel_admin as A\n"
+              "print('@@ ' + json.dumps(A.write_and_wait(%r, json.loads(%r), ends=%d, wait_s=%f)))"
+           % (role, json.dumps(value), 2 * len(machines), wait_s), wait_s=wait_s + 60)
     return bool(r.get("done")), r.get("took"), r
 
 
@@ -316,7 +307,7 @@ def step_memories(a, check):
             if role:
                 named.setdefault((m.name, ip), {})[role] = how
                 st = settings[role]
-                if ("'driver': '%s'" % st["driver"]) not in how or ("'sealed': %s" % bool(st.get("seed"))) not in how:
+                if ("'driver': '%s'" % st["driver"]) not in how or ("'sealed': %s" % bool(st.get("number"))) not in how:
                     bad[(m.name, role)] = how
     shared = {k: sorted(v) for k, v in named.items() if len(v) > 1}
     check(shared and not bad, "on those connections each Role has a sequence of packet IDs of its own, under its own protocol and its own key or none "
@@ -326,6 +317,274 @@ def step_memories(a, check):
     check(not refused, "no frame was refused and no setting ignored%s" % ("" if not refused else ": %s" % refused[:2]))
     after = pids(machines)
     check(before == after and all(p[1] is None and p[3] is None for p in after.values()), "no daemon or proxy restarted or ended")
+    return machines
+
+
+def admin(m, *words):
+    """The Admin's command on machine m, as typed on a node: (its exit code, what it printed)."""
+    r = on(m, "import io, contextlib\nfrom core import channel_admin as A\nbuf = io.StringIO()\n"
+              "with contextlib.redirect_stdout(buf):\n    rc = A.main(%r)\n"
+              "print('@@ ' + json.dumps({'rc': rc, 'out': buf.getvalue()}))" % (list(words),), wait_s=200)
+    return r.get("rc"), r.get("out") or r.get("error") or ""
+
+
+def step_test(a, check):
+    """core/channel_test.py, the full test John runs on his real network, run here between machines from Units' site:
+    a memory for the Role on each other machine, traffic to them throughout, the settings, the refusals, the keys of
+    its part L (given as a list), and one change made from ANOTHER machine while it waits. Then with one machine's
+    copy of the Role's secret changed, where it must say FAIL and name that machine: a test that cannot fail proves
+    nothing."""
+    net, machines, by, tmp = sites_up(a, check)
+    c = by[SITES["C"]]
+    # On a node the tunnel daemon runs the application election on a held read on the fdf-app family
+    # (internet_tunnels_v3/poll.py). No tunnel daemon runs here, so each machine gets that one loop: the same held
+    # read, the same core/app_hosts.commit, its hosts file written in place.
+    elector = ("sys.path.insert(0, %r)\nimport fdfram, threading\nfrom core import app_hosts\n"
+               "lock = threading.Lock()\n"
+               "def elect():\n"
+               "    with lock:\n"
+               "        etc = [l.rstrip('\\n') for l in open(%r)]\n"
+               "        new = app_hosts.commit(etc, hosts_path=%r)\n"
+               "        if new != etc:\n"
+               "            open(%r, 'w').write('\\n'.join(new) + '\\n')\n"
+               "def watch(ip):\n"
+               "    ram, first = fdfram.RoleRam(ip), True\n"
+               "    while True:\n"
+               "        ram.read('fdf-app', '', '', after=-1 if first else 0, wait_s=0 if first else fdfram.HOLD_S)\n"
+               "        first = False\n"
+               "        elect()\n"
+               "threading.Thread(target=watch, args=(%r,), daemon=True).start()\n"
+               "watch(%r)\n")
+    for m in machines:
+        m.run([PY, "-c", "import sys, json, time; sys.path.insert(0, %r); sys.path.insert(0, %r)\n" % (SEM, os.path.join(SEM, "core"))
+               + elector % (FDF_PY, m.hosts, m.hosts, m.hosts, m.control.ip, m.system.ip)], env=m.env,
+              stdout=subprocess.DEVNULL, stderr=open(os.path.join(m.dir, "elector.log"), "w"))
+
+    def run(m, *words):
+        said_in = os.path.join(m.dir, "channel_test.out")       # (kept as it is said, so a run that stops can be read)
+        r = on(m, "import contextlib, faulthandler\nfaulthandler.dump_traceback_later(100, file=open(%r, 'w'))\nfrom core import channel_test as X\n" % (said_in + ".stuck",) +
+                  "with open(%r, 'w', buffering=1) as f, contextlib.redirect_stdout(f):\n    rc = X.main(%r)\n"
+                  "print('@@ ' + json.dumps({'rc': rc}))" % (said_in, list(words)), wait_s=500)
+        return r.get("rc"), (open(said_in).read() if os.path.exists(said_in) else "") or r.get("error") or ""
+    other = [m for m in machines if m is not c][0]
+    # the change made elsewhere: a program on ANOTHER machine holds a read on the tuple the test writes when it is
+    # waiting, and then does what an Admin would type there
+    said = {}
+
+    def from_elsewhere():
+        r = on(other, "from core import channel_setting as C\nfrom core import channel_admin as A\nimport io, contextlib\n"
+                      "T, H = C._tuples()\n"
+                      "there = lambda rows: any(str(r.get('SensorName')) == T.var_name('waiting', %r) for r in rows)\n"
+                      "until = time.time() + 400\n"
+                      "while not there(H.holder().wait_until('channel-test', C.CONTROL_RAM, there, name_like=T.var_name('waiting', '%%'), wait_s=max(0, until - time.time()))) and time.time() < until:\n"
+                      "    pass\n"
+                      "buf = io.StringIO()\n"
+                      "with contextlib.redirect_stdout(buf):\n    rc = A.main(['set', 'units', '--new-key'])\n"
+                      "print('@@ ' + json.dumps({'rc': rc, 'out': buf.getvalue()}))" % (c.ip,), wait_s=450)
+        said.update(r)
+        print("   (from %s: %s)" % (other.name, str(r)[-900:]), flush=True)
+    th = threading.Thread(target=from_elsewhere, daemon=True)
+    th.start()
+    rc, out = run(c, "--role", "units", "--keys", "pkaesq")
+    th.join(60)
+    print("\n".join("   | " + l for l in out.splitlines()))
+    last = (out.strip().splitlines() or [""])[-1]
+    check(rc == 0 and last.startswith("RESULT PASS") and "[FAIL]" not in out and "| SKIP" not in out,
+          "the full test, from %s, every machine holding the secret: %s" % (c.name, last[:160]))
+    check(said.get("rc") == 0 and "Changed elsewhere (a new key)" in out,
+          "a new key set from %s while the test waited is in its table as a change made elsewhere (%s)" % (other.name, str(said.get("out") or said)[-120:].strip()))
+    check(not any("protocoltest" in l for l in open(c.hosts)), "the test's memories are gone from %s's hosts file when it ends" % c.name)
+    path = os.path.join(other.dir, "channel_secrets", "units")
+    open(path, "wb").write(b"\x55" * 32)                 # that machine now holds ANOTHER secret for the Role
+    rc, out = run(c, "--role", "units", "--within", "3", "--no-keys")
+    last = (out.strip().splitlines() or [""])[-1]
+    fails = [l for l in out.splitlines() if "[FAIL]" in l]
+    print("\n".join("   | " + l for l in out.splitlines() if "[FAIL]" in l or l.startswith("  ") and other.ip in l)[:3000])
+    table = out[out.find("SUMMARY"):] if "SUMMARY" in out else ""
+    print("\n".join("   | " + l for l in table.splitlines()))
+    check(sum(1 for l in table.splitlines() if l.rstrip().endswith("| FAIL   |")) >= 1 and any(l.rstrip().endswith("| PASS   |") for l in table.splitlines()),
+          "its summary table says FAIL on the rows that failed and PASS on the rest")
+    check(rc == 1 and last.startswith("RESULT FAIL") and any(other.ip in l or other.ip in out.split(l, 1)[1][:700] for l in fails),
+          "with %s holding another secret for units the test says FAIL and names its ends: %s" % (other.name, last[:140]))
+    return machines
+
+
+def step_admin(a, check):
+    """core/channel_admin.py, the Admin's command line, between machines: each act is one write from the Role's own
+    site, and the command returns when every end reports it."""
+    net, machines, by, tmp = sites_up(a, check)
+    c = by[SITES["C"]]                                   # Units is at site C: its Admin works there
+    rc, out = admin(c, "secret", "units")
+    check(rc == 0 and "already there" in out, "secret: the Role's secret is on the node already and is left alone (%s)" % out.strip().splitlines()[-1][:120])
+    for words, want in ((("set", "units", "--protocol", "chorus"), '"driver": "chorus"'),
+                        (("set", "units", "--seal"), '"number"'),
+                        (("set", "units", "--new-key"), '"number"'),
+                        (("set", "units", "--algorithm", "chacha20-poly1305"), "chacha20-poly1305"),
+                        (("set", "units", "--protocol", "openqasm"), '"driver": "openqasm"')):
+        rc, out = admin(c, *words)
+        check(rc == 0 and want in out and "every end holds it (6)" in out,
+              "%s: one write, and every end held it (%s)" % (" ".join(words), out.strip().splitlines()[-1][:150]))
+    rc, out = admin(c, "set", "units", "--protocol", "tcp", "--new-key")
+    check(rc == 2 and "not changed in one write" in out, "a protocol and an encryption in one command: refused, nothing written")
+    rc, out = admin(by[SITES["A"]], "show", "units")
+    check(rc == 0 and "units: protocol openqasm, sealed with chacha20-poly1305" in out and out.count("holds it") == 6,
+          "show, from another site: the setting and all six ends holding it (%s)" % out.strip().splitlines()[1][:110])
+    rc, out = admin(c, "set", "units", "--unseal")
+    check(rc == 0 and '"number"' not in out.split("\n")[1] and "every end holds it (6)" in out, "set units --unseal: one write, and every end held it")
+    return machines
+
+
+def step_admin_restart(a, check):
+    """What John did on his network, 22 Nov 2026 11:39: the daemon and the proxy of the node that holds the ControlRam
+    are restarted (as `systemctl restart frognet-daemon frognet-proxy` does: SIGTERM, then started again), and then the
+    Admin sets a Role's channel from that node. On his network 5 of 13 ends did not take the setting up in 60 s."""
+    import signal, subprocess
+    net, machines, by, tmp = sites_up(a, check)
+    ctl = W.control_holder(machines)
+    rc, out = admin(ctl, "set", "units", "--seal")
+    check(rc == 0 and "every end holds it (6)" in out, "before any restart, set units --seal from %s: %s" % (ctl.name, out.strip().splitlines()[-1][:150]))
+    marks = {m.name: (os.path.getsize(m.daemon_log), os.path.getsize(m.proxy_log)) for m in machines}
+    for p in (ctl.daemon, ctl.proxy_main):
+        p.send_signal(signal.SIGTERM)
+    ended = []
+    for p in (ctl.daemon, ctl.proxy_main):
+        try:
+            ended.append(p.wait(timeout=20))
+        except Exception:
+            p.kill(); ended.append("killed after 20 s")
+    env = dict(ctl.env, FROGNET_SEM_TRANSPORT=START)
+    ctl.daemon = ctl.run([W.PY, os.path.join(W.SEM, "daemon", "daemon_main.py"), "--listen", "0.0.0.0:9009"], env=env, cwd=W.SEM,
+                         stdout=open(ctl.daemon_log, "a"), stderr=subprocess.STDOUT)
+    ctl.proxy_main = ctl.run([W.PY, "-m", "proxy.proxy_main", "--listen", "0.0.0.0:80"], env=env, cwd=W.SEM,
+                             stdout=open(ctl.proxy_log, "a"), stderr=subprocess.STDOUT)
+    t_end, up = time.time() + 60, False
+    while not up and time.time() < t_end:              # (the tier's own wait for a daemon, as wait_daemons does it)
+        up = W.TCP_LISTENING in open(ctl.daemon_log, errors="replace").read()[marks[ctl.name][0]:]
+        time.sleep(0.2)
+    print("   %s's daemon and proxy were sent SIGTERM (they ended: %s) and started again; its daemon is listening: %s" % (ctl.name, ended, up))
+    rc, out = admin(ctl, "set", "units", "--new-key", "--wait", "30")
+    last = out.strip().splitlines()[-1]
+    check(rc == 0 and "every end holds it (6)" in out, "after %s's daemon and proxy restarted, set units --new-key from it: %s" % (ctl.name, last[:400]))
+    for m in machines:
+        for f, at in ((m.daemon_log, marks[m.name][0]), (m.proxy_log, marks[m.name][1])):
+            new = open(f, errors="replace").read()[at:]
+            said = [l[:330] for l in new.splitlines() if "[CHANNEL-SETTING]" in l and ("hold" in l or "removed" in l or "not " in l)]
+            print("   %s %s, since the restart: %d [CHANNEL-SETTING] line(s) about a hold or a report%s"
+                  % (m.name, os.path.basename(f), len(said), "".join("\n      " + l for l in said[:4])))
+    return machines
+
+
+def step_holds(a, check):
+    """Found on John's network, 22 Nov 2026: a node's daemon and proxy both hold a read on a Role's setting, both
+    register at the same instant, the fire reaches both (held_fire.php answers 200) and neither wakes. A holder knows
+    its hold by the id in the reply to its registration (core/frognet_held.py), and that reply crosses the semantic
+    wire. Here two holders on one machine register at the same instant, many times, and the id each was GIVEN is
+    compared with the id the ControlRam's own table has for it (read on the ControlRam's machine, from its own api.php,
+    not over the wire)."""
+    net, machines, by, tmp = sites_up(a, check)
+    ctl = W.control_holder(machines)
+    far = [m for m in machines if m is not ctl][0]
+    rounds = a.steps or 40
+    got = on(far, "import threading, urllib.request, urllib.parse, frognet_tuples as T\n"
+                  "like = urllib.parse.quote(T.var_name('setting', '%%'))\n"
+                  "out, gate = {}, threading.Barrier(2)\n"
+                  "def one(who, n):\n"
+                  "    hid = 'holdtest.%%s.%%d' %% (who, n)\n"
+                  "    gate.wait()\n"
+                  "    u = 'http://databasehost_control.frognet/api.php?entity=held&action=hold&SensorType=channel&SensorName__like=%%s&holder=%%s&hid=%%s' %% (like, %r, hid)\n"
+                  "    try:\n"
+                  "        out[hid] = json.loads(urllib.request.urlopen(u, timeout=60).read()).get('hold')\n"
+                  "    except Exception as e:\n"
+                  "        out[hid] = 'error: %%r' %% (e,)\n"
+                  "for n in range(%d):\n"
+                  "    ts = [threading.Thread(target=one, args=(w, n)) for w in ('daemon', 'proxy')]\n"
+                  "    [t.start() for t in ts]; [t.join() for t in ts]\n"
+                  "print('@@ ' + json.dumps(out))" % (far.ip, rounds), wait_s=300)
+    truth = on(ctl, "import urllib.request\n"
+                    "rows = json.loads(urllib.request.urlopen('http://127.0.0.1:8080/api.php?entity=held&action=list&limit=5000', timeout=60).read()).get('rows') or []\n"
+                    "print('@@ ' + json.dumps({str(r.get('HolderID')): r.get('HoldID') for r in rows if str(r.get('HolderID')).startswith('holdtest.')}))")
+    asked = len(got)
+    errors = {h: v for h, v in got.items() if not isinstance(v, int)}
+    wrong = {h: (v, truth.get(h)) for h, v in got.items() if isinstance(v, int) and int(truth.get(h) or -1) != v}
+    given = [v for v in got.values() if isinstance(v, int)]
+    print("   %d registrations from %s in %d rounds of two at once: %d in the ControlRam's table, %d errors, %d given an id that is "
+          "not theirs, %d ids given more than once" % (asked, far.name, rounds, len(truth), len(errors), len(wrong), len(given) - len(set(given))))
+    for h, (v, t) in sorted(wrong.items())[:8]:
+        print("      %s was told hold %s; the table has it as %s" % (h, v, t))
+    for h, v in sorted(errors.items())[:3]:
+        print("      %s: %s" % (h, v))
+    check(asked == 2 * rounds and not errors and not wrong and len(truth) == asked,
+          "two holders on one machine registering at the same instant, %d times: each is told its own hold's id (%d wrong, %d errors)"
+          % (rounds, len(wrong), len(errors)))
+    return machines
+
+
+def step_fires(a, check):
+    """Found on John's network, 22 Nov 2026: api.php on the ControlRam's node fires a node's two holds (its daemon's and
+    its proxy's) at the same instant, two POSTs to that node's /held_fire.php with bodies that differ in the hold's id
+    and the holder's id; both are answered 200 and neither holder wakes. A holder knows a fire by the hold id in its
+    body (core/frognet_held.py). Here two holders' sockets are bound on one machine, the ControlRam's machine sends two
+    such POSTs at once to it, many times, and what arrives on each socket is compared, value for value, with what was
+    sent to it."""
+    import subprocess
+    net, machines, by, tmp = sites_up(a, check)
+    ctl = W.control_holder(machines)
+    far = [m for m in machines if m is not ctl][0]
+    rounds = a.steps or 40
+    tag = "firetest%d" % os.getpid()
+    listener = far.run([PY, "-c",
+        "import socket, select, json, os, sys\n"
+        "d = os.environ.get('FROGNET_HELD_DIR') or '/run/frognet/held'; os.makedirs(d, exist_ok=True)\n"
+        "socks = {}\n"
+        "for who in ('daemon', 'proxy'):\n"
+        "    p = '%%s/%s.%%s.sock' %% (d, who)\n"
+        "    if os.path.exists(p): os.unlink(p)\n"
+        "    s = socket.socket(socket.AF_UNIX, socket.SOCK_DGRAM); s.bind(p); os.chmod(p, 0o666); socks[s] = who\n"
+        "print('ready', flush=True)\n"
+        "got = {'daemon': [], 'proxy': []}\n"
+        "while sum(len(v) for v in got.values()) < %d:\n"
+        "    r, _, _ = select.select(list(socks), [], [], 60)\n"
+        "    if not r: break\n"
+        "    for s in r: got[socks[s]].append(s.recv(65536).decode())\n"
+        "print('@@ ' + json.dumps(got), flush=True)" % (tag, 2 * rounds)], env=far.env, stdout=subprocess.PIPE, text=True)
+    listener.stdout.readline()                           # blocks until both sockets are bound
+    sent = on(ctl, "import threading, urllib.request, urllib.error\n"
+                   "out, gate = {}, threading.Barrier(2)\n"
+                   "def one(who, n):\n"
+                   "    body = json.dumps({'hold': 758000 + 2 * n + (who == 'proxy'), 'hid': '%s.' + who, 'build': 'api.php 20261107-held2 [HELD_READ_IN_API_V1][WRITER_GONE_V1]',\n"
+                   "                       'SensorID': 7362427, 'SensorType': 'channel', 'SensorName': 'SD:setting.units', 'SensorAddress': '',\n"
+                   "                       'UpdatedAtEpoch': 1795377312 + n, 'data': {'driver': 'tcp', 'number': 3564706267646040 + n, 'protection': 'aes-256-gcm'}, 'gone': False})\n"
+                   "    gate.wait()\n"
+                   "    req = urllib.request.Request('http://%s/held_fire.php', data=body.encode(), headers={'Content-Type': 'application/json'}, method='POST')\n"
+                   "    try:\n"
+                   "        code = urllib.request.urlopen(req, timeout=60).status\n"
+                   "    except urllib.error.HTTPError as e:\n"
+                   "        code = e.code\n"
+                   "    except Exception as e:\n"
+                   "        code = repr(e)[:120]\n"
+                   "    out.setdefault(who, []).append([body, code])\n"
+                   "for n in range(%d):\n"
+                   "    ts = [threading.Thread(target=one, args=(w, n)) for w in ('daemon', 'proxy')]\n"
+                   "    [t.start() for t in ts]; [t.join() for t in ts]\n"
+                   "print('@@ ' + json.dumps(out))" % (tag, far.ip, rounds), wait_s=300)
+    line = [l for l in listener.communicate(timeout=120)[0].splitlines() if l.startswith("@@ ")]
+    got = json.loads(line[-1][3:]) if line else {}
+    n_sent = sum(len(v) for v in sent.values()) if "error" not in sent else 0
+    ok200 = sum(1 for v in sent.values() for _b, c in v if c == 200) if n_sent else 0
+    wrong = []
+    for who in ("daemon", "proxy"):
+        canon = lambda x: json.dumps(json.loads(x), sort_keys=True)      # the wire carries JSON by its values
+        want = sorted(canon(b) for b, _c in (sent.get(who) or []))
+        have = sorted(canon(x) for x in (got.get(who) or []))
+        if want != have:
+            wrong += ["%s: sent %d, arrived %d; arrived and never sent: %s; sent and never arrived: %s"
+                      % (who, len(want), len(have), [x[:90] for x in have if x not in want][:3], [x[:90] for x in want if x not in have][:3])]
+    print("   %d fires from %s to %s in %d rounds of two at once: %d answered 200, %d datagrams arrived%s"
+          % (n_sent, ctl.name, far.name, rounds, ok200, sum(len(v) for v in got.values()), "" if "error" not in sent else "; the sender: %s" % sent["error"][:300]))
+    for w in wrong:
+        print("      " + w[:600])
+    check(n_sent == 2 * rounds and ok200 == n_sent and not wrong, "two fires to one machine at the same instant, %d times: every one is "
+          "answered 200 and arrives on its own holder's socket with every value as it was sent (%d holders differ)" % (rounds, len(wrong)))
     return machines
 
 
@@ -465,11 +724,11 @@ def run_plan(run):
     changes = [
         (15, "units", "Units: the protocol, TCP to Chorus", [U()]),
         (25, "assessment", "Assessment: the protocol, Chorus to OpenQASM", [A(**SEALED("assessment"))]),
-        (30, "units", "Units: encryption turned on", [U(**SEALED("units", 1))]),
-        (35, "assessment", "Assessment: its key is switched", [A(**SEALED("assessment", 1))]),
-        (45, "units", "Units: its key is switched", [U(**SEALED("units", 2))]),
-        (50, "assessment", "Assessment: its algorithm is replaced", [A(**SEALED("assessment", 2, cha))]),
-        (55, "units", "Units: its algorithm is replaced", [U(**SEALED("units", 3, cha))]),
+        (30, "units", "Units: encryption turned on", [U(**SEALED("units"))]),
+        (35, "assessment", "Assessment: its key is switched", [A(**SEALED("assessment"))]),
+        (45, "units", "Units: its key is switched", [U(**SEALED("units"))]),
+        (50, "assessment", "Assessment: its algorithm is replaced", [A(**SEALED("assessment", cha))]),
+        (55, "units", "Units: its algorithm is replaced", [U(**SEALED("units", cha))]),
     ]
     return start, changes
 
@@ -689,17 +948,19 @@ def step_runs(a, check):
         for fn in files:
             if fn.endswith((".py", ".json")):
                 t = open(os.path.join(root, fn), errors="replace").read()
-                named += ["%s: %s" % (fn, w) for w in ("tcp", "chorus", "openqasm", "the seed of", "channel_keys", "aes-256", "chacha20") if w in t]
+                named += ["%s: %s" % (fn, w) for w in ("tcp", "chorus", "openqasm", "secret of", "channel_secrets", "aes-256", "chacha20") if w in t]
     check(not named, "R25: nothing under simulation/roles_exercise names a protocol or a key%s" % ("" if not named else ": %s" % named))
     import subprocess
-    d = subprocess.run(["git", "-C", SEM, "status", "--porcelain", "--", "discovery", "frognet_route", "../../usr/local/bin", "internet_tunnels_v3"], capture_output=True, text=True)
+    d = subprocess.run(["git", "-C", SEM, "status", "--porcelain", "--", "discovery", "frognet_route", "../../usr/local/bin", "internet_tunnels_v3",
+                        ":(exclude)../../usr/local/bin/frognet_monitor_py"],   # (the monitor is not discovery or routing: John had lines added to it, 22 Nov)
+                       capture_output=True, text=True)
     check(d.returncode == 0 and not d.stdout.strip(), "R27: discovery and routing are as the starting commit has them (git status of those directories is empty)")
     return machines
 
 
 def main():
     ap = argparse.ArgumentParser()
-    ap.add_argument("--step", default="memories", choices=["memories", "pages"])
+    ap.add_argument("--step", default="memories", choices=["memories", "pages", "admin", "admin-restart", "holds", "fires", "test"])
     ap.add_argument("--run", default="", choices=["", "1", "2", "3", "4", "all"], help="the design's four runs: 1 TCP, 2 Chorus, 3 OpenQASM, 4 mixed with changes")
     ap.add_argument("--steps", type=int, default=0, help="run this many of the scenario's 60 steps (the changes of run 4 fall at the same fractions)")
     ap.add_argument("--out", default="", help="write <out>.run<N>.record.json and <out>.report.json")
@@ -720,7 +981,7 @@ def main():
         print("RESULT FAIL: this tier needs " + "; ".join(need)); return 1
     machines = []
     try:
-        machines = step_runs(a, check) if a.run else {"memories": step_memories, "pages": step_pages}[a.step](a, check)
+        machines = step_runs(a, check) if a.run else {"memories": step_memories, "pages": step_pages, "admin": step_admin, "admin-restart": step_admin_restart, "holds": step_holds, "fires": step_fires, "test": step_test}[a.step](a, check)
     finally:
         if machines and not a.keep:
             W.tear_down(machines)

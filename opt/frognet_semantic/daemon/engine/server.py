@@ -98,6 +98,7 @@ class DaemonServer:
         self._pending_sessions = {}
         self._pending_lock = threading.RLock()
         self._live_by_ip = {}         # [WRITER_GONE_V1] return_ip -> live established sessions
+        self._sessions_of = {}        # [THE_FIRE_RIDES_THE_HOLDERS_CONNECTION_V1] a node's .1 -> its established sessions here
 
     def run(self) -> None:
         """[RETURN_ONLY_V1] Non-blocking accept loop.
@@ -119,6 +120,17 @@ class DaemonServer:
         # not where load should be bounded.
         srv.listen(4096)
         trace(f"[Daemon] [RETURN_ONLY_V1] listening on {self.host}:{self.port}")
+        # [THE_FIRE_RIDES_THE_HOLDERS_CONNECTION_V1] this node's api.php hands its held reads' fires to this daemon,
+        # which puts each on a connection the holder's node opened here (core/held_fire.py)
+        from core import held_fire
+        held_fire.add_sender(self._fire_to)
+        held_fire.start_intake(local_ips)
+        # [AN_END_HOLDS_THE_SETTINGS_FROM_ITS_START_V1] found between machines, 22 Nov 2026: a daemon that had not yet
+        # used the channel held no read on the settings and had written no report, and the Admin's command counted
+        # two ends where there were six. The read is held from here; before the ControlRam is known it says so and
+        # holds again at the hosts event, as it always did.
+        from core import channel_setting
+        channel_setting.start()
 
         while True:
             try:
@@ -161,9 +173,14 @@ class DaemonServer:
             return
         if _word == _carrier.WORD:
             # [ONE_CONNECTION_PER_DESTINATION_V1] the frame carrier's connection: every Role's traffic from that machine
+            # [THE_FILE_SAYS_WHAT_A_NODE_SENDS_V1] a daemon takes what arrives: with no receiving end for the frame
+            # carrier yet, one is started here (core/homa_transport.frame_end_for), whatever this node's file says
+            if _carrier.SERVER is None:
+                from core import homa_transport as _ht
+                _ht.frame_end_for(self)
             if _carrier.SERVER is None or not _carrier.SERVER.adopt(conn, addr, _word):
                 print(f"[DAEMON-SERVER] a connection from {peer_ip}:{addr[1]} began {_word!r} (the frame carrier's word) "
-                      f"and this daemon was not told of that carrier: closed", flush=True)
+                      f"and this daemon has no receiving end for that carrier (why is said above): closed", flush=True)
                 try: conn.close()
                 except Exception: pass
             return
@@ -430,6 +447,18 @@ class DaemonServer:
         )
         t.start()
 
+    def _fire_to(self, ip: str, raw: bytes):
+        """[THE_FIRE_RIDES_THE_HOLDERS_CONNECTION_V1] A held read's fire for a holder on the node `ip`: handed to the
+        writer of a session that node's proxy opened here, to leave on its return channel as a frame that answers no
+        request (its number is held_fire.TCP_FIRE_SEQ). Returns what it was handed to, or None: no session from it."""
+        from core import held_fire
+        with self._pending_lock:
+            live = [x for x in (self._sessions_of.get(ip) or []) if getattr(x, "_alive", False)]
+        if not live:
+            return None
+        live[-1]._reply_q.put((held_fire.TCP_FIRE_SEQ, raw, 0))      # the session's one writer sends it
+        return "the TCP driver's return channel to %s (%d session(s) from it)" % (ip, len(live))
+
     def _run_session(self, session: SemanticSession, return_ip: str) -> None:
         """Run session and clean up pending registration when done.
 
@@ -442,6 +471,7 @@ class DaemonServer:
         def _up():
             with self._pending_lock:
                 self._live_by_ip[peer] = self._live_by_ip.get(peer, 0) + 1
+                self._sessions_of.setdefault(peer, []).append(session)
             print(f"[WRITER_GONE_V1] {peer} joined through this daemon "
                   f"({self._live_by_ip.get(peer)} live session(s))", flush=True)
         session.on_established = _up
@@ -452,6 +482,11 @@ class DaemonServer:
             with self._pending_lock:
                 if self._pending_sessions.get(return_ip) is session:
                     self._pending_sessions.pop(return_ip, None)
+                mine = self._sessions_of.get(peer) or []
+                if session in mine:
+                    mine.remove(session)
+                    if not mine:
+                        self._sessions_of.pop(peer, None)
                 if session.established:
                     n = self._live_by_ip.get(peer, 1) - 1
                     if n > 0:

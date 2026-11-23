@@ -92,7 +92,7 @@ at start with that said; it is not kept as a second name. Homa's socket API on C
 
 ## 7. A Role's channel: one frame under every protocol, one connection to each destination (21 November)
 
-The design is `docs/PROTOCOL-LAYER-DEMONSTRATION-WALKTHROUGH-AND-DESIGN-v0.4.md` (sections 4 to 7 and 10), with
+The design is `docs/PROTOCOL-LAYER-DEMONSTRATION-WALKTHROUGH-AND-DESIGN-v0.5.md` (sections 4 to 7 and 10), with
 `docs/PROTOCOL-LAYER-DEMONSTRATION-REQUIREMENTS-AND-DESIGN-v0.2.md` for the exercise it is demonstrated on. This
 section says where each part of it is in the code. Sections 7 and 9 of this file as they stood on 19 and 21 November
 described the mechanism that design replaced (a key named in the setting, an accept list, three writes for a key,
@@ -100,8 +100,8 @@ a connection for each driver and memory, drivers that sealed); it is no longer i
 
 | Part | Where | What it is |
 | --- | --- | --- |
-| The setting | `core/channel_setting.py` | (channel, setting, `<Role>`) in the ControlRam: `driver`, `seed`, `protection`, `switches`, `check`. The held read on it; `role_of(name)`; the setting's proof and its two rules; this end's report, (channel, at, ...). |
-| The frame | `core/channel_frame.py` | `Link`: one end of one connection. A frame is its length, its packet ID and its data, sealed under the Role's current key or not; the data opened begins with the protocol's word. The two calls, `SWP` and `SWE`. `key_number(seed, n, size)`. One writer and one reader for each connection. |
+| The setting | `core/channel_setting.py` | (channel, setting, `<Role>`) in the ControlRam: `driver`, `number`, `protection`, `check`. The held read on it; `role_of(name)`; the setting's proof; this end's report, (channel, at, ...). |
+| The frame | `core/channel_frame.py` | `Link`: one end of one connection. A frame is its length, its packet ID and its data, sealed under the Role's current key or not; the data opened begins with the protocol's word. The two switch calls, `SWP` and `SWE`. The key is computed, `key_for(secret, sender's FNID, Role, number)`, from one staged secret a Role; there is one key and nothing else is tried. A frame that does not open goes back for a retry: the calls `NOT` (not opened from message n), `AGN` (starting again at message n) and `RCV` (n messages received). One writer and one reader for each connection. |
 | The carrier | `core/channel_carrier.py` | `FrameCarrier`: the calls the message session's two ends make on a carrier (`send_request`, `send_reply`, `recv`, `abort`, `peer_gone`), with one `Link` to each destination. It tells every `Link` when the settings moved. |
 | The protocols | `channel_frame` (tcp), `core/chorus.py` (chorus), `core/openqasm.py` (openqasm) | Each is `pack(state, packet_id, message)` and `unpack(state, packet_id, data)`, registered with `channel_frame.register_driver(name, word, pack, unpack)`. `state` is the protocol's own, for one Role in one direction of one connection, empty after a switch of protocol. None seals. |
 | Which session | `core/homa_transport.carrier_for`, `proxy/transport_semantic._get_worker` | A setting whose `driver` is a protocol under the frame puts the session on the frame carrier, whatever the word. A change of word does not move a session. |
@@ -113,7 +113,7 @@ a connection for each driver and memory, drivers that sealed); it is no longer i
    writer, in the order frames go on the wire, and its `unpack` only by the reader, in the order they arrive. So the
    last message each way, for a Role, is a reference both ends hold: send differences against it and keep no lock.
 2. A protocol does not seal, and does not require or refuse a key. Key and protocol are independent.
-3. A protocol does not know the Role's setting, the count of switches or the key. It is handed a message and gives
+3. A protocol does not know the Role's setting, its number or the key. It is handed a message and gives
    back the data that goes inside the frame.
 4. A protocol's word is four bytes and is the first thing in the opened data. A receiver knows the protocol by that
    word and by nothing else, which is why a protocol is switched only while the encryption holds still.
@@ -123,15 +123,31 @@ a connection for each driver and memory, drivers that sealed); it is no longer i
 protocol's data. Sealed: 28 more (a 12-byte nonce and a 16-byte tag).
 
 **Measured between three simulated machines, fast link, the Roles exercise, 60 steps, 3,482 reads and writes a run**
-(21 November, before each connection had one writer):
+(21 November, with the computed key and the retry; the machine restarted before these, and its times are not to be
+compared with any measured before 17:01 that day):
 
 | | Run 1, tcp | Run 2, chorus | Run 3, openqasm | Run 4, mixed with 7 changes |
 | --- | --- | --- | --- | --- |
-| Bytes on the seven Roles' channels | 1,266,071 | 1,216,224 | 768,788 | 1,039,302 |
-| A step, median / 95th ms | 381 / 465 | 391 / 479 | 388 / 459 | 383 / 635 |
+| Bytes on the seven Roles' channels | 1,302,165 | 1,253,200 | 718,214 | 1,043,472 |
+| A step, median / 95th ms | 438 / 535 | 435 / 516 | 441 / 540 | 431 / 700 |
 | The exercise's record | 46,957 bytes | identical | identical | identical |
 
-Each of run 4's changes took 119 to 170 ms from the owner's one write to every end sending the new way.
+Each of run 4's changes took 173 to 263 ms from the owner's one write to every end sending the new way. Nine frames did not open in that run and went back for a retry.
+
+## 7a. What a daemon sends of its own accord: a held read's fire (22 November)
+
+A driver's connection is opened by the node that asks, and the daemon answers on it. There is one thing a daemon puts
+on a connection without being asked: a held read's fire, for a holder on the node that opened it
+(`core/held_fire.py`, `[THE_FIRE_RIDES_THE_HOLDERS_CONNECTION_V1]`; John, 2026-11-22: "The held read should stick a
+message directly onto the outgoing socket. You cannot fire an API down to something behind a firewall.").
+
+| Carrier | What the fire is on the wire | Daemon end | Proxy end |
+|---|---|---|---|
+| TCP driver | a frame on the return channel whose number is `TCP_FIRE_SEQ` (0xFFFFFFFE); it answers no request | `DaemonServer._fire_to` hands it to the session's writer | `_DaemonWorker._read_loop` hands it to `held_fire.deliver_here` before it looks for a waiting request |
+| the frame | a message from the accepting end, not a reply, beginning `FRAME_MARK`, on a sequence the opening end has named (the one for no Role if there is one) | `FrameCarrier._fire_to` -> `Link.submit_on` | `FrameCarrier._arrived` -> `held_fire.deliver_here` |
+
+A driver that carries the semantic wire must carry this too, or holders on nodes reached by it never wake. Kernel Homa
+and the simulator's Homa do not (a Homa reply needs a request); a role host reached only by those has no way to fire.
 
 ## 8. Adding a driver
 

@@ -106,7 +106,7 @@ Seven Roles on three machines of `wire_between_machines_tier`, each Role with a 
 setting of its own. The memories are application memories (`exerciseHost.frognet`, `<role>Host.exercise`): the tier
 writes each machine's capability tuples and the application's configuration tuple and runs the existing election,
 `core/app_hosts.commit`, on each machine (`elect_memories`). Each Role's setting is written from that Role's own site
-(`owner_sets`: one write, then a held read on the ends' reports). `--step memories | pages` test the parts;
+(`owner_sets`: one write, then a held read on the ends' reports). `--step test` runs `core/channel_test.py` (the full test John runs on a real network) between the machines: each machine gets the application election on a held read (the loop the tunnel daemon runs on a node), the keys of part L come from `--keys`, and a program on another machine makes one change when the test's own tuple says it is waiting; then once more with one machine holding another secret, where it must say FAIL and name that machine. It is a tier of `run_all.py`. `--step memories | pages` test the parts;
 `--run 1|2|3|4|all` runs the exercise on TCP, Chorus, OpenQASM and mixed with seven changes, and compares the
 exercise records byte for byte. The mechanism is `core/channel_frame.py` and `core/channel_carrier.py`
 (AI_READ_FIRST section 10c). The design is named in the tier's

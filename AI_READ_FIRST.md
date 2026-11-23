@@ -725,11 +725,22 @@ reconciled. The procedure is in `opt/fdf/docs/APP-SETUP-AND-OPERATION.md`.
    node's own .1, `frognet_tuples.my_ip()`), jsonData = the bag. Python reaches it through `fdfram.RoleRam`
    (`role_ram`, `system_ram`, `control_ram`); the door through `role_*` in `dc/ram.php`.
 4. **Held reads are in api.php** (`[HELD_READ_IN_API_V1]`). A held read is a request to the role's IP:80
-   (`entity=held&action=hold`, which answers with the current rows). The host completes each write first (the writer
-   has its reply), then runs down the holds that match and fires each through the holder's own port 80
-   (`held_fire.php` -> the holder's datagram socket in `/run/frognet/held`). Holds are one-shot: the holder reads and
-   holds again. A fire carries key, version and value. No polling anywhere: the 50 ms wait loop and `wait_s` in
-   api.php are gone. One thread per process waits on every fire and on `/etc/hosts` (`core/frognet_held.py`).
+   (`entity=held&action=hold`, which answers with the current rows). The host completes each write, then runs down the
+   holds that match and fires each. Holds are one-shot: the holder reads and holds again. A fire carries key, version
+   and value. No polling anywhere. One thread per process waits on every fire and on `/etc/hosts`
+   (`core/frognet_held.py`).
+   **A fire rides the connection the holder's node opened. Nothing is ever dialled toward a holder.** (John,
+   2026-11-22: "You cannot make a connection down; only up. That was a basic rule." `[THE_FIRE_RIDES_THE_HOLDERS_CONNECTION_V1]`,
+   `core/held_fire.py`.) api.php hands each fire to its own node's daemon (a datagram to `role-host-fires.sock` in
+   `/run/frognet/held`; nothing waited for, no time limit). The daemon hands it to the writer of a connection from the
+   holder's node: the TCP driver's return channel (a frame numbered `TCP_FIRE_SEQ`) or the node's framed connection
+   (a message beginning `FRAME_MARK`, on a sequence that node has named). That node's proxy hands it to the holder's
+   socket. No connection from that node: the daemon says the fire has nowhere to go, and the hold has ended. From
+   7 to 22 Nov a fire was an HTTP POST from the role host to `http://<holder>/held_fire.php` with a 5 s limit; do not
+   bring that back, and do not make any other request from a role host toward a node.
+   **A node never has zero sessions to a daemon while it changes carrier**
+   (`[THE_NEW_SESSION_IS_UP_BEFORE_THE_OLD_ONE_ENDS_V1]`, `proxy/transport_semantic._get_worker`): a daemon whose last
+   session from a node ends removes that node's tuples and its holds (`[WRITER_GONE_V1]`).
 5. **Holds end on a split or a merge.** The merge rewriting `/etc/hosts` is the event: every wait returns to its
    caller, which reads the role at the address now named and holds again. No fallback, nothing chased.
 6. **The FrogNetHost holds one read**: its own "new thing here" tuple, `(frognethost, config, <guid>)`, at the
@@ -806,14 +817,14 @@ whether to change it is John's call.
 ## 10c. A Role's channel: its protocol and its encryption, set by its owner and switched under way
 
 **Read these two documents before touching any of this**:
-`opt/frognet_semantic/docs/PROTOCOL-LAYER-DEMONSTRATION-WALKTHROUGH-AND-DESIGN-v0.4.md` (how a channel is set up and
+`opt/frognet_semantic/docs/PROTOCOL-LAYER-DEMONSTRATION-WALKTHROUGH-AND-DESIGN-v0.5.md` (how a channel is set up and
 switched, the design as built, and in its section 11.3 what is built and what is not) and
 `opt/frognet_semantic/docs/PROTOCOL-LAYER-DEMONSTRATION-REQUIREMENTS-AND-DESIGN-v0.2.md` (the exercise's rules).
 
 - **A Role is a service; how a Role is reached is a separate thing.** A Role's memory is an application memory
   (`core/app_hosts.py`: `<app>Host.frognet`, `<team>Host.<app>`), elected as every application memory is. How it is
   reached is its channel setting, the tuple (channel, setting, `<Role>`) in the ControlRam
-  (`core/channel_setting.py`): `{driver, seed, protection, switches, check}`. Its owner is the Role, and the Role's
+  (`core/channel_setting.py`): `{driver, number, protection, check}`. Its owner is the Role, and the Role's
   admin tool is its only writer. (channel, setting, semantic) is the setting of traffic that belongs to no Role.
   None of this is site-wide, and nothing in a Role's service names a protocol or a key.
 - **Protocol and encryption are different things and are switched separately** (John, 2026-11-21). The encryption is
@@ -826,24 +837,93 @@ switched, the design as built, and in its section 11.3 what is built and what is
   Role a frame is for: each Role has its own sequence of IDs on the connection. Do not add a field to the frame for
   what the packet ID already says.
 - **A switch is one write by the owner and one call in the stream.** The owner writes the setting: a new `driver`, or
-  `switches` raised by one (with a new `seed` or `protection` when that is what changes). Each end's held read wakes
+  a new `number` (with a new `protection` when that is what changes). Each end's held read wakes
   it, and each connection's writer puts a call in its stream that says only "switch protocol" or "switch
   encryption", never what from or to. Everything after the call is the new way. No connection is closed, no session
   is moved, nothing is negotiated. A protocol and an encryption are never switched in one write.
-- **There is only the current key.** It is one of a set placed offline, `/etc/frognet/channel_keys/<role>/`, 32 bytes
-  a file, picked by a fixed rule on `seed` and `switches` (`channel_frame.key_number`). No key, key name or key number
-  crosses a link. When a frame does not open under what an end holds, the end runs through every key of the set
-  under every registered algorithm and takes the pair that opens (John, 2026-11-21 13:17). A receiver never reads
-  the setting on the thread that reads the connection.
+- **There is only the current key, and it is computed** (John, 2026-11-21 16:49 to 17:00). For a Role, in one
+  direction of a connection: the first 32 bytes of `HMAC-SHA384(the Role's secret on the machine, the SENDING node's FNID, the Role's name,
+  the number in the Role's setting)` (`channel_frame.key_for`). One file is staged for a Role, offline:
+  `/etc/frognet/channel_secrets/<role>`. No key is stored and none crosses a link. The number is random and the
+  Admin sets it; a switch of key is "the number changed", never "one more". No number: not sealed. Do not bring
+  back a stored set of keys, a count, or any second key to try.
+- **A frame that does not open goes back for a retry.** It is not tried under any other key. The receiver takes
+  nothing more of that sequence and says NOT OPENED when its own setting changes or the sender's marker after a
+  switch opens; the sender starts again from the first message the receiver lacks (AGAIN), under its current key.
+  A sender keeps each message until the receiver says RECEIVED. A receiver cannot work out a new key from the
+  call alone: it needs the number from its own copy of the setting, so after a switch whose setting has not reached
+  it yet, frames go back until it has. It never reads the setting over the connection it is reading.
+- **The full test for a real network** is `core/channel_test.py` (John, 2026-11-23: "a test that proves it works,
+  both positive and negative"; "Make this a full test. I should be able to change the protocol and force a change
+  of encryption during the run"). One command on any node holding the test Role's own secret. It is a distributed
+  test done the required way: the ends advertise themselves (their report tuples), the instructions are the Role's
+  setting tuple, results come back in the reports on a held read; nothing is dialled and nothing polled. It asks the
+  application election for a memory of the Role on every other node (applications `protocoltest-<address>`, removed
+  at the end), runs traffic to all of them throughout, makes the scripted changes and the three refusals, then takes
+  John's keys (p, k, a, s, q) and any change made elsewhere, and ends with a SUMMARY table. It is proven between
+  machines by `simulation/roles_exercise_tier.py --step test` (in `run_all.py`), which also runs it with one machine
+  holding another secret and requires FAIL with that machine named.
+- **Rules the full test taught, do not undo them.** (1) `[THE_NEWEST_CELL_IS_THE_SETTING_V1]`: a tuple is one cell
+  per writing machine, and the store returns cells in no promised order; anything that reads "the" setting must go
+  through `channel_setting.oldest_first` and let the last stand, and `channel_setting.write` removes the cells it
+  supersedes. (2) `[A_HOSTS_EVENT_IS_NOT_THE_ANSWER_V1]`: `frognet_held.wait_until` also returns when the hosts file
+  is rewritten; a caller waiting for a condition holds again until the condition or its bound. (3)
+  `[A_SECRET_IS_NOT_READ_WHILE_IT_IS_BEING_REPLACED_V1]`: a secret file is read only through
+  `channel_frame.read_secret`, which holds the directory shared. (4) Every report carries `build`
+  (`[AN_END_SAYS_ITS_BUILD_V1]`).
+- **The owner's command** until the Channel panel is built: `core/channel_admin.py` (`secret`, `show`, `set`). One
+  write, then a held read on the ends' reports. The tier writes every setting through it. What a node needs and how
+  a build is delivered to nodes: `opt/frognet_semantic/PROTOCOL-LAYER-BUILD.txt`.
+- **A Role's own secret moves forward at every key switch; the network's default secret never moves** (John,
+  2026-11-22 23:48, `[A_ROLES_OWN_SECRET_MOVES_FORWARD_V1]`; `core/channel_frame.py` read_secret, secret_at,
+  next_secret, keep_secret; `core/channel_setting._proved`; `core/channel_admin.with_step`;
+  `core/test_secret_moves_forward_oracle.py`). `/etc/frognet/channel_secrets/<role>` is a Role's own secret,
+  `/etc/frognet/channel_secrets/default` is the network's, used by every Role with no file of its own
+  (`[A_DEFAULT_SECRET_AND_A_ROLES_OWN_V1]`). A Role's setting has `step`, a count. At a key switch the owner's page
+  draws a new number and raises step by one, in one write. On seeing step s a machine works out, IN MEMORY,
+  `secret(s) = HMAC-SHA384(secret(s-1), "next\n" + role + "\n" + s)`, once for each step it missed; verifies the
+  setting's check under secret(s) and, if it fails, ignores the setting and WRITES NOTHING; then writes secret(s)
+  with its step over the Role's file (new file, rename) and erases secret(s-1). A setting whose step is lower than
+  the file's is ignored. Keys are computed from the secret that goes with the setting THE PROCESS holds
+  (`channel_setting.secret_in_use`), never from "whatever the file says now": another process of the machine can
+  be a step ahead. Each end's report carries its step. Never keep an earlier secret, never write the file before the
+  check verifies, never let a setting take a secret back. A machine that cannot verify a Role's setting (it does not
+  hold that Role's own secret) ignores it and says which setting it ignored in its report
+  (`[AN_END_SAYS_WHAT_IT_IGNORED_V1]`); the owner's page does not wait for such an end.
+- **The transport file says what a node SENDS, and nothing else** (John, 2026-11-22: "I should never have to tell the
+  system what protocol a distant node is using"). A daemon takes what arrives: its TCP listener reads each
+  connection's first word, and starts the frame carrier's receiving end at the first framed arrival whatever the
+  file says (`core/homa_transport.frame_end_for`); a chorus node also listens for TCP. Never refuse on the receiving
+  side because of the node's own file. Line 1 of the file is the machine's default; `<role> <word>` lines override it
+  for a Role; a Role's Admin setting overrides both. A connection the far end said nothing on is NOT an event: do not
+  read anything because it ended (that loop dialled Seattle3B ten times a second). Wanted next, not built: a machine
+  default secret (`channel_secrets/default`) with a Role's own secret overriding it.
+- **The node's transport file is watched** (John, 2026-11-22). A daemon or proxy reads
+  `/etc/frognet/semantic_transport` once, at start, and writes what it read to `/run/frognet/semantic_transport.read`.
+  `frognet-transport-watch.path` (wanted by the daemon's unit) runs `core/transport_file_watch.py` when the file
+  changes; it restarts the daemon and the proxy when the file no longer says what they read, and not onto a file
+  they could not start on. `frognet_monitor` shows what they read, and a hash of each Role's secret on the node
+  (`usr/local/bin/frognet_monitor_py/channel.py`).
 - **A setting proves itself** (John, 2026-11-21 13:05): `check` is an HMAC over the Role's name and the setting's
-  other fields, keyed from the Role's whole set. An end that holds the set ignores a setting whose check does not
-  verify, and one whose `switches` is lower than the count it is running. No identity, no signature, no access list.
+  other fields, HMAC-SHA384 keyed with the Role's secret (96 hex characters; John, 2026-11-22 13:58). An end that holds the secret ignores a
+  setting whose check does not verify. No identity, no signature, no access list. (The rule about a lower count
+  went with the count.)
 - **A connection's wire has one owner** (John, 2026-11-21 13:23): one writer for each connection alone gives packet
   IDs, sends calls, packs, seals and writes; one reader reads. There is no lock on sending, in the frame layer or in
-  chorus's own connections. Do not add one; hand the writer the work. (Still to do: the daemon's and the proxy's
-  reference handling, `_encode_lock`, `_ref_lock` and the proxy's gate, which John has said go the same way.)
+  chorus's own connections. Do not add one; hand the writer the work. The daemon's reply references move the
+  same way: the part of a reply that reads and moves a response reference is a function the session's writer runs
+  when it takes the reply off its queue (`daemon/engine/session._Deferred`, `emit.defer`); there is no `_encode_lock`
+  and no `_ref_lock` there. The proxy's references move the same way (`proxy/transport_semantic.py`): a request
+  thread hands the session `build()` and `on_reply()`; the session's writer runs `build()` as the frame leaves (read
+  the request reference, encode, commit) and its reader runs `on_reply()` as the reply arrives (decode, move the
+  response reference); the request thread only writes the result to its client. There is no `_ref_lock` and no gate.
+  Another thread that needs a request reference gone puts it on `_request_clears`; the writer takes that first. A
+  RESP_SAME naming an answer the proxy no longer holds is fetched by the reader, which holds later replies to that
+  instance, in order, until it is in (`_ReplyOrder`; `proxy/test_reply_order_oracle.py`). A stand-in session in an
+  oracle is built on `_InLine`. To run the proxy's oracles off a node, set `FROGNET_BIN_ROOT` to the checkout's
+  `usr/local/bin`.
 - **Each end reports what it runs**: (channel, at, `<address>:<process>.<pid>`), written by that process's one
-  reporter: for each Role, what it holds and what it is sending under. Never a seed, never a key. A switch is
+  reporter: for each Role, what it holds and what it is sending under. Never a secret, never a key. A switch is
   complete when every end's report shows it.
 - A tuple is its writer's: the memory keeps each writer's tuple of a name as that writer's own (service, name, and the
   address it was written from). Two programs writing one name are two rows, and a reader must say which it means.

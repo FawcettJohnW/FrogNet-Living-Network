@@ -131,9 +131,13 @@ def main():
     check(w2 is w1 and not w1.stopped, "its tuple is read and the choice is now homa, but the session has a request outstanding: it is not moved and not stopped")
     w1._pending.clear()
     w3 = TS._get_worker(P, 9009)
-    check(type(w3) is H and w1.stopped and len(made) == 2, "the next request finds it with nothing outstanding: it is retired and the session opens on homa")
+    # [THE_NEW_SESSION_IS_UP_BEFORE_THE_OLD_ONE_ENDS_V1] 22 Nov 2026: the far daemon never sees this node with no session
+    check(type(w3) is H and not w1.stopped and len(made) == 2, "the next request finds it with nothing outstanding: the session opens on homa, and the tcp session is NOT ended before the homa one has answered")
     w4 = TS._get_worker(P, 9009)
-    check(w4 is w3 and len(made) == 2, "and stays there: one session, no spare")
+    check(w4 is w3 and not w1.stopped and len(made) == 2, "a request before the homa session has answered: the tcp session is still there, and no third session is opened")
+    w3.n_replies = 1                                   # the homa session has answered: it is up
+    w5 = TS._get_worker(P, 9009)
+    check(w5 is w3 and w1.stopped and len(made) == 2, "once the homa session has answered, the next request ends the tcp session; one session, no spare")
 
     # [SOFT_HOMA_CARRIER_V1] a node in whose process chorus is loaded: the same driver, another carrier's name
     real_soft = HT._chorus_loaded

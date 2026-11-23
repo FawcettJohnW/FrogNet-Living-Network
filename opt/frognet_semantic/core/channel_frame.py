@@ -43,25 +43,23 @@ whatever Role it is for and whatever protocol that Role's channel is set to.
     sender puts on the connection for that Role after it is the new way, and every read after it is the new way.
     Each direction is its own stream: an end switches its sending when its held read on the setting wakes it
     (setting_changed), and its receiving when the call arrives.
-  * The KEY in use after n switches is one of the Role's set, <keys>/<role>/ sorted by file name, 32 bytes each,
-    placed offline. Which one is a fixed rule on the setting's seed and n (key_number). Only the key in use and n are
-    kept. A setting with no seed is not sealed.
+  * The KEY ([THE_KEY_IS_COMPUTED_V1]): one for a Role in one direction of a connection, computed from the Role's
+    secret on this machine, the sending node's FNID, the Role's name and the number in the Role's setting. The
+    Admin sets that number, at random; a switch is "the number changed". No key is stored and none crosses a link.
+    A setting with no number is not sealed.
+  * A frame that does NOT OPEN under that one key is not tried under any other. It goes back for a retry: the
+    receiver takes nothing more of that sequence, and says NOT OPENED (with the number of the first message it does
+    not have) when its own setting changes or something of the sequence opens again; the sender then starts again
+    from that message under its current key (AGAIN), from an empty protocol state. A sender keeps a copy of each
+    message until the receiver has said RECEIVED for it (every 64 messages).
   * The length and the packet ID cross as small numbers: the length as a varint, the ID as what the far end does
     not already know of it (_put). The next request of the same Role spends one byte on its ID. (John, 2026-11-21: "All of the control should diff.")
 
-  * [THE_KEY_THAT_OPENS_IS_THE_CURRENT_ONE_V1] John, 2026-11-21 13:17: "When a Role's frame does not open under
-    the key and algorithm an end holds, at connection or after, the end runs through every key of the Role's set
-    under every registered algorithm. The pair that opens the frame is the current one. The end takes it, logs what
-    it held and what opened, and carries on. The count of switches is unchanged. If nothing opens, the frame is
-    refused and logged as today. This replaces any limit on how fast an owner may command switches."
-    So a receiver follows the sender with nothing but the Role's set: it needs neither the setting nor the count
-    to be up to date. (The first build read the setting when a call took its count past what it held, on the very
-    thread that reads the connection: the read went out on that connection, waited for its own reply until it timed
-    out, and went on with the old algorithm. Found 21 Nov in the first mixed run between machines: a key switch took
-    20 s and, after an algorithm switch, a frame did not open. A receiver NEVER reads the setting on that thread.)
-    One thing the search cannot find is encryption turned off: there is nothing to open, and a plain frame is what a
-    forgery looks like. An end takes unsealed frames for a Role only when the setting it holds, which has proved
-    itself (core/channel_setting.py, [A_SETTING_PROVES_ITSELF_V1]), shows no seed.
+  * (Withdrawn: [THE_KEY_THAT_OPENS_IS_THE_CURRENT_ONE_V1], John's ruling of 13:17 on 21 Nov, under which a frame
+    that did not open was tried under every key of a stored set and every algorithm. John, 16:49 the same day: "The
+    whole business about using old keys is bogus. There is only one key, and it is the active key, and it either
+    works or it does not. No messing with new keys." A receiver still never reads the setting over the connection it
+    is reading: _open looks only at the copy this process already holds.)
 
   * [A_CONNECTIONS_WIRE_HAS_ONE_OWNER_V1] John, 2026-11-21 13:23: "A connection's wire has one owner. One writer
     for each connection takes messages from the request threads and alone packs, sends switch calls, seals and
@@ -73,6 +71,7 @@ A frame that does not open ends the connection with the reason (no fallback): th
 with CACHE_MISS on the connection that replaces it, which starts from the setting's count.
 """
 import hashlib
+import hmac
 import os
 import queue
 import struct
@@ -83,10 +82,15 @@ from typing import Callable, Dict, List, Optional, Tuple
 from core import channel_protection as CP
 from core.transport_driver import ConnectionGone
 
-BUILD = "channel-frame-v4-20261121d"
-KEYS = os.environ.get("FROGNET_CHANNEL_KEYS", "/etc/frognet/channel_keys")
+BUILD = "channel-frame-v12-20261123b"
+SECRETS = os.environ.get("FROGNET_CHANNEL_SECRETS", "/etc/frognet/channel_secrets")
 SWITCH_PROTOCOL = b"SWP\x01"
 SWITCH_ENCRYPTION = b"SWE\x01"
+NOT_OPENED = b"NOT\x01"          # + a number: "your messages from this one on did not open here"
+AGAIN = b"AGN\x01"               # + a number: "what follows starts again at this message, from an empty state"
+RECEIVED = b"RCV\x01"            # + a number: "this many of your messages are in; keep no copy of them"
+SAY_RECEIVED_EVERY = 64          # messages taken on a sequence between two RECEIVED calls
+CALLS = (SWITCH_PROTOCOL, SWITCH_ENCRYPTION, NOT_OPENED, AGAIN, RECEIVED)
 DEFAULT_PROTECTION = "aes-256-gcm"
 MAX_FRAME = 64 << 20
 STREAMS = 256
@@ -100,7 +104,7 @@ WORDS: Dict[bytes, str] = {}
 
 
 def register_driver(name: str, word: bytes, pack: Callable, unpack: Callable) -> None:
-    if len(word) != 4 or word in (SWITCH_PROTOCOL, SWITCH_ENCRYPTION) or WORDS.get(word, name) != name:
+    if len(word) != 4 or word in CALLS or WORDS.get(word, name) != name:
         raise ValueError("the protocol %r cannot have the word %r" % (name, word))
     DRIVERS[name] = (word, pack, unpack)
     WORDS[word] = name
@@ -114,39 +118,187 @@ class DoesNotOpen(ConnectionGone):
     pass
 
 
-# ---------------------------------------------------------------------------------------------- the stored keys
-def key_set(role: str, keys_dir: Optional[str] = None) -> List[bytes]:
-    """A Role's set of keys on this machine, in the order every machine has them: by file name."""
-    d = os.path.join(keys_dir or KEYS, role)
+# ---------------------------------------------------------------------------------------------- the key
+# [THE_KEY_IS_COMPUTED_V1] John, 2026-11-21 16:55 to 17:00: "not using pre-staged keys, but instead a pre-staged
+# secret"; "a deterministic key that has a different value every time, from seeds I know"; "The count needs to be a
+# random number set by the Admin, not a counter. It is not Is it one greater, it is just Did it change"; and 16:49:
+# "There is only one key, and it is the active key, and it either works or it does not."
+#   key = the first 32 bytes of HMAC-SHA384(the Role's secret on this machine, sender's FNID, the Role's name,
+#         the number in its setting)      [KEY_AND_CHECK_USE_SHA_384_V1]
+# One file is staged for a Role, offline: <secrets>/<role>. Nothing else is stored and no key crosses a link. The
+# FNID is the SENDING node's (/etc/fnid), so each node sends a Role's traffic under its own key; a receiver learns it
+# from the first frame of the Role's sequence. A number of 0, or none, means the Role is not sealed.
+class NotOpened(Exception):
+    """A frame did not open under the one key this end holds for it. It goes back for a retry (Link._lost)."""
+
+
+DEFAULT_SECRET = "default"                    # the network's secret: the file every machine of the network holds
+STEPPED = b"FROGNET ROLE SECRET AT STEP "   # the first line of a Role's own secret once it has moved forward
+
+
+class SecretStepBehind(DoesNotOpen):
+    """A setting names a step lower than the one this machine's secret for the Role is at."""
+
+
+def read_secret(role: str, secrets_dir: Optional[str] = None) -> Tuple[bytes, int, bool]:
+    """(the secret, the step it is at, whether it is the Role's own) for a Role on this machine.
+
+    [A_DEFAULT_SECRET_AND_A_ROLES_OWN_V1] John, 22 Nov 2026: "one protocol and key for the machine default, with
+    role-specific overrides possible." A Role with a file of its own in the secrets directory uses it; every other
+    Role, and traffic of no Role, uses the file `default`, the network's.
+
+    [A_ROLES_OWN_SECRET_MOVES_FORWARD_V1] John, 22 Nov 2026 23:48. A Role's own file as it was placed by hand is the
+    secret at step 0: any bytes, at least 32. Once it has moved it is one line, STEPPED and the step in decimal, then
+    the 48 bytes of the secret at that step. The default secret never moves: it is always at step 0."""
+    # [A_SECRET_IS_NOT_READ_WHILE_IT_IS_BEING_REPLACED_V1] keep_secret renames the new file onto the Role's name and
+    # then overwrites the bytes of the one it replaced. A process that had opened the old file just before would read
+    # those zeros as a secret at step 0, fail a valid setting's check with it, and ignore the setting (seen between a
+    # machine's proxy and its daemon in the simulator, 23 Nov 2026: 24 wrong reads of 2,873 when measured alone). So
+    # a read holds the directory shared for as long as it has the file open, and keep_secret holds it alone.
+    d = secrets_dir or SECRETS
+    import fcntl
     try:
-        names = sorted(n for n in os.listdir(d) if not n.startswith("."))
+        dfd = os.open(d, os.O_RDONLY)
     except OSError as e:
-        raise DoesNotOpen("this machine holds no set of keys for %r (%s): it does not carry that Role's traffic" % (role, e))
-    keys = []
-    for n in names:
-        with open(os.path.join(d, n), "rb") as f:
-            k = f.read()
-        if len(k) != 32:
-            raise DoesNotOpen("the key %s/%s is %d bytes; a key is 32" % (role, n, len(k)))
-        keys.append(k)
-    if len(keys) < 2:
-        raise DoesNotOpen("the set of keys for %r holds %d; a set is two or more" % (role, len(keys)))
-    return keys
+        raise DoesNotOpen("this machine holds no secret for %r and no default secret (%s): it does not carry that "
+                          "Role's sealed traffic" % (role, e))
+    try:
+        fcntl.flock(dfd, fcntl.LOCK_SH)
+        return _read_secret(role, d)
+    finally:
+        os.close(dfd)
 
 
-def _h(seed: str, n: int) -> int:
-    return int.from_bytes(hashlib.sha256(seed.encode("utf-8") + struct.pack("!Q", n)).digest()[:8], "big")
+def _read_secret(role: str, d: str) -> Tuple[bytes, int, bool]:
+    own = bool(role) and role != DEFAULT_SECRET and os.path.isfile(os.path.join(d, role))
+    path = os.path.join(d, role if own else DEFAULT_SECRET)
+    try:
+        with open(path, "rb") as f:
+            raw = f.read()
+    except OSError as e:
+        raise DoesNotOpen("this machine holds no secret for %r and no default secret (%s): it does not carry that "
+                          "Role's sealed traffic" % (role, e))
+    step = 0
+    if own and raw.startswith(STEPPED):
+        line, _, rest = raw.partition(b"\n")
+        try:
+            step = int(line[len(STEPPED):])
+        except ValueError:
+            raise DoesNotOpen("the secret for %r in %s does not say its step (%r)" % (role, path, line[:60]))
+        raw = rest
+    if len(raw) < 32:
+        raise DoesNotOpen("the secret for %r in %s is %d bytes; a secret is at least 32" % (role, path, len(raw)))
+    return raw, step, own
 
 
-def key_number(seed: str, n: int, size: int, before: Optional[Tuple[int, int]] = None) -> int:
-    """Which key of a set of `size` is in use after n switches. key(0) = h(0) mod size;
-    key(n) = (key(n-1) + 1 + h(n) mod (size-1)) mod size, so a switch never lands on the key in use.
-    `before`: (m, key(m)) already worked out for m <= n, to go on from."""
-    m, k = before if before and before[0] <= n else (0, _h(seed, 0) % size)
-    while m < n:
-        m += 1
-        k = (k + 1 + _h(seed, m) % (size - 1)) % size
-    return k
+def secret_of(role: str, secrets_dir: Optional[str] = None) -> bytes:
+    """The secret this machine holds for a Role now: the Role's own at the step its file is at, or the default."""
+    return read_secret(role, secrets_dir)[0]
+
+
+def next_secret(secret: bytes, role: str, step: int) -> bytes:
+    """[A_ROLES_OWN_SECRET_MOVES_FORWARD_V1] secret(s) = HMAC-SHA384(secret(s-1), "next", the Role's name, s).
+    One way: secret(s-1) cannot be worked out from secret(s)."""
+    return hmac.new(secret, b"next\n" + role.encode("utf-8") + b"\n" + str(int(step)).encode("ascii"),
+                    hashlib.sha384).digest()
+
+
+def secret_at(role: str, step: Optional[int], secrets_dir: Optional[str] = None) -> Tuple[bytes, int, bool]:
+    """(the Role's secret at `step`, the step this machine's file is at, whether the secret is the Role's own),
+    worked out IN MEMORY: the file is read and not written. A machine that missed switches repeats next_secret once
+    for each step it missed. A step lower than the file's cannot be made (SecretStepBehind): the earlier secret was
+    erased, and that is the point. The default secret has no steps: `step` is not looked at for it."""
+    secret, at, own = read_secret(role, secrets_dir)
+    if not own or step is None:
+        return secret, at, own
+    step = int(step)
+    if step < at:
+        raise SecretStepBehind("step %d is lower than the step this machine's secret for %r is at (%d)" % (step, role, at))
+    for s in range(at + 1, step + 1):
+        secret = next_secret(secret, role, s)
+    return secret, at, own
+
+
+def keep_secret(role: str, secret: bytes, step: int, secrets_dir: Optional[str] = None) -> bool:
+    """[A_ROLES_OWN_SECRET_MOVES_FORWARD_V1] Write the Role's secret at `step` over the Role's file, whole (written
+    beside it and renamed onto it), then erase the secret it replaced: the bytes of the file that was there are
+    overwritten before its last handle is closed. Every process of a machine that sees the step does this; the first
+    one writes, and the rest find it done. Returns whether this call wrote."""
+    import fcntl
+    d = secrets_dir or SECRETS
+    path = os.path.join(d, role)
+    tmp = "%s.next.%d" % (path, os.getpid())
+    dfd = os.open(d, os.O_RDONLY)
+    old = None
+    try:
+        # The daemon, the proxy and an Admin's command on one machine all see the same step, each in its own process.
+        # Reading the file's step and replacing the file is one act among them, so a process that is a step behind
+        # never puts an earlier secret back over a later one. (This is a file on one machine, not the wire.)
+        fcntl.flock(dfd, fcntl.LOCK_EX)
+        if _read_secret(role, d)[1] >= int(step):
+            return False                            # another process of this machine has already moved it there
+        old = os.open(path, os.O_RDWR)              # the file being replaced: held open so it can be erased after
+        size = os.fstat(old).st_size
+        fd = os.open(tmp, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
+        try:
+            os.write(fd, STEPPED + str(int(step)).encode("ascii") + b"\n" + secret)
+            os.fsync(fd)
+        finally:
+            os.close(fd)
+        os.rename(tmp, path)
+        os.lseek(old, 0, os.SEEK_SET)
+        os.write(old, b"\0" * size)
+        os.fsync(old)
+        os.fsync(dfd)
+        return True
+    finally:
+        if old is not None:
+            os.close(old)
+        os.close(dfd)                               # (closing it releases the hold on the directory)
+
+
+_FNID: List[str] = []
+
+
+def fnid_here() -> str:
+    """This node's FNID: the content of /etc/fnid (FROGNET_GUID_FILE names another file, as it does for the node's
+    own scripts)."""
+    if not _FNID:
+        path = os.environ.get("FROGNET_GUID_FILE", "/etc/fnid")
+        try:
+            with open(path, "r") as f:
+                fnid = f.read().strip()
+        except OSError as e:
+            raise DoesNotOpen("this node has no FNID (%s): it cannot compute the key it sends a sealed Role under" % e)
+        if not fnid or len(fnid.encode("utf-8")) > 255:
+            raise DoesNotOpen("the FNID in %s is %d bytes; it is 1 to 255" % (path, len(fnid.encode("utf-8"))))
+        _FNID.append(fnid)
+    return _FNID[0]
+
+
+def key_for(secret: bytes, fnid: str, role: str, number: int) -> bytes:
+    """The one key a node sends a Role's traffic under while the Role's setting holds this number.
+    [KEY_AND_CHECK_USE_SHA_384_V1] John, 22 Nov 2026 13:58: the first 32 bytes of HMAC-SHA384 (48 bytes) over the
+    sender's FNID, the Role's name and the number, keyed with the secret. Until then it was HMAC-SHA256."""
+    return hmac.new(secret, b"frognet channel key\n" + fnid.encode("utf-8") + b"\n" + role.encode("utf-8") + b"\n"
+                    + str(int(number)).encode("ascii"), hashlib.sha384).digest()[:32]
+
+
+def secret_fingerprint(secret: bytes) -> str:
+    """Eight hex digits that are the same wherever the same secret is: for comparing two nodes by eye (the monitor
+    shows them, usr/local/bin/frognet_monitor_py/channel.py, which has this same computation). They say nothing of
+    the secret, and this is not the computation any key or check is made by."""
+    return hmac.new(secret, b"frognet channel secret fingerprint", hashlib.sha256).hexdigest()[:8]
+
+
+def wanted(setting: Optional[dict]) -> Tuple[int, str]:
+    """(the number, the algorithm) a setting says. The number is 0 when the Role is not sealed."""
+    s = setting or {}
+    try:
+        number = int(s.get("number") or 0)
+    except (TypeError, ValueError):
+        number = 0
+    return number, str(s.get("protection") or DEFAULT_PROTECTION)
 
 
 # ---------------------------------------------------------------------------------------------- numbers on the wire
@@ -168,32 +320,33 @@ def _varint(z: int) -> bytes:
 
 
 class _Side:
-    """One Role, one direction of one connection: the protocol in use, the count of switches, the key in use."""
-    __slots__ = ("role", "word", "n", "k", "key", "seed", "protection", "state", "named", "count")
+    """One Role, one direction of one connection: the protocol in use, the number its key was computed from, the key."""
+    __slots__ = ("role", "word", "number", "key", "protection", "state", "named", "count", "fnid", "owed", "lost",
+                 "got", "skip", "kept", "base", "since")
 
-    def __init__(self, role: str):
-        self.role, self.word, self.n, self.k, self.key = role, None, 0, None, None
-        self.seed, self.protection, self.state, self.named = "", DEFAULT_PROTECTION, {}, False
+    def __init__(self, role: str, fnid: str = ""):
+        self.role, self.word, self.number, self.key = role, None, 0, None
+        self.protection, self.state, self.named = DEFAULT_PROTECTION, {}, False
+        self.fnid = fnid                # the SENDING node's FNID: this node's on a sending side, the far node's on a receiving one
         self.count = 0                  # sending: the last counter of this Role's sequence of requests
+        self.owed = False               # receiving: a switch call was read and this end's setting had not changed yet
+        self.lost = False               # receiving: a frame did not open; nothing is taken until the sender starts again
+        self.got = 0                    # receiving: messages taken, in order
+        self.skip = 0                   # receiving: messages the sender is sending again that this end already took
+        self.kept: List[tuple] = []     # sending: (packet ID, reply, message) not yet said to be received
+        self.base = 0                   # sending: how many messages came before kept[0]
+        self.since = 0                  # receiving: messages taken since this end last said how many it has
 
-    def rekey(self, n: int, setting: Optional[dict], keys: Callable) -> None:
-        """The key after n switches, under the setting as it stands. Only it and n are kept."""
-        s = setting or {}
-        seed = str(s.get("seed") or "")
-        self.protection = str(s.get("protection") or DEFAULT_PROTECTION)
-        if self.protection not in CP.PROTECTIONS:
+    def rekey(self, number: int, protection: str, secret: Callable) -> None:
+        """The key for this number, under this algorithm. Nothing of the key before is kept."""
+        if protection not in CP.PROTECTIONS:
             raise DoesNotOpen("the channel of %r names the algorithm %r, which this machine has not registered"
-                              % (self.role, self.protection))
-        if not seed:
-            self.n, self.k, self.key, self.seed = n, None, None, ""
-            return
-        ks = keys(self.role)
-        before = (self.n, self.k) if seed == self.seed and self.k is not None else None
-        self.k = key_number(seed, n, len(ks), before)
-        self.n, self.key, self.seed = n, ks[self.k], seed
+                              % (self.role, protection))
+        self.protection, self.number = protection, int(number)
+        self.key = key_for(secret(self.role), self.fnid, self.role, self.number) if self.number else None
 
     def running(self) -> dict:
-        return {"driver": WORDS.get(self.word, ""), "switches": self.n, "protection": self.protection if self.key else "",
+        return {"driver": WORDS.get(self.word, ""), "number": self.number, "protection": self.protection if self.key else "",
                 "sealed": bool(self.key)}
 
 
@@ -202,22 +355,24 @@ class Link:
 
     sock      a connected stream socket
     opener    True at the end that opened the connection: it gives each Role its sequence of packet IDs
-    setting   setting(role) -> that Role's channel setting as this process holds it: {driver, seed, protection,
+    setting   setting(role) -> that Role's channel setting as this process holds it: {driver, number, protection,
               switches}, or None. role "" is traffic of no Role.
     deliver   deliver(role, sequence, counter, reply, message), called for each message in the order it is opened,
               by pump() and by setting_changed(). Without it, receive() returns them one at a time.
-    keys      keys(role) -> the Role's set on this machine
+    secret    secret(role) -> the Role's secret on this machine
+    fnid      this node's FNID (read from the node's file when not given)
     """
 
     def __init__(self, sock, far: Tuple[str, int], opener: bool, setting: Callable, deliver: Optional[Callable] = None,
-                 keys: Callable = key_set, say: Callable = None):
+                 secret: Callable = secret_of, say: Callable = None, fnid: Optional[str] = None):
         self.sock, self.far, self.opener = sock, far, opener
-        self._setting, self._deliver, self._keys = setting, deliver, keys
+        self._setting, self._deliver, self._secret, self._fnid = setting, deliver, secret, fnid
         self._ready: List[tuple] = []                # messages opened and not yet returned by receive()
         self._say = say or (lambda text: print("[CHANNEL-FRAME] %.6f %s" % (time.time(), text), flush=True))
         self._todo: "queue.SimpleQueue" = queue.SimpleQueue()      # what the writer is handed, in order
         self._running: Dict[str, dict] = {}          # what this end is sending under, as the writer last left it
         self.broken: Optional[str] = None            # why the writer stopped, once it has
+        self.wire_failed = False                     # True when it stopped because a write to the connection failed
         self.on_broken: Optional[Callable] = None    # on_broken(why): the writer could not write
         self.on_sent: Optional[Callable] = None      # on_sent(role, reply, bytes, protocol): a message went on the connection
         self.on_running: Optional[Callable] = None   # on_running(): what running() returns has changed
@@ -229,8 +384,11 @@ class Link:
         self._count_in: Dict[int, int] = {}
         self._rf = sock.makefile("rb", buffering=1 << 16)
         self.sent = self.received = 0                # bytes this end has put on, and taken off, the connection
-        self.calls = {"protocol": [0, 0], "encryption": [0, 0]}      # [sent, received]
-        self.found = 0                               # frames that opened under another key or algorithm than this end held
+        self.calls = {"protocol": [0, 0], "encryption": [0, 0], "not opened": [0, 0], "again": [0, 0], "received": [0, 0]}   # [sent, received]
+        self.not_opened = 0                          # frames that did not open here and went back for a retry
+        self.sent_again = 0                          # messages this end sent a second time because the far end said so
+        self._parked: Dict[int, int] = {}            # the writer's: a receiving sequence that is lost -> its first message not taken
+        self._asked: set = set()                     # the writer's: lost sequences it has said NOT OPENED for since they were lost
         self._nonce_head, self._nonce_n = os.urandom(8), 0
         self._writer = threading.Thread(target=self._write, daemon=True, name="frame-write-%s" % (far[0],))
         self._writer.start()
@@ -254,6 +412,7 @@ class Link:
         try:
             self.sock.sendall(unit)
         except (OSError, AttributeError) as e:
+            self.wire_failed = True                  # the connection failed under the writer; the writer did not
             raise ConnectionGone("send to %s:%d: %s" % (self.far[0], self.far[1], e)) from e
         self.sent += len(unit)
 
@@ -314,60 +473,40 @@ class Link:
     @staticmethod
     def _plain(data: bytes) -> bool:
         """Whether these bytes are what an unsealed frame holds: a call, or data that begins with a protocol's word."""
-        return bytes(data) in (SWITCH_PROTOCOL, SWITCH_ENCRYPTION) or bytes(data[:4]) in WORDS
+        return bytes(data[:4]) in CALLS or bytes(data[:4]) in WORDS
 
     def _open(self, side: _Side, pid: int, body: bytes) -> bytes:
-        """The data of a frame. Under the key and algorithm this side holds; and when that does not open it, under
-        whichever key of the Role's set and whichever registered algorithm does: that pair is the current one."""
-        aad = struct.pack("!Q", pid)
-        if side.key is None and self._plain(body):
-            return body
-        if side.key is not None and len(body) >= 12 + CP.TAG:
-            try:
-                return CP.PROTECTIONS[side.protection][1](side.key, body[:12], aad, body[12:])
-            except ValueError:
-                pass
-        held = "key %d of its set under %s" % (side.k, side.protection) if side.key is not None else "no key"
-        try:
-            ks = self._keys(side.role)
-        except DoesNotOpen:
-            ks = []
-        if len(body) >= 12 + CP.TAG:
-            for name in [side.protection] + sorted(n for n in CP.PROTECTIONS if n != side.protection):
-                if name not in CP.PROTECTIONS:
-                    continue
-                for i, key in enumerate(ks):
-                    if key is side.key and name == side.protection:
-                        continue
-                    try:
-                        data = CP.PROTECTIONS[name][1](key, body[:12], aad, body[12:])
-                    except ValueError:
-                        continue
-                    self.found += 1
-                    self._say("from %s:%d for %r: a frame did not open under what this end held (%s, at %d switches); it "
-                              "opened under key %d of the set under %s, which is the current one from here"
-                              % (self.far[0], self.far[1], side.role, held, side.n, i, name))
-                    side.k, side.key, side.protection = i, key, name
-                    side.seed = str((self._setting(side.role) or {}).get("seed") or side.seed)
-                    return data
-        if side.key is not None and self._plain(body) and not (self._setting(side.role) or {}).get("seed"):
-            self._say("from %s:%d for %r: an unsealed frame, and the setting this end holds shows no seed: this Role is "
-                      "not sealed from here (this end held %s)" % (self.far[0], self.far[1], side.role, held))
-            side.k = side.key = None
-            return body
-        if side.key is None:
-            raise DoesNotOpen("data from %s:%d for %r begins %r, which is no registered protocol's word, and it opens under "
-                              "none of the %d keys of this machine's set for that Role: refused"
-                              % (self.far[0], self.far[1], side.role, bytes(body[:4]), len(ks)))
-        raise DoesNotOpen("a frame from %s:%d for %r does not open: not under what this end held (%s, at %d switches), and "
-                          "not under any of the %d keys of this machine's set for that Role with any of the %d registered "
-                          "algorithms%s" % (self.far[0], self.far[1], side.role, held, side.n, len(ks), len(CP.PROTECTIONS),
-                                            "; an unsealed frame is taken only when the setting this end holds shows no seed"
-                                            if self._plain(body) else ""))
+        """The data of a frame, under the one key and algorithm this side holds. There is no other key to try
+        ([THE_KEY_IS_COMPUTED_V1]). The one thing this end may do first is take up its own setting, when a switch
+        call has already told it the sender moved (owed) or it has already lost a frame: then it knows the key it
+        holds is not the current one."""
+        for attempt in (0, 1):
+            if side.key is None:
+                if self._plain(body):
+                    return body
+            elif len(body) >= 12 + CP.TAG:
+                try:
+                    return CP.PROTECTIONS[side.protection][1](side.key, body[:12], struct.pack("!Q", pid), body[12:])
+                except ValueError:
+                    pass
+            if attempt or not (side.owed or side.lost):
+                break
+            number, protection = wanted(self._setting(side.role))
+            if (number, protection if number else "") == (side.number, side.protection if side.number else ""):
+                break
+            self._rekey_in(side, number, protection)           # this end's setting has arrived since
+        raise NotOpened("not under the key for the number this end holds for it (%s)"
+                        % ("sealed with " + side.protection if side.key else "not sealed"))
 
     # ---- sending
+    def _mine(self) -> str:
+        if self._fnid is None:
+            self._fnid = fnid_here()
+        return self._fnid
+
     def _out_side(self, role: str, stream: Optional[int]) -> Tuple[int, _Side]:
-        """This end's sending side for a Role, named on the connection before its first frame."""
+        """This end's sending side for a Role, named on the connection before its first frame: the number its key is
+        computed from, this node's FNID, the Role's name."""
         if stream is None:
             stream = self._stream.get(role)
             if stream is None:
@@ -382,9 +521,12 @@ class Link:
             side = self._out[stream] = _Side(role)
         if not side.named:
             s = self._setting(role) or {}
-            side.rekey(int(s.get("switches") or 0), s, self._keys)
+            number, protection = wanted(s)
+            side.fnid = self._mine() if number else (self._fnid or "")
+            side.rekey(number, protection, self._secret)
             side.word = DRIVERS[self._driver_of(s, role)][0]
-            self._put(packet_id(0, stream, False), struct.pack("!I", side.n) + role.encode("utf-8"))
+            fnid = side.fnid.encode("utf-8")
+            self._put(packet_id(0, stream, False), struct.pack("!QB", side.number, len(fnid)) + fnid + role.encode("utf-8"))
             side.named = True
             self._note()
             self._say("to %s:%d, sequence %d is %r: %s" % (self.far[0], self.far[1], stream, role, side.running()))
@@ -397,23 +539,35 @@ class Link:
             raise ConnectionGone("the channel of %r names the protocol %r, which this machine has not registered" % (role, name))
         return name
 
+    def _call(self, stream: int, side: _Side, data: bytes) -> None:
+        pid = packet_id(0, stream, True)
+        self._put(pid, self._seal(side, pid, data))
+
     def _catch_up(self, stream: int, side: _Side) -> None:
-        """Bring this end's sending for a Role to its setting: one call for a change of protocol, one for each
-        encryption switch the owner has commanded since. Each call goes out the old way; what follows is new."""
+        """Bring this end's sending for a Role to its setting: one call for a change of protocol, one for a change of
+        encryption (the number changed, or the algorithm). Each call goes out the old way; what follows is new. It
+        does not matter how many times the owner changed the number since: it is "did it change"."""
         s = self._setting(side.role) or {}
         word = DRIVERS[self._driver_of(s, side.role)][0]
         if word != side.word:
-            self._put(packet_id(0, stream, True), self._seal(side, packet_id(0, stream, True), SWITCH_PROTOCOL))
+            self._call(stream, side, SWITCH_PROTOCOL)
             self.calls["protocol"][0] += 1
             was, side.word, side.state = WORDS.get(side.word), word, {}
             self._note()
             self._say("to %s:%d for %r: SWITCH PROTOCOL sent; %s until here, %s from here"
                       % (self.far[0], self.far[1], side.role, was, WORDS[word]))
-        want = int(s.get("switches") or 0)
-        while side.n < want:
-            self._put(packet_id(0, stream, True), self._seal(side, packet_id(0, stream, True), SWITCH_ENCRYPTION))
+        number, protection = wanted(s)
+        if number != side.number or (number and protection != side.protection):
+            self._call(stream, side, SWITCH_ENCRYPTION)
             self.calls["encryption"][0] += 1
-            side.rekey(side.n + 1, s, self._keys)
+            if number and not side.fnid:
+                side.fnid = self._mine()
+            side.rekey(number, protection, self._secret)
+            # The first thing under the new key says where this end is in its messages. A receiver that lost frames
+            # before the switch reads it, sees it opens, and asks for them (NOT OPENED); one that lost none goes on.
+            side.state = {}
+            self._call(stream, side, AGAIN + _varint(side.base + len(side.kept)))
+            self.calls["again"][0] += 1
             self._note()
             self._say("to %s:%d for %r: SWITCH ENCRYPTION sent; now %s" % (self.far[0], self.far[1], side.role, side.running()))
 
@@ -423,13 +577,23 @@ class Link:
         ID) before the frame is written, so whoever waits for the reply knows what it will come back under."""
         self._hand(("request", role, message, on_id))
 
+    def submit_on(self, stream: int, role: str, message: bytes) -> None:
+        """[THE_FIRE_RIDES_THE_HOLDERS_CONNECTION_V1] A message this end sends of its own accord, on a sequence the far
+        end has already named (`stream`, for `role`): a role host's daemon putting a held read's fire on the
+        connection the holder's node opened. It answers nothing and nothing answers it."""
+        self._hand(("request", role, message, None, stream))
+
+    def named_to_this_end(self) -> Dict[int, str]:
+        """The sequences the far end has named on this connection: {its number: the Role it is for}."""
+        return {stream: side.role for stream, side in list(self._in.items())}
+
     def submit_reply(self, role: str, stream: int, counter: int, message: bytes) -> None:
         """The reply to the request that arrived on this sequence with this counter."""
         self._hand(("reply", role, stream, counter, message))
 
     def setting_changed(self, role: Optional[str] = None) -> None:
         """The held read on a Role's setting woke this process: each sending side for that Role (every Role when none
-        is given) puts its calls into the stream. (Receiving needs nothing from the setting: it follows the calls.)"""
+        is given) puts its calls into the stream, and each receiving side for it that has lost frames asks for them."""
         self._hand(("changed", role))
 
     def settle(self, wait_s: float = 30.0) -> None:
@@ -447,6 +611,45 @@ class Link:
         self._todo.put(item)
 
     # ---- the writer: the one owner of this connection's wire
+    def _message(self, stream: int, side: _Side, pid: int, reply: bool, message: bytes) -> None:
+        was = self.sent
+        self._put(pid, self._seal(side, pid, side.word + DRIVERS[WORDS[side.word]][1](side.state, pid, message)))
+        if self.on_sent is not None:
+            self.on_sent(side.role, reply, self.sent - was, WORDS[side.word])
+
+    def _ask_again(self, stream: int) -> None:
+        """Say NOT OPENED for a receiving sequence that is lost: on this end's own sending side of that sequence."""
+        first = self._parked.get(stream)
+        there = self._in.get(stream)
+        if first is None or there is None:
+            return
+        stream, side = self._out_side(there.role, stream)
+        self._catch_up(stream, side)
+        self._call(stream, side, NOT_OPENED + _varint(first))
+        self._asked.add(stream)
+        self.calls["not opened"][0] += 1
+        self._say("to %s:%d for %r: NOT OPENED sent: its messages from number %d on did not open here; send them again"
+                  % (self.far[0], self.far[1], there.role, first))
+
+    def _send_again(self, stream: int, first: int) -> None:
+        """The far end said NOT OPENED from `first`: start again there, from an empty state, under the current key."""
+        side = self._out.get(stream)
+        if side is None or not side.named:
+            return
+        if first < side.base or first > side.base + len(side.kept):
+            raise ConnectionGone("%s:%d asks for %r's messages again from number %d and this end holds %d to %d"
+                                 % (self.far[0], self.far[1], side.role, first, side.base, side.base + len(side.kept)))
+        self._catch_up(stream, side)
+        side.state = {}
+        self._call(stream, side, AGAIN + _varint(first))
+        self.calls["again"][0] += 1
+        again = side.kept[first - side.base:]
+        for pid, reply, message in again:
+            self._message(stream, side, pid, reply, message)
+        self.sent_again += len(again)
+        self._say("to %s:%d for %r: %d message(s) sent again, from number %d, under %s"
+                  % (self.far[0], self.far[1], side.role, len(again), first, side.running()))
+
     def _write(self) -> None:
         try:
             while True:
@@ -461,10 +664,45 @@ class Link:
                     for stream, side in list(self._out.items()):
                         if side.named and (item[1] is None or side.role == item[1]):
                             self._catch_up(stream, side)
+                    for stream in list(self._parked):          # this end's setting arrived: what did not open may now
+                        there = self._in.get(stream)
+                        if there is not None and (item[1] is None or there.role == item[1]):
+                            self._ask_again(stream)
+                    continue
+                if kind == "not opened":                       # from the reader: a receiving sequence is lost from here
+                    self._parked.setdefault(item[1], item[2])
+                    continue
+                if kind == "in step":                          # from the reader: something of a lost sequence opened
+                    # A message that opens is asked on once (those already on their way open too). The sender's own
+                    # word that it is past what this end has (AGAIN, after its switch) is always asked on: it has
+                    # not started again from what this end lacks.
+                    if item[2] or item[1] not in self._asked:
+                        self._ask_again(item[1])
+                    continue
+                if kind == "taken up":                         # from the reader: the sender started again and it is in
+                    self._parked.pop(item[1], None)
+                    self._asked.discard(item[1])
+                    continue
+                if kind == "again":                            # from the reader: the far end said NOT OPENED
+                    self._send_again(item[1], item[2])
+                    continue
+                if kind == "they have":                        # from the reader: the far end said RECEIVED
+                    side = self._out.get(item[1])
+                    if side is not None and item[2] > side.base:
+                        del side.kept[:item[2] - side.base]
+                        side.base = item[2]
+                    continue
+                if kind == "we have":                          # from the reader: say RECEIVED
+                    there = self._in.get(item[1])
+                    if there is not None:
+                        stream, side = self._out_side(there.role, item[1])
+                        self._catch_up(stream, side)
+                        self._call(stream, side, RECEIVED + _varint(item[2]))
+                        self.calls["received"][0] += 1
                     continue
                 if kind == "request":
-                    _k, role, message, on_id = item
-                    stream, side = self._out_side(role, None)
+                    _k, role, message, on_id = item[:4]
+                    stream, side = self._out_side(role, item[4] if len(item) > 4 else None)
                     side.count += 1
                     counter, reply = side.count, False
                 else:
@@ -475,10 +713,8 @@ class Link:
                 pid = packet_id(counter, stream, reply)
                 if on_id is not None:
                     on_id(pid)
-                was = self.sent
-                self._put(pid, self._seal(side, pid, side.word + DRIVERS[WORDS[side.word]][1](side.state, pid, message)))
-                if self.on_sent is not None:
-                    self.on_sent(role, reply, self.sent - was, WORDS[side.word])
+                side.kept.append((pid, reply, message))       # until the far end says it has it
+                self._message(stream, side, pid, reply, message)
         except ConnectionGone as e:
             self.broken = str(e)
         except Exception as e:
@@ -500,47 +736,104 @@ class Link:
             self.on_running()
 
     # ---- receiving
-    def _rekey_in(self, side: _Side, n: int) -> None:
-        """A receiving side at n switches, by the rule, under the setting this process holds as it stands. That
-        setting may be behind the sender's; the first frame that does not open says so, and _open finds the pair."""
+    def _rekey_in(self, side: _Side, number: int, protection: str) -> None:
+        side.owed = False
         try:
-            side.rekey(n, self._setting(side.role), self._keys)
+            side.rekey(number, protection, self._secret)
         except DoesNotOpen as e:
-            self._say("from %s:%d for %r: %s; frames for it are opened by whichever key of the set opens them" % (self.far[0], self.far[1], side.role, e))
-            side.n = n
+            self._say("from %s:%d for %r: %s; its frames do not open here" % (self.far[0], self.far[1], side.role, e))
+            side.number, side.key = number, None
+
+    def _lost(self, side: _Side, stream: int, why: str) -> None:
+        """A frame did not open. It is not taken, and nothing after it on this sequence is, until the sender starts
+        again from the first message this end does not have. The writer says NOT OPENED when there is a reason to
+        think a retry will open: this end's setting changes, or something of the sequence opens again."""
+        self.not_opened += 1
+        if not side.lost:
+            side.lost, side.state = True, {}
+            self._say("from %s:%d for %r: a frame did not open (%s). It goes back for a retry: nothing of this sequence "
+                      "is taken from message number %d until the sender starts again"
+                      % (self.far[0], self.far[1], side.role, why, side.got))
+        self._todo.put(("not opened", stream, side.got))
+
+    @staticmethod
+    def _number(data: bytes) -> int:
+        z, shift = 0, 0
+        for c in data:
+            z |= (c & 0x7f) << shift
+            shift += 7
+            if not c & 0x80:
+                return z
+        raise ConnectionGone("a call's number does not end")
 
     def _one(self, pid: int, body: bytes) -> None:
         """One frame taken in, on the one thread that reads this connection: a name, a call, or a message, which is
         delivered."""
         counter, stream, reply = id_parts(pid)
         if counter == 0 and not reply:                       # the first frame of a sequence, this direction
-            if len(body) < 4:
+            if len(body) < 9 or len(body) < 9 + body[8]:
                 raise ConnectionGone("a sequence's first frame from %s:%d is %d bytes" % (self.far[0], self.far[1], len(body)))
-            n, role = struct.unpack("!I", body[:4])[0], body[4:].decode("utf-8", "replace")
-            side = self._in[stream] = _Side(role)
+            number, k = struct.unpack("!QB", body[:9])
+            fnid, role = body[9:9 + k].decode("utf-8", "replace"), body[9 + k:].decode("utf-8", "replace")
+            side = self._in[stream] = _Side(role, fnid)
             side.named = True
             if not self.opener:
                 self._stream.setdefault(role, stream)
-            self._rekey_in(side, n)
-            self._say("from %s:%d, sequence %d is %r, at %d switches%s" % (self.far[0], self.far[1], stream, role, n,
+            self._rekey_in(side, number, wanted(self._setting(role))[1])
+            self._say("from %s:%d, sequence %d is %r, from node %s%s" % (self.far[0], self.far[1], stream, role, fnid or "(not said)",
                       ", sealed with " + side.protection if side.key else ", not sealed"))
             return
         side = self._in.get(stream)
         if side is None:
             raise ConnectionGone("a frame from %s:%d on sequence %d, which nothing has named" % (self.far[0], self.far[1], stream))
-        data = self._open(side, pid, body)
+        try:
+            data = self._open(side, pid, body)
+        except NotOpened as e:
+            if not side.number and not side.owed and not wanted(self._setting(side.role))[0]:
+                raise ConnectionGone("data from %s:%d for %r, which is not sealed, begins %r: no registered protocol's word"
+                                     % (self.far[0], self.far[1], side.role, bytes(body[:4])))
+            self._lost(side, stream, str(e))
+            return
         if counter == 0:                                     # a call
-            if data == SWITCH_PROTOCOL:
+            call = bytes(data[:4])
+            if call == SWITCH_PROTOCOL and len(data) == 4:
                 self.calls["protocol"][1] += 1
                 side.state = {}
                 self._say("from %s:%d for %r: SWITCH PROTOCOL read" % (self.far[0], self.far[1], side.role))
-            elif data == SWITCH_ENCRYPTION:
+            elif call == SWITCH_ENCRYPTION and len(data) == 4:
                 self.calls["encryption"][1] += 1
-                self._rekey_in(side, side.n + 1)
-                self._say("from %s:%d for %r: SWITCH ENCRYPTION read; now at %d switches%s" % (self.far[0], self.far[1], side.role,
-                          side.n, ", sealed with " + side.protection if side.key else ", not sealed"))
+                number, protection = wanted(self._setting(side.role))
+                if number != side.number or (number and protection != side.protection):
+                    self._rekey_in(side, number, protection)
+                    self._say("from %s:%d for %r: SWITCH ENCRYPTION read; this end's setting says %s" % (self.far[0], self.far[1], side.role,
+                              "sealed with " + side.protection if side.key else "not sealed"))
+                else:
+                    side.owed = True                         # the sender's setting changed and this end's has not yet
+                    self._say("from %s:%d for %r: SWITCH ENCRYPTION read before this end's setting changed; what follows "
+                              "goes back for a retry until it has" % (self.far[0], self.far[1], side.role))
+            elif call == AGAIN:
+                self.calls["again"][1] += 1
+                first = self._number(data[4:])
+                side.state = {}
+                if first > side.got:                         # the sender is past what this end has: it is only saying where it is
+                    if side.lost:
+                        self._todo.put(("in step", stream, True))
+                elif side.lost or first < side.got:
+                    side.lost, side.skip = False, side.got - first
+                    self._todo.put(("taken up", stream))
+                    self._say("from %s:%d for %r: the sender starts again from message number %d; this end has %d"
+                              % (self.far[0], self.far[1], side.role, first, side.got))
+            elif call == NOT_OPENED:
+                self.calls["not opened"][1] += 1
+                self._todo.put(("again", stream, self._number(data[4:])))
+            elif call == RECEIVED:
+                self.calls["received"][1] += 1
+                self._todo.put(("they have", stream, self._number(data[4:])))
             else:
-                raise ConnectionGone("a call from %s:%d for %r that is neither switch: %r" % (self.far[0], self.far[1], side.role, data[:8]))
+                raise ConnectionGone("a call from %s:%d for %r that this end does not know: %r" % (self.far[0], self.far[1], side.role, data[:8]))
+            return
+        if side.lost:                                        # it opens, and it is from before the sender started again
+            self._todo.put(("in step", stream, False))
             return
         word = bytes(data[:4])
         name = WORDS.get(word)
@@ -549,7 +842,16 @@ class Link:
                                  % (self.far[0], self.far[1], side.role, word))
         if word != side.word:
             side.word, side.state = word, {}
-        got = (side.role, stream, counter, reply, DRIVERS[name][2](side.state, pid, data[4:]))
+        message = DRIVERS[name][2](side.state, pid, data[4:])
+        if side.skip:                                        # sent again, and this end already had it
+            side.skip -= 1
+            return
+        side.got += 1
+        side.since += 1
+        if side.since >= SAY_RECEIVED_EVERY:
+            side.since = 0
+            self._todo.put(("we have", stream, side.got))
+        got = (side.role, stream, counter, reply, message)
         if self._deliver is not None:
             self._deliver(*got)
         else:

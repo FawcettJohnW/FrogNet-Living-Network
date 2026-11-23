@@ -55,6 +55,7 @@ import collections
 import itertools
 import os
 import struct
+import queue
 import threading
 import time
 from typing import Any, Dict, Optional, Tuple
@@ -143,10 +144,10 @@ class WireManager:
 
 class _Spare:
     """What _ClientMux.send asks of a request, for an RPC that is no request's."""
-    __slots__ = ("sent_at", "attempts", "retry_pending", "seqs", "gate")
+    __slots__ = ("sent_at", "attempts", "retry_pending", "seqs")
 
     def __init__(self):
-        self.sent_at, self.attempts, self.retry_pending, self.seqs, self.gate = {}, 0, False, [], None
+        self.sent_at, self.attempts, self.retry_pending, self.seqs = {}, 0, False, []
 
 
 def cut(frame: bytes, room: int):
@@ -376,8 +377,15 @@ class _MsgWorker:
         self.max_out = self.max_early = 0
         print("[SEM-HOMA] session %s to %s:%d set=%d%s opened" % (self.session.hex(), host, self.port, set_id,
                                                                     " for %s" % ram if ram else ""), flush=True)
+        # [ONE_WRITER_OWNS_THE_WIRE_V1] (John, 21 Nov 2026 13:25) one writer for the session: it alone builds a frame
+        # (reading and committing the request reference) and gives it its place in the session's order.
+        self._todo: "queue.SimpleQueue" = queue.SimpleQueue()
+        self._order = TS._ReplyOrder(self._send_after, self._finish)       # the receiver's: replies applied as handed up
         self._mux.attach(self)
-        self._submit(wrap_hello(TS._get_local_gw()), None, hello=True)     # frame 0 of the session, as on TCP; its reply is in order
+        hello = TS._Rpc(wrap_hello(TS._get_local_gw()), max_attempts=1)
+        self._hello = hello
+        self._todo.put(hello)                                              # frame 0 of the session, as on TCP; its reply is in order
+        threading.Thread(target=self._write, daemon=True, name="sem-homa-tx-%s" % host).start()
 
     # -- what the registry (_get_worker) asks of a worker
     def is_stopped(self) -> bool:
@@ -393,11 +401,67 @@ class _MsgWorker:
     def call(self, packet: bytes) -> bytes:
         return self.wait(self.submit(packet))
 
-    def submit(self, packet: bytes, gate=None):
-        return self._submit(packet, gate)
+    def submit(self, packet, on_reply=None, key=None):
+        """Enqueue only. packet is a frame, or build(): the session's writer runs it as the frame takes its place in
+        the session's order. on_reply(frame, second) is run by the receiver as the reply is handed up (TS._Rpc)."""
+        return self._enqueue(TS._Rpc(packet, max_attempts=1, on_reply=on_reply, key=key))
 
-    def _submit(self, packet: bytes, gate, hello: bool = False):
-        rpc = TS._Rpc(packet, max_attempts=1, gate=gate)
+    def _send_after(self, packet: bytes, after):
+        """The receiver's own request (the fetch of an answer a RESP_SAME named)."""
+        rpc = TS._Rpc(packet, max_attempts=1)
+        rpc.after = after
+        return self._enqueue(rpc)
+
+    def _enqueue(self, rpc):
+        if self._stopped.is_set():
+            raise RuntimeError("peer %s:%d set=%d: session %s ended (%s) - not sending"
+                               % (self.host, self.port, self._set_id, self.session.hex(), self._stopped_reason))
+        self._todo.put(rpc)
+        if self._stopped.is_set():                     # it ended as this went in: the writer may already be gone
+            self._refuse(rpc)
+        return rpc
+
+    def _refuse(self, rpc) -> None:
+        if not rpc.done.is_set():
+            if rpc.err is None:
+                rpc.err = ConnectionError("session %s to %s:%d ended (%s) - not sent"
+                                          % (self.session.hex(), self.host, self.port, self._stopped_reason))
+            rpc.done.set()
+
+    def _write(self) -> None:
+        """The session's writer. It ends with the session (_broken puts None)."""
+        while True:
+            rpc = self._todo.get()                     # a held read on the queue; nothing polls
+            if rpc is None:
+                break
+            if self._stopped.is_set():
+                self._refuse(rpc)
+                continue
+            try:
+                if rpc.build is not None:
+                    rpc.packet, rpc.build = rpc.build(), None
+                self._send(rpc)
+            except BaseException as e:
+                print("[SEM-HOMA] session %s to %s:%d: a request was not sent (%s: %r); it fails, the session stays"
+                      % (self.session.hex(), self.host, self.port, type(e).__name__, e), flush=True)
+                with self._lock:
+                    self._out.discard(rpc)
+                    mine = self._mine.pop(rpc, None)
+                    if mine is not None:
+                        self._by_seq.pop(mine[0], None)
+                if rpc.err is None:
+                    rpc.err = e if isinstance(e, Exception) else RuntimeError(repr(e))
+                rpc.done.set()
+        while True:                                    # what was behind the end
+            try:
+                rpc = self._todo.get_nowait()
+            except queue.Empty:
+                return
+            if rpc is not None:
+                self._refuse(rpc)
+
+    def _send(self, rpc) -> None:
+        packet = rpc.packet
         w = self._mux.wire
         tr = WM.start("proxy", "request", outstanding=len(self._out), wm_whole_waiting=len(w._whole),
                       wm_pieces_waiting=len(w._pieces), replies_awaited=len(self._mux._waiting), threads=threading.active_count())
@@ -419,8 +483,6 @@ class _MsgWorker:
             self._mine[rpc] = mine
             self._by_seq[seq] = rpc
             self._out.add(rpc)
-            if hello:
-                self._hello = rpc
             self.n_sent += 1
             self.n_cut += 0 if whole else 1
             self.max_out = max(self.max_out, len(self._out))
@@ -430,7 +492,6 @@ class _MsgWorker:
             for i, piece in enumerate(pieces):
                 self._mux.send(self, rpc, REQ_PIECE.pack(PIECE_MAGIC, self.session, seq, i, len(pieces)) + piece)
         WM.mark(tr, "queued", pieces=1 if whole else len(pieces))
-        return rpc
 
     def wait(self, rpc) -> bytes:
         tr = self._tr.get(rpc)                         # the other threads mark it until its waiter has the reply
@@ -454,13 +515,15 @@ class _MsgWorker:
 
     # -- the receiver thread's two calls
     def _hand_up(self, rpc, frame: bytes) -> None:
-        """One reply, in its turn. Under self._lock, so tickets are stamped in the order replies are handed up."""
-        rpc.reply = frame
+        """One reply, in its turn, on the receiver: applied (its reference moves) in the order replies are handed up
+        ([REFERENCES_MOVE_IN_WIRE_ORDER_V1], as _DaemonWorker's reader does), then given to its caller."""
         if rpc is self._hello:
             self._hello = None
             self._named(frame)
-        if rpc.gate is not None:
-            rpc.ticket = TS._gate_stamp(rpc.gate)      # [REFERENCES_MOVE_IN_WIRE_ORDER_V1] as _DaemonWorker's reader does
+        self._order.arrived(rpc, frame)
+
+    def _finish(self, rpc, frame: bytes) -> None:
+        rpc.reply = frame
         self._out.discard(rpc)
         mine = self._mine.pop(rpc, None)
         if mine is not None:
@@ -560,6 +623,7 @@ class _MsgWorker:
         for rpc in left:
             rpc.err = err if isinstance(err, OSError) else ConnectionError(self._stopped_reason)
             rpc.done.set()
+        self._todo.put(None)                           # the session's writer ends; what it still holds is refused
         self._mux.detach(self, [rid for rpc in left + spares for rid in rpc.seqs])
 
     def stats(self) -> Dict[str, Any]:
