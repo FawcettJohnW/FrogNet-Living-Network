@@ -180,10 +180,10 @@ afterwards.
 **In the memory model.** A status call is a request for something the caller could simply read.
 
 **On memory.** `status` is a read of the ticket's family. `sara_ui.py` replaces `/ui` with a page that is one held
-read of the memory: where the RAM is served, the SARAs in it, and every ticket as it stands. Every SARA's page reads
-the same cells, so each shows the same ledger. It is written to change when a cell is written and to ask nothing on
-a timer. It writes nothing and shows no digest or token. What has been tested is the page's data and its held read,
-by program (the read returned 0.6 s after a claim was written). The page has not yet been looked at in a browser.
+read of the memory: where the RAM is served, the SARAs in it, and every ticket as it stands, the same in every SARA's
+browser because they all read the same cells. It changes when a cell is written and asks nothing on a timer: in
+Chrome, a claim written while the page was open appeared on it with no reload, and the page had made two requests in
+all. It writes nothing and shows no digest or token. `results/sara-ui-0.8.png` is that page.
 
 ### 10. SARA's PostgreSQL store, kept as written
 
@@ -212,7 +212,7 @@ Every SARA is its own process on its own shaped link, in FrogNet's network simul
 |---|---|---|
 | WAN 100 ms: `RibbitClaimStore` on memory | 107 ms | 74 |
 | WAN 100 ms: SARA's `PostgresClaimStore` on memory | 213 ms | 38 |
-| WAN 100 ms: SARA's `PostgresClaimStore` on PostgreSQL 16 | 1,819 ms | (see `RESULTS.md`) |
+| WAN 100 ms: SARA's `PostgresClaimStore` on PostgreSQL 16 | 1,819 ms | 4.5 |
 | LAN 0.5 ms: `RibbitClaimStore` on memory | 3.3 ms | 2,069 |
 | LAN 0.5 ms: SARA's `PostgresClaimStore` on memory | 5.5 ms | 1,254 |
 
@@ -222,7 +222,7 @@ Every SARA is its own process on its own shaped link, in FrogNet's network simul
 | 128 | breaks: too many clients | completes |
 | 32,768 | | completes, 24 connections; about 5,300 claims per second |
 
-All of this ran on one 2-core machine with simulated links. It has not yet been run on separate real machines.
+These ran in the simulator on one 2-core machine. A run on separate machines is next.
 
 | code lines (comments and blanks out) | |
 |---|---|
@@ -240,7 +240,7 @@ Linux, g++ with C++20, `liblz4-dev`, `libssl-dev`, Python 3.10 or later with `py
     (cd opt/frognet_semantic/ribbit/examples/worldshepherd && make)      # the session library Python loads
 
     git clone https://github.com/Bdavis1390/Sara_pro.git
-    (cd Sara_pro && git checkout worldshepherd/connectors-distributed-claim-contract-v1-20260913)
+    (cd Sara_pro && git checkout worldshepherd/connectors-distributed-claim-contract-v1-20260913)   # tested at 52b3764
 
 ## Run the tests
 

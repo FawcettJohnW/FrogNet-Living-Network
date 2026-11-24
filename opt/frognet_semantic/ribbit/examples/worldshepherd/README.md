@@ -32,7 +32,7 @@ Needs Linux, g++ with C++20, `liblz4-dev`, `libssl-dev`, Python 3.10 or later wi
     (cd opt/frognet_semantic/ribbit/examples/worldshepherd && make)      # the session library
 
     git clone https://github.com/Bdavis1390/Sara_pro.git
-    (cd Sara_pro && git checkout worldshepherd/connectors-distributed-claim-contract-v1-20260913)
+    (cd Sara_pro && git checkout worldshepherd/connectors-distributed-claim-contract-v1-20260913)   # tested at 52b3764
 
 Both builds are incremental: after a change, the same command compiles only what changed. Everything below is run
 from `opt/frognet_semantic/ribbit/examples/worldshepherd`, with `SARA=` the Sara_pro directory.

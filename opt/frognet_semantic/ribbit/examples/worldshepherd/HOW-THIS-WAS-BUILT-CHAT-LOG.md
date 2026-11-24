@@ -5,11 +5,8 @@ directory) was done in a single chat session on one day. This is its log, so you
 work together: who decides what, what the AI is expected to do without being told, and what happens when it gets
 something wrong.
 
-**What is verbatim and what is not.** Every block quoted with `>` under a numbered entry is John's message exactly as
-he sent it, typos included, and they are all of his messages, in order. Everything outside those blocks is Claude's
-summary: the notes, and Claude's own side, which is condensed to what it did and what it reported. The session is long enough that its early part was compacted
-while it ran, so the early replies are written from the session's own running record, not copied. The first reply is
-the exception and is quoted from the transcript. John can share the complete chat if you want every word.
+John's messages are quoted exactly as he sent them, all of them, in order. Claude's side is Claude's summary of what
+it did and reported.
 
 ## The division of labour
 
@@ -258,7 +255,7 @@ This document.
 
 ## What to take from it
 
-- John sent sixteen messages. After the brief, each is one to three sentences. None of them contains a line of code or a design
+- John sent sixteen messages. After the opening brief, each is one to three sentences, and none contains a line of code or a design
   detail. Every one is either a fact Claude lacked, a permission, or a ruling.
 - The rulings are short because the model is written down elsewhere and the AI is expected to know it. When the AI
   drifts back to habits from message-based systems (a server operation in step 9, a restore file in step 10, a fixed
