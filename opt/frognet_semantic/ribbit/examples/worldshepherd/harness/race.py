@@ -18,7 +18,7 @@
 #                issuer), writes the go, holds a read on (ws.race, result.<run>) until N results are there, and says
 #                whether every ticket was won exactly once, and the claims per second.
 #
-# RAM_HOST:PORT is worldshepherd-ram. --store memory: RibbitClaimStore, the tickets are its cells
+# RAM_HOST:PORT is an fdf-ram. --store memory: RibbitClaimStore, the tickets are its cells
 # --store sql      Brandon's PostgresClaimStore, unmodified, its four SQL calls converted to cells (ticket_sql.py):
 #                  no PostgreSQL anywhere
 # claimant --store-ram HOST:PORT: the address this SARA reaches the store's RAM manager at, when it is not the one

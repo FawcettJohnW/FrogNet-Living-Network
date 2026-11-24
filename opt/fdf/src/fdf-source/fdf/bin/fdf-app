@@ -61,12 +61,14 @@ Where things are [APP_SERVICES_V1]:
         on each installed machine: hold this machine's capability tuple for every AppRam it offers in the SystemRam;
         hold a read on the configuration tuples and adopt a newer one (its mac checked against the admin key), answering
         in (fdf-app, applied); serve each AppRam whose AppHost /etc/hosts names this machine, on its port.
+        [SERVING_SAID_V1] It says what it serves in the SystemRam, (fdf-app, serving, <app>.<ram>.<guid>) = {at: host:port, pid}:
+        a program on another machine that finds nothing listening at the AppHost's address holds a read on that.
 
 Environment: FDF_HOSTS (/etc/hosts), RINA_CONTROL_RAM / RINA_SYSTEM_RAM (an api.php's address, for a test), FDF_FACTS, FDF_APPS (/opt/fdf/apps), FDF_VAR (/opt/fdf/var), FDF_BIN (/opt/fdf/bin).
 """
 import hashlib, hmac, json, os, queue, random, signal, socket, subprocess, sys, threading, time
 
-BUILD_TAG = "fdf-app-2026-11-09-r53"   # [ROLES_ON_API_V1][CAPABILITY_ANNOUNCED_V1][APP_RENAMED_V1]
+BUILD_TAG = "fdf-app-2026-11-24-r54"   # [ROLES_ON_API_V1][CAPABILITY_ANNOUNCED_V1][APP_RENAMED_V1][SERVING_SAID_V1]
 LIB = os.environ.get("FDF_PY") or os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "lib", "python")
 sys.path.insert(0, LIB)
 import fdfram  # noqa: E402
@@ -445,6 +447,29 @@ class Server:
         except fdfram.RamError as e:
             log("the capability tuples not announced in the SystemRam (%s); announced again on the next event" % e)
 
+    def say_serving(self):
+        """[SERVING_SAID_V1] (fdf-app, serving, <app>.<ram>.<guid>) in the SystemRam for every AppRam this machine serves
+        now: where its listening socket is, and the pid of the fdf-ram behind it. This machine's own tuples, written when
+        they are not what is so and removed by it when it serves the RAM no longer. A program on another machine that
+        found nothing listening at the AppHost's address holds a read on this family: /etc/hosts names the AppHost on
+        every machine at its own moment, and this says the RAM is there."""
+        rm = _quiet(fdfram.system_ram)
+        if not rm:
+            return
+        want = {"%s.%s.%s" % (a, r, self.me): {"at": "%s:%d" % (self.addr, port), "guid": self.me, "pid": proc.pid}
+                for (a, r), (proc, port) in self.procs.items() if proc.poll() is None}
+        try:
+            have = {c["instance"]: c for c in rm.read(SVC, "serving") if c["instance"].endswith("." + self.me)}
+            for inst, bag in want.items():
+                if (have.get(inst) or {}).get("bag") != bag:
+                    rm.write(SVC, "serving", inst, bag)
+                    log("%s's AppRam %s said to be served at %s (pid %d) in the SystemRam %s" % (inst.split(".")[0], inst.split(".")[1], bag["at"], bag["pid"], rm.host))
+            for inst, c in have.items():
+                if inst not in want:
+                    rm.remove(c)
+        except fdfram.RamError as e:
+            log("what this machine serves not said in the SystemRam (%s); said again on the next event" % e)
+
     def watch_capability(self):
         """[CAPABILITY_ANNOUNCED_V1] a held read on this machine's own capability tuples in the SystemRam: a change (one
         removed while this machine is still here, a new SystemRam) is the event to announce them again"""
@@ -525,6 +550,7 @@ class Server:
             log("%s: databasehost-control did not answer (%s); adopted again when it is up or another one is named" % (why, e))
         self.hold_capability()
         self.serve(why)
+        self.say_serving()
 
     # ---- the events
     def watch_config(self):
@@ -581,7 +607,7 @@ class Server:
         rm = _quiet(fdfram.system_ram)               # the owner withdraws its own capability: this service is stopping
         if rm:
             try:
-                for c in rm.read(SVC, "can"):
+                for c in rm.read(SVC, "can") + rm.read(SVC, "serving"):
                     if c["instance"].endswith("." + self.me):
                         rm.remove(c)
             except fdfram.RamError as e:

@@ -3,7 +3,7 @@
 ## WorldShepherd slow tier, 2026-11-24 (`worldshepherd_slow_tier.py`, not in the gate)
 
 24 runs, all PASS (every ticket won exactly once): lan, wan-100ms, 4g and mixed links, 8 SARAs, 1 and 8 claims at
-once; `RibbitClaimStore` and Brandon's `PostgresClaimStore` on worldshepherd-ram 0.7, and his store on PostgreSQL as
+once; `RibbitClaimStore` and Brandon's `PostgresClaimStore` on `fdf-ram` (0.8; the matrix below was measured on 0.7's own RAM manager), and his store on PostgreSQL as
 the control. The table is in `ribbit/examples/worldshepherd/RESULTS.md`. The tier runs without PostgreSQL (16 of the
 24). Latency, jitter and rate were simulated; loss, outages and a link cut during a claim were not run.
 

@@ -7,7 +7,7 @@
 # handed a connection factory and makes four calls on what the factory returns. Those four calls are the whole of
 # its conversation with a database, so they are converted here and the store itself is left exactly as written:
 #
-#     store = PostgresClaimStore(ticket_sql.connection_factory("HOST:PORT"))      # worldshepherd-ram's address
+#     store = PostgresClaimStore(ticket_sql.connection_factory("HOST:PORT"))      # one fdf-ram; None on a node: the app's RAM
 #
 #   its statement                                                 here (ribbit_claim_store.py does each)
 #   CREATE_TABLE_SQL   CREATE TABLE IF NOT EXISTS ...             nothing: cells need no table
@@ -76,8 +76,12 @@ class _Connection:
     def close(self): pass
 
 
-def connection_factory(where, name="sara"):
+def connection_factory(where=None, name="sara"):
     """what PostgresClaimStore is constructed with: called for a connection, it gives one over this SARA's session to
-    worldshepherd-ram at `where` (HOST:PORT). The SARA's own truth is reasserted as ribbit_claim_store.py says."""
+    the app's RAM (where: one fdf-ram's HOST:PORT, or None on a node). The SARA's own truth is reasserted as ribbit_claim_store.py says."""
     cells = RibbitClaimStore(where, name=name)
-    return lambda: _Connection(cells)
+
+    def factory():
+        return _Connection(cells)
+    factory.cells = cells                      # the SARA's store itself, for sara_ui.router(factory.cells)
+    return factory

@@ -142,7 +142,7 @@ Traps, each found by a run that failed:
 ## `worldshepherd_slow_tier.py`: WorldShepherd SARA's ticket ledger, every SARA on its own link (24 Nov 2026)
 
 `lisp_slow_tier.py`'s shape for another conversion: every store unmodified, the network between the parts simulated
-with `slowlink.py`. Each SARA is a process with a relay of its own to `worldshepherd-ram`
+with `slowlink.py`. Each SARA is a process with a relay of its own to the RAM manager (`fdf-ram`)
 (`ribbit/examples/worldshepherd`); the driver is that example's `harness/race.py`. It runs `RibbitClaimStore` and
 Brandon's `PostgresClaimStore` on the memory (`ticket_sql.py`), and needs no PostgreSQL. With `WS_PG_DSN` set it also
 runs his store on that PostgreSQL, each SARA's connections through a relay of its own: the control. It is not in

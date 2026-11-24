@@ -23,12 +23,12 @@ every SARA on its own link.
 The stores, each run by the same race:
   sql        Brandon Ray Davis's PostgresClaimStore (Sara_pro, branch
              worldshepherd/connectors-distributed-claim-contract-v1-20260913), unmodified, with its four SQL calls
-             converted to cells in worldshepherd-ram (ribbit/examples/worldshepherd/ticket_sql.py). No PostgreSQL.
-  memory     RibbitClaimStore on worldshepherd-ram: the same cells without the SQL in between.
+             converted to cells in the app's RAM (ribbit/examples/worldshepherd/ticket_sql.py). No PostgreSQL.
+  memory     RibbitClaimStore on the app's RAM: the same cells without the SQL in between.
   postgres   the control, only when WS_PG_DSN names a PostgreSQL: PostgresClaimStore on it, as stock.
 
 What is simulated is the network (slowlink.py): each SARA is a separate process, and everything it says to the store --
-its one session to worldshepherd-ram, or its Postgres connections -- goes through that SARA's own shaped link. The
+its one session to the RAM manager (fdf-ram), or its Postgres connections -- goes through that SARA's own shaped link. The
 issuer sits beside the store. The race's own instruction and results use a separate, unshaped session, so what a
 link carried is the store's traffic and nothing else.
 
@@ -68,6 +68,9 @@ sys.path.insert(0, _HERE)
 import slowlink as SL                         # noqa: E402
 
 EXAMPLE = os.path.normpath(os.path.join(_HERE, "..", "ribbit", "examples", "worldshepherd"))
+# the platform's RAM manager, the one fdf-app serves an app's RAM with (rinab/tools/build.sh builds it; /opt/fdf/bin/fdf-ram on a node)
+os.environ.setdefault("FDF_PY", os.path.normpath(os.path.join(_HERE, "..", "..", "fdf", "src", "fdf-source", "fdf", "lib", "python")))
+FDF_RAM = os.environ.get("FDF_RAM") or os.path.normpath(os.path.join(_HERE, "..", "..", "fdf", "src", "fdf-source", "rinab", "build", "bin", "fdf-ram"))
 WHAT = {"postgres": "PostgresClaimStore on PostgreSQL", "sql": "PostgresClaimStore on the memory", "memory": "RibbitClaimStore on the memory"}
 DEPLOY = {"lan": ["lan"], "wan": ["wan-100ms"], "4g": ["4g"], "mixed": ["lan", "wifi", "4g", "wan-100ms"]}
 
@@ -75,7 +78,7 @@ DEPLOY = {"lan": ["lan"], "wan": ["wan-100ms"], "4g": ["4g"], "mixed": ["lan", "
 def prerequisites(sara, dsn):
     """[WORLDSHEPHERD_TIER_SAYS_WHAT_IS_MISSING_V1] every missing thing, named, before any run"""
     missing = []
-    for rel in ("bin/worldshepherd-ram", "lib/libkartram.so", "lib/ribbit.py"):
+    for rel in ("lib/libkartram.so", "lib/ribbit.py"):
         if not os.path.exists(os.path.join(EXAMPLE, rel)):
             missing.append(f"{os.path.join(EXAMPLE, rel)} (run make in {EXAMPLE})")
     if not os.path.exists(os.path.join(sara, "worldshepherd_sara", "connector_ticket_postgres.py")):
@@ -122,16 +125,17 @@ def one_race(store, links, tickets, threads, sara, dsn, out, label, limit_s):
                PYTHONPATH=os.pathsep.join([os.path.join(EXAMPLE, "harness"), EXAMPLE, os.path.join(EXAMPLE, "lib"), sara]))
     race = os.path.join(EXAMPLE, "harness", "race.py")
     port = free_port()
-    ram_log = open(os.path.join(out, f"worldshepherd-ram-{label}-{store}.log"), "w")
-    ram = subprocess.Popen([os.path.join(EXAMPLE, "bin", "worldshepherd-ram"), "--listen", f"127.0.0.1:{port}"],
-                           env=env, stdout=ram_log, stderr=subprocess.STDOUT)
+    ram_log = open(os.path.join(out, f"fdf-ram-{label}-{store}.log"), "w")
+    ram = subprocess.Popen([FDF_RAM, "--listen", f"127.0.0.1:{port}", "--api", "/FawcettInnovations.RINA.ram_interface.php"],
+                           env=dict(env, RINA_REGION_FILE=os.path.join(out, f"fdf-ram-{label}-{store}.perm"), FDF_VAR=out),
+                           stdout=ram_log, stderr=subprocess.STDOUT)
     deadline = time.time() + 10
     while True:
         try:
             socket.create_connection(("127.0.0.1", port), timeout=0.5).close(); break
         except OSError:
             if ram.poll() is not None or time.time() > deadline:
-                raise RuntimeError(f"worldshepherd-ram did not start: see {ram_log.name}")
+                raise RuntimeError(f"fdf-ram did not start: see {ram_log.name}")
             time.sleep(0.05)
     ram_relays = [SL.Relay(("127.0.0.1", port), SL.profile(p), seed=i, name=f"sara{i}-ram") for i, p in enumerate(links)]
     pg_relays = [SL.Relay(pg_target(dsn), SL.profile(p), seed=1000 + i, name=f"sara{i}-pg") for i, p in enumerate(links)] if store == "postgres" else []

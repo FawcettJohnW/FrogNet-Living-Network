@@ -1,4 +1,36 @@
-# Results -- worldshepherd-ribbit 0.7 on worldshepherd-ram 0.7, 2026-11-24
+# Results -- worldshepherd-ribbit 0.8, its RAM an app service on fdf-ram (fdf-2026-11-15-r54, fdf-app r54), 2026-11-24
+
+## 0.8: the RAM is a service; on failover a SARA reasserts, learns the world again, and proceeds
+Sections below this one were measured on 0.7 with its own RAM manager (`worldshepherd-ram`), which 0.8 removed. What
+was run again on 0.8, all on `fdf-ram`:
+
+| check | result |
+|---|---|
+| Brandon's `tests/test_connector_*.py`, unmodified, `RibbitClaimStore` (`harness/run_his_tests.py`) | 31 passed |
+| the same, his `PostgresClaimStore` on `ticket_sql.py` | 31 passed |
+| one session, 16 threads, 300 tickets, both stores | 2 passed |
+| the race, 8 processes, 400 tickets, no network: `RibbitClaimStore` | every ticket won once; 4,642 claims/s, claim median 1.5 ms |
+| the race, the same: his `PostgresClaimStore` on the memory | every ticket won once; 2,977 claims/s, claim median 2.6 ms |
+| simulator, lan, 8 SARAs: `RibbitClaimStore` / his store on the memory | PASS; claim median 3.3 ms / 5.5 ms; 2,069 / 1,254 claims/s |
+| simulator, wan-100ms, 8 SARAs: `RibbitClaimStore` / his store on the memory | PASS; claim median 107 ms / 213 ms; 74 / 38 claims/s (0.7: 107 / 213) |
+| `rinab/tools/test_fdf_app.py` with `fdf-app` r54 | PASS, 13 checks, as r53 |
+
+The service (`harness/test_the_apphost_moves.py`, 4 runs, all PASS; log of one in `results/apphost-moves-0.8.log`):
+
+| check | result |
+|---|---|
+| 1 `fdf-app config worldshepherd general`; installed and served on 3 machines | one configuration tuple; `worldshepherdHost.frognet` elected, `fdf-ram` answering about 300 ms after |
+| 3 the serving machine's `fdf-app` stopped | the AppHost on another machine and all 3 SARAs on its memory about 4.75 s after the stop (`fdf-app`'s stop and the election; the SARAs follow in under 50 ms) |
+| 4 after | the ticket consumed before is refused as consumed by all 3 SARAs; the ticket issued before is claimed once |
+| 5 80 claims in flight across that move | 80 answered, 0 raised; 40 tickets, one winner each |
+| 6 the new AppHost's `fdf-ram` killed, 80 claims in flight | all 3 SARAs on the memory `fdf-app` started 40 to 80 ms after; 80 answered, 0 raised; 40 tickets, one winner each |
+
+Before `[THEN_LEARN_THE_WORLD_AGAIN_V1]` (a SARA proceeding as soon as it had reasserted its own), checks 5 and 6
+failed: 1 ticket of 40 was refused to both claimants as not registered, its issuer not yet having written it.
+
+Not run again on 0.8: the full simulator matrix (24 runs), the PostgreSQL control, and the ramp. Their 0.7 numbers
+are below; the store's claim path is unchanged and the two deployments run again match.
+
 
 FrogNet tree: branch `homa-under-croakos-20261116` (b938ac9), ribbit-platform 0.71. Incumbent: Sara_pro branch
 `worldshepherd/connectors-distributed-claim-contract-v1-20260913` (52b3764), unmodified.
@@ -113,7 +145,9 @@ Rows: `results/worldshepherd-ramp-wan-0.7-20261124.jsonl`.
 | previous (0.4): `ribbit_claim_store.py` 44, `worldshepherd_ram.cpp` 96 | 140 |
 | 0.6: `ribbit_claim_store.py` 74, `worldshepherd_ram.cpp` 44 (a file) | 118 |
 | now (0.7): `ribbit_claim_store.py` 111, `worldshepherd_ram.cpp` 9 | 120: no server logic and no file; 37 of the store's lines are a SARA keeping and reasserting its own truth |
-| now, to run his Postgres store as written: `ticket_sql.py` | 46 more |
+| 0.8: `ribbit_claim_store.py` 193, no C++ (the RAM is the platform's `fdf-ram`) | 193: about half is finding the RAM, reasserting and learning the SARAs after it moves |
+| now, to run his Postgres store as written: `ticket_sql.py` | 49 more |
+| the browser page: `sara_ui.py` | 105 |
 
 ## Not claimed
 - A run on real machines. The simulator's links are above; the race has not been run on the nodes (`README.md` gives the commands).

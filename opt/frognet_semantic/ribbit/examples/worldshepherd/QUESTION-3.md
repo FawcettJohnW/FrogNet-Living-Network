@@ -28,3 +28,14 @@
    kills the RAM manager, starts an empty one, and checks what each SARA wrote again. Brandon's SQLite test of
    surviving a reopen is his SQLite store's; on the memory the same outcome comes from reassertion, for as long as
    the issuer and the winner are running.
+10. **A stand-alone RAM manager at a fixed address (0.1 to 0.7).** An app's RAM on FrogNet is always a service
+    (John, 2026-11-24: "Why isnt the ram a service? It should always be a service"). `worldshepherd-ram` is gone; the
+    app `worldshepherd` is served by `fdf-app` with `fdf-ram`. What it exposed in the platform: a program on another
+    machine had no event for "the new AppHost's RAM is listening". `fdf-app` r54 says it (`[SERVING_SAID_V1]`).
+11. **Two of the rule's three parts (0.7).** "Find the current RAM, reassert your own truth, then learn the world
+    again." 0.7 did the first two and its calls proceeded; the interval it left was measured in 0.8's test as a
+    ticket refused to both claimants. 0.8 holds a read on the SARAs' family until the SARAs that were there before
+    are there again, each having written its own truth first (`[THEN_LEARN_THE_WORLD_AGAIN_V1]`).
+12. **A call raising when the memory moved under it (0.7).** It waits for the SARA to be on the new memory and is
+    made again there (John: "On failover, assert and set up held reads, then proceed").
+

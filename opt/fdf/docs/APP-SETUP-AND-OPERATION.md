@@ -259,6 +259,11 @@ work like this -- EOC is just the example. For a media service, the requirements
   `(fdf-app, can, <app>.<guid>)` (every scalar its probe measured, never a defaulted one, and the RAMs the install
   offers, `--serve`) and writes it again after any RAM change; `fdf-app serve` holds a read on the family and reruns the
   selection on every event; the door refuses a RAM that is not served ("nothing works until it is"): connect or fail.
+- **Built** ([SERVING_SAID_V1], fdf-app r54, 2026-11-24): the machine serving an AppRam says so in the SystemRam,
+  `(fdf-app, serving, <app>.<ram>.<guid>)` = `{at: host:port, pid}`, and removes it when it serves it no longer. Each
+  machine's election writes its own `/etc/hosts` at its own moment, so a program elsewhere can read the new AppHost
+  before that machine's `fdf-ram` listens; it holds a read on this family (which also ends when `/etc/hosts` is
+  written) and connects when the RAM is said to be there. First user: `ribbit/examples/worldshepherd`.
 - **The app's own selection** is its configuration's `select`, per RAM (`*` for the rest): `need` (capability keys that
   must be true) and `rank` (keys compared in order, higher first; `-key` lower first); a member whose tuple lacks a key
   ranks below every member that has it; the guid breaks the last tie. Every member uses the `select` of the newest

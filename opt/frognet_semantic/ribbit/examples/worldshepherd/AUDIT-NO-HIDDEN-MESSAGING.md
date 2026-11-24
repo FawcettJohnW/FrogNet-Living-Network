@@ -60,9 +60,9 @@ part of the memory that is asserted on failover."
   where `RibbitClaimStore` makes one. It is his code as written.
 - **The session library** (`frogram`, through `kartram.cpp`) speaks FNW1 frames. That is the bus, not this example's
   code, and it was not changed.
-- **One interval after the memory is another one**: a consumed ticket whose issuer has reasserted it and whose winner
-  has not yet reads as not consumed, and a claim made then wins it. Each reasserts on the same event, at once; the
-  interval is the difference between the two. Not closed.
+- **After the memory moves (0.8)**: a SARA proceeds only when the SARAs that were in the old memory are in the new
+  one, each having written its own truth first. It learns that by a held read on their family. Nothing is asked of
+  another SARA and none answers another.
 - **A refused claim leaves its cell** (unknown ticket, wrong digest, expired). It never counts for any reader.
   Nothing removes cells of expired tickets yet, and a SARA never forgets one it owns.
 
@@ -78,3 +78,14 @@ ribbit_claim_store.py ticket_sql.py` finds two lines: a comment, and `resident_o
 the file back into the memory once at start, before any session. The behaviour is tested, not grepped:
 Brandon's 31 tests for both stores, `harness/test_one_session_many_threads.py` for both, `harness/race.py` with the
 winner rule reversed (fails, 400 of 400), and `harness/test_the_memory_is_another_one.py`.
+
+## 0.8, audited the same way
+- The RAM manager is the platform's `fdf-ram`, served by `fdf-app`. WorldShepherd has no code in it.
+- `_in_the_memory` makes a call again in the new memory after a move. It is not a retry against a peer: the first
+  memory is gone, and the call's cell was never in the new one.
+- `threading.Event` (`memory.replaced`) is one thread of a SARA telling its own other threads that the session object
+  was replaced. It is inside one process and guards no shared cell.
+- The wait for a SARA that does not come back ends after `MAX_TTL_SECONDS`. That is the contract's bound on a
+  ticket's life, not a retry timer: after it, nothing that SARA owned can affect a claim.
+- `fdf-app`'s `(fdf-app, serving, ...)` is the server's own cell, written by its owner, read by whoever holds a read.
+

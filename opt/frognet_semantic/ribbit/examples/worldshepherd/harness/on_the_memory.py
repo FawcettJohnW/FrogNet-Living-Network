@@ -18,7 +18,7 @@ import worldshepherd_sara.connector_ticket_shared as shared
 from ribbit_claim_store import BUILD, RibbitClaimStore
 
 from ribbit_claim_store import API
-if not os.environ.get("WS_RAM"):  # worldshepherd-ram, HOST:PORT
+if not os.environ.get("WS_RAM"):  # an fdf-ram, HOST:PORT
     raise RuntimeError("on_the_memory: WS_RAM=host:port is not set (the RAM manager these tests run against)")
 WHERE = os.environ["WS_RAM"]
 print("on_the_memory: %s, RAM manager %s%s" % (BUILD, WHERE, API))
