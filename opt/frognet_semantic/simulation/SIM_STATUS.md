@@ -1,5 +1,11 @@
 # Simulator status (last full run 2026-11-15)
 
+## WorldShepherd slow tier, 2026-11-24 (`worldshepherd_slow_tier.py`, not in the gate)
+
+16 runs, all PASS (every ticket won exactly once): lan, wan-100ms, 4g and mixed links, 8 SARAs, 1 and 8 claims at
+once, PostgresClaimStore and worldshepherd-ram 0.4. The table is in `ribbit/examples/worldshepherd/RESULTS.md`.
+Latency, jitter and rate were simulated; loss, outages and a link cut during a claim were not run.
+
 ## From a clean machine, 2026-11-15: `setup.sh`, then the gate
 
 A fresh Ubuntu 24.04 (debootstrap minbase; nothing of FrogNet's in `/opt` or `/usr/local`), the tree at d0a298ad with

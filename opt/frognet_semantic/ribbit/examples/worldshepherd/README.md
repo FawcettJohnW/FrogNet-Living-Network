@@ -12,6 +12,7 @@ then `RESULTS.md`.
 | `harness/on_the_memory.py` | runs Brandon's own tests, unmodified, against worldshepherd-ram |
 | `harness/test_one_session_many_threads.py` | 16 threads of one process on one session, 300 tickets |
 | `harness/race.py` | many SARAs on many machines claiming the same tickets at once, coordinated through the memory |
+| `../../../simulation/worldshepherd_slow_tier.py` | the simulator tier: the race with every SARA on its own shaped link, against the Postgres store |
 | `Makefile` | `make`: `bin/worldshepherd-ram`, `lib/libkartram.so` (the session library), `lib/ribbit.py`. Incremental |
 | `DESIGN.md`, `study-ticket-claims.md`, `WORLDSHEPHERD-SUITE-MAP.md`, `QUESTION-3.md`, `RESULTS.md`, `VERSION` | the conversion's records |
 
@@ -31,6 +32,11 @@ Everything below names it as `RAM=host:PORT`.
 Brandon's tests on the memory:
 
     cd $SARA && KARTRAM_LIB=$OLDPWD/lib PYTHONPATH=$OLDPWD/harness:$OLDPWD:$OLDPWD/lib:. WS_RAM=$RAM python3 -m pytest -p on_the_memory -q tests/test_connector_ticket_shared.py tests/test_connector_ticket_lifecycle.py tests/test_connector_control.py
+
+In the simulator, every SARA on its own shaped link, against Brandon's Postgres store (from `opt/frognet_semantic`;
+needs a PostgreSQL to name and `pip install psycopg2-binary fastapi`; it says what is missing before it runs):
+
+    WS_PG_DSN="host=127.0.0.1 dbname=ws user=ws password=..." python3 simulation/worldshepherd_slow_tier.py --sara $SARA
 
 The race, across machines. On every machine that takes part, from this directory (as many times as you want
 claimants; add `--name Seattle7` to see the node in each line):

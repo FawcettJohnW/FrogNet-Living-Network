@@ -7,10 +7,11 @@
 #   on every machine that takes part (any number of times per machine):
 #       python3 race.py claimant  RAM_HOST:PORT
 #   on one machine, once the claimants are up:
-#       python3 race.py controller RAM_HOST:PORT --claimants N --tickets K --store memory|postgres [--label TEXT]
+#       python3 race.py controller RAM_HOST:PORT --claimants N --tickets K --store memory|postgres [--threads T] [--label TEXT]
 #
 #   a claimant   writes (ws.race, can, <who>) = what it is, then holds a read on (ws.race, go): the controller's
-#                instruction. When one is written it claims every ticket named, in its own random order, through the
+#                instruction. When one is written it claims every ticket named, in its own random order (on T threads
+#                when the go says so: a SARA serving T requests at once, on its one session), through the
 #                store named, and writes (ws.race, result.<run>, <who>) = what it won and how long it took. Then it
 #                holds the read again. It ends when a go says {"end": true}.
 #   the controller  holds a read on (ws.race, can) until N claimants are there, registers K tickets (it is the
@@ -20,7 +21,7 @@
 # RAM_HOST:PORT is worldshepherd-ram. --store memory: RibbitClaimStore, the tickets are its cells
 # --store postgres Brandon's PostgresClaimStore, unmodified: each claimant and the controller connect to the Postgres
 #                  named by their own WS_PG_DSN (never written to the memory). The go still comes through the memory.
-import argparse, hashlib, json, os, random, secrets, sys, time
+import argparse, hashlib, json, os, random, secrets, sys, threading, time
 
 import ribbit
 from ribbit_claim_store import BUILD, RibbitClaimStore
@@ -74,16 +75,34 @@ def claimant(a):
                 print("[race] claimant %s: told to end" % who, flush=True); memory.close(); return
             store = stores.get(g["store"]) or stores.setdefault(g["store"], make_store(g["store"], memory, who))
             tickets = ticket_ids(g["run"], g["tickets"]); random.shuffle(tickets)
-            won, reasons = [], {}
+            threads = int(g.get("threads", 1))
+
+            def claim_these(mine, out):                # one thread's share; what it finds goes in its own slot
+                won, reasons, each = [], {}, []
+                for t in mine:
+                    t1 = time.perf_counter()
+                    c = store.claim(ticket_id=t, ticket_sha256=hashlib.sha256(t.encode()).hexdigest(), now=g["now"])
+                    each.append(time.perf_counter() - t1)
+                    if c.ok: won.append(t)
+                    else: reasons[c.reason] = reasons.get(c.reason, 0) + 1
+                out.append((won, reasons, each))
+            slots = [[] for _ in range(threads)]
+            workers = [threading.Thread(target=claim_these, args=(tickets[k::threads], slots[k])) for k in range(threads)]
             t0 = time.perf_counter()
-            for t in tickets:
-                c = store.claim(ticket_id=t, ticket_sha256=hashlib.sha256(t.encode()).hexdigest(), now=g["now"])
-                if c.ok: won.append(t)
-                else: reasons[c.reason] = reasons.get(c.reason, 0) + 1
+            for w in workers: w.start()
+            for w in workers: w.join()
             dt = time.perf_counter() - t0
+            if any(not s_ for s_ in slots):
+                raise RuntimeError("race: a claiming thread ended without a result (its error is above)")
+            won, reasons, each = [], {}, []
+            for s_ in slots:
+                won += s_[0][0]; each += s_[0][2]
+                for k, v in s_[0][1].items(): reasons[k] = reasons.get(k, 0) + v
+            each.sort()
             for t in won:                                      # each win is its own cell, in the winner's own space
                 memory.write(S, "won." + g["run"], t + "|" + who, {"t": t})
-            memory.write(S, "result." + g["run"], who, {"won": len(won), "lost": reasons, "claims": len(tickets), "s": dt})
+            memory.write(S, "result." + g["run"], who, {"won": len(won), "lost": reasons, "claims": len(tickets), "s": dt,
+                          "p50_ms": round(1000 * each[len(each) // 2], 2), "p99_ms": round(1000 * each[min(len(each) - 1, (99 * len(each)) // 100)], 2)})
             print("[race] claimant %s: run %s (%s): %d claims in %.3f s, won %d" % (who, g["run"], g["store"], len(tickets), dt, len(won)), flush=True)
 
 
@@ -109,7 +128,7 @@ def controller(a):
     for t in tickets:
         store.register(ticket_id=t, ticket_sha256=hashlib.sha256(t.encode()).hexdigest(), expires_at=now + 300)
     reg_s = time.perf_counter() - t0
-    memory.write_landed(S, "go", run, {"run": run, "store": a.store, "tickets": len(tickets), "now": now + 1})
+    memory.write_landed(S, "go", run, {"run": run, "store": a.store, "tickets": len(tickets), "now": now + 1, "threads": a.threads})
     results, last = {}, 0
     while len(results) < len(cans):
         for c in held(memory, "result." + run, last):
@@ -124,10 +143,12 @@ def controller(a):
     consumed = sum(1 for t in tickets if store.status(t).get("consumed"))
     total = sum(r["claims"] for r in results.values()); slowest = max(r["s"] for r in results.values())
     ok = not never and not twice and consumed == len(tickets)
-    out = {"label": a.label, "store": a.store, "run": run, "claimants": len(results), "tickets": len(tickets),
+    out = {"label": a.label, "store": a.store, "run": run, "claimants": len(results), "threads": a.threads, "tickets": len(tickets),
            "claims": total, "won_once": len(tickets) - len(never) - len(twice), "won_twice": len(twice),
-           "never_won": len(never), "store_says_consumed": consumed, "register_per_s": round(len(tickets) / reg_s),
-           "claims_per_s": round(total / slowest), "slowest_claimant_s": round(slowest, 3), "builds": builds,
+           "never_won": len(never), "store_says_consumed": consumed, "register_per_s": round(len(tickets) / reg_s, 1),
+           "claims_per_s": round(total / slowest, 1), "slowest_claimant_s": round(slowest, 3),
+           "claim_ms_p50": sorted(r["p50_ms"] for r in results.values())[len(results) // 2],
+           "claim_ms_p99_worst": max(r["p99_ms"] for r in results.values()), "builds": builds,
            "verdict": "PASS" if ok else "FAIL"}
     print(json.dumps(out)); return 0 if ok else 1
 
@@ -136,6 +157,6 @@ if __name__ == "__main__":
     p = argparse.ArgumentParser(); p.add_argument("role", choices=["claimant", "controller"]); p.add_argument("ram")
     p.add_argument("--name", default="sara"); p.add_argument("--claimants", type=int, default=2)
     p.add_argument("--tickets", type=int, default=200); p.add_argument("--store", default="memory")
-    p.add_argument("--label", default=""); p.add_argument("--end", action="store_true")
+    p.add_argument("--label", default=""); p.add_argument("--threads", type=int, default=1); p.add_argument("--end", action="store_true")
     a = p.parse_args()
     sys.exit(claimant(a) if a.role == "claimant" else controller(a))
