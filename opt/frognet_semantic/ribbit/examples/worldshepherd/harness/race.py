@@ -39,13 +39,13 @@ def open_memory(hostport):
     return ribbit.Memory(host, int(port), API)
 
 
-def make_store(kind, memory, who):
+def make_store(kind, where, who):
     if kind == "memory":
-        return RibbitClaimStore(memory, name=who)
+        return RibbitClaimStore(where, name=who)
     if kind == "sql":
         import ticket_sql
         from worldshepherd_sara.connector_ticket_postgres import PostgresClaimStore
-        return PostgresClaimStore(ticket_sql.connection_factory(memory, name=who))
+        return PostgresClaimStore(ticket_sql.connection_factory(where, name=who))
     if kind == "postgres":
         import psycopg2
         from worldshepherd_sara.connector_ticket_postgres import PostgresClaimStore
@@ -71,7 +71,7 @@ def held(memory, variable, last):
 
 def claimant(a):
     memory = open_memory(a.ram)
-    store_memory = open_memory(a.store_ram) if a.store_ram else memory     # the SARA's own way to the store
+    store_where = a.store_ram or a.ram                                      # the SARA's own way to the store
     who = "%s-%d-%s" % (a.name, os.getpid(), secrets.token_hex(3))
     memory.write(S, "can", who, {"build": BUILD, "pid": os.getpid()}, own=True)
     print("[race] claimant %s: %s, RAM manager %s; holding a read on the go" % (who, BUILD, a.ram), flush=True)
@@ -82,7 +82,7 @@ def claimant(a):
             last = max(last, go["id"]); g = go["bag"]
             if g.get("end"):
                 print("[race] claimant %s: told to end" % who, flush=True); memory.close(); return
-            store = stores.get(g["store"]) or stores.setdefault(g["store"], make_store(g["store"], store_memory, who))
+            store = stores.get(g["store"]) or stores.setdefault(g["store"], make_store(g["store"], store_where, who))
             tickets = ticket_ids(g["run"], g["tickets"]); random.shuffle(tickets)
             threads = int(g.get("threads", 1))
 
@@ -130,7 +130,7 @@ def controller(a):
             else: cans.pop(c["instance"], None)
     builds = sorted({b.get("build") for b in cans.values()})
     run = secrets.token_hex(4); now = time.time()
-    store = make_store(a.store, memory, "issuer")
+    store = make_store(a.store, a.ram, "issuer")
     if a.store == "postgres": store.initialize()
     tickets = ticket_ids(run, a.tickets)
     t0 = time.perf_counter()

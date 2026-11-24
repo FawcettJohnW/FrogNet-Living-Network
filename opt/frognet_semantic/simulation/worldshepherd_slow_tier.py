@@ -117,10 +117,10 @@ def one_race(store, links, tickets, threads, sara, dsn, out, label):
     env = dict(os.environ, KARTRAM_LIB=os.path.join(EXAMPLE, "lib"),
                PYTHONPATH=os.pathsep.join([os.path.join(EXAMPLE, "harness"), EXAMPLE, os.path.join(EXAMPLE, "lib"), sara]))
     race = os.path.join(EXAMPLE, "harness", "race.py")
-    port = free_port(); filed = os.path.join(out, f"tickets-{label}-{store}.log")
+    port = free_port()
     ram_log = open(os.path.join(out, f"worldshepherd-ram-{label}-{store}.log"), "w")
     ram = subprocess.Popen([os.path.join(EXAMPLE, "bin", "worldshepherd-ram"), "--listen", f"127.0.0.1:{port}"],
-                           env=dict(env, WORLDSHEPHERD_RAM_FILE=filed), stdout=ram_log, stderr=subprocess.STDOUT)
+                           env=env, stdout=ram_log, stderr=subprocess.STDOUT)
     deadline = time.time() + 10
     while True:
         try:

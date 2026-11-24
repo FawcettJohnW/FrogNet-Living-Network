@@ -12,23 +12,19 @@ import hashlib, os, secrets, threading
 
 import pytest
 
-import ribbit
 from ribbit_claim_store import RibbitClaimStore
-
-from ribbit_claim_store import API
 
 
 def _stores():
     import ticket_sql
     from worldshepherd_sara.connector_ticket_postgres import PostgresClaimStore
-    return {"memory": lambda m: RibbitClaimStore(m, name="threads"),
-            "sql": lambda m: PostgresClaimStore(ticket_sql.connection_factory(m, name="threads"))}
+    return {"memory": lambda where: RibbitClaimStore(where, name="threads"),
+            "sql": lambda where: PostgresClaimStore(ticket_sql.connection_factory(where, name="threads"))}
 
 
 @pytest.mark.parametrize("kind", ["memory", "sql"])
 def test_every_ticket_is_won_exactly_once_by_threads_sharing_a_session(kind):
-    host, port = os.environ["WS_RAM"].rsplit(":", 1)
-    store = _stores()[kind](ribbit.Memory(host, int(port), API))
+    store = _stores()[kind](os.environ["WS_RAM"])
     run = secrets.token_hex(4); tickets = ["%s-%04d" % (run, k) for k in range(300)]
     for t in tickets:
         store.register(ticket_id=t, ticket_sha256=hashlib.sha256(t.encode()).hexdigest(), expires_at=2000.0)

@@ -16,10 +16,15 @@
    (the read named the posted cell). 0.6: a read without the claimant's own cell decides nothing; it holds until
    the cell is there.
 6. **Write order is not kept across an `fdf-ram` restart.** Not a red in the suite. 0.3 had the losers withdraw;
-   0.6 files each cell before it is published and reads the file back in order.
+   0.7 has no file and no restart to order: item 9.
 7. **0.4 and 0.5 put a server back** (a region operation, a queue per ticket, deferred answers, a client-side copy).
    Not a red in any suite: they passed everything. Found by John's review of 2026-11-24 and recorded in
    `AUDIT-NO-HIDDEN-MESSAGING.md`. 0.6 is cells and write order again, with 5 and 6 fixed where they are: a claimant
    reads until its own cell is there, and worldshepherd-ram files cells in order.
 8. **`PostgresClaimStore` needs no PostgreSQL** (John, 2026-11-24: "Look at the calls. If they are just SQL, you can
    convert them"). Its four statements are converted in `ticket_sql.py`; the store is unmodified. Green: 31 tests.
+9. **0.6 kept a file so a restart would bring the tickets back.** Not a red. Wrong model: FrogNet recovers by owners
+   reasserting, not by restoring (John, 2026-11-24). 0.7 has no file; `harness/test_the_memory_is_another_one.py`
+   kills the RAM manager, starts an empty one, and checks what each SARA wrote again. Brandon's SQLite test of
+   surviving a reopen is his SQLite store's; on the memory the same outcome comes from reassertion, for as long as
+   the issuer and the winner are running.

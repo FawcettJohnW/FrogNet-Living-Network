@@ -7,12 +7,13 @@ then `RESULTS.md`.
 
 | file | |
 |---|---|
-| `worldshepherd_ram.cpp` | `worldshepherd-ram`: the RAM manager. No operations; it files Permanent cells so tickets outlive it |
-| `ribbit_claim_store.py` | `RibbitClaimStore`, a `SharedClaimStore`: a ticket is its cells; a SARA writes its own and reads |
+| `worldshepherd_ram.cpp` | `worldshepherd-ram`: the RAM manager. No operations and no file |
+| `ribbit_claim_store.py` | `RibbitClaimStore`, a `SharedClaimStore`: a ticket is its cells; a SARA writes its own and reads, and writes its own again when the memory is another one |
 | `ticket_sql.py` | Brandon's `PostgresClaimStore`, unmodified, with no PostgreSQL: its four SQL calls done as those cells |
 | `AUDIT-NO-HIDDEN-MESSAGING.md` | the review of this code for messaging, locks and copies under the memory, and what it removed |
 | `harness/on_the_memory.py` | runs Brandon's own tests, unmodified, against worldshepherd-ram (`WS_STORE=sql` for his Postgres store on it) |
 | `harness/test_one_session_many_threads.py` | 16 threads of one process on one session, 300 tickets |
+| `harness/test_the_memory_is_another_one.py` | the RAM manager killed and an empty one started: what each SARA reasserts |
 | `harness/race.py` | many SARAs on many machines claiming the same tickets at once, coordinated through the memory |
 | `../../../simulation/worldshepherd_slow_tier.py` | the simulator tier: the race with every SARA on its own shaped link, against the Postgres store |
 | `Makefile` | `make`: `bin/worldshepherd-ram`, `lib/libkartram.so` (the session library), `lib/ribbit.py`. Incremental |
@@ -25,9 +26,11 @@ Build, on each machine, from this directory:
 
     make
 
-The RAM manager, on one machine every SARA can reach (it says its build and what it restored when it starts):
+The RAM manager, on one machine every SARA can reach (it says its build when it starts). Under systemd, give it a
+socket unit for that port: its listening socket then outlives it, and a SARA's connect made while it is being started
+again waits there.
 
-    WORLDSHEPHERD_RAM_FILE=/var/lib/worldshepherd-tickets.log bin/worldshepherd-ram --listen 0.0.0.0:PORT
+    bin/worldshepherd-ram --listen 0.0.0.0:PORT
 
 Everything below names it as `RAM=host:PORT`.
 

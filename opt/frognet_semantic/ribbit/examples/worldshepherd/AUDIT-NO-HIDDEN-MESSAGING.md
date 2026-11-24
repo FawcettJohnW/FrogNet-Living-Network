@@ -1,4 +1,4 @@
-# Audit: is anything message-based hiding under the memory? (2026-11-24, of 0.5; fixed in 0.6)
+# Audit: is anything message-based hiding under the memory? (2026-11-24, of 0.5; fixed in 0.6 and 0.7)
 
 John, 2026-11-24: "Review the memory-based code and make sure it isn't hiding message-based shit under the covers.
 No races. No locks. No copying shit around. All of it."
@@ -25,37 +25,46 @@ real defects (a read answered by another thread's earlier identical read; ids no
 0.4 fixed both by moving the decision into a region operation. That fixed the symptoms by putting a server and a
 queue back. 0.6 goes back to cells and fixes the two defects where they are (below).
 
-## What 0.6 is, line by line
+## Found in 0.6, removed in 0.7
 
-- **A claim**: post my cell `(worldshepherd, ticket.<id>, claim.<who>.<n>)`, once, unanswered. Read the family. If my
+| # | what | why | 0.7 |
+|---|---|---|---|
+| 9 | every cell appended to a file and synced, and the file written back at start | a second copy of the memory, kept so a restart could pretend nothing happened. FrogNet does not recover that way: owners reassert. It also had an order hazard (the hook files a cell before the memory gives it its id, so two in flight together could come back in the other order) | gone. No file. Each SARA keeps the truth it owns and writes it into the memory that answers next (`[A_SARA_REASSERTS_ITS_OWN_V1]`) |
+
+John, 2026-11-24, when asked whether to drop the file: "Of course. And the ticket issued before the restart should be
+part of the memory that is asserted on failover."
+
+## What 0.7 is, line by line
+
+- **A claim**: post my cell `(worldshepherd, ticket.<id>, claim.<who>.<n>)`, unanswered. Read the family. If my
   cell is not in what I read, hold a read past the last id I saw. When my cell is there, every cell written before
-  it is there too, and the winner (the lowest id among the claims that count) cannot change. A read is a read: the
-  write that answers a held one is my own post or another SARA's.
-- **No race**: nothing is decided by timing between two SARAs. Each derives the winner from the same cells by the
-  same rule. The defect of 0.1 (a stale coalesced read) cannot give a wrong answer: a read without my cell in it is
-  not used to decide anything, only to know where to hold from.
-- **No lock**: none in `ribbit_claim_store.py`, `ticket_sql.py` or `worldshepherd_ram.cpp`. The file is appended with
-  one `write()` a record on an `O_APPEND` descriptor.
-- **No copy**: a store keeps nothing between calls but its own name and count. `ticket_sql.py` keeps nothing between
-  statements. The file is the one second copy of anything, and it is the platform's Permanent-cell hook: what makes
-  a ticket outlive the process.
-- **Nobody writes another's cell.** No operation runs in the RAM manager. Nothing is acknowledged or retried.
+  it is there too, and the winner cannot change. A read is a read: the write that answers a held one is my own post
+  or another SARA's.
+- **No race between SARAs claiming**: nothing is decided by timing. Each derives the winner from the same cells by
+  the same rule. A read without my cell in it decides nothing; it only says where to hold from.
+- **No lock**: none in `ribbit_claim_store.py`, `ticket_sql.py` or `worldshepherd_ram.cpp`. A SARA's session is
+  replaced by one thread only, in one assignment. What a SARA owns is a dict its calling threads add to and its
+  attaching thread copies whole before writing; that copy being atomic is CPython's, and is the one place this
+  leans on the interpreter.
+- **No copy of anyone else's truth.** A SARA keeps its own: the tickets it issued and the claims it won. That is
+  what an owner is for. `ticket_sql.py` keeps nothing between statements. There is no file.
+- **Nobody writes another's cell.** No operation runs in the RAM manager. Nothing is acknowledged. Nothing is
+  retried: a call that finds the memory gone raises.
 
 ## What is still there, and is not hidden
 
-- **The read's bytes.** A claimant reads the whole family: 2,100 to 3,200 bytes a claim with 8 claimants, against
+- **The read's bytes.** A claimant reads the whole family: 2,150 to 3,200 bytes a claim with 8 claimants, against
   about 240 for 0.4's one ask. That is the price of deriving from cells, measured in RESULTS.md.
 - **A read is a round trip on the wire.** One a claim (107 ms across a 100 ms round trip), the same as 0.4's ask.
 - **Brandon's `PostgresClaimStore`, unmodified, asks for the status after a refused claim**: two reads for a loser
   where `RibbitClaimStore` makes one. It is his code as written.
 - **The session library** (`frogram`, through `kartram.cpp`) speaks FNW1 frames. That is the bus, not this example's
   code, and it was not changed.
-- **After a restart**, two cells of one family that were in flight together can come back with their ids exchanged
-  (the hook files before it publishes). A consumed ticket stays consumed and nothing claimed after the restart can
-  win it; `status()` can then report the other of two racing claims' `at`. Stated in `ribbit_claim_store.py`'s
-  header and in RESULTS.md. Closing it needs the platform to file a cell with its id.
-- **A refused claim leaves its cell** (unknown ticket, wrong digest, expired). It never counts for any reader. The
-  file grows until expired tickets are removed, which is not built.
+- **One interval after the memory is another one**: a consumed ticket whose issuer has reasserted it and whose winner
+  has not yet reads as not consumed, and a claim made then wins it. Each reasserts on the same event, at once; the
+  interval is the difference between the two. Not closed.
+- **A refused claim leaves its cell** (unknown ticket, wrong digest, expired). It never counts for any reader.
+  Nothing removes cells of expired tickets yet, and a SARA never forgets one it owns.
 
 ## The rest of the directory
 - `harness/on_the_memory.py`: puts a store on the memory behind the name Brandon's tests use. No logic of its own.
@@ -68,4 +77,4 @@ queue back. 0.6 goes back to cells and fixes the two defects where they are (bel
 ribbit_claim_store.py ticket_sql.py` finds two lines: a comment, and `resident_operation("restore", ...)`, which writes
 the file back into the memory once at start, before any session. The behaviour is tested, not grepped:
 Brandon's 31 tests for both stores, `harness/test_one_session_many_threads.py` for both, `harness/race.py` with the
-winner rule reversed (fails, 400 of 400), and the restart check.
+winner rule reversed (fails, 400 of 400), and `harness/test_the_memory_is_another_one.py`.
