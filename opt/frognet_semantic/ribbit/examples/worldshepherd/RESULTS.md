@@ -77,6 +77,35 @@ LAN 2,612 claims a second now against 2,744.
 What this is: the simulator's links, on one machine. Latency, jitter and rate are simulated; loss and outages were
 not run. It is not a run on the nodes.
 
+## How many claims at once: the ramp (`worldshepherd_slow_tier.py --ramp`), 0.7
+Every SARA across a 100 ms round trip (wan-100ms), 8 SARAs, each making more and more claims at once on its one
+session; at least two tickets for every claiming thread, every SARA claiming every ticket. A store that does not
+finish a level is BROKE there, with what it said. Every finished run: every ticket won exactly once.
+Rows: `results/worldshepherd-ramp-wan-0.7-20261124.jsonl`.
+
+| claims in flight (8 SARAs x at once) | his store on PostgreSQL | his store on the memory | RibbitClaimStore |
+|---|---|---|---|
+| 64 | 33 /s, median 1,854 ms | 292 /s, median 217 ms | 567 /s, median 110 ms |
+| 96 | 41 /s, median 1,927 ms | 362 /s, median 216 ms | 719 /s, median 110 ms |
+| 128 | BROKE: PostgreSQL said "sorry, too many clients already" | 472 /s, median 220 ms | 921 /s, median 111 ms |
+| 256 | not run (broke at 128) | 1,059 /s, median 224 ms | 1,814 /s, median 120 ms |
+| 512 | not run (broke at 128) | 1,876 /s, median 229 ms | 3,172 /s, median 119 ms |
+| 1,024 | not run (broke at 128) | 2,259 /s, median 337 ms | 3,708 /s, median 180 ms |
+| 2,048 | not run (broke at 128) | 2,942 /s, median 526 ms | 4,279 /s, median 296 ms |
+| 4,096 | not run (broke at 128) | 2,913 /s, median 982 ms | 5,266 /s, median 501 ms |
+| 8,192 | not run (broke at 128) | 3,152 /s, median 1,787 ms | 5,224 /s, median 682 ms |
+| 16,384 | not run (broke at 128) | 2,868 /s, median 3,636 ms | 5,515 /s, median 922 ms |
+| 32,768 | not run (broke at 128) | 2,204 /s, median 9,635 ms | 4,636 /s, median 2,332 ms |
+
+- His store on PostgreSQL carried 96 claims at once and broke at 128: it opens a connection per call and PostgreSQL's
+  default `max_connections` is 100.
+- Both stores on the memory finished every level up to 32,768 claims in flight (8 SARAs x 4,096 threads), still on 24
+  connections, with no ticket won twice or never. No level broke them; the ramp stopped there.
+- Their claims a second stop rising at about 5,300 (RibbitClaimStore) between 4,096 and 16,384 in flight, and a
+  claim's median time rises from 110 ms to seconds. Everything in this run shares one 2-core machine: 8 Python
+  processes of up to 4,096 threads, 8 Python relays and the RAM manager. Which of them sets that ceiling was not
+  measured.
+
 ## Lines (code lines, comments and blanks out)
 | | lines |
 |---|---|

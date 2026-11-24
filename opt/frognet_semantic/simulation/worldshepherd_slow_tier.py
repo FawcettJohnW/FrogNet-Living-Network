@@ -41,11 +41,15 @@ link carried is the store's traffic and nothing else.
                 together by a held read.
   it reports    for each run: every ticket won exactly once or not (the verdict), claims a second, a claim's median
                 and worst 99th-percentile time, connections opened and bytes carried on the SARAs' links per claim.
-  it fails      when any run of any store does not have every ticket won exactly once.
+  it fails      when any run of any store does not have every ticket won exactly once, or does not finish.
+  --ramp        find how many claims at once each store carries: --threads is then a rising list; a store that
+                does not finish a level (a SARA ends with an error, or no result within --limit seconds) is said to
+                have BROKE there, with what it said, and is not run higher. BROKE does not fail a ramp; a ticket
+                won twice or never still does. Tickets a run: at least two for every claiming thread.
 
 usage (from opt/frognet_semantic):
   python3 simulation/worldshepherd_slow_tier.py --sara DIR [--deploy lan wan 4g mixed] [--clients 8] [--threads 1 8]
-        [--tickets 25] [--out DIR]
+        [--tickets 25] [--ramp] [--limit 600] [--out DIR]
   WS_PG_DSN="host=... dbname=... user=... password=..." in the environment adds the PostgreSQL control.
   DIR (--sara): the Sara_pro branch above, checked out. The example must be built (make in ribbit/examples/worldshepherd).
 """
@@ -111,7 +115,7 @@ def carried(relays):
             sum(r.stats["connections"] for r in relays))
 
 
-def one_race(store, links, tickets, threads, sara, dsn, out, label):
+def one_race(store, links, tickets, threads, sara, dsn, out, label, limit_s):
     """one RAM manager, one relay pair per SARA, N claimants, one controller. Returns the controller's result plus
     what the links carried."""
     env = dict(os.environ, KARTRAM_LIB=os.path.join(EXAMPLE, "lib"),
@@ -139,12 +143,30 @@ def one_race(store, links, tickets, threads, sara, dsn, out, label):
                                            "--name", f"sara{i}-{p}"],
                                           env=dict(env, WS_PG_DSN=dsn_through(dsn, pg_relays[i].port)) if pg_relays else env,
                                           stdout=log, stderr=subprocess.STDOUT), log))
-        r = subprocess.run([sys.executable, race, "controller", f"127.0.0.1:{port}", "--claimants", str(len(links)),
-                            "--tickets", str(tickets), "--threads", str(threads), "--store", store, "--label", label],
-                           env=dict(env, WS_PG_DSN=dsn) if dsn else env, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
-        line = next((ln for ln in r.stdout.splitlines() if ln.startswith("{")), None)
+        ctl = subprocess.Popen([sys.executable, race, "controller", f"127.0.0.1:{port}", "--claimants", str(len(links)),
+                                "--tickets", str(tickets), "--threads", str(threads), "--store", store, "--label", label],
+                               env=dict(env, WS_PG_DSN=dsn) if dsn else env, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
+        # the harness watches its own processes: a SARA that ends before the controller has its result broke, and says why
+        started = time.time(); broke = None
+        while ctl.poll() is None and broke is None:
+            for i, (k, log) in enumerate(kids):
+                if k.poll() is not None:
+                    log.flush(); said = [ln for ln in open(log.name).read().splitlines() if ln.strip() and "DIAG" not in ln]
+                    first = [ln for ln in said if "Error" in ln and "a claiming thread ended" not in ln]   # the error itself, not the claimant's report of it
+                    broke = f"sara{i} ended: " + ((first or said)[-1 if not first else 0].strip()[:200] if said else f"exit {k.returncode}")
+                    break
+            if broke is None and time.time() - started > limit_s:
+                broke = f"no result in {limit_s:g} s"
+            if broke is None:
+                time.sleep(0.2)
+        if broke is not None:
+            ctl.kill(); ctl.communicate()
+            return {"verdict": "BROKE", "why": broke, "run": "", "claims": len(links) * tickets}
+        out_text, err_text = ctl.communicate()
+        line = next((ln for ln in out_text.splitlines() if ln.startswith("{")), None)
         if line is None:
-            raise RuntimeError(f"the controller gave no result ({label}, {store}): {r.stderr.strip()[-600:]}")
+            return {"verdict": "BROKE", "why": "the controller ended with no result: " + (err_text.strip().splitlines() or ["?"])[-1][:200],
+                    "run": "", "claims": len(links) * tickets}
         res = json.loads(line)
         res["ram_bytes"], res["ram_connections"] = carried(ram_relays)
         res["pg_bytes"], res["pg_connections"] = carried(pg_relays) if pg_relays else (0, 0)
@@ -171,6 +193,8 @@ def main():
     ap.add_argument("--tickets", type=int, default=25)
     ap.add_argument("--threads", nargs="+", type=int, default=[1, 8])
     ap.add_argument("--out", default=None)
+    ap.add_argument("--ramp", action="store_true")
+    ap.add_argument("--limit", type=float, default=600.0)
     a = ap.parse_args()
     sara = os.path.abspath(a.sara); dsn = os.environ.get("WS_PG_DSN", "")
     missing = prerequisites(sara, dsn)
@@ -187,36 +211,46 @@ def main():
     stores = (["postgres"] if dsn else []) + ["sql", "memory"]
     if not dsn:
         print("  WS_PG_DSN is not set: no PostgreSQL control this run (the two stores on the memory are run)", flush=True)
-    rows, ok = [], True
+    rows, ok, broke_at = [], True, {}
     for dep in a.deploy:
         for n in a.clients:
             for th in a.threads:
                 links = [DEPLOY[dep][i % len(DEPLOY[dep])] for i in range(n)]
-                print(f"== {dep}, {n} SARAs, {th} claim(s) at once each: " + "; ".join(f"{p} ({SL.profile(p).label()})" for p in DEPLOY[dep]), flush=True)
+                print(f"== {dep}, {n} SARAs, {th} claim(s) at once each ({n * th} in flight): " + "; ".join(f"{p} ({SL.profile(p).label()})" for p in DEPLOY[dep]), flush=True)
                 label = f"{dep}-{n}x{th}"
+                tickets = max(a.tickets, 2 * th)             # every claiming thread has at least two tickets of its own
                 got = {}
                 for name in stores:
-                    r = one_race(name, links, a.tickets, th, sara, dsn, out, label)
+                    if (dep, name) in broke_at:
+                        print(f"  {WHAT[name]:38s} not run: it broke at {broke_at[(dep, name)]} claims at once", flush=True)
+                        continue
+                    r = one_race(name, links, tickets, th, sara, dsn, out, label, a.limit)
+                    row = {"deploy": dep, "saras": n, "threads": th, "in_flight": n * th, "tickets": tickets, "store": name,
+                           "verdict": r["verdict"], "run": r["run"]}
+                    if r["verdict"] == "BROKE":
+                        row["why"] = r["why"]; rows.append(row); broke_at[(dep, name)] = n * th; ok = ok and a.ramp
+                        print(f"  {WHAT[name]:38s} BROKE at {n * th} claims at once: {r['why']}", flush=True)
+                        continue
                     nbytes, conns = (r["pg_bytes"], r["pg_connections"]) if name == "postgres" else (r["ram_bytes"], r["ram_connections"])
-                    row = {"deploy": dep, "saras": n, "threads": th, "tickets": a.tickets, "store": name, "verdict": r["verdict"],
-                           "won_once": r["won_once"], "won_twice": r["won_twice"], "never_won": r["never_won"],
-                           "claims_per_s": r["claims_per_s"], "claim_ms_p50": r["claim_ms_p50"],
-                           "claim_ms_p99_worst": r["claim_ms_p99_worst"], "slowest_sara_s": r["slowest_claimant_s"],
-                           "bytes_per_claim": round(nbytes / r["claims"]), "connections": conns, "run": r["run"]}
+                    row.update({"won_once": r["won_once"], "won_twice": r["won_twice"], "never_won": r["never_won"],
+                                "claims_per_s": r["claims_per_s"], "claim_ms_p50": r["claim_ms_p50"],
+                                "claim_ms_p99_worst": r["claim_ms_p99_worst"], "slowest_sara_s": r["slowest_claimant_s"],
+                                "bytes_per_claim": round(nbytes / r["claims"]), "connections": conns})
                     rows.append(row); got[name] = row; ok = ok and r["verdict"] == "PASS"
-                    print(f"  {WHAT[name]:38s} {r['verdict']}  won once {r['won_once']}/{a.tickets}  {r['claims_per_s']:>8} claims/s  "
+                    print(f"  {WHAT[name]:38s} {r['verdict']}  won once {r['won_once']}/{tickets}  {r['claims_per_s']:>8} claims/s  "
                           f"claim p50 {r['claim_ms_p50']:>8} ms  worst p99 {r['claim_ms_p99_worst']:>8} ms  "
                           f"{row['bytes_per_claim']:>6} B/claim  {conns} connection(s)", flush=True)
                 if "postgres" in got:
                     for name in ("sql", "memory"):
-                        print(f"  {name} / postgres: {got[name]['claims_per_s'] / got['postgres']['claims_per_s']:.1f}x the claims a second, "
-                              f"{got['postgres']['claim_ms_p50'] / got[name]['claim_ms_p50']:.1f}x shorter median claim", flush=True)
+                        if name in got:
+                            print(f"  {name} / postgres: {got[name]['claims_per_s'] / got['postgres']['claims_per_s']:.1f}x the claims a second, "
+                                  f"{got['postgres']['claim_ms_p50'] / got[name]['claim_ms_p50']:.1f}x shorter median claim", flush=True)
     path = os.path.join(out, "worldshepherd-slow-tier.jsonl")
     with open(path, "w") as f:
         for row in rows:
             f.write(json.dumps(row) + "\n")
     print(f"WORLDSHEPHERD SLOW TIER - {'PASS' if ok else 'FAIL'} ({len(rows)} runs; every ticket won exactly once in "
-          f"{sum(1 for r in rows if r['verdict'] == 'PASS')}); rows in {path}")
+          f"{sum(1 for r in rows if r['verdict'] == 'PASS')}; broke in {sum(1 for r in rows if r['verdict'] == 'BROKE')}); rows in {path}")
     sys.exit(0 if ok else 1)
 
 
