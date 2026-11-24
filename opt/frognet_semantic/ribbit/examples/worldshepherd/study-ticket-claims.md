@@ -18,7 +18,7 @@ assert that).
 5. already consumed -> "ticket already consumed"
 6. otherwise consumed at `now` -> "ticket claimed for one-time host execution"
 Postgres adds a seventh, "ticket claim lost compare-and-set race", for a claim that lost between its UPDATE and its
-re-query. On the memory that case does not exist: one ticket takes one ask at a time, and a later claim gets reason 5.
+re-query. On the memory that case does not exist: a claimant has read the claim before its own, and derives reason 5.
 
 **Duplicate registration** raises `ValueError("duplicate ticket_id")`.
 
@@ -28,4 +28,4 @@ Postgres: one UPDATE, then on a miss a second query to say why; a new connection
 **What the suite does not test.** Its one concurrency test (16 threads, 64 claims, one store object) passed against
 a store whose winner rule was deliberately wrong (0.1 with the highest id winning instead of the lowest): the threads
 did not overlap. The 8-process race in `harness/race.py` caught that mutation (9 of 400 tickets won twice), and
-catches a RAM manager with its already-consumed check removed (400 of 400).
+catches 0.6 with the rule reversed (400 of 400).

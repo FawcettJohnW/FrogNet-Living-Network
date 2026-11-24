@@ -8,7 +8,8 @@
 | `test_connector_control.py` | 9 | policy: allow/deny, roles, data classes | not about the store |
 | `test_connector_ticket_postgres.py` | 5 | the SQL text of the Postgres adapter | not applicable by construction: asserts the incumbent's SQL |
 | `test_connector_ticket_sqlite.py` | 4 | SQLite file reopen, schema columns | not applicable by construction: asserts the incumbent's file |
-Stock: 31 passed. With worldshepherd-ram substituted for the reference store: 31 passed, 4 stores made on the memory.
+Stock: 31 passed. With the memory behind the reference store's name: 31 passed with `RibbitClaimStore`, and 31 passed
+with Brandon's `PostgresClaimStore` on `ticket_sql.py` (`WS_STORE=sql`); 4 stores made on the memory each run.
 
 ## main (234ef0c), deployments/sara_verified_local_v1: 919 tests
 Stock on Python 3.13: 919 collected, 1 failed (`test_sda_transport_identity.py::test_real_mtls_...`: the test's own

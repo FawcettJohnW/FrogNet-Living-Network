@@ -7,7 +7,7 @@
 #   on every machine that takes part (any number of times per machine):
 #       python3 race.py claimant  RAM_HOST:PORT
 #   on one machine, once the claimants are up:
-#       python3 race.py controller RAM_HOST:PORT --claimants N --tickets K --store memory|postgres [--threads T] [--label TEXT]
+#       python3 race.py controller RAM_HOST:PORT --claimants N --tickets K --store memory|sql|postgres [--threads T] [--label TEXT]
 #
 #   a claimant   writes (ws.race, can, <who>) = what it is, then holds a read on (ws.race, go): the controller's
 #                instruction. When one is written it claims every ticket named, in its own random order (on T threads
@@ -19,6 +19,10 @@
 #                whether every ticket was won exactly once, and the claims per second.
 #
 # RAM_HOST:PORT is worldshepherd-ram. --store memory: RibbitClaimStore, the tickets are its cells
+# --store sql      Brandon's PostgresClaimStore, unmodified, its four SQL calls converted to cells (ticket_sql.py):
+#                  no PostgreSQL anywhere
+# claimant --store-ram HOST:PORT: the address this SARA reaches the store's RAM manager at, when it is not the one
+#                  the race itself uses (the simulator gives each SARA its own shaped link to the store)
 # --store postgres Brandon's PostgresClaimStore, unmodified: each claimant and the controller connect to the Postgres
 #                  named by their own WS_PG_DSN (never written to the memory). The go still comes through the memory.
 import argparse, hashlib, json, os, random, secrets, sys, threading, time
@@ -38,6 +42,10 @@ def open_memory(hostport):
 def make_store(kind, memory, who):
     if kind == "memory":
         return RibbitClaimStore(memory, name=who)
+    if kind == "sql":
+        import ticket_sql
+        from worldshepherd_sara.connector_ticket_postgres import PostgresClaimStore
+        return PostgresClaimStore(ticket_sql.connection_factory(memory, name=who))
     if kind == "postgres":
         import psycopg2
         from worldshepherd_sara.connector_ticket_postgres import PostgresClaimStore
@@ -63,6 +71,7 @@ def held(memory, variable, last):
 
 def claimant(a):
     memory = open_memory(a.ram)
+    store_memory = open_memory(a.store_ram) if a.store_ram else memory     # the SARA's own way to the store
     who = "%s-%d-%s" % (a.name, os.getpid(), secrets.token_hex(3))
     memory.write(S, "can", who, {"build": BUILD, "pid": os.getpid()}, own=True)
     print("[race] claimant %s: %s, RAM manager %s; holding a read on the go" % (who, BUILD, a.ram), flush=True)
@@ -73,7 +82,7 @@ def claimant(a):
             last = max(last, go["id"]); g = go["bag"]
             if g.get("end"):
                 print("[race] claimant %s: told to end" % who, flush=True); memory.close(); return
-            store = stores.get(g["store"]) or stores.setdefault(g["store"], make_store(g["store"], memory, who))
+            store = stores.get(g["store"]) or stores.setdefault(g["store"], make_store(g["store"], store_memory, who))
             tickets = ticket_ids(g["run"], g["tickets"]); random.shuffle(tickets)
             threads = int(g.get("threads", 1))
 
@@ -128,7 +137,7 @@ def controller(a):
     for t in tickets:
         store.register(ticket_id=t, ticket_sha256=hashlib.sha256(t.encode()).hexdigest(), expires_at=now + 300)
     reg_s = time.perf_counter() - t0
-    memory.write_landed(S, "go", run, {"run": run, "store": a.store, "tickets": len(tickets), "now": now + 1, "threads": a.threads})
+    memory.write(S, "go", run, {"run": run, "store": a.store, "tickets": len(tickets), "now": now + 1, "threads": a.threads})
     results, last = {}, 0
     while len(results) < len(cans):
         for c in held(memory, "result." + run, last):
@@ -157,6 +166,6 @@ if __name__ == "__main__":
     p = argparse.ArgumentParser(); p.add_argument("role", choices=["claimant", "controller"]); p.add_argument("ram")
     p.add_argument("--name", default="sara"); p.add_argument("--claimants", type=int, default=2)
     p.add_argument("--tickets", type=int, default=200); p.add_argument("--store", default="memory")
-    p.add_argument("--label", default=""); p.add_argument("--threads", type=int, default=1); p.add_argument("--end", action="store_true")
+    p.add_argument("--label", default=""); p.add_argument("--store-ram", default=""); p.add_argument("--threads", type=int, default=1); p.add_argument("--end", action="store_true")
     a = p.parse_args()
     sys.exit(claimant(a) if a.role == "claimant" else controller(a))

@@ -17,32 +17,36 @@
 #  See COPYRIGHT and LICENSE at the root of this tree.         #
 ################################################################
 """
-worldshepherd_slow_tier.py - [WORLDSHEPHERD_SLOW_TIER_V1] WorldShepherd SARA's read-ticket ledger on the memory against
-SARA's own Postgres store, in the simulator, with every SARA on its own link.
+worldshepherd_slow_tier.py - [WORLDSHEPHERD_SLOW_TIER_V1] WorldShepherd SARA's read-ticket ledger in the simulator, with
+every SARA on its own link.
 
-Both systems run here unmodified: Brandon Ray Davis's PostgresClaimStore (Sara_pro, branch
-worldshepherd/connectors-distributed-claim-contract-v1-20260913) on a real PostgreSQL, and RibbitClaimStore on
-worldshepherd-ram (ribbit/examples/worldshepherd). What is simulated is the network (slowlink.py): each SARA is a
-separate process, and everything it says to the store -- its Postgres connections, or its one session to
-worldshepherd-ram -- goes through that SARA's own shaped link. The issuer sits beside the store.
+The stores, each run by the same race:
+  sql        Brandon Ray Davis's PostgresClaimStore (Sara_pro, branch
+             worldshepherd/connectors-distributed-claim-contract-v1-20260913), unmodified, with its four SQL calls
+             converted to cells in worldshepherd-ram (ribbit/examples/worldshepherd/ticket_sql.py). No PostgreSQL.
+  memory     RibbitClaimStore on worldshepherd-ram: the same cells without the SQL in between.
+  postgres   the control, only when WS_PG_DSN names a PostgreSQL: PostgresClaimStore on it, as stock.
+
+What is simulated is the network (slowlink.py): each SARA is a separate process, and everything it says to the store --
+its one session to worldshepherd-ram, or its Postgres connections -- goes through that SARA's own shaped link. The
+issuer sits beside the store. The race's own instruction and results use a separate, unshaped session, so what a
+link carried is the store's traffic and nothing else.
 
   deployments   lan     every SARA on the LAN (the control: what the relay itself costs)
                 wan     every SARA across the WAN (wan-100ms: the 100 ms round trip of NY2 <-> Seattle7)
                 4g      every SARA on 4G (40 ms each way +-15, 10 Mb/s)
                 mixed   SARAs on lan, wifi, 4g and wan-100ms in turn
-  workload      ribbit/examples/worldshepherd/harness/race.py, the same driver for both: N SARAs, K tickets, every SARA
-                claims every ticket in its own random order, T claims at once (--threads: a SARA serving T requests
-                at a time), started together by a held read. The instruction and the
-                results go through the memory for both systems (each SARA's session, on its link).
+  workload      ribbit/examples/worldshepherd/harness/race.py: N SARAs, K tickets, every SARA claims every ticket in
+                its own random order, T claims at once (--threads: a SARA serving T requests at a time), started
+                together by a held read.
   it reports    for each run: every ticket won exactly once or not (the verdict), claims a second, a claim's median
                 and worst 99th-percentile time, connections opened and bytes carried on the SARAs' links per claim.
-                For Postgres the bytes are its connections'. For the memory they are the session's, less what the same
-                race put on the session when the store was Postgres (the instruction and the results).
-  it fails      when any run of either system does not have every ticket won exactly once.
+  it fails      when any run of any store does not have every ticket won exactly once.
 
 usage (from opt/frognet_semantic):
-  WS_PG_DSN="host=127.0.0.1 dbname=ws user=ws password=..." python3 simulation/worldshepherd_slow_tier.py --sara DIR
-        [--deploy lan wan 4g mixed] [--clients 8] [--threads 1 8] [--tickets 25] [--out DIR]
+  python3 simulation/worldshepherd_slow_tier.py --sara DIR [--deploy lan wan 4g mixed] [--clients 8] [--threads 1 8]
+        [--tickets 25] [--out DIR]
+  WS_PG_DSN="host=... dbname=... user=... password=..." in the environment adds the PostgreSQL control.
   DIR (--sara): the Sara_pro branch above, checked out. The example must be built (make in ribbit/examples/worldshepherd).
 """
 import argparse
@@ -60,6 +64,7 @@ sys.path.insert(0, _HERE)
 import slowlink as SL                         # noqa: E402
 
 EXAMPLE = os.path.normpath(os.path.join(_HERE, "..", "ribbit", "examples", "worldshepherd"))
+WHAT = {"postgres": "PostgresClaimStore on PostgreSQL", "sql": "PostgresClaimStore on the memory", "memory": "RibbitClaimStore on the memory"}
 DEPLOY = {"lan": ["lan"], "wan": ["wan-100ms"], "4g": ["4g"], "mixed": ["lan", "wifi", "4g", "wan-100ms"]}
 
 
@@ -72,14 +77,12 @@ def prerequisites(sara, dsn):
     if not os.path.exists(os.path.join(sara, "worldshepherd_sara", "connector_ticket_postgres.py")):
         missing.append(f"{sara}/worldshepherd_sara/connector_ticket_postgres.py (--sara is not the Sara_pro branch "
                        "worldshepherd/connectors-distributed-claim-contract-v1-20260913)")
-    if not dsn:
-        missing.append("WS_PG_DSN in the environment (the PostgreSQL the stock store uses)")
-    else:
+    if dsn:                                   # the stock control is run only when a PostgreSQL is named
         try:
             import psycopg2
             psycopg2.connect(dsn, connect_timeout=5).close()
         except ImportError:
-            missing.append("the Python module psycopg2 (pip install psycopg2-binary)")
+            missing.append("the Python module psycopg2 (pip install psycopg2-binary), for the PostgreSQL named in WS_PG_DSN")
         except Exception as e:                # noqa: BLE001 -- named and reported, the tier stops
             missing.append(f"a PostgreSQL that answers at WS_PG_DSN ({str(e).strip().splitlines()[0]})")
     try:
@@ -127,23 +130,24 @@ def one_race(store, links, tickets, threads, sara, dsn, out, label):
                 raise RuntimeError(f"worldshepherd-ram did not start: see {ram_log.name}")
             time.sleep(0.05)
     ram_relays = [SL.Relay(("127.0.0.1", port), SL.profile(p), seed=i, name=f"sara{i}-ram") for i, p in enumerate(links)]
-    pg_relays = [SL.Relay(pg_target(dsn), SL.profile(p), seed=1000 + i, name=f"sara{i}-pg") for i, p in enumerate(links)]
+    pg_relays = [SL.Relay(pg_target(dsn), SL.profile(p), seed=1000 + i, name=f"sara{i}-pg") for i, p in enumerate(links)] if store == "postgres" else []
     kids = []
     try:
         for i, p in enumerate(links):
             log = open(os.path.join(out, f"sara{i}-{label}-{store}.log"), "w")
-            kids.append((subprocess.Popen([sys.executable, race, "claimant", ram_relays[i].where, "--name", f"sara{i}-{p}"],
-                                          env=dict(env, WS_PG_DSN=dsn_through(dsn, pg_relays[i].port)),
+            kids.append((subprocess.Popen([sys.executable, race, "claimant", f"127.0.0.1:{port}", "--store-ram", ram_relays[i].where,
+                                           "--name", f"sara{i}-{p}"],
+                                          env=dict(env, WS_PG_DSN=dsn_through(dsn, pg_relays[i].port)) if pg_relays else env,
                                           stdout=log, stderr=subprocess.STDOUT), log))
         r = subprocess.run([sys.executable, race, "controller", f"127.0.0.1:{port}", "--claimants", str(len(links)),
                             "--tickets", str(tickets), "--threads", str(threads), "--store", store, "--label", label],
-                           env=dict(env, WS_PG_DSN=dsn), stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
+                           env=dict(env, WS_PG_DSN=dsn) if dsn else env, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
         line = next((ln for ln in r.stdout.splitlines() if ln.startswith("{")), None)
         if line is None:
             raise RuntimeError(f"the controller gave no result ({label}, {store}): {r.stderr.strip()[-600:]}")
         res = json.loads(line)
         res["ram_bytes"], res["ram_connections"] = carried(ram_relays)
-        res["pg_bytes"], res["pg_connections"] = carried(pg_relays)
+        res["pg_bytes"], res["pg_connections"] = carried(pg_relays) if pg_relays else (0, 0)
         return res
     finally:
         subprocess.run([sys.executable, race, "controller", f"127.0.0.1:{port}", "--end"], env=env,
@@ -178,8 +182,11 @@ def main():
     out = os.path.abspath(a.out) if a.out else tempfile.mkdtemp(prefix="worldshepherd-slow-")
     os.makedirs(out, exist_ok=True)
     version = open(os.path.join(EXAMPLE, "VERSION")).read().strip()
-    print(f"WORLDSHEPHERD SLOW TIER - {version}\n  against PostgresClaimStore (Sara_pro at {sara}) over simulated links; "
+    print(f"WORLDSHEPHERD SLOW TIER - {version}\n  SARA's stores (Sara_pro at {sara}) over simulated links; "
           f"{a.tickets} tickets a run; logs in {out}", flush=True)
+    stores = (["postgres"] if dsn else []) + ["sql", "memory"]
+    if not dsn:
+        print("  WS_PG_DSN is not set: no PostgreSQL control this run (the two stores on the memory are run)", flush=True)
     rows, ok = [], True
     for dep in a.deploy:
         for n in a.clients:
@@ -187,24 +194,23 @@ def main():
                 links = [DEPLOY[dep][i % len(DEPLOY[dep])] for i in range(n)]
                 print(f"== {dep}, {n} SARAs, {th} claim(s) at once each: " + "; ".join(f"{p} ({SL.profile(p).label()})" for p in DEPLOY[dep]), flush=True)
                 label = f"{dep}-{n}x{th}"
-                pg = one_race("postgres", links, a.tickets, th, sara, dsn, out, label)
-                mem = one_race("memory", links, a.tickets, th, sara, dsn, out, label)
-                claims = pg["claims"]
-                # what the race itself put on the SARAs' sessions (the instruction, the results), seen when the store was Postgres
-                mem_store_bytes = max(0, mem["ram_bytes"] - pg["ram_bytes"])
-                for name, r, nbytes, conns in (("postgres", pg, pg["pg_bytes"], pg["pg_connections"]),
-                                               ("memory", mem, mem_store_bytes, mem["ram_connections"])):
+                got = {}
+                for name in stores:
+                    r = one_race(name, links, a.tickets, th, sara, dsn, out, label)
+                    nbytes, conns = (r["pg_bytes"], r["pg_connections"]) if name == "postgres" else (r["ram_bytes"], r["ram_connections"])
                     row = {"deploy": dep, "saras": n, "threads": th, "tickets": a.tickets, "store": name, "verdict": r["verdict"],
                            "won_once": r["won_once"], "won_twice": r["won_twice"], "never_won": r["never_won"],
                            "claims_per_s": r["claims_per_s"], "claim_ms_p50": r["claim_ms_p50"],
                            "claim_ms_p99_worst": r["claim_ms_p99_worst"], "slowest_sara_s": r["slowest_claimant_s"],
-                           "bytes_per_claim": round(nbytes / claims), "connections": conns, "run": r["run"]}
-                    rows.append(row); ok = ok and r["verdict"] == "PASS"
-                    print(f"  {name:9s} {r['verdict']}  won once {r['won_once']}/{a.tickets}  {r['claims_per_s']:>8} claims/s  "
+                           "bytes_per_claim": round(nbytes / r["claims"]), "connections": conns, "run": r["run"]}
+                    rows.append(row); got[name] = row; ok = ok and r["verdict"] == "PASS"
+                    print(f"  {WHAT[name]:38s} {r['verdict']}  won once {r['won_once']}/{a.tickets}  {r['claims_per_s']:>8} claims/s  "
                           f"claim p50 {r['claim_ms_p50']:>8} ms  worst p99 {r['claim_ms_p99_worst']:>8} ms  "
                           f"{row['bytes_per_claim']:>6} B/claim  {conns} connection(s)", flush=True)
-                print(f"  memory / postgres: {mem['claims_per_s'] / pg['claims_per_s']:.1f}x the claims a second, "
-                      f"{pg['claim_ms_p50'] / mem['claim_ms_p50']:.1f}x shorter median claim", flush=True)
+                if "postgres" in got:
+                    for name in ("sql", "memory"):
+                        print(f"  {name} / postgres: {got[name]['claims_per_s'] / got['postgres']['claims_per_s']:.1f}x the claims a second, "
+                              f"{got['postgres']['claim_ms_p50'] / got[name]['claim_ms_p50']:.1f}x shorter median claim", flush=True)
     path = os.path.join(out, "worldshepherd-slow-tier.jsonl")
     with open(path, "w") as f:
         for row in rows:

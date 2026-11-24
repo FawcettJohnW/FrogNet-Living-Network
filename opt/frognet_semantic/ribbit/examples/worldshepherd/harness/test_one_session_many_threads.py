@@ -6,8 +6,11 @@
 # so a claimant's read after its own post must carry its own value, or it can be handed an answer from before its
 # post. Brandon's own test of this (16 threads, 64 claims, one ticket) hits that about one run in six; this one
 # makes it certain: 300 tickets, each claimed by 16 threads at once.
+# Run for both stores on the memory: RibbitClaimStore, and Brandon's PostgresClaimStore on ticket_sql.py.
 #   WS_RAM=host:port python3 -m pytest -q test_one_session_many_threads.py
 import hashlib, os, secrets, threading
+
+import pytest
 
 import ribbit
 from ribbit_claim_store import RibbitClaimStore
@@ -15,9 +18,17 @@ from ribbit_claim_store import RibbitClaimStore
 from ribbit_claim_store import API
 
 
-def test_every_ticket_is_won_exactly_once_by_threads_sharing_a_session():
+def _stores():
+    import ticket_sql
+    from worldshepherd_sara.connector_ticket_postgres import PostgresClaimStore
+    return {"memory": lambda m: RibbitClaimStore(m, name="threads"),
+            "sql": lambda m: PostgresClaimStore(ticket_sql.connection_factory(m, name="threads"))}
+
+
+@pytest.mark.parametrize("kind", ["memory", "sql"])
+def test_every_ticket_is_won_exactly_once_by_threads_sharing_a_session(kind):
     host, port = os.environ["WS_RAM"].rsplit(":", 1)
-    store = RibbitClaimStore(ribbit.Memory(host, int(port), API), name="threads")
+    store = _stores()[kind](ribbit.Memory(host, int(port), API))
     run = secrets.token_hex(4); tickets = ["%s-%04d" % (run, k) for k in range(300)]
     for t in tickets:
         store.register(ticket_id=t, ticket_sha256=hashlib.sha256(t.encode()).hexdigest(), expires_at=2000.0)

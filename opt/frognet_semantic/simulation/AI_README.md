@@ -139,19 +139,20 @@ Traps, each found by a run that failed:
 - **A check that greps logs for a word must name whose line it is.** "refused" also appears in the proxy's own error
   lines for an unrelated 410; the frame's and the setting's lines begin `[CHANNEL-FRAME]` and `[CHANNEL-SETTING]`.
 
-## `worldshepherd_slow_tier.py`: WorldShepherd SARA's ticket ledger against its Postgres store (24 Nov 2026)
+## `worldshepherd_slow_tier.py`: WorldShepherd SARA's ticket ledger, every SARA on its own link (24 Nov 2026)
 
-`lisp_slow_tier.py`'s shape for another conversion: both systems unmodified, the network between the parts simulated
-with `slowlink.py`. Each SARA is a process with a relay of its own to PostgreSQL and one to `worldshepherd-ram`
-(`ribbit/examples/worldshepherd`); the driver is that example's `harness/race.py` for both stores. It is not in
-`run_all.py`: it needs a PostgreSQL (`WS_PG_DSN`), `psycopg2`, `fastapi` and a checkout of Sara_pro's connector
-branch, none of which this tree carries, and it names each one that is missing before it runs.
+`lisp_slow_tier.py`'s shape for another conversion: every store unmodified, the network between the parts simulated
+with `slowlink.py`. Each SARA is a process with a relay of its own to `worldshepherd-ram`
+(`ribbit/examples/worldshepherd`); the driver is that example's `harness/race.py`. It runs `RibbitClaimStore` and
+Brandon's `PostgresClaimStore` on the memory (`ticket_sql.py`), and needs no PostgreSQL. With `WS_PG_DSN` set it also
+runs his store on that PostgreSQL, each SARA's connections through a relay of its own: the control. It is not in
+`run_all.py`: it needs a checkout of Sara_pro's connector branch and `fastapi`, which this tree does not carry, and
+it names each thing that is missing before it runs.
 
-- **A run's bytes for the memory are a difference.** The race's instruction and results travel on each SARA's session
-  for both stores, so the memory's bytes per claim are its session's bytes less the session's bytes in the Postgres
-  run of the same race.
+- **The race's own instruction and results are on a second, unshaped session.** What a SARA's link carried is the
+  store's traffic and nothing else.
 - **The mixed deployment's claims a second are the slowest SARA's.** Every SARA claims every ticket; the run ends
   when the last one has.
-- **PostgreSQL's `max_connections` (100 by default) bounds SARAs x claims at once** for the stock store, which opens
+- **PostgreSQL's `max_connections` (100 by default) bounds SARAs x claims at once** for the control, which opens
   a connection per call. 8 x 8 fits. More is a stock failure, and would be reported as one.
 - **PostgreSQL is not left running between commands in this sandbox** (as MariaDB is not): `service postgresql start`.
