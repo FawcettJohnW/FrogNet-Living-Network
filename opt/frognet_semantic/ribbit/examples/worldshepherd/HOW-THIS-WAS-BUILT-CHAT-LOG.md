@@ -5,8 +5,9 @@ directory) was done in a single chat session on one day. This is its log, so you
 work together: who decides what, what the AI is expected to do without being told, and what happens when it gets
 something wrong.
 
-**What is verbatim and what is not.** John's messages are verbatim, in order, typos included. Claude's side is
-condensed by Claude: what it did and what it reported. The session is long enough that its early part was compacted
+**What is verbatim and what is not.** Every block quoted with `>` under a numbered entry is John's message exactly as
+he sent it, typos included, and they are all of his messages, in order. Everything outside those blocks is Claude's
+summary: the notes, and Claude's own side, which is condensed to what it did and what it reported. The session is long enough that its early part was compacted
 while it ran, so the early replies are written from the session's own running record, not copied. The first reply is
 the exception and is quoted from the transcript. John can share the complete chat if you want every word.
 
@@ -89,11 +90,23 @@ About how the work is done (from his standing preferences):
 
 ### 1. The brief
 
-**John** pasted a hand-off written in another thread: convert WorldShepherd's system to FrogNet shared memory the way
-the earlier conversions were done; keep the existing API as the contract and the existing tests as the proof; remove
-the messaging and synchronization plumbing; held reads are the scheduler; the evidence logic (SCITT, Merkle,
-receipts) is application logic and stays; compare against stock on several machines. It named a blocker: "We do not
-yet have Brandon's repo."
+*Note: John opened with a hand-off block written in another thread. It is quoted whole. Its description of your
+system as a work queue was that thread's reading of your HotRFC material, before anyone had the code; steps 2 to 4
+are where that was corrected.*
+
+> **Thread purpose: convert WorldShepherd's system to FrogNet/Ribbit (CroakOS)**
+>
+> **Context.** Brandon Ray Davis (WorldShepherd R&D) reached out after IETF 127 HotRFC. His system is a work-queue / job-scheduling service with a cryptographic-evidence core (SCITT-style: signed checkpoints, Merkle membership, COSE receipts — the IETF SCITT transparency-log model). He proposed a small synthetic workload and a "reversible experiment"; we are not doing that. We convert the real system, because a toy conversion proves nothing.
+>
+> **The job.** Convert his actual codebase from its message-based paradigm to FrogNet shared memory, the same way the prior conversions were done. Keep the existing API as the interface contract and his existing tests as the proof of behavior. Rip out the messaging/sync plumbing; the core becomes a lockless shared-memory program — each writer owns its `Role.Variable.Instance` tuples, consumers hold reads, and held reads are the scheduler (no polling loops). The queue and dispatch collapse into the tuple space. The SCITT evidence logic (Merkle, signatures, receipts) is application logic — it stays and rides along, exactly as the LISP mapping stayed in the lispers.net conversion. It is not messaging plumbing and is not a conversion target.
+>
+> **Closest templates.** The MQTT/Mosquitto pub-sub conversion and the Redis-list conversion are the nearest patterns for the queue side; lispers.net is the nearest for "real application logic kept behind a converted core." Read those conversions' records.
+>
+> **First, read:** the repo's `AI_READ_FIRST.md` and the ribbit-conversion skill, then the SystemRam / held-read / capability-tuple model. Honor the standing rules: no fallbacks, held reads not polling, refer to nodes by name, one tarball per machine type, commit to a branch (with explicit permission) as you go, and distributed/multi-machine comparison against stock — single-machine numbers are meaningless.
+>
+> **Blocker to clear first.** We do not yet have Brandon's repo. The thread cannot start the real conversion until John supplies the exact `owner/repo` (and any auth). Step one is getting that link and reading the actual code; everything above is the plan it feeds into.
+>
+> **Estimate.** A week, in line with lispers.net; likely the low end, since a work queue is simpler plumbing than Dino's mapping API.
 
 **Claude** loaded the skill, read the method documents and three earlier conversions' designs, and searched GitHub,
 the HotRFC slides and John's earlier chats for the code. It reported, in part: "The blocker stands: there is no

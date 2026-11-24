@@ -180,9 +180,10 @@ afterwards.
 **In the memory model.** A status call is a request for something the caller could simply read.
 
 **On memory.** `status` is a read of the ticket's family. `sara_ui.py` replaces `/ui` with a page that is one held
-read of the memory: where the RAM is served, the SARAs in it, and every ticket as it stands, in every SARA's browser
-at once because they all read the same cells. It changes when a cell is written and asks nothing on a timer. It
-writes nothing and shows no digest or token.
+read of the memory: where the RAM is served, the SARAs in it, and every ticket as it stands. Every SARA's page reads
+the same cells, so each shows the same ledger. It is written to change when a cell is written and to ask nothing on
+a timer. It writes nothing and shows no digest or token. What has been tested is the page's data and its held read,
+by program (the read returned 0.6 s after a claim was written). The page has not yet been looked at in a browser.
 
 ### 10. SARA's PostgreSQL store, kept as written
 
