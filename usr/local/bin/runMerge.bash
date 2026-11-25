@@ -158,7 +158,14 @@ for _f in /var/run/frognet/* /var/run/frognet/.[!.]*; do
     # [HOOK_ASKS_THE_WATCHER_V1 - T4c] nm_dispatch_sig is the NetworkManager hook's last route signature: wiping it
     # made the first interface event after every merge ask for another merge (no delta judged). /run still clears it
     # at every boot, which is what makes the boot merge the hook's.
-    case "${_f##*/}" in merge_requests|seen_notifications|tunnel-daemon.pid|nm_dispatch_sig) continue ;; esac
+    # [HELD_SOCKETS_SURVIVE_THE_WIPE_V1] (John, 23 Nov 2026: "A merge should delete the held reads only if it changes
+    # /etc/hosts.") held is /run/frognet/held: the socket of every process on this node that holds a read, and the
+    # daemon's role-host-fires.sock, by which api.php hands a role host's fires to its daemon. Wiping it left every
+    # running holder bound to a socket with no name: no fire could reach it until it was restarted (found on BABox,
+    # BAMacBook and New-York-2 that day). The holds themselves end when this merge changes /etc/hosts, and that is
+    # the holder's own doing (core/frognet_held.py watches the file and holds again); the sockets are never this
+    # pass's state.
+    case "${_f##*/}" in merge_requests|seen_notifications|tunnel-daemon.pid|nm_dispatch_sig|held) continue ;; esac
     rm -rf "$_f"
 done
 [[ -n "$_flog_dir" ]] && mkdir -p "$_flog_dir"

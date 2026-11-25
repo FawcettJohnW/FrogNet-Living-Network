@@ -153,3 +153,12 @@ and the simulator's Homa do not (a Homa reply needs a request); a role host reac
 
 Read `ribbit/examples/homa/EXPLORATION-LOG.md`: section 9 for the procedure, section 4 for what went wrong the first
 time, and the entries of 18 November for a driver built as an imitation of something else and then taken out.
+
+## 7b. The frame's packets ride the wire socket (23 Nov 2026)
+
+On a node not told chorus, the frame layer has no connection of its own. Its packets ride the TCP driver's wire
+session: toward the daemon behind the tag `FRM\x02` (the daemon's reader sniffs each packet and hands a tagged one
+to the frame handler; it takes no request number), toward the node on the return channel numbered `0xFFFFFFFD`.
+`core/channel_carrier.WirePipe` is what `channel_frame.Link` is given where a socket would be. A driver that wants
+its packets on the wire does the same: a tag, a handler, no connection. `[THE_FRAME_RIDES_THE_WIRE_SOCKET_V1]`.
+

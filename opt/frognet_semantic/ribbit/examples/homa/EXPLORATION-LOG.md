@@ -2977,6 +2977,277 @@ refused and never made the change, so the test waited for it until the tier's ti
 off and the cause is not known. The test itself has no such wait when a person is at the keys. Delivered
 `frognet-protocol-layer-update-20261123i.tgz` (22 files, replaces `20261123h`). Nothing committed.
 
+### 23 Nov 2026, 08:20 (sandbox clock): the full test on hardware found that sealed traffic was not sealed
+
+John ran the full test on Seattle3B at 07:46 (its clock), build `20261123i`. It failed on almost every row.
+
+**What his output showed.** (1) "the 0 ends carrying units's traffic say they are sending it SEALED" on every
+row, with traffic flowing. (2) On the switch to chorus, 441 of 444 requests failed with HTTP 500; back on tcp they
+worked. (3) A third end, `10.251.251.1:frogtorch_ram.py.879391`, on build v9, at step 4, never inside 5 s. (4) At
+the start, "wrote 2 and read back [1]" on two memories for about a second.
+
+**(1) and (2): one cause, read in the code and then reproduced.** `homa_transport.carrier_for` put a Role in the
+frame only `if said in FRAMED and _chorus_loaded() is not None`, and `_chorus_loaded` is true only when a word of
+the node's transport file says chorus. His files say `auto`. So a Role on tcp went on the plain TCP wire, where
+nothing is sealed, and a Role on chorus raised "this node was not told of chorus" on every request. The daemon at
+the other end ran the unsealed requests. **Simulator, machines told only `auto`, before the fix: the same output**,
+0 ends carrying on every row and 99 of 100 requests failed on chorus. **Mine, and the worst of this work**: the
+layer reported a sealed setting held by every end while the wire carried plain traffic, and every tier passed,
+because I had told every simulated machine chorus and never ran one as his nodes are set. The first hardware test
+(build h) passed for the same reason it was worthless on this point: it carried no traffic.
+
+**Fixed** (`homa-carrier-v7-20261123e`): a Role with a setting of its own travels in the frame from every node;
+a sealed Role is never sent outside the frame; a daemon refuses a sealed Role's request that arrives outside the
+frame. A rule I picked, flagged to John: the Role's setting overrides the node's transport file on this too.
+
+**Simulator after the fix, between three machines:**
+
+| | machines told chorus | machines told only `auto` |
+|---|---|---|
+| full test | 73 pass, 0 fail | 73 pass, 0 fail |
+| full test, Seattle5 on another secret | FAIL, Seattle5 named | FAIL, Seattle5 named |
+| four runs of the Roles exercise | 113 pass, 0 fail | 109 pass, 0 fail (the tier's four "every daemon listens on chorus at start" checks do not apply to machines told `auto` and are not made) |
+| Admin's commands | 17 pass, 0 fail | not run |
+
+Setting oracle: 5 checks added for the three rules; passes. `run_all.py` gained the two `--told auto` tiers.
+**The full `run_all.py` was not run on this build.**
+
+**(3)** `frogtorch_ram.py` is a third process on Seattle3B that holds the settings and reports. Inference, not
+proven: restarting the daemon at install ended the node's sessions, the ControlRam removed that node's holds
+(`[WRITER_GONE_V1]`), and the process, not restarted, waits out its 300 s bound. Not fixed.
+
+**(4)** Not explained. It was on the plain TCP wire, which the Role's traffic no longer uses.
+
+**08:25, from the tree a node will have, machines told only `auto`** (main 948b435 + the tarball of 21 Nov +
+`20261123j`): the full test 73 pass 0 fail, and FAIL with Seattle5 named when it holds another secret. Delivered
+`frognet-protocol-layer-update-20261123j.tgz` (23 files, replaces `20261123i`). Commit b8e9c432 (John's word,
+07:51) holds everything through build i; this build's changes are NOT committed.
+
+### 23 Nov 2026, 08:31 (Seattle3B's clock, from John's paste): the full test on build `20261123j`, 56 pass 14 fail
+
+All 15 ends on one build (frogtorch_ram.py restarted). 6 memories placed in 13.7 s, given back in 14.3 s.
+
+**Now right on hardware:** every setting held by all 18 reporting ends in 319 to 1,717 ms; the secret moved from
+step 9 to 16; the three refusals; and on every row "the 7 ends carrying units's traffic say they are sending it
+SEALED" (this node's proxy and six daemons): the Role's traffic is in the frame on nodes told `auto`. Unsealed
+traffic in the frame works: 27 and 23 round trips after sealing was turned off, 0 failed in part G.
+
+**Wrong, and NOT explained:** while the Role was sealed, every request to every node timed out (10 s): 0 round
+trips on eleven rows, on tcp and on chorus, under both algorithms. 129 of 278 requests failed in the run. In the
+simulator the same build opens sealed traffic told `auto` and told chorus. Sealed frames had never crossed real
+nodes before this build (until `j` they were not in the frame at all), so this is their first run. I do not know
+the cause. The frame layer says in the journal when a frame does not open and why (`[CHANNEL-FRAME] ... its
+frames do not open here`, `a frame did not open`, `NOT OPENED sent`); asked John for those lines from Seattle3B
+and one other node.
+
+**Also not explained:** the first three requests to 10.28.28.1 were answered HTTP 400, before any change.
+
+### 23 Nov 2026, 08:59 (sandbox clock): why sealed traffic timed out on hardware, and John's ruling on the second socket
+
+**The journals John pasted** (Seattle3B and Seattle7): Seattle7's daemon, 08:32:00, "a frame did not open (not
+under the key for the number this end holds for it (not sealed))", then NOT OPENED sent every ten seconds;
+Seattle3B's proxy NOT OPENED sent to all six; no "sent again" on either.
+
+**Cause, read in `channel_frame._out_side` and then reproduced between machines before changing anything:** a
+sequence named while its Role is unsealed carried no FNID; the key is made from the sender's FNID; SWITCH ENCRYPTION
+does not carry it. The simulator never named a sequence unsealed, because its Role had no setting until the test's
+first write. With `set units --protocol tcp` made before the test (as his network was): "from node (not said), not
+sealed", then nothing opens, 0 round trips on every sealed row: his output. **Mine**: the same class of mistake as
+the transport-file one this morning, a simulator started from a state his network is never in. Both are now tier
+setup: machines told `auto`, and a Role that already has an unsealed setting.
+
+**Fixed** (`channel-frame-v13-20261123f`): the name always says the sender's FNID. After: full test told `auto`
+73 pass 0 fail; told chorus 73 pass 0 fail; four runs told `auto` 109 pass 0 fail; frame oracle passes. The full
+`run_all.py` not run.
+
+**John, 08:40 and 08:42:** "Why are we sending the protocol for Chorus over a separate socket? It should be
+multiplexed onto the wire socket." "What goes on the physical wire is a TCP data packet. What is in that packet is
+mine ... On the other side, the sniffer says this is a Chorus packet and ships the frame to the Chorus handler."
+He is right about what is built: the daemon sniffs the first word of a CONNECTION, so the frame has a connection
+of its own; since build j a node told `auto` holds two connections per destination. The sniff belongs on each
+packet of the one wire socket, as the held read's fire already rides it (a packet with a reserved number). Not
+built in `k`; next.
+
+### 23 Nov 2026, 09:30 (sandbox clock): the frame on the wire socket; holds that ended; what the 400s were
+
+**The frame on the wire socket** (John's ruling of 08:40/08:42, quoted in the entry before). Built as he said it:
+a per-packet sniff. `WirePipe` stands where `Link`'s socket was; the proxy's wire-session writer sends a tagged
+packet with no request number; the daemon's `TcpDaemonEnd.receive` hands tagged packets to the frame end; replies
+ride the return channel under a reserved number through the session's one writer. About 150 lines; no change inside
+the frame. First run between machines told `auto`: 71 of 73, the two failures being the start-up reads below, and
+"no connection is opened" in every journal (0 frame connections).
+
+**"wrote 2 and read back [1]" and the HTTP 400s: explained, reproduced.** The first run above showed it in the
+simulator. Seattle5's own proxy log shows its daemon forwarding the first requests for the memory to its local
+proxy: Seattle5 had not yet elected the name the controller's hosts file already had, so its daemon took the "not
+mine: forward" path. The test waited only for its OWN hosts file. **Mine** (the test's premise). The test now
+counts a memory as up when a value written reads back three times running, and shows what happened before apart.
+That a node which forwards a request to itself can answer a read with an earlier value is a behaviour of the
+existing wire in a transient state; noted, not looked into.
+
+**A hold that ended.** `--step admin-restart --told auto` failed: after Seattle3B's daemon and proxy restarted, a
+setting written from it reached 2 of 6 ends in 30 s. The same on build k, so not from the wire-socket change.
+Journal: "a fire for 10.250.250.1 has nowhere to go: that node has no connection open to this daemon. Its hold has
+ended; it holds again at its next event". There was no next event: the holder was never told. Told chorus the
+tier had always passed. Fixed: the node's proxy tells the node's holders (`held_fire.holds_ended`), and
+`frognet_held` treats it as it treats the hosts file being rewritten. After: 9 pass 0 fail.
+
+**Between three machines, final code (`20261123l`):**
+
+| | told `auto` | told chorus |
+|---|---|---|
+| full test | 74 pass, 0 fail (three runs) | 74 pass, 0 fail |
+| full test, Seattle5 on another secret | FAIL, named | FAIL, named |
+| four runs of the Roles exercise | 109 pass, 0 fail | not rerun on this code |
+| restart, then a setting | 9 pass, 0 fail (was 8 and 1) | not rerun |
+| fires / holds / Admin | 8 / 8 / 16 pass, 0 fail | not rerun |
+
+Unit oracles pass. **The full `run_all.py` was not run.**
+
+**09:33, from the tree a node will have, machines told `auto`** (main 948b435 + the tarball of 21 Nov +
+`20261123l`): the full test 74 pass 0 fail, FAIL with Seattle5 named on another secret, and the restart tier 9
+pass 0 fail. Delivered `frognet-protocol-layer-update-20261123l.tgz` (24 files, replaces `20261123k`). Builds j,
+k and l are NOT committed; b8e9c432 holds the work through build i.
+
+### 23 Nov 2026, 09:52 PST (John's message; BABox's journal, its clock 3 h ahead): a merge deletes every holder's socket
+
+Build `20261123l` on hardware: BABox, BAMacBook and New-York-2 answered nothing for two minutes at the start of
+traffic, and their daemon and proxy then took no setting (step 20 while the rest went to 21 and 22);
+frogtorch_ram.py on the same nodes did.
+
+**BABox's journal, not inference:** 12:44:54 and 12:45:00 its clock, fires for `daemon_main.py.2305811` and
+`proxy_main.py.2305812` "handed to the holder's socket". 12:45:06, the same two: "there is no such holder here
+(/run/frognet/held/proxy_main.py.2305812.sock: No such file or directory): the hold has ended", and so on every
+fire after. Both processes were running throughout. frogtorch_ram.py, started after, is delivered to.
+
+**Cause, read in `usr/local/bin/runMerge.bash` (lines 153 to 163, `[WIPE_THEN_REOPEN_V1]`):** every merge removes
+everything in /run/frognet except merge_requests, seen_notifications, tunnel-daemon.pid and nm_dispatch_sig.
+`held` is not kept. So a merge on a node deletes /run/frognet/held: every holder's socket, and the daemon's
+`role-host-fires.sock`, by which api.php hands a role host's fires to its daemon. The processes go on, bound to
+sockets that have no name; nothing can be delivered to them until they are restarted. Held reads came on
+2026-11-07; the keep list is older. This also fits BABox and BAMacBook waking only at 300 s on 22 Nov (inference
+for that day). What ran a merge on those three nodes at about 09:45 PST is not known.
+
+runMerge.bash is discovery's. Not changed: asked John. The change is one word in that `case`.
+
+**09:56 (sandbox clock).** John, 09:54: "A merge should delete the held reads only if it changes /etc/hosts."
+I answered that the holders already end their own holds when /etc/hosts changes, that what the merge deletes is
+the sockets, and that those must survive in every case; he: "Then have those files preserved, right". `held` added
+to runMerge.bash's keep list, nothing else in that file. New oracle runs the script's own wipe loop on a directory
+with live sockets: 6 pass with the change, 2 of 6 fail without it. Delivered
+`frognet-merge-keeps-held-20261123m.tgz` (runMerge.bash and channel_test.py v7) before the full simulator had
+finished, and said so. Not committed.
+
+### 23 Nov 2026, 09:56 PST (Seattle3B's clock, from John's paste): the full test passes on the real network
+
+Build `20261123l` on all seven nodes, services restarted (the merge change of `m` not yet on them);
+`core/channel_test.py` v6 run by John on Seattle3B. **RESULT PASS, 91 of 91 checks, 23 rows.**
+
+21 ends on 7 nodes (daemon, proxy and frogtorch_ram.py on each), one build. 6 memories placed in 5.4 s, up 5.7 s
+after traffic began, given back in 0.9 s. **1,111 round trips to six nodes, 0 failed, slowest 1,001 ms**, through:
+sealing on, three new keys, both algorithms, tcp to chorus and back, the three refusals with sealed traffic
+running, and John's own keys in part L (two protocol switches, three new keys, an algorithm, sealing off and on).
+Every setting held by all 21 ends in 350 to 845 ms. The secret went from step 24 to 34. On every sealed row the 7
+carrying ends report SEALED with the algorithm and protocol of the setting.
+
+This is the first time on real nodes for: sealed frames opening at the far end, the frame's packets on the wire
+socket, a Role in the frame on nodes told `auto`, and the test's live part.
+
+Shown apart at T, before the memories were up: three HTTP 400 "Missing/invalid Host header" and one 503
+"PeerGone ... it stopped and another started" from 10.170.170.1.
+
+Not yet shown on hardware: a merge with `m` installed leaving the sockets; a change made from another node
+during part L; a node on another secret.
+
+### 23 Nov 2026, 10:04 PST (Seattle3B's clock, from John's paste): second full pass; then part L grows
+
+Test v7 on build l with the merge change of `m` installed: **RESULT PASS, 116 of 116 checks, 28 rows**, 864 round
+trips, 0 failed, slowest 1,004 ms; eighteen changes by John in part L; every setting held by all 21 ends in 352
+to 738 ms; memories placed in 19.3 s and given back in 27.4 s; 8 early requests at T shown apart (HTTP 400
+"Missing/invalid Host header").
+
+**John, 10:07:** "Is openqasm implemented?" Yes: `core/openqasm.py` (a protocol under the frame: the whole message
+as a difference) and `core/openqasm_handler.py` (the circuit codex, for a value that begins OPENQASM); both on his
+nodes since the 21 Nov tarball; run 3 of the four runs in the simulator; never on his network. **10:18:** "There's no
+reason I can't run qasm without the quantum stuff, like to just run the network, is there?" None: confirmed in the
+simulator, the test's ordinary traffic on openqasm, sealed, 0 failed.
+
+**John, 10:12:** "In section L, I need a way to force a RAM host switch. It also needs to be able to show the
+currently selected host, the currently selected protocol, and the current key." Built (`channel-test-v8-20261123i`):
+a seventh memory, `unitsHost.protocoltest-moving`, whose one offer key `h` moves to the next node; key `o` for
+openqasm; a status line after every change and on `i`. **A choice of mine, told to John:** the key is shown as an
+8-hex fingerprint unless `--show-key`. Between three machines told `auto`, keys p k o h i a e s q: 82 pass 0 fail;
+the host switch 0.9 s, 0 requests failed while moving. Delivered `frognet-channel-test-v8-20261123n.tgz` (one
+file). The full `run_all.py`, started at 09:55, was stopped part-way (22 tiers passed, the known Ribbit-LISP
+failure) to free the sandbox for this; started again at 10:21.
+
+**10:25 (sandbox clock).** John, 10:21: "Then add the qasm as a third protocol to cycle through".
+`channel-test-v9-20261123j`: `p` cycles tcp, chorus, openqasm and round again; the scripted part goes through all
+three, so the refusals run with sealed traffic on openqasm; the `o` key of v8 is gone. Between three machines told
+`auto`: 92 pass 0 fail, a passing row for each of the three switches. Delivered
+`frognet-channel-test-v9-20261123o.tgz` (one file). The full `run_all.py` was stopped a second time for this and
+started again; it has not completed on any build since `h`.
+
+### 23 Nov 2026, 10:50 (sandbox clock): openqasm and the RAM host switch on hardware; the chat
+
+**John's run of test v9, 10:27 to 10:30 PST.** First time on real nodes: openqasm (sealed traffic on it, 25
+round trips 0 failed, the refusals under it) and the RAM host switch (New-York-1 to BABox 3.6 s, 0 failed; BABox
+to Seattle7 22.1 s, 3 failed while moving). Then failures in part L: "wrote 138 and read back [265]" on the moving
+memory, **mine**: the moving memory and the node's own share the node's one store and I gave both one value name
+(fixed, test v10, each memory its own name; 92 pass 0 fail between machines); and BABox's fixed memory timing out
+from 10:28:58 on, **not explained**. BABox's journal after its restart shows normal frame calls, and fires for the
+tunnel daemon's two holders (`fdf-app.2474`, `__main__.py.2487`) finding no socket: they lost theirs to a merge
+before the fix and were not restarted, so BABox does not hear the application election's tuples. Told John to
+restart the tunnel daemon on every node once.
+
+**John, 10:41:** "I need a script that sends chat back and forth between two clients so I can show it working as
+we switch protocols, etc." Built `core/channel_chat.py` and `roles_exercise_tier --step chat`: 44 lines each
+answered between two machines through a memory on the third while the Role was sealed, moved to chorus, re-keyed
+and moved to openqasm. Delivered `frognet-channel-chat-20261123p.tgz` (the chat and test v10).
+
+**John, 10:48**, asked whether it is still true that FrogNet is the user-space transport in Apache's place, works
+on any port, and calls Apache at the far end unless the handler there does otherwise. Read today:
+`proxy_main.py` (a user process, --listen default 0.0.0.0:80, the upstream and daemon ports arguments),
+`daemon/engine/resolver.py` and `execution.py` (the far daemon makes the HTTP request to its own node on :8080
+when the destination is that node, else hands it to the local proxy on :80), `etc/apache2` (the vhost on 8080).
+The daemon has no handler table of its own: what answers on that port is what the request reaches. The protocol
+layer changed none of it.
+
+The full `run_all.py` has still not completed on any build since `h`: stopped three times today for John's test
+changes.
+
+### 23 Nov 2026, 11:07 to 11:11 PST (from John's screen recording, 3 min 41 s): the test and the chat together
+
+Read from still frames, not played; the audio was not heard. On screen: frognet_monitor on Seattle3B,
+`channel_test.py` on Seattle3B, and `channel_chat.py` on Seattle7 and on Seattle3B.
+
+The test: every visible line PASS, 23 ends; a RAM host switch New-York-1 to BABox in 0.4 s; at its end "through
+the whole run: 2713 round trips to 7 nodes, 0 failed, the slowest 2011 ms". The chat: lines 38 to 138 in the
+frames read, round trips of about 500 to 1,000 ms, no "no answer" line in any frame, following the Role from tcp
+not sealed through aes-256-gcm, chacha20-poly1305, chorus, openqasm and new keys to tcp not sealed again. The key
+fingerprint in Seattle3B's chat window is the test's "this node's sending key" where the two can be compared
+(4a247f17 at the start of part L, e737986b at its end).
+
+**Mine, cosmetic:** the chat's line is wider than the windows it was run in, so the last four characters of the
+fingerprint wrap onto a line of their own. Not fixed.
+
+### 23 Nov 2026 11:25 Pacific: two open findings, found while writing the documents for security review
+
+John asked for the protocol design and the test design as formal documents for security reviewers. Checking each
+statement against the code before writing it found two things that no test exercises. Neither is corrected.
+
+1. **A receiver takes an unsealed sequence for a sealed Role.** `channel_frame.Link._one` keys the receiving side from
+   the number the SENDER states in the sequence's first frame. A sender that states 0 and sends unsealed inside the
+   frame is delivered though the receiver's own setting says sealed, and `EngineSession._sealed_role_outside_the_frame`
+   passes anything that arrived in the frame. Shown by experiment at the frame layer (`/home/claude/tools/unsealed_into_sealed.py`:
+   a sender with no secret, a receiver whose setting has number 5; the message was delivered). Not run between machines.
+   The correction would be NOT OPENED for unsealed data on a Role this end's setting says is sealed. Not built: it
+   changes the transition that failed on hardware this morning and needs the simulator first.
+2. **A Role on the default secret has no step**, and the check does not cover `ts`, so an earlier valid setting written
+   again would verify. Read from the code (`channel_setting.check_text`, `channel_admin.with_step`); not tested.
+
+Both are stated in the design document's "Open findings and limits" and in the test document's limits.
+
 ## 4. The interventions: what was said, why it was noticed, what had not been considered
 
 John, 17 Nov, of the first version of this file: "It is not just the order. It is what I asked and why I asked it.

@@ -602,6 +602,28 @@ class EngineSession:
 
     Worker pool submits (seq, reply, wire_in) tuples to _reply_q; whoever runs the driver drains it."""
 
+    #: whether this session's requests arrive inside the frame (core/channel_frame.py), the only place a Role's traffic
+    #: is sealed. The frame carrier's session says True (daemon/engine/server_homa.py); every other session is not.
+    in_frame = False
+    _refused_unsealed = 0
+
+    def _sealed_role_outside_the_frame(self, dest_host: str):
+        """[A_SEALED_ROLE_IS_NOT_TAKEN_UNSEALED_V1] Found on John's network, 23 Nov 2026: his nodes sent a sealed Role's
+        traffic on the plain TCP wire, and the daemons at the other end ran it. A request for a memory of a Role whose
+        setting is sealed, arriving outside the frame, was not sealed by anyone: it is refused and logged, never run.
+        Returns the refusal's bytes, or None for every other request."""
+        from core import channel_setting
+        role = channel_setting.ram_of(dest_host)
+        if not role or self.in_frame or not (channel_setting.setting_of(role) or {}).get("number"):
+            return None
+        EngineSession._refused_unsealed += 1
+        n = EngineSession._refused_unsealed
+        if n & (n - 1) == 0:                              # the 1st, 2nd, 4th, 8th ... are said; each one is counted
+            print("[CHANNEL-SETTING] [A_SEALED_ROLE_IS_NOT_TAKEN_UNSEALED_V1] a request from %s for %s arrived outside the "
+                  "frame, unsealed, and the Role %r is sealed: REFUSED, not run (%d so far in this daemon). The sender "
+                  "runs a build that does not put a Role's traffic in the frame." % (self.peer_ip, dest_host, role, n), flush=True)
+        return wrap_error(403, "the Role %r is sealed: its traffic is taken only inside the frame" % role)
+
     def __init__(self, peer_ip: str, resolver, http_client=None):
         from core import channel_setting                 # [CHANNEL_SETTING_IS_A_TUPLE_V1] a session arriving is an event:
         channel_setting.current()                        # a hold on the channel's tuple that was not taken is held again
@@ -960,6 +982,9 @@ class EngineSession:
             packet=sem_req,
             peer_ip=self.peer_ip,
         )
+        no = self._sealed_role_outside_the_frame(dest_host)
+        if no is not None:
+            return no
 
         try:
             sem_resp, status, raw_info, resp_opcode, dyn_vals, type_map, inst = self.engine.execute(
@@ -1070,6 +1095,8 @@ class EngineSession:
             headers = req_data.get("headers", {})
             body = req_data.get("body", "")
             host = req_data.get("host", "127.0.0.1")
+            if self._sealed_role_outside_the_frame(host) is not None:    # [A_SEALED_ROLE_IS_NOT_TAKEN_UNSEALED_V1]
+                raise PermissionError("the Role at %s is sealed: its traffic is taken only inside the frame" % host)
             port = req_data.get("port", 8080)
         except Exception as e:
             _debug(f"failed to parse cached REQ_RAW: {e!r}")
@@ -1165,6 +1192,9 @@ class EngineSession:
             packet=sem_req,
             peer_ip=self.peer_ip,
         )
+        no = self._sealed_role_outside_the_frame(dest_host)
+        if no is not None:
+            return no
 
         try:
             sem_resp, status, raw_info, resp_opcode, dyn_vals, type_map, inst = self.engine.execute(
@@ -1331,6 +1361,9 @@ class EngineSession:
             packet=diff_payload,
             peer_ip=self.peer_ip,
         )
+        no = self._sealed_role_outside_the_frame(dest_host)
+        if no is not None:
+            return no
 
         try:
             sem_resp, status, raw_info, resp_opcode, dyn_vals, type_map, inst = self.engine.execute(
@@ -1543,6 +1576,8 @@ class EngineSession:
             headers = req_data.get("headers", {})
             body = req_data.get("body", "")
             host = req_data.get("host", "127.0.0.1")
+            if self._sealed_role_outside_the_frame(host) is not None:    # [A_SEALED_ROLE_IS_NOT_TAKEN_UNSEALED_V1]
+                raise PermissionError("the Role at %s is sealed: its traffic is taken only inside the frame" % host)
             port = req_data.get("port", 8080)
         except Exception as e:
             _debug(f"failed to parse REQ_RAW: {e!r}")
@@ -1619,6 +1654,7 @@ class TcpDaemonEnd(TransportDriver):
         # That frame is handed in via preread() so receive() gives it
         # before pulling more frames from the socket.
         self._preread_frame: Optional[bytes] = None
+        self.on_frame_unit = None       # [THE_FRAME_RIDES_THE_WIRE_SOCKET_V1] the session's: where a tagged packet goes
 
         # [NO_FALLBACK_V1] Same class as the keepalive block in
         # daemon/engine/server.py. A refused TCP_NODELAY means every reply on
@@ -1681,10 +1717,18 @@ class TcpDaemonEnd(TransportDriver):
             _ch.wire_bytes("tcp", self.ram, "rep", 4 + len(data))
 
     def receive(self) -> bytes:
-        if self._preread_frame is not None:
-            frame, self._preread_frame = self._preread_frame, None
+        while True:
+            if self._preread_frame is not None:
+                frame, self._preread_frame = self._preread_frame, None
+            else:
+                frame = _recv_frame(self._recv_sock)
+            # [THE_FRAME_RIDES_THE_WIRE_SOCKET_V1] the sniff, on each packet: one that begins with the frame layer's tag
+            # is the frame layer's. It is not a request, takes no number, and is handed over. Everything else is
+            # returned exactly as before.
+            if self.on_frame_unit is not None and frame is not None and frame[:4] == b"FRM\x02":
+                self.on_frame_unit(frame[4:])
+                continue
             return frame
-        return _recv_frame(self._recv_sock)
 
     def pack(self, n: int, frame: bytes) -> List[bytes]:
         return [struct.pack("!I", n) + frame]
@@ -1706,6 +1750,20 @@ class TcpDaemonEnd(TransportDriver):
             pass
 
 
+def _frame_end(session):
+    """[THE_FRAME_RIDES_THE_WIRE_SOCKET_V1] The frame layer's end for a wire session that has carried its first tagged
+    packet: this daemon's frame end (started here if no framed traffic had arrived before), given the session as its
+    wire. What it sends goes on the session's return channel, numbered WIRE_SEQ, through the session's one writer."""
+    from core import channel_carrier as CC
+    from core import homa_transport as HT
+    from daemon.engine import server as SV
+    if not HT.frame_end_for(SV.THE_SERVER):
+        raise RuntimeError("this daemon has no frame end, and a packet of the frame layer's arrived from %s" % session.peer_ip)
+    pipe = CC.WirePipe(lambda u: session._reply_q.put((CC.WIRE_SEQ, u, 0)), session.peer_ip)
+    CC.SERVER.adopt_pipe(pipe, session.peer_ip)
+    return pipe
+
+
 class SemanticSession(EngineSession):
     """The engine's session on the TCP driver. The driver (TcpDaemonEnd) holds the two sockets; this class is the
     engine's session plus the two threads that move frames between it and the driver's calls:
@@ -1714,10 +1772,17 @@ class SemanticSession(EngineSession):
     Writer thread: _reply_q.get() -> driver.pack() -> driver.send().
     """
 
+    def _frame_unit(self, unit: bytes) -> None:
+        if self._frame_pipe is None:
+            self._frame_pipe = _frame_end(self)
+        self._frame_pipe.feed(unit)
+
     def __init__(self, recv_sock: socket.socket, peer_ip: str, resolver, http_client=None, return_ip=None):
         EngineSession.__init__(self, peer_ip, resolver, http_client)
         self._return_ip = return_ip
         self.driver = TcpDaemonEnd(recv_sock, peer_ip, return_ip)
+        self._frame_pipe = None
+        self.driver.on_frame_unit = self._frame_unit
 
     # the sockets are the driver's; these names are kept for what reads them (tests, tiers)
     @property
@@ -1775,6 +1840,8 @@ class SemanticSession(EngineSession):
             self._read_loop()
         finally:
             self._alive = False
+            if self._frame_pipe is not None:
+                self._frame_pipe.close()      # [THE_FRAME_RIDES_THE_WIRE_SOCKET_V1] what rode this session ends with it
             # Sentinel to unblock writer
             self._reply_q.put((-1, b"", 0))
             self.driver.close()

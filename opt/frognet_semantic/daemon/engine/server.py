@@ -69,6 +69,9 @@ def _send_frame(conn, payload: bytes) -> None:
 API_LOCAL = os.environ.get("FROGNET_API_LOCAL", "http://127.0.0.1:8080/api.php")
 
 
+THE_SERVER = None                   # this process's DaemonServer, once it runs
+
+
 def _writer_gone(ip: str) -> None:
     """the peer is a FrogNet node, named by its .1: it and every machine attached to its /24 reached this network
     through that socket, so what was written from that /24 belonged to it"""
@@ -108,6 +111,8 @@ class DaemonServer:
         RETURN-dispatch or session creation.  A slow HELLO on one
         connection can no longer stall acceptance of others.
         """
+        global THE_SERVER
+        THE_SERVER = self               # [THE_FRAME_RIDES_THE_WIRE_SOCKET_V1] daemon/engine/session._frame_end
         srv = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
         srv.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
         srv.bind((self.host, self.port))

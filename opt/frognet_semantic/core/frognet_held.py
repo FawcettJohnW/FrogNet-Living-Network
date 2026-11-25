@@ -46,7 +46,7 @@ import urllib.parse
 import urllib.request
 from typing import Any, Dict, List, Optional
 
-BUILD = "frognet_held 20261107-held1 [HELD_READ_IN_API_V1]"
+BUILD = "frognet_held 20261123-held2 [HELD_READ_IN_API_V1][A_HOLD_THAT_ENDED_IS_HELD_AGAIN_V1]"
 HELD_DIR = os.environ.get("FROGNET_HELD_DIR", "/run/frognet/held")
 HOSTS = os.environ.get("FROGNET_HOSTS") or os.environ.get("FDF_HOSTS") or "/etc/hosts"   # the fdf tools name it FDF_HOSTS
 
@@ -128,6 +128,18 @@ class Holder:
                 try:
                     msg = json.loads(self.sock.recv(65536))
                 except (OSError, ValueError):
+                    continue
+                if isinstance(msg, dict) and msg.get("ended"):
+                    # [A_HOLD_THAT_ENDED_IS_HELD_AGAIN_V1] this node's proxy says a wire session ended (or it has just
+                    # started). A fire rides the node's session to the role host; when that session goes, the role
+                    # host removes this node's holds, and until 23 Nov 2026 nothing told the holder: it waited out
+                    # its own bound (300 s for a channel's setting). That is an event, as the hosts file being
+                    # rewritten is: every pending wait holds again.
+                    with self.lock:
+                        self.waits.clear(); self.early.clear()
+                        for w in self.pending:
+                            w.moved = True
+                            w.ev.set()
                     continue
                 with self.lock:
                     hid = int(msg.get("hold") or 0)

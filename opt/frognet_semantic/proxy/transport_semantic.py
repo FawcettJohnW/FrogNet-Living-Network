@@ -326,7 +326,7 @@ def _client_write(handler, label: str):
 _request_references: Dict[Tuple[str, int, str], Optional[Dict[str, Any]]] = {}
 _response_references: Dict[Tuple[str, int, str], Optional[Dict[str, Any]]] = {}
 _request_clears: Dict[str, "collections.deque"] = {}      # target_ip -> instances whose request reference is to go
-BUILD = "semantic-wire-one-writer-v3-20261122b"
+BUILD = "semantic-wire-one-writer-v4-20261123g"
 print("[SEM-TRANSPORT] build %s: a session's writer builds each frame and commits its request reference, its reader "
       "applies each reply; no reference lock, no reply gate" % BUILD, flush=True)
 
@@ -1473,8 +1473,21 @@ class _DaemonWorker:
                 rpc.done.set()
             self._pending.clear()
 
+    def frame_pipe(self):
+        """[THE_FRAME_RIDES_THE_WIRE_SOCKET_V1] This session as the frame layer's wire. One for as long as the session's
+        sockets last; when they close it ends, and the next one is made when the frame next has something to send."""
+        from core import channel_carrier as _cc
+        with self._state_lock:
+            p = getattr(self, "_frame_pipe", None)
+            if p is None or p.closed:
+                p = self._frame_pipe = _cc.WirePipe(lambda u: self.q.put(_FrameUnit(u)), "%s:%d" % (self.host, self.port))
+        return p
+
     def _close(self, err: Optional[Exception] = None) -> None:
         trace_enter('transport_semantic._DaemonWorker._close', err=repr(err))
+        _p = getattr(self, "_frame_pipe", None)
+        if _p is not None:
+            _p.close()                    # [THE_FRAME_RIDES_THE_WIRE_SOCKET_V1] gone is gone: what rode it ends with it
         with self._state_lock:
             self._reader_alive = False
             old_send = self._send_sock
@@ -1497,6 +1510,10 @@ class _DaemonWorker:
                     pass
         if old_send is not None or old_recv is not None:
             print(f"[DIAG-WORKER] CLOSE sockets to {self.host}", flush=True)
+            try:                          # [A_HOLD_THAT_ENDED_IS_HELD_AGAIN_V1] fires for this node rode that session
+                _held_fire.holds_ended("the wire session to %s ended" % self.host)
+            except Exception as e:
+                print(f"[DIAG-WORKER] the node's holders were not told: {e!r}", flush=True)
         if err:
             self._fail_all_pending(err)
 
@@ -1998,6 +2015,17 @@ class _DaemonWorker:
                 except queue.Empty:
                     continue
 
+                if isinstance(rpc, _FrameUnit):
+                    # [THE_FRAME_RIDES_THE_WIRE_SOCKET_V1] a packet of the frame layer's: it goes on this session's
+                    # socket as it is, behind its tag. It takes no request number and waits for no reply.
+                    try:
+                        from core import channel_carrier as _cc
+                        _send_frame(self._get_or_connect(), _cc.WIRE_TAG + rpc.unit)
+                    except Exception as e:
+                        print(f"[DIAG-WRITER] SEND ERROR {e!r} to {self.host} (a frame-layer packet)", flush=True)
+                        self._close(err=e)
+                    continue
+
                 # Parent already resolved (winner arrived, or reaped)?  Skip.
                 if rpc.err is not None or rpc.done.is_set():
                     rpc.retry_pending = False
@@ -2103,6 +2131,12 @@ class _DaemonWorker:
                     raise RuntimeError(f"reply frame too short: {len(frame)}B")
                 seq = struct.unpack("!I", frame[:4])[0]
                 reply_data = frame[4:]
+                if seq == 0xFFFFFFFD:                    # core/channel_carrier.WIRE_SEQ
+                    # [THE_FRAME_RIDES_THE_WIRE_SOCKET_V1] not a reply: a packet of the frame layer's, from the daemon
+                    _p = getattr(self, "_frame_pipe", None)
+                    if _p is not None:
+                        _p.feed(bytes(reply_data))
+                    continue
                 if seq == _held_fire.TCP_FIRE_SEQ:
                     # [THE_FIRE_RIDES_THE_HOLDERS_CONNECTION_V1] not a reply: a held read's fire, put on this node's own
                     # connection by the role host's daemon. It goes to the holder's socket on this node.
@@ -2414,6 +2448,22 @@ from core.homa_transport import carrier_for, worker_idle   # [HOMA_TRANSPORT_V1]
 
 
 _DRAINING: list = []       # [CHANNEL_SETTING_IS_A_TUPLE_V1] (key, session) taken out of use with work outstanding; under _WORKERS_LOCK
+
+
+class _FrameUnit:
+    """[THE_FRAME_RIDES_THE_WIRE_SOCKET_V1] One packet of core/channel_frame.py's, handed to a wire session's writer."""
+    __slots__ = ("unit",)
+
+    def __init__(self, unit: bytes):
+        self.unit = unit
+
+
+def frame_pipe_to(far):
+    """[THE_FRAME_RIDES_THE_WIRE_SOCKET_V1] The wire session to the daemon at `far`, as the frame layer's wire: its
+    packets go out on that session's socket and come back on its return channel. None when this process's session to
+    that daemon is not the TCP driver's."""
+    w = _get_worker(far[0], far[1])
+    return w.frame_pipe() if isinstance(w, _DaemonWorker) else None
 
 
 def _get_worker(host: str, port: int, set_id: int = 0, ram: str = "") -> _DaemonWorker:

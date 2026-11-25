@@ -81,6 +81,8 @@ class _MsgSession(S.EngineSession):
 
     def __init__(self, peer: Tuple[str, int], sid: bytes, resolver, http_client, carrier, fast_exec, db_exec):
         S.EngineSession.__init__(self, peer[0], resolver, http_client)      # the engine's side; no socket is its
+        from core import channel_carrier                  # [A_SEALED_ROLE_IS_NOT_TAKEN_UNSEALED_V1] (daemon/engine/session.py)
+        self.in_frame = isinstance(carrier, channel_carrier.FrameCarrier)
         self.established = True
         self._reply_q: "queue.Queue[Tuple[int, bytes, int]]" = _StampedQueue()
         self._tr_seq: Dict[int, object] = {}              # [WHERE_THE_TIME_GOES_V1] request seq -> its trail, until it goes to the engine

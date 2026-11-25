@@ -37,7 +37,7 @@ import threading
 import time
 from typing import Callable, List, Optional
 
-BUILD = "held-fire-v1-20261122a"
+BUILD = "held-fire-v2-20261123g"
 HELD_DIR = os.environ.get("FROGNET_HELD_DIR", "/run/frognet/held")
 INTAKE = "role-host-fires.sock"          # in the held directory: api.php writes fires here; the daemon reads them
 TCP_FIRE_SEQ = 0xFFFFFFFE                # the TCP driver: a frame from the daemon with this number answers no request; it is a fire
@@ -58,6 +58,30 @@ def add_sender(fn: Callable[[str, bytes], Optional[str]]) -> None:
     the name of what it was handed to, or None when it has no connection from that node."""
     with _lock:
         _senders.append(fn)
+
+
+def holds_ended(why: str) -> int:
+    """[A_HOLD_THAT_ENDED_IS_HELD_AGAIN_V1] This node's proxy: a wire session of this node's ended, or the proxy has
+    just started. The holds whose fires rode it are gone at the role host. Every process on this node that holds a
+    read is told, a datagram to its socket, and holds again. Returns how many were told."""
+    told = 0
+    try:
+        names = [n for n in os.listdir(HELD_DIR) if n.endswith(".sock") and n != INTAKE]
+    except OSError:
+        return 0
+    raw = json.dumps({"ended": why}).encode("utf-8")
+    for n in names:
+        s = socket.socket(socket.AF_UNIX, socket.SOCK_DGRAM)
+        try:
+            s.setblocking(False)
+            s.sendto(raw, os.path.join(HELD_DIR, n))
+            told += 1
+        except OSError:
+            pass                                       # a socket file with no process behind it: that holder is gone
+        finally:
+            s.close()
+    _say("[A_HOLD_THAT_ENDED_IS_HELD_AGAIN_V1] %s: %d holder(s) on this node told to hold again" % (why, told))
+    return told
 
 
 def deliver_here(raw: bytes, how: str) -> bool:

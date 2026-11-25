@@ -863,6 +863,37 @@ switched, the design as built, and in its section 11.3 what is built and what is
   John's keys (p, k, a, s, q) and any change made elsewhere, and ends with a SUMMARY table. It is proven between
   machines by `simulation/roles_exercise_tier.py --step test` (in `run_all.py`), which also runs it with one machine
   holding another secret and requires FAIL with that machine named.
+- **A Role with a setting of its own travels in the frame, on every node** (`[A_ROLE_WITH_A_SETTING_TRAVELS_IN_THE_FRAME_V1]`,
+  `core/homa_transport.py` carrier_for). John's nodes' transport files say `auto`. Until 2026-11-23 the frame carrier
+  was had only by a process told chorus, so on his network a sealed Role went out UNSEALED on the plain TCP wire and
+  a Role on chorus failed every request, while every simulator tier passed, because every simulated machine was told
+  chorus. A daemon refuses a sealed Role's request that arrives outside the frame
+  (`[A_SEALED_ROLE_IS_NOT_TAKEN_UNSEALED_V1]`, `daemon/engine/session.py`). **Any tier of this layer is run twice:
+  machines told chorus and machines told only `auto` (`roles_exercise_tier.py --told auto`).** A tier that passes
+  only with machines told chorus has not been run as his network runs.
+- **The frame rides the wire socket** (`[THE_FRAME_RIDES_THE_WIRE_SOCKET_V1]`, John 2026-11-23: "What goes on the
+  physical wire is a TCP data packet. What is in that packet is mine ... the sniffer says this is a Chorus packet and
+  ships the frame to the Chorus handler"). The sniff is on EACH PACKET of the one wire session, never on a
+  connection's first word alone: `daemon/engine/session.py` TcpDaemonEnd.receive hands a packet that begins `FRM\x02`
+  to the frame handler; the return channel carries the frame's packets numbered 0xFFFFFFFD
+  (`core/channel_carrier.py` WirePipe). Do not open a connection for a protocol; put its packets on the wire socket.
+- **A hold that ended is held again** (`[A_HOLD_THAT_ENDED_IS_HELD_AGAIN_V1]`): the node's proxy tells every holder
+  on the node when a wire session ends or the proxy starts (`core/held_fire.py` holds_ended,
+  `core/frognet_held.py`). A sequence's naming always says the sender's FNID
+  (`[A_SEQUENCE_NAMED_UNSEALED_SAYS_WHO_SENDS_IT_V1]`). **Start a simulated network where his is:** machines told
+  `auto`, a Role that already has an unsealed setting, a restart in the middle. Three defects reached his nodes on
+  2026-11-23 because the simulator started from a state his network is never in.
+- **/run/frognet/held is never wiped** (`[HELD_SOCKETS_SURVIVE_THE_WIPE_V1]`, `usr/local/bin/runMerge.bash`). It
+  holds the socket of every process that holds a read and the daemon's `role-host-fires.sock`. Until 2026-11-23 every
+  merge removed it and every running holder went deaf until restarted. Holds end when a merge changes /etc/hosts,
+  and the holder does that itself (John: "A merge should delete the held reads only if it changes /etc/hosts").
+  Anything that cleans /run/frognet keeps `held`; `core/test_held_sockets_survive_the_merge_oracle.py` runs the
+  merge's own loop to check.
+- **`core/channel_chat.py`** (John 2026-11-23): two clients talking through a Role's memory on a third node while the
+  Role's protocol and key are changed; a line is a tuple, each client holds a read on the family. Proven by
+  `roles_exercise_tier.py --step chat`. `core/channel_test.py` part L also moves a memory between nodes (key h) and
+  cycles tcp, chorus, openqasm (key p). All of the test's and the chat's memories on one node share that node's one
+  store: give each its own value name.
 - **Rules the full test taught, do not undo them.** (1) `[THE_NEWEST_CELL_IS_THE_SETTING_V1]`: a tuple is one cell
   per writing machine, and the store returns cells in no promised order; anything that reads "the" setting must go
   through `channel_setting.oldest_first` and let the last stand, and `channel_setting.write` removes the cells it

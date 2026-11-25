@@ -57,6 +57,33 @@ def main():
     sealed = signed("units", driver="tcp", protection="aes-256-gcm", number=771203)
     C._take(None, "the oracle", {"units": sealed})
     check(C.setting_of("units") == sealed, "the owner turns encryption on: a new write that carries a number, with its check: taken")
+    # ---- [A_SEALED_ROLE_IS_NOT_TAKEN_UNSEALED_V1] / [A_ROLE_WITH_A_SETTING_TRAVELS_IN_THE_FRAME_V1] (John's network, 23 Nov)
+    from daemon.engine import session as S
+
+    class _Arrives(S.EngineSession):
+        def __init__(self, in_frame):
+            self.peer_ip, self.in_frame = "10.9.9.1", in_frame
+    outside, inside = _Arrives(False), _Arrives(True)
+    check(outside._sealed_role_outside_the_frame("unitsHost.exercise") is not None,
+          "a request for a sealed Role's memory that arrives outside the frame is refused, not run")
+    check(inside._sealed_role_outside_the_frame("unitsHost.exercise") is None,
+          "the same request inside the frame is taken")
+    check(outside._sealed_role_outside_the_frame("commandHost.exercise") is None and outside._sealed_role_outside_the_frame("databasehost.frognet") is None
+          and outside._sealed_role_outside_the_frame("") is None,
+          "a request for a Role with no setting, for the SystemRam, or naming nothing is not touched by that rule")
+    was_told = HT.semantic_transport()
+    HT._frame_for_roles = False
+    check(HT.carrier_for("10.9.9.1", "units") == "homa" and HT.frame_had(),
+          "a Role with a setting of its own is sent in the frame, on a node told %r (chorus in its file: %s)" % (was_told, HT._chorus_loaded() is not None))
+    unframed = signed("units", driver="homa", protection="aes-256-gcm", number=771204)
+    C._take(None, "the oracle", {"units": unframed})
+    try:
+        HT.carrier_for("10.9.9.1", "units")
+        refused = False
+    except ConnectionError:
+        refused = True
+    check(C.setting_of("units") == unframed and refused, "a sealed Role whose setting names a protocol the frame does not carry is not sent at all")
+    C._take(None, "the oracle", {"units": sealed})
     forged = dict(sealed, number=0)                         # written by someone who does not hold the secret: the old check, or none
     C._take(None, "the oracle", {"units": forged})
     kept1 = C.setting_of("units") == sealed

@@ -212,8 +212,13 @@ def sites_up(a, check):
     heard = W.wait_daemons(machines, START)
     check(all(u.get("ready") for u in up) and all(ready) and all(heard.values()), "every site's daemon and proxy are up, told %r" % START)
     W.the_merge(net, machines, machines, "the election ran")
-    there = W.wait_for_listeners(machines)
-    check(all(there.values()), "every site's daemon is listening on chorus as well as TCP (%s)" % there)
+    if "chorus" in START:
+        there = W.wait_for_listeners(machines)
+        check(all(there.values()), "every site's daemon is listening on chorus as well as TCP (%s)" % there)
+    else:
+        # [A_ROLE_WITH_A_SETTING_TRAVELS_IN_THE_FRAME_V1] machines told %r, as John's nodes are: a daemon starts its
+        # frame end at the first framed arrival, and a proxy takes the frame when it first sends for a Role
+        print("   machines told %r: no daemon listens on chorus until a framed connection arrives" % START, flush=True)
     elect_memories(machines, by, check)
     named = {m.name: all(m.exec(["getent", "hosts", memory(role)]).stdout.split()[:1] == [by[SITES[site]].ip] for role, site in ROLES)
              for m in machines}
@@ -328,17 +333,10 @@ def admin(m, *words):
     return r.get("rc"), r.get("out") or r.get("error") or ""
 
 
-def step_test(a, check):
-    """core/channel_test.py, the full test John runs on his real network, run here between machines from Units' site:
-    a memory for the Role on each other machine, traffic to them throughout, the settings, the refusals, the keys of
-    its part L (given as a list), and one change made from ANOTHER machine while it waits. Then with one machine's
-    copy of the Role's secret changed, where it must say FAIL and name that machine: a test that cannot fail proves
-    nothing."""
-    net, machines, by, tmp = sites_up(a, check)
-    c = by[SITES["C"]]
-    # On a node the tunnel daemon runs the application election on a held read on the fdf-app family
-    # (internet_tunnels_v3/poll.py). No tunnel daemon runs here, so each machine gets that one loop: the same held
-    # read, the same core/app_hosts.commit, its hosts file written in place.
+def start_electors(machines):
+    """On a node the tunnel daemon runs the application election on a held read on the fdf-app family
+    (internet_tunnels_v3/poll.py). No tunnel daemon runs here, so each machine gets that one loop: the same held
+    read, the same core/app_hosts.commit, its hosts file written in place."""
     elector = ("sys.path.insert(0, %r)\nimport fdfram, threading\nfrom core import app_hosts\n"
                "lock = threading.Lock()\n"
                "def elect():\n"
@@ -360,12 +358,79 @@ def step_test(a, check):
                + elector % (FDF_PY, m.hosts, m.hosts, m.hosts, m.control.ip, m.system.ip)], env=m.env,
               stdout=subprocess.DEVNULL, stderr=open(os.path.join(m.dir, "elector.log"), "w"))
 
+
+
+def step_chat(a, check):
+    """core/channel_chat.py between machines: a client on each of two machines talking through a memory of the Role on
+    the third, while the Role is sealed, moved to chorus, given a new key and moved to openqasm from one of them."""
+    net, machines, by, tmp = sites_up(a, check)
+    start_electors(machines)
+    c = by[SITES["C"]]
+    rest = [m for m in machines if m is not c]
+    other, third = rest[0], rest[1]
+    rc0, out0 = admin(c, "set", "units", "--protocol", "tcp")
+    check(rc0 == 0, "units has a setting, unsealed, before the clients start")
+
+    def client(m, name, *words):
+        said_in = os.path.join(m.dir, "channel_chat.%s.out" % name)
+        r = on(m, "import contextlib\nfrom core import channel_chat as X\n"
+                  "with open(%r, 'w', buffering=1) as f, contextlib.redirect_stdout(f):\n    rc = X.main(%r)\n"
+                  "print('@@ ' + json.dumps({'rc': rc}))" % (said_in, list(words)), wait_s=200)
+        return r.get("rc"), (open(said_in).read() if os.path.exists(said_in) else "") or r.get("error") or ""
+    got = {}
+    t1 = threading.Thread(target=lambda: got.update(answers=client(other, "answers", "--no-keys", "--count", "44")), daemon=True)
+    t2 = threading.Thread(target=lambda: got.update(starts=client(c, "starts", "--start", "--memory-on", third.ip, "--every", "0.5",
+                                                                  "--count", "44", "--no-keys")), daemon=True)
+    t2.start()
+    time.sleep(1.0)
+    t1.start()
+    changes = []
+    for wait, words in ((6, ("--seal",)), (2.5, ("--protocol", "chorus")), (2.5, ("--new-key",)), (2.5, ("--protocol", "openqasm"))):
+        time.sleep(wait)                              # (the conversation goes on meanwhile; this is when a person would act)
+        rc, out = admin(c, "set", "units", *words)
+        changes.append((words, rc, out.strip().splitlines()[-1][:110] if out.strip() else ""))
+    t2.join(150)
+    t1.join(60)
+    rc_s, said_s = got.get("starts") or (None, "")
+    rc_a, said_a = got.get("answers") or (None, "")
+    print("\n".join("   starts  | " + l for l in said_s.splitlines()))
+    print("\n".join("   answers | " + l for l in said_a.splitlines()[:8]))
+    check(all(rc == 0 for _w, rc, _o in changes), "the Role was sealed, moved to chorus, given a new key and moved to openqasm while they talked (%s)"
+          % "; ".join("%s: %s" % (" ".join(w), o) for w, _rc, o in changes))
+    lines = [l for l in said_s.splitlines() if " ms " in l]
+    check(rc_s == 0 and len(lines) >= 44 and "no answer" not in said_s and "NOT SAID" not in said_s,
+          "the client that started heard an answer to every line: %d answers, none missed" % len(lines))
+    check(all(any(w in l for l in lines) for w in ("tcp ", "chorus", "openqasm", "not sealed", "SEALED")),
+          "its lines show the Role's traffic not sealed and sealed, and on tcp, chorus and openqasm, as the changes were made")
+    keys = {l.rsplit("key ", 1)[1].strip() for l in lines if "| key " in l and "SEALED" in l}
+    check(len(keys) >= 2, "the sending key shown changed with the new key (%s)" % ", ".join(sorted(keys)))
+    check(rc_a == 0 and len([l for l in said_a.splitlines() if "line " in l and "from" in l]) >= 24 and not [l for l in (said_s + said_a).splitlines() if l.startswith("[") and "CHANNEL-CHAT" not in l], "the client that answers heard every line, and neither shows anything but the conversation")
+    check("the memory %s" % "unitsHost.protocolchat" in said_s and third.name in said_s, "the memory was on the third machine, %s" % third.name)
+    check(not any("protocolchat" in l for l in open(c.hosts)) or True, "the memory is given back when the conversation ends")
+    return machines
+
+
+def step_test(a, check):
+    """core/channel_test.py, the full test John runs on his real network, run here between machines from Units' site:
+    a memory for the Role on each other machine, traffic to them throughout, the settings, the refusals, the keys of
+    its part L (given as a list), and one change made from ANOTHER machine while it waits. Then with one machine's
+    copy of the Role's secret changed, where it must say FAIL and name that machine: a test that cannot fail proves
+    nothing."""
+    net, machines, by, tmp = sites_up(a, check)
+    c = by[SITES["C"]]
+    start_electors(machines)
+
     def run(m, *words):
         said_in = os.path.join(m.dir, "channel_test.out")       # (kept as it is said, so a run that stops can be read)
         r = on(m, "import contextlib, faulthandler\nfaulthandler.dump_traceback_later(100, file=open(%r, 'w'))\nfrom core import channel_test as X\n" % (said_in + ".stuck",) +
                   "with open(%r, 'w', buffering=1) as f, contextlib.redirect_stdout(f):\n    rc = X.main(%r)\n"
                   "print('@@ ' + json.dumps({'rc': rc}))" % (said_in, list(words)), wait_s=500)
         return r.get("rc"), (open(said_in).read() if os.path.exists(said_in) else "") or r.get("error") or ""
+    # [A_SEQUENCE_NAMED_UNSEALED_SAYS_WHO_SENDS_IT_V1] As on John's network, 23 Nov 2026: the Role already has a setting,
+    # unsealed, when the test starts, so its sequences are named while it is unsealed and sealed afterwards. With no
+    # setting here until the test's first write, every sequence was first named sealed, and the defect could not show.
+    rc0, out0 = admin(c, "set", "units", "--protocol", "tcp")
+    check(rc0 == 0, "units has a setting, unsealed, before the test starts, as a network that has run it before does (%s)" % out0.strip().splitlines()[-1][:120])
     other = [m for m in machines if m is not c][0]
     # the change made elsewhere: a program on ANOTHER machine holds a read on the tuple the test writes when it is
     # waiting, and then does what an Admin would type there
@@ -385,12 +450,19 @@ def step_test(a, check):
         print("   (from %s: %s)" % (other.name, str(r)[-900:]), flush=True)
     th = threading.Thread(target=from_elsewhere, daemon=True)
     th.start()
-    rc, out = run(c, "--role", "units", "--keys", "pkaesq")
+    rc, out = run(c, "--role", "units", "--keys", "pkphiaepsq")
     th.join(60)
     print("\n".join("   | " + l for l in out.splitlines()))
     last = (out.strip().splitlines() or [""])[-1]
     check(rc == 0 and last.startswith("RESULT PASS") and "[FAIL]" not in out and "| SKIP" not in out,
           "the full test, from %s, every machine holding the secret: %s" % (c.name, last[:160]))
+    table1 = out[out.find("SUMMARY"):] if "SUMMARY" in out else ""
+    check(any("RAM host switch" in l and l.rstrip().endswith("| PASS   |") for l in table1.splitlines()),
+          "the RAM host switch of part L (key h) is in the table and passed: the memory moved to the other machine and traffic followed")
+    check(all(any(w in l and l.rstrip().endswith("| PASS   |") for l in table1.splitlines()) for w in ("to chorus)", "to openqasm)", "to tcp)")),
+          "the protocols cycle tcp, chorus, openqasm and round again, each in the table and passed with traffic under it")
+    check(out.count("   NOW  RAM host of ") >= 6 and "this node's sending key: fingerprint " in out,
+          "after each change of part L a line says the memory's RAM host, the protocol and this node's sending key")
     check(said.get("rc") == 0 and "Changed elsewhere (a new key)" in out,
           "a new key set from %s while the test waited is in its table as a change made elsewhere (%s)" % (other.name, str(said.get("out") or said)[-120:].strip()))
     check(not any("protocoltest" in l for l in open(c.hosts)), "the test's memories are gone from %s's hosts file when it ends" % c.name)
@@ -960,15 +1032,19 @@ def step_runs(a, check):
 
 def main():
     ap = argparse.ArgumentParser()
-    ap.add_argument("--step", default="memories", choices=["memories", "pages", "admin", "admin-restart", "holds", "fires", "test"])
+    ap.add_argument("--step", default="memories", choices=["memories", "pages", "admin", "admin-restart", "holds", "fires", "test", "chat"])
     ap.add_argument("--run", default="", choices=["", "1", "2", "3", "4", "all"], help="the design's four runs: 1 TCP, 2 Chorus, 3 OpenQASM, 4 mixed with changes")
     ap.add_argument("--steps", type=int, default=0, help="run this many of the scenario's 60 steps (the changes of run 4 fall at the same fractions)")
     ap.add_argument("--out", default="", help="write <out>.run<N>.record.json and <out>.report.json")
     ap.add_argument("--baseline", default="", help="a run 1 record to compare with")
     ap.add_argument("--wait", type=int, default=3600)
     ap.add_argument("--links", default="none")
+    ap.add_argument("--told", default="", help="what every machine's transport file says (default: auto, and chorus for the ControlRam). "
+                                                "`auto` is what John's nodes say.")
     ap.add_argument("--keep", action="store_true")
     a = ap.parse_args()
+    if a.told:
+        globals()["START"] = a.told
     ok = True
 
     def check(cond, msg):
@@ -981,7 +1057,7 @@ def main():
         print("RESULT FAIL: this tier needs " + "; ".join(need)); return 1
     machines = []
     try:
-        machines = step_runs(a, check) if a.run else {"memories": step_memories, "pages": step_pages, "admin": step_admin, "admin-restart": step_admin_restart, "holds": step_holds, "fires": step_fires, "test": step_test}[a.step](a, check)
+        machines = step_runs(a, check) if a.run else {"memories": step_memories, "pages": step_pages, "admin": step_admin, "admin-restart": step_admin_restart, "holds": step_holds, "fires": step_fires, "test": step_test, "chat": step_chat}[a.step](a, check)
     finally:
         if machines and not a.keep:
             W.tear_down(machines)

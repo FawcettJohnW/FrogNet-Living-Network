@@ -121,7 +121,7 @@ def register_driver(word: str, session_kind: str) -> None:
 ON_CHORUS = {"chorus"}              # [A_CONNECTION_IS_OF_ITS_DRIVER_V1] the words whose connections chorus's carrier holds (core/openqasm.py adds its own)
 FRAMED = {"tcp", "chorus", "openqasm"}   # the protocols core/channel_frame.py carries inside its frame
 WALK = ("homa", "chorus", "tcp")    # the walk's order: equal or unmeasured carriers are taken in this order
-BUILD = "homa-carrier-v6-20261122b"
+BUILD = "homa-carrier-v8-20261123g"
 _chosen = None
 _ram_words: Dict[str, str] = {}              # [A_WORD_PER_RAM_CONNECTION_V1] RAM's role name -> the word for this node's connection to it
 _here: Dict[str, Tuple[str, ...]] = {}       # word -> what this end carries the wire on under that word
@@ -310,6 +310,32 @@ def _peer_carriers(node: str) -> Optional[Tuple[str, ...]]:
     return TH._get_mux().liveness.carriers_of(node)
 
 
+# [A_ROLE_WITH_A_SETTING_TRAVELS_IN_THE_FRAME_V1] Found on John's network, 23 Nov 2026, by the full test
+# (core/channel_test.py): his nodes' transport files say `auto`, not chorus. The frame carrier was only had by a
+# process "told of chorus", so on his nodes a Role whose setting said tcp went out on the plain TCP wire, where nothing
+# is sealed, while every end reported that it held the sealed setting; and a Role whose setting said chorus was
+# refused on every request. A Role's setting is its owner's word for that Role on EVERY node: it overrides the node's
+# file, so it cannot depend on what the file says. A Role that has a setting of its own travels in the frame. The
+# frame carrier is taken by a process the first time it sends for such a Role (as a daemon takes its receiving end at
+# the first framed arrival, frame_end_for), and never for traffic of no Role: a node with no Role's setting runs
+# exactly what it ran (John, 17 Nov: "There should be no risk to existing systems at all").
+_frame_for_roles = False
+
+
+def frame_had() -> bool:
+    """Whether this process has, or has now taken, the frame carrier: told of chorus, or sending for a Role."""
+    return _chorus_loaded() is not None or _frame_for_roles
+
+
+def _take_the_frame_for(ram: str) -> None:
+    global _frame_for_roles
+    if not _frame_for_roles and _chorus_loaded() is None:
+        _frame_for_roles = True
+        print("[SEM-TRANSPORT] %s [A_ROLE_WITH_A_SETTING_TRAVELS_IN_THE_FRAME_V1] the Role %r has a setting of its own: "
+              "its traffic goes in the frame from this process, whatever this node's transport file says (%r). Traffic "
+              "of no Role is as it was." % (BUILD, ram, semantic_transport()), flush=True)
+
+
 def carrier_for(host: str, ram: str = "") -> str:
     """The driver a NEW session to `host` opens on: "homa" (the Homa driver, on kernel Homa or chorus, whichever
     this process has) or "tcp". See the module docstring for the rule."""
@@ -322,7 +348,17 @@ def carrier_for(host: str, ram: str = "") -> str:
         # [A_SETTING_PER_RAM_CONNECTION_V1] a RAM's own tuple, if one is at host
         said = channel_setting.driver(host, ram)
         kind = DRIVERS.get(said) if said is not None else None        # [A_DRIVER_REGISTERS_ITS_WORD_V1]
-        if said in FRAMED and _chorus_loaded() is not None:
+        if ram:
+            # [A_SEALED_ROLE_IS_NEVER_SENT_UNSEALED_V1] only the frame seals. A Role whose setting is sealed and names
+            # a protocol the frame does not carry is not sent at all: said, and refused here.
+            how = channel_setting.setting_of(ram) or {}
+            if how.get("number") and said not in FRAMED:
+                raise ConnectionError("the Role %r is sealed and its setting names the protocol %r, which the frame does "
+                                      "not carry (it carries %s): its traffic is not sent unsealed"
+                                      % (ram, said, ", ".join(sorted(FRAMED))))
+            if said in FRAMED:
+                _take_the_frame_for(ram)
+        if said in FRAMED and frame_had():
             # [ONE_CONNECTION_PER_DESTINATION_V1] a protocol under the frame (tcp, chorus, openqasm): the session is
             # on this process's one connection to that destination, whatever the word. The word is the frame's
             # business (core/channel_frame.py), not a choice of connection.
@@ -330,7 +366,7 @@ def carrier_for(host: str, ram: str = "") -> str:
         if kind == "tcp":
             return "tcp"
         if kind == "homa":
-            if said in ON_CHORUS and _chorus_loaded() is None:
+            if said in ON_CHORUS and not frame_had():
                 raise ConnectionError("the channel's tuple says %s and this node was not told of chorus, whose carrier "
                                       "holds that driver's connections: a node that was not told a driver's word does "
                                       "not run it" % said)
@@ -491,7 +527,7 @@ def open_homa_socket(who: str, bind_ip: str = "0.0.0.0", server_port=None):
         s = homa_sim.HomaSimSocket(bind_ip=bind_ip, server_port=server_port)
         print(homa_sim.startup_line(who, s), flush=True)
         return s
-    if _chorus_loaded() or (server_port is not None and _frame_end_started):
+    if _chorus_loaded() or (server_port is None and _frame_for_roles) or (server_port is not None and _frame_end_started):
         from core import chorus, frognet_tuples
         try:
             src = frognet_tuples.my_ip()
@@ -503,6 +539,12 @@ def open_homa_socket(who: str, bind_ip: str = "0.0.0.0", server_port=None):
         # each destination, every Role's traffic on it under that Role's own protocol and key (core/channel_carrier.py)
         from core import channel_carrier
         s = channel_carrier.FrameCarrier(bind_ip=bind_ip, server_port=server_port, src=src)
+        if server_port is None and _chorus_loaded() is None:
+            # [THE_FRAME_RIDES_THE_WIRE_SOCKET_V1] this node was not told chorus: it has a wire session to each daemon,
+            # and this layer's packets ride that session's sockets. (A node told chorus has no such session: there the
+            # frame's connection IS its one connection to the destination, as before.)
+            from proxy import transport_semantic as _TS
+            s.wire = _TS.frame_pipe_to
         print(channel_carrier.startup_line(who, s), flush=True)
         return s
     from core import homa_socket

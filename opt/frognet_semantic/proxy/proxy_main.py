@@ -857,6 +857,11 @@ def _serve_then(srv, boot_step):
     # it runs, from its start and not from its first session (daemon/engine/server.py says what was found)
     from core import channel_setting as _channel_setting
     _channel_setting.start()
+    try:                                      # [A_HOLD_THAT_ENDED_IS_HELD_AGAIN_V1] the sessions fires rode ended with the last proxy
+        from core import held_fire as _hf
+        _hf.holds_ended("this node's proxy has started")
+    except Exception as _e:
+        print("[PROXY] the node's holders were not told the proxy started: %r" % (_e,), flush=True)
     try:
         boot_step()
     except BaseException as e:

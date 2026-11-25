@@ -309,7 +309,7 @@ def main():
           "data for an unsealed Role that begins with no protocol's word ends the connection with the reason")
 
     # ---- every build says what it is
-    check("v12" in F.BUILD, "the build is named (%s)" % F.BUILD)
+    check("v13" in F.BUILD, "the build is named (%s)" % F.BUILD)
 
     print("RESULT %s (%s)" % ("FAIL" if FAILED else "PASS", F.BUILD))
     return 1 if FAILED else 0

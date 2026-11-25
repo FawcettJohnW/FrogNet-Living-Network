@@ -28,8 +28,11 @@ WHAT IT DOES, IN ORDER
      EVERY OTHER node (one small application each, `protocoltest-<the node's address>`), so the Role's traffic
      crosses the wire from this node to each of them. They are removed at the end.
   T. Traffic. From here on a value is written into each of those memories and read back, about five times a second
-     each, until the end. Every request that fails or reads back the wrong value is counted and shown.
-  B. POSITIVE: sealing on, a new key, a new key again, another algorithm, another protocol. Each is ONE write; every
+     each, until the end. Every request that fails or reads back the wrong value is counted and shown. Counting
+     starts when every memory is up at the node that serves it (that node has elected it too); what went wrong
+     before then is shown apart.
+  B. POSITIVE: sealing on, a new key, a new key again, another algorithm, then each other protocol in turn (tcp,
+     chorus, openqasm). Each is ONE write; every
      end holds it within the limit (--within, 5 s); traffic goes on under it with nothing lost; and this node's
      proxy and every memory's daemon report that they are sending the Role's traffic that way (sealed, that count).
   C. POSITIVE: the Role's own secret moves one step at each key switch on every end that holds it.
@@ -37,8 +40,12 @@ WHAT IT DOES, IN ORDER
   E. NEGATIVE: a valid setting with one field changed and its old check is ignored.
   F. NEGATIVE: a setting that was valid at a step already passed, written again, is ignored.
   L. YOURS. While traffic runs, press a key in this terminal:
-         p  the other protocol        k  a new key        a  the other algorithm
-         s  sealing on / off          q  finish
+         p  the next protocol (tcp, chorus, openqasm, and round again)
+         k  a new key         a  the other algorithm
+         s  sealing on / off  h  move the memory to another RAM host
+         i  show host, protocol and key        q  finish
+     After each one a line says where things stand: the moving memory's RAM host, the protocol, sealed or not and
+     the algorithm, the number, the step, and this node's sending key (its fingerprint; --show-key shows the key).
      Each one is one write, timed and checked like the ones above. A change made anywhere else (channel_admin.py on
      another node, an Admin page) is seen here on a held read and timed and checked the same way.
   G. After everything, sealing is turned off by one write. This is what the test leaves: the Role unsealed, its
@@ -62,7 +69,7 @@ import time
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
-BUILD = "channel-test-v4-20261123d"
+BUILD = "channel-test-v10-20261123k"
 passed = failed = 0
 rows = []          # the summary table: one row for each test, [part, what was tested, measured, passed]
 
@@ -115,6 +122,13 @@ class Traffic:
         self.slowest = 0.0
         self.said = []                       # the first failures, as they were
         self.cells = {}                      # memory -> the id of this test's cell there (removed at the end)
+        # A memory is up when the node that serves it has elected it too, which this node cannot see in its own
+        # hosts file. Until every memory has answered rightly three times running, what fails is kept apart (early):
+        # shown, and not counted as the Role's traffic failing.
+        self.streak = {m: 0 for m in memories}
+        self.up = threading.Event()
+        self.early, self.said_early = 0, []
+        self.moving = {}                      # a memory whose host is being switched -> [good round trips running, failed]
         self.stop = threading.Event()
         self.threads = [threading.Thread(target=self._run, args=(m,), name="traffic-" + m, daemon=True) for m in memories]
 
@@ -124,23 +138,52 @@ class Traffic:
 
     def _run(self, memory):
         ram, n = self.fdfram.RoleRam(memory), 0
+        # Every memory of a node is in that node's one store, and two of this test's memories can be on one node (the
+        # moving one and the node's own). Each has a value of its own there: found on John's network, 23 Nov 2026,
+        # "wrote 138 and read back [265]", two of this test's threads writing one value.
+        mine = "%s.%s" % (self.me, memory.split(".", 1)[1])
         while not self.stop.is_set():
             n += 1
             t0, why = time.time(), ""
             try:
-                cell = ram.write("channel-test", "probe", self.me, {"n": n})
-                back = [c["bag"].get("n") for c in ram.read("channel-test", "probe", self.me)]
+                cell = ram.write("channel-test", "probe", mine, {"n": n})
+                back = [c["bag"].get("n") for c in ram.read("channel-test", "probe", mine)]
                 if back != [n]:
                     why = "wrote %d and read back %s" % (n, back)
-                self.cells[memory] = cell
+                self.cells[(memory, cell)] = True
             except Exception as e:
                 why = "%s: %s" % (type(e).__name__, e)
+                said = getattr(e.__context__, "read", None)       # an HTTP error's own text says who refused and why
+                if said is not None:
+                    try:
+                        why += " [%s]" % said()[:160].decode("utf-8", "replace").strip()
+                    except Exception:
+                        pass
             with self.lock:
+                if memory in self.moving:             # its host is being switched: kept apart until it answers again
+                    m = self.moving[memory]
+                    m[0], m[1] = (0, m[1] + 1) if why else (m[0] + 1, m[1])
+                    if m[0] >= 3:
+                        self.settled_with = self.moving.pop(memory)[1]
+                    self.lock.notify_all()
+                    self.stop.wait(0.2)
+                    continue
+                if not self.up.is_set():
+                    self.streak[memory] = 0 if why else self.streak[memory] + 1
+                    if why:
+                        self.early += 1
+                        if len(self.said_early) < 4:
+                            self.said_early.append("%s %s: %s" % (time.strftime("%H:%M:%S"), memory, why[:240]))
+                    if all(n >= 3 for n in self.streak.values()):
+                        self.up.set()
+                    self.lock.notify_all()
+                    self.stop.wait(0.2)
+                    continue
                 self.slowest = max(self.slowest, time.time() - t0)
                 if why:
                     self.bad[memory] += 1
                     if len(self.said) < 6:
-                        self.said.append("%s %s: %s" % (time.strftime("%H:%M:%S"), memory, why[:200]))
+                        self.said.append("%s %s: %s" % (time.strftime("%H:%M:%S"), memory, why[:360]))
                 else:
                     self.ok[memory] += 1
                 self.lock.notify_all()
@@ -156,15 +199,26 @@ class Traffic:
             want = {m: n + each for m, n in self.ok.items()}
             return self.lock.wait_for(lambda: all(self.ok[m] >= want[m] for m in want), wait_s)
 
+    def move(self, memory):
+        with self.lock:
+            self.moving[memory] = [0, 0]
+
+    def settled(self, memory, wait_s):
+        """Wait until a moving memory has answered rightly three times running. (Whether it did, requests failed meanwhile.)"""
+        with self.lock:
+            ok = self.lock.wait_for(lambda: memory not in self.moving, wait_s)
+            return ok, (getattr(self, "settled_with", 0) if ok else self.moving[memory][1])
+
     def since(self, mark):
         ok, bad = self.now()
         return sum(ok.values()) - sum(mark[0].values()), sum(bad.values()) - sum(mark[1].values())
 
     def end(self):
         self.stop.set()
+        until = time.time() + 12                      # a request in flight ends at its own 10 s; none is waited for longer
         for t in self.threads:
-            t.join(15)
-        for memory, cell in self.cells.items():
+            t.join(max(0.0, until - time.time()))
+        for memory, cell in list(self.cells):
             try:
                 self.fdfram.RoleRam(memory).remove(None, row_id=cell)
             except Exception:
@@ -177,6 +231,7 @@ def main(argv=None) -> int:
     ap.add_argument("--within", type=float, default=5.0, help="seconds: every end must act on a write within this (default 5)")
     ap.add_argument("--no-keys", action="store_true", help="leave out the part where you change things from the keyboard")
     ap.add_argument("--keys", default="", help="for the simulator: the keys of part L from this list instead of the keyboard")
+    ap.add_argument("--show-key", action="store_true", help="show this node's sending key itself in the status line, not its fingerprint")
     ap.add_argument("--verbose", action="store_true", help="also print the tuple layer's own diagnostic lines ([DIAG-STORE], [HELD])")
     a = ap.parse_args(argv)
     role, within = a.role.lower(), a.within
@@ -254,8 +309,19 @@ def main(argv=None) -> int:
         measured("%d ends, %d nodes" % (len(ends), len(nodes)))
         short = sorted(ip for ip, p in nodes.items() if not ({"daemon_main.py", "proxy_main.py"} <= set(p)))
         check(not short, "every node has both its daemon and its proxy reporting", "not both on: %s" % ", ".join(short))
-        other = sorted("%s (%s)" % (n, d.get("build") or "says no build: older than this test") for n, d in ends.items() if d.get("build") != mine)
-        check(not other, "every end runs this node's build", "; ".join(other))
+        # The build is checked on the ends that put the Role's traffic on the wire: each node's daemon and proxy. Any
+        # other process that reports (frogtorch_ram.py, a tool) reaches the wire only through its node's proxy; one
+        # that was started before the install still runs what it loaded then. That is said, and is not a failure.
+        def wire_end(n):
+            return n.partition(":")[2].rsplit(".", 1)[0] in ("daemon_main.py", "proxy_main.py")
+        other = sorted("%s (%s)" % (n, d.get("build") or "says no build: older than this test") for n, d in ends.items()
+                       if d.get("build") != mine and wire_end(n))
+        check(not other, "every node's daemon and proxy run this node's build", "; ".join(other))
+        stale = sorted(n for n, d in ends.items() if d.get("build") != mine and not wire_end(n))
+        if stale:
+            print("         (%d other process(es) were started before this build was installed and still run what they loaded "
+                  "then: %s. They put nothing on the wire themselves. Restarting their service, frogtorch-ram for "
+                  "frogtorch_ram.py, loads the build.)" % (len(stale), ", ".join(stale)))
 
         # -------------------------------------------------------------- M. the Role's memories, on every other node
         print("\nM. A memory for %s on every other node, placed by the network's own application election" % role)
@@ -273,6 +339,18 @@ def main(argv=None) -> int:
             made.append((ctl, fdfram.RoleRam(ctl).write(app_hosts.SVC, "config", app, {"config": json.dumps({"rams": [role]}), "seq": 1})))
             want[app_hosts.host_name(app, role)] = ip
 
+        # One more memory, which part L moves from node to node (a RAM host switch): it starts on the first other node.
+        others_ip = sorted(n for n in nodes if n != me)
+        moving_app = "protocoltest-moving"
+        moving = app_hosts.host_name(moving_app, role)
+        made.append((ctl, fdfram.RoleRam(ctl).write(app_hosts.SVC, "config", moving_app, {"config": json.dumps({"rams": [role]}), "seq": 1})))
+
+        def offer(ip):
+            return fdfram.RoleRam(sysr).write(app_hosts.SVC, "can", "%s.%s.%s" % (moving_app, role, ip.replace(".", "-")),
+                                              {"guid": ip.replace(".", "-"), "addr": ip, "serve": [role], "mem_total_kb": 1, "cores": 1})
+        moving_at = {"ip": others_ip[0], "cell": offer(others_ip[0])}
+        want[moving] = others_ip[0]
+
         def placed():
             etc = hosts()
             return {m: app_hosts.ip_of(etc, m) for m in want}
@@ -281,7 +359,7 @@ def main(argv=None) -> int:
             # (a held read returns when the hosts file is rewritten: that is the event waited for, not a clock)
             H.holder().wait_until(app_hosts.SVC, ctl, lambda got: placed() == want, name_like="config.%", wait_s=limit - time.time())
         got = placed()
-        check(got == want, "this node's hosts file names %d memories for %s, one on each other node, %.1f s after they were asked for"
+        check(got == want, "this node's hosts file names %d memories for %s, one on each other node and one that part L moves, %.1f s after they were asked for"
               % (len(want), role, time.time() - t0),
               "not placed within 120 s: %s. The tunnel daemon's journal says why, on lines with APP_HOST_ELECT."
               % ", ".join("%s (wanted on %s, is %s)" % (m, want[m], got.get(m) or "nowhere") for m in sorted(want) if got.get(m) != want[m]))
@@ -294,12 +372,28 @@ def main(argv=None) -> int:
         print("\nT. Traffic: a value written into each memory and read back, about five times a second each, until the end")
         test("T", "Traffic to every memory before any change")
         traffic = Traffic(fdfram, memories, me)
+        t0 = time.time()
         traffic.start()
+        up, limit = False, time.time() + 120
+        while not up and time.time() < limit:
+            up = traffic.up.wait(5)
+            if not up:                               # (said while it waits, so a wait is never silent)
+                with traffic.lock:
+                    there = sorted(want[m] for m in memories if traffic.streak[m] >= 3)
+                    notyet = sorted(want[m] for m in memories if traffic.streak[m] < 3)
+                    last = traffic.said_early[-1] if traffic.said_early else "no request to them has been answered yet"
+                print("   ... %.0f s: up at %d of %d nodes; not yet at %s (%s)" % (time.time() - t0, len(there), len(memories), ", ".join(notyet), last), flush=True)
+        check(up, "every memory is up at the node that serves it (a value written reads back, three times running), %.1f s after traffic began"
+              % (time.time() - t0), "not within 120 s: %s. %s" % (", ".join(want[m] for m in memories if traffic.streak[m] < 3), "; ".join(traffic.said_early)))
+        if traffic.early:
+            print("         (before that, %d request(s) were answered wrongly or not at all, by nodes that had not yet elected the memory: %s)"
+                  % (traffic.early, "; ".join(traffic.said_early)))
         flowing = traffic.more(3, 30)
         ok, bad = traffic.now()
         check(flowing and not sum(bad.values()), "every memory answers: %s" % ", ".join("%s %d" % (want[m], ok[m]) for m in memories),
               "; ".join(traffic.said) or "no answer from: %s" % ", ".join(want[m] for m in memories if ok[m] < 3))
-        measured("%d round trips, %d failed" % (sum(ok.values()), sum(bad.values())))
+        measured("up after %.1f s%s; %d round trips, %d failed" % (time.time() - t0, ", %d early" % traffic.early if traffic.early else "",
+                                                                 sum(ok.values()), sum(bad.values())))
 
         # -------------------------------------------------------------- the instructions
         now = dict(ADM.settings().get(role) or {})
@@ -324,7 +418,7 @@ def main(argv=None) -> int:
 
             def all_say_so(e):
                 carry = [d["running"][role] for d in e.values() if role in (d.get("running") or {})]
-                return len(carry) > len(memories) and all(ADM._fits(r, value) for r in carry)
+                return len(carry) > len(others_ip) and all(ADM._fits(r, value) for r in carry)
             reps, _secs, said_so = hold_reports(all_say_so, within)
             carry = sorted(n_ for n_, d in reps.items() if role in (d.get("running") or {}))
             wrong = sorted(n_ for n_ in carry if not ADM._fits(reps[n_]["running"][role], value))
@@ -332,7 +426,7 @@ def main(argv=None) -> int:
                   % (label, len(carry), role, ("SEALED, %s, on %s" % (value.get("protection") or "aes-256-gcm", value.get("driver"))) if value.get("number")
                      else "unsealed, on %s" % value.get("driver")),
                   "sending another way: %s" % ", ".join(wrong) if wrong else "only %d end(s) say they carry it; this node's proxy and %d daemons should: %s"
-                  % (len(carry), len(memories), ", ".join(carry)))
+                  % (len(carry), len(others_ip), ", ".join(carry)))
 
         def one_write(label, value, key_switch):
             """A valid setting, one write. Every end must hold it within the limit; the secret's holders at the new step."""
@@ -404,8 +498,60 @@ def main(argv=None) -> int:
         def number():
             return secrets.randbits(62) + 1
 
+        def node_name(ip):
+            for l in hosts():
+                w = l.split()
+                if w and w[0] == ip:
+                    for n in w[1:]:
+                        if n.startswith("FrogNetHost.") and len(n) > 12:
+                            return "%s (%s)" % (n[12:], ip)
+            return ip
+
+        def status():
+            """Where things stand now: the moving memory's host, the Role's protocol, and this node's sending key."""
+            import hashlib
+            if now.get("number"):
+                key = F.key_for(F.secret_at(role, now.get("step"))[0], F.fnid_here(), role, int(now["number"]))
+                shown = key.hex() if a.show_key else "fingerprint " + hashlib.sha256(key).hexdigest()[:8]
+                enc = "SEALED %s | number %s | step %s | this node's sending key: %s" % (now.get("protection") or "aes-256-gcm", now["number"], now.get("step"), shown)
+            else:
+                enc = "not sealed | step %s | no key" % now.get("step")
+            print("   NOW  RAM host of %s: %s | protocol %s | %s" % (moving, node_name(moving_at["ip"]), now.get("driver") or "tcp", enc), flush=True)
+
+        def switch_host():
+            """[A RAM host switch] the moving memory's one offer is taken from the node that has it and given to the
+            next: the network's election moves the memory, and the Role's traffic follows it."""
+            was = moving_at["ip"]
+            to = others_ip[(others_ip.index(was) + 1) % len(others_ip)]
+            test("L", "RAM host switch: %s to %s, traffic follows" % (was, to))
+            t0 = time.time()
+            traffic.move(moving)
+            new = offer(to)
+            fdfram.RoleRam(sysr).remove(None, row_id=moving_at["cell"])
+            made[:] = [(h_, c_) for h_, c_ in made if c_ != moving_at["cell"]] + [(sysr, new)]
+            moving_at.update(ip=to, cell=new)
+            want[moving] = to
+            limit = time.time() + 120
+            while app_hosts.ip_of(hosts(), moving) != to and time.time() < limit:
+                H.holder().wait_until(app_hosts.SVC, ctl, lambda got_: app_hosts.ip_of(hosts(), moving) == to, name_like="config.%", wait_s=limit - time.time())
+            there = app_hosts.ip_of(hosts(), moving)
+            check(there == to, "the election moved %s from %s to %s, %.1f s after the offer moved" % (moving, node_name(was), node_name(to), time.time() - t0),
+                  "after 120 s this node's hosts file has it at %s" % (there or "nowhere"))
+            ok, lost = traffic.settled(moving, 120)
+            check(ok, "traffic follows it: written and read back at %s three times running, %.1f s after the switch began (%d request(s) failed while it moved)"
+                  % (node_name(to), time.time() - t0, lost), "it did not answer at its new host within 120 s (%d request(s) failed)" % lost)
+            measured("%.1f s, %d failed while moving" % (time.time() - t0, lost))
+            reps, _secs, said = hold_reports(lambda e: any(n.startswith(to + ":daemon_main.py") and ADM._fits(d["running"][role], now)
+                                                           for n, d in e.items() if role in (d.get("running") or {})), within)
+            check(said, "the new host's daemon says it carries %s's traffic %s" % (role, "SEALED, %s, on %s" % (now.get("protection"), now.get("driver"))
+                                                                                 if now.get("number") else "unsealed, on %s" % now.get("driver")),
+                  "it does not report carrying it that way")
+
+        CYCLE = ("tcp", "chorus", "openqasm")            # John, 23 Nov 10:21: "add the qasm as a third protocol to cycle through"
+
         def other_driver():
-            return "chorus" if (now.get("driver") or "tcp") != "chorus" else "tcp"
+            d = now.get("driver") or "tcp"
+            return CYCLE[(CYCLE.index(d) + 1) % len(CYCLE)] if d in CYCLE else "tcp"
 
         def other_algorithm():
             return "chacha20-poly1305" if (now.get("protection") or "aes-256-gcm") != "chacha20-poly1305" else "aes-256-gcm"
@@ -416,6 +562,7 @@ def main(argv=None) -> int:
         one_write("a new key", dict(now, number=number()), True)
         one_write("a new key again", dict(now, number=number()), True)
         one_write("another algorithm (chacha20-poly1305)", dict(now, number=number(), protection="chacha20-poly1305"), True)
+        one_write("another protocol (%s to %s)" % (now.get("driver"), other_driver()), dict(now, driver=other_driver()), False)
         last_valid = one_write("another protocol (%s to %s)" % (now.get("driver"), other_driver()), dict(now, driver=other_driver()), False)
         test("C", "Other nodes hold the Role's own secret")
         others = sorted(n for n in holders if not n.startswith(me + ":"))
@@ -447,7 +594,8 @@ def main(argv=None) -> int:
             print("\nL. (left out: %s)" % ("--no-keys" if a.no_keys else "this is not a terminal, so there are no keys to press"))
         else:
             print("\nL. Yours. Traffic is running to %d nodes. Press:" % len(memories))
-            print("       p  the other protocol      k  a new key      a  the other algorithm      s  sealing on / off      q  finish")
+            print("       p  the next protocol (tcp, chorus, openqasm)     k  a new key     a  the other algorithm     s  sealing on / off")
+            print("       h  move the memory to another RAM host     i  show host, protocol and key     q  finish")
             print("   A change made anywhere else (channel_admin.py on another node) is seen here and checked the same way.", flush=True)
 
             def elsewhere():
@@ -470,6 +618,7 @@ def main(argv=None) -> int:
                         time.sleep(1)
             watching.set()
             threading.Thread(target=elsewhere, name="setting-elsewhere", daemon=True).start()
+            status()
 
             def keyboard():
                 import termios
@@ -508,6 +657,7 @@ def main(argv=None) -> int:
                     measured("%.0f ms, %d ends" % (secs * 1000, len(reps)))
                     now = dict(x)
                     carried(now, mark, "changed elsewhere")
+                    status()
                     continue
                 if x == "e":
                     awaited = True
@@ -516,7 +666,12 @@ def main(argv=None) -> int:
                 if x == "q":
                     break
                 sealed = bool(now.get("number"))
-                if x == "p":
+                if x == "i":
+                    status()
+                    continue
+                if x == "h":
+                    switch_host()
+                elif x == "p":
                     one_write("another protocol (%s to %s)" % (now.get("driver"), other_driver()), dict(now, driver=other_driver()), False)
                 elif x == "k":
                     one_write("a new key" if sealed else "sealing on (%s)" % (now.get("protection") or "aes-256-gcm"),
@@ -529,7 +684,9 @@ def main(argv=None) -> int:
                     else:
                         one_write("sealing on (aes-256-gcm)", dict(now, number=number(), protection="aes-256-gcm"), True)
                 else:
-                    print("   (%r is not one of p, k, a, s, q)" % x, flush=True)
+                    print("   (%r is not one of p, k, a, s, h, i, q)" % x, flush=True)
+                    continue
+                status()
             watching.clear()
 
         # -------------------------------------------------------------- G. it still works, and what is left
@@ -550,8 +707,15 @@ def main(argv=None) -> int:
         test("-", "The test itself")
         check(False, "the test ran to its end", "%s: %s" % (type(e).__name__, e))
     finally:
+        # What follows gives the network back as it was. A second Ctrl-C does not stop it part way.
+        import signal
+        try:
+            signal.signal(signal.SIGINT, signal.SIG_IGN)
+        except ValueError:
+            pass                                     # (not the main thread: the simulator's own call)
         watching.clear()
         if traffic is not None:
+            print("\nStopping traffic and giving the test's memories back (this can take half a minute) ...", flush=True)
             traffic.end()
         gone = 0
         for host, cell in made:                      # the test's memories: their offers and their configurations

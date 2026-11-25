@@ -82,7 +82,7 @@ from typing import Callable, Dict, List, Optional, Tuple
 from core import channel_protection as CP
 from core.transport_driver import ConnectionGone
 
-BUILD = "channel-frame-v12-20261123b"
+BUILD = "channel-frame-v13-20261123f"
 SECRETS = os.environ.get("FROGNET_CHANNEL_SECRETS", "/etc/frognet/channel_secrets")
 SWITCH_PROTOCOL = b"SWP\x01"
 SWITCH_ENCRYPTION = b"SWE\x01"
@@ -522,7 +522,17 @@ class Link:
         if not side.named:
             s = self._setting(role) or {}
             number, protection = wanted(s)
-            side.fnid = self._mine() if number else (self._fnid or "")
+            # [A_SEQUENCE_NAMED_UNSEALED_SAYS_WHO_SENDS_IT_V1] Found on John's network, 23 Nov 2026, then between
+            # machines: a sequence named while its Role was unsealed did not say the sender's FNID. The key is made
+            # from that FNID, and the calls that switch encryption do not carry it, so once the Role was sealed the
+            # two ends made different keys, nothing opened in either direction, and each said NOT OPENED to the other
+            # for ever. The name always says who sends. (A node with no FNID file says none, and cannot seal.)
+            try:
+                side.fnid = self._mine()
+            except DoesNotOpen:
+                if number:
+                    raise
+                side.fnid = ""
             side.rekey(number, protection, self._secret)
             side.word = DRIVERS[self._driver_of(s, role)][0]
             fnid = side.fnid.encode("utf-8")

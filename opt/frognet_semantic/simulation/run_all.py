@@ -579,12 +579,27 @@ def main():
     # six minutes. Needs what the tier above needs.
     results.append(_run_proc("the four runs of the Roles exercise between machines (roles_exercise_tier --run all)",
                              ["simulation/roles_exercise_tier.py", "--run", "all"], retry=False))
+    # [HELD_SOCKETS_SURVIVE_THE_WIPE_V1] the merge's own wipe loop, taken from runMerge.bash and run on a directory
+    # made for it: the held-read sockets are left, and a fire reaches a process that was running before the merge.
+    results.append(_run_proc("the merge's wipe of /run/frognet leaves the held-read sockets (test_held_sockets_survive_the_merge_oracle)",
+                             ["core/test_held_sockets_survive_the_merge_oracle.py"], retry=False))
     # [THE_FULL_TEST_FOR_A_REAL_NETWORK_V1] core/channel_test.py, the test John runs on his real network, between
     # machines: a memory for the Role on each other machine, traffic throughout, the settings, the three refusals,
     # the keys of its part L, one change made from another machine; then with one machine holding another secret,
     # where it must say FAIL and name that machine. About four minutes.
     results.append(_run_proc("the full test for a real network, between machines, passing and failing (roles_exercise_tier --step test)",
                              ["simulation/roles_exercise_tier.py", "--step", "test"], retry=False))
+    # [A_ROLE_WITH_A_SETTING_TRAVELS_IN_THE_FRAME_V1] the same with every machine's transport file saying only `auto`,
+    # as John's nodes say. With the machines told chorus (above) this defect could not show: on 23 Nov 2026 his network
+    # sent a sealed Role's traffic unsealed and failed every request of a Role on chorus, and every tier here passed.
+    results.append(_run_proc("the full test for a real network, machines told only auto as John's nodes are (roles_exercise_tier --step test --told auto)",
+                             ["simulation/roles_exercise_tier.py", "--step", "test", "--told", "auto"], retry=False))
+    # [A_HOLD_THAT_ENDED_IS_HELD_AGAIN_V1] a node's daemon and proxy restarted, then a setting written from it: told
+    # chorus this passed; told auto every other machine stayed deaf until its hold's own bound (found 23 Nov 2026)
+    results.append(_run_proc("a setting written after a node's daemon and proxy restart, machines told only auto (roles_exercise_tier --step admin-restart --told auto)",
+                             ["simulation/roles_exercise_tier.py", "--step", "admin-restart", "--told", "auto"], retry=False))
+    results.append(_run_proc("the four runs of the Roles exercise, machines told only auto (roles_exercise_tier --run all --told auto)",
+                             ["simulation/roles_exercise_tier.py", "--run", "all", "--told", "auto"], retry=False))
     results.append(_run_proc("transport factory self-test (sim+loopback+netem, 12)",
                              ["simulation/transport_factories.py"]))
     # [AICONNECT_RAMP_IS_GATED_V1] The AIConnect workload had no tier at all --

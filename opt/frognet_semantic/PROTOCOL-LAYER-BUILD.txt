@@ -248,3 +248,157 @@ UPDATE 20261123i (23 Nov 2026): THE FULL TEST, WITH TRAFFIC AND YOUR OWN CHANGES
   Builds: channel-setting v10, channel-admin v5, channel-test v4. All nodes need this tarball (the test fails an end
   on another build, by name).
 
+UPDATE 20261123j (23 Nov 2026): A ROLE WITH A SETTING TRAVELS IN THE FRAME; A SEALED ROLE IS NOT TAKEN UNSEALED
+  FOUND ON JOHN'S NETWORK by the full test, 23 Nov 07:46 (Seattle3B's clock), and then reproduced in the simulator
+  with every machine's transport file saying only `auto`, as his nodes' files say:
+    * every row said "the 0 ends carrying units's traffic say they are sending it SEALED"
+    * on the switch to chorus, 441 of 444 requests failed (HTTP 500); back on tcp they worked again
+  CAUSE. The frame is the only place anything is sealed. A process had the frame carrier only if a word of its
+  node's transport file said chorus. On a node told `auto`:
+    * a Role whose setting said tcp went on the plain TCP wire, UNSEALED, while every end reported it held the
+      sealed setting, and the daemon at the other end ran it;
+    * a Role whose setting said chorus was refused on every request.
+  Every simulator machine had been told chorus, so no tier could show it. Builds through 20261123i have this defect.
+  THE RULES NOW
+    [A_ROLE_WITH_A_SETTING_TRAVELS_IN_THE_FRAME_V1] a Role that has a setting of its own is sent in the frame from
+        every node, whatever the node's transport file says. A proxy takes the frame carrier the first time it sends
+        for such a Role and says so once:
+            the Role 'units' has a setting of its own: its traffic goes in the frame from this process, whatever
+            this node's transport file says ('auto'). Traffic of no Role is as it was.
+        Traffic of no Role, and a node where no Role has a setting, run exactly what they ran.
+    [A_SEALED_ROLE_IS_NEVER_SENT_UNSEALED_V1] a sealed Role whose setting names a protocol the frame does not carry
+        is not sent at all (the request fails and says why).
+    [A_SEALED_ROLE_IS_NOT_TAKEN_UNSEALED_V1] a daemon refuses a request for a sealed Role's memory that arrives
+        outside the frame, and says so (the 1st, 2nd, 4th, 8th ... time):
+            a request from 10.251.251.1 for unitsHost.x arrived outside the frame, unsealed, and the Role 'units' is
+            sealed: REFUSED, not run (1 so far in this daemon)
+  NOT COVERED: a node with Homa in its kernel (none on John's network) may already hold a kernel Homa socket when a
+  Role first sends; that case was not built or run.
+  ALSO IN THE HARDWARE RUN
+    * frogtorch_ram.py on Seattle3B is a third process that reports as an end. It was not restarted with the install
+      (it said build v9 itself), and restarting the daemon removed its hold at the ControlRam, so it took no setting
+      for up to 300 s. Restart frogtorch-ram after an install. The gap itself (a third process on a node is not told
+      that its hold went with the daemon's sessions) is NOT fixed.
+    * for about a second at the start, two memories read back the value before the one just written ("wrote 2 and
+      read back [1]"). That was on the plain TCP wire. Cause NOT known. The test shows it if it happens again.
+  SIMULATOR: roles_exercise_tier has --told (what every machine's transport file says); run_all.py now runs the full
+  test and the four runs of the Roles exercise a second time with --told auto.
+  Builds: homa-carrier v7. 23 files: the 22 of `20261123i` and daemon/engine/session.py. Every node needs it.
+
+UPDATE 20261123k (23 Nov 2026): A SEQUENCE NAMED UNSEALED SAYS WHO SENDS IT
+  FOUND ON JOHN'S NETWORK by the full test on build j, 08:31 (Seattle3B's clock): with the Role sealed, every request
+  to every node timed out; unsealed, in the frame, traffic worked. Both ends' journals said NOT OPENED to each other
+  without end, and Seattle7's said "a frame did not open".
+  CAUSE, reproduced between machines before anything was changed: a Role's key is made from the SENDING node's FNID,
+  which the far end learns when the sequence is named. A sequence named while the Role was UNSEALED did not say it
+  ("from node (not said)"), and the call that switches encryption does not carry it. Once the Role was sealed the two
+  ends made different keys. His network had an unsealed setting for units from earlier runs, so its sequences were
+  named unsealed. The simulator's Role had no setting until the test's first write, which sealed it, so its sequences
+  were always named sealed. The tier now gives the Role an unsealed setting before the test starts.
+  FIX [A_SEQUENCE_NAMED_UNSEALED_SAYS_WHO_SENDS_IT_V1]: the name always says the sender's FNID (channel-frame v13).
+  channel-test v5: a failed request's line also carries the HTTP error's own text.
+  STILL SO IN THIS BUILD, and John's ruling of 08:40 is against it ("It should be multiplexed onto the wire socket"):
+  on a node told `auto` a Role's traffic is on a SECOND connection to the same daemon port, beside the wire session
+  that carries traffic of no Role. The next build puts the frame's packets on the wire socket.
+  Same 23 files as `20261123j`. Every node needs it.
+
+UPDATE 20261123l (23 Nov 2026): THE FRAME RIDES THE WIRE SOCKET; A HOLD THAT ENDED IS HELD AGAIN
+  John, 08:40: "Why are we sending the protocol for Chorus over a separate socket? It should be multiplexed onto the
+  wire socket." 08:42: "What goes on the physical wire is a TCP data packet. What is in that packet is mine. The
+  packet is created by the protocol handler to be placed on the wire. On the other side, the sniffer says this is a
+  Chorus packet and ships the frame to the Chorus handler."
+  WHAT WAS BUILT BEFORE: the daemon sniffed the first word of a CONNECTION, so the frame had a connection of its own.
+  Since build j a node told `auto` held that connection BESIDE its wire session to the same daemon port.
+  NOW [THE_FRAME_RIDES_THE_WIRE_SOCKET_V1], on a node that was not told chorus:
+    * toward the daemon, each of the frame layer's packets goes on the wire session's socket behind the 4 bytes
+      FRM\x02. The daemon's reader sniffs EACH packet: one that begins so is handed to the frame handler, takes no
+      request number, and is answered by nothing. Every other packet is returned exactly as before.
+    * toward the node, each rides the session's return channel numbered 0xFFFFFFFD, through the session's one
+      writer, as a held read's fire already rides it (0xFFFFFFFE).
+    * no connection is opened for the frame. When the wire session ends, what rode it ends with it, and rides the
+      next session when there is next something to send.
+    * inside the frame nothing changed: each packet carries its protocol's word (tcp, chorus, openqasm) and is handed
+      to that handler; sealing, keys, switches, fires are as they were.
+  The journal says it once per destination:
+      [THE_FRAME_RIDES_THE_WIRE_SOCKET_V1] this layer's packets for 10.250.250.1:9009 ride the wire session to it; no
+      connection is opened for them
+      [THE_FRAME_RIDES_THE_WIRE_SOCKET_V1] the wire session from 10.123.123.1 carries this layer's packets (1); ...
+  A node TOLD chorus is as before: it has no wire session of the TCP driver's, and the frame's connection is its one
+  connection to the destination. NOT DONE: a node told `auto` with chorus also in its file can still have a session
+  on each (the per-hop walk chooses for traffic of no Role). Not John's network's configuration.
+  The TCP driver's wire session is itself two TCP connections (requests one way, replies the other), as it always
+  was. Nothing was added to that.
+
+  [A_HOLD_THAT_ENDED_IS_HELD_AGAIN_V1]. A fire rides the holder node's wire session to the role host. When that
+  session ended (the role host's daemon restarted, or this node's proxy did), the role host dropped the fire ("has
+  nowhere to go") or removed the node's holds, and NOTHING TOLD THE HOLDER: it waited out its own bound, 300 s for a
+  channel's setting. On machines told chorus the simulator's restart tier passed; told `auto` (John's nodes) every
+  other machine stayed deaf: 2 of 6 ends held a setting written after a restart. This is the likeliest reason BABox
+  and BAMacBook woke only at 300 s on 22 Nov, and frogtorch_ram.py took nothing this morning (inference for both).
+  Now the node's proxy tells every process on the node that holds a read (a datagram to each holder's socket) when a
+  wire session of the node's ends and when the proxy starts; each holds again at once. frogtorch-ram no longer
+  needs restarting after an install for this (it still reports the build it was started with).
+      [A_HOLD_THAT_ENDED_IS_HELD_AGAIN_V1] the wire session to 10.251.251.1 ended: 3 holder(s) on this node told ...
+  channel-test v6: a memory counts as up when the node that serves it has elected it too (a value written reads
+  back three times running); what went wrong before that is shown apart and not counted as the Role's traffic
+  failing. That is what the HTTP 400s from 10.28.28.1 and the "wrote 2 and read back [1]" were: reproduced between
+  machines, a node that had not yet elected the memory forwarded the request through its own proxy.
+  24 files: the 23 of `20261123k` and core/frognet_held.py. Every node needs it.
+
+UPDATE 20261123m (23 Nov 2026): THE MERGE KEEPS THE HELD-READ SOCKETS
+  FOUND ON JOHN'S NETWORK, build l: BABox, BAMacBook and New-York-2 answered nothing for two minutes, and their daemon
+  and proxy then took no setting, while frogtorch_ram.py on the same nodes did. BABox's journal: fires for its daemon
+  and proxy "handed to the holder's socket" at 12:44:54 and 12:45:00 (its clock), and from 12:45:06 on "there is no
+  such holder here (/run/frognet/held/proxy_main.py.2305812.sock: No such file or directory)". Both processes were
+  running the whole time.
+  CAUSE: usr/local/bin/runMerge.bash wipes everything in /run/frognet at each merge but four names. `held` was not
+  one of them. A merge removed every holder's socket and the daemon's role-host-fires.sock; the processes went on,
+  bound to sockets with no name, and nothing could be delivered to them until they were restarted.
+  John, 09:54: "A merge should delete the held reads only if it changes /etc/hosts." 09:55: "Then have those files
+  preserved, right".
+  NOW [HELD_SOCKETS_SURVIVE_THE_WIPE_V1]: `held` is in the wipe's keep list. The holds themselves end when a merge
+  changes /etc/hosts, in the holder (core/frognet_held.py watches the file and holds again), as before.
+  Two files, over build l, on every node: usr/local/bin/runMerge.bash and core/channel_test.py (v7: says every 5 s
+  what it waits for at T; its clean-up survives a second Ctrl-C; the build is checked on daemons and proxies, and
+  any other process on an older build is named in a note). After installing, restart frognet-daemon, frognet-proxy
+  and frogtorch-ram: a process that lost its socket to an earlier merge gets one again only by starting.
+
+UPDATE 20261123n (23 Nov 2026): THE TEST'S PART L: RAM HOST SWITCH, OPENQASM, WHERE THINGS STAND
+  John, 10:12: "In section L, I need a way to force a RAM host switch. It also needs to be able to show the currently
+  selected host, the currently selected protocol, and the current key."
+  channel-test v8 (core/channel_test.py only; the node the test is run from):
+    h   moves the memory unitsHost.protocoltest-moving to the next node: its one offer is taken from the node that
+        has it and given to the next, the network's election moves it, and the test checks the hosts file, that a
+        value written reads back at the new host three times running, and that the new host's daemon reports
+        carrying the Role as set. Requests that fail while it moves are counted apart.
+    o   the Role onto openqasm (any traffic runs on it; the circuit codex acts only on a value that begins OPENQASM)
+    p   tcp / chorus (from openqasm: back to tcp)
+    i   the status line, which is also printed after every change:
+        NOW  RAM host of unitsHost.protocoltest-moving: Seattle5 (10.250.250.1) | protocol tcp | SEALED
+        chacha20-poly1305 | number 3897158126897436246 | step 6 | this node's sending key: fingerprint 71dc6ae0
+    --show-key prints the key itself where the fingerprint is.
+  ON JOHN'S NETWORK, 23 Nov: build l, test v6, 09:56: 91 of 91, 1,111 round trips, 0 failed. Build l with the merge
+  change, test v7, 10:04: 116 of 116, 864 round trips, 0 failed, eighteen changes made by hand in part L.
+  channel-test v9 (20261123o), John 10:21 "add the qasm as a third protocol to cycle through": p goes tcp, chorus,
+  openqasm and round again, in the scripted part too; there is no o key.
+
+UPDATE 20261123p (23 Nov 2026): TWO CLIENTS TALKING THROUGH A ROLE'S MEMORY
+  John, 10:41: "I need a script that sends chat back and forth between two clients so I can show it working as we
+  switch protocols, etc."
+  core/channel_chat.py (v2). On one node:      channel_chat.py --start
+                             On another node:  channel_chat.py
+  The one given --start asks the election for the memory unitsHost.protocolchat on a THIRD node (--memory-on says
+  which), waits for the other client, then says a line a second; the other answers each line as it arrives. Each
+  line shown: time, who, what was said, the round trip in ms, and the Role's traffic at that moment (protocol,
+  sealed and algorithm, this node's sending key's fingerprint). Typed text and Enter is said as the next line; q
+  and Enter ends it; the starter gives the memory back.
+  A line is a tuple a client writes into the memory, (chat, line, <address>.<process>); each client holds a read on
+  that family there. Nothing is polled and neither client connects to the other.
+  Change the Role meanwhile with channel_admin.py set units --protocol|--seal|--new-key|--algorithm|--unseal, or
+  with channel_test.py's keys.
+  Between three machines told auto (roles_exercise_tier --step chat): 44 lines, every one answered, while the Role
+  was sealed, moved to chorus, given a new key and moved to openqasm; the key shown changed with the new key.
+  channel-test v10: each of the test's memories has a value of its own in its node's store (the moving memory and
+  the node's own were writing one value: "wrote 138 and read back [265]" on John's network).
+  Two files, any node that runs either: core/channel_chat.py, core/channel_test.py. No restart.
+

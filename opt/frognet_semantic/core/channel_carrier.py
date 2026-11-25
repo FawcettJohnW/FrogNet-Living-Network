@@ -43,11 +43,68 @@ from core import channel_frame as F
 from core.homa_socket import Msg, RpcFailed, CarrierClosed, HomaUnavailable, PeerConnectionEnded
 from core.transport_driver import ConnectionGone
 
-BUILD = "channel-carrier-v7-20261123a"
+BUILD = "channel-carrier-v8-20261123g"
 WORD = b"FRM\x01"                     # what the end that opens a connection says first
 DEFAULT_DRIVER = "chorus"            # the protocol of a Role (or of no Role) whose setting names none: this carrier's own
 SERVER = None                        # this process's daemon end, when it has one: adopt() is its call
 SERVER_UP = threading.Event()        # set when SERVER exists (core/homa_transport.frame_end_for waits on it)
+# [THE_FRAME_RIDES_THE_WIRE_SOCKET_V1] John, 23 Nov 2026 08:40: "Why are we sending the protocol for Chorus over a
+# separate socket? It should be multiplexed onto the wire socket." 08:42: "What goes on the physical wire is a TCP data
+# packet. What is in that packet is mine. The packet is created by the protocol handler to be placed on the wire. On
+# the other side, the sniffer says this is a Chorus packet and ships the frame to the Chorus handler."
+# A node that was not told chorus has a wire session to each daemon (the TCP driver's). This layer's packets ride it:
+# toward the daemon as a packet that begins WIRE_TAG, which the daemon's reader sniffs and hands here; toward the node
+# as a packet numbered WIRE_SEQ on the return channel, as a held read's fire already rides it. No connection is opened
+# for the frame. Every other packet on that socket is byte for byte what it was.
+WIRE_TAG = b"FRM\x02"
+WIRE_SEQ = 0xFFFFFFFD
+_pipe_n = [0]
+
+
+class WirePipe:
+    """What core/channel_frame.Link asks of a socket, on a wire session. put(bytes) places one of this layer's packets
+    on the session's wire; feed(bytes) is the session's reader handing one over. When the session ends, so does this."""
+
+    def __init__(self, put, who: str):
+        self._put, self.who = put, who
+        self._buf, self._cv, self.closed = bytearray(), threading.Condition(), False
+
+    def sendall(self, data) -> None:
+        if self.closed:
+            raise OSError("the wire session to %s that carried it has ended" % self.who)
+        self._put(bytes(data))
+
+    def feed(self, data: bytes) -> None:
+        with self._cv:
+            self._buf += data
+            self._cv.notify_all()
+
+    def makefile(self, *_a, **_k):
+        return self
+
+    def read(self, n: int) -> bytes:
+        with self._cv:
+            while len(self._buf) < n and not self.closed:
+                self._cv.wait()
+            out = bytes(self._buf[:n])                # (fewer than asked: the session ended)
+            del self._buf[:n]
+            return out
+
+    def close(self) -> None:
+        with self._cv:
+            self.closed = True
+            self._cv.notify_all()
+
+    def shutdown(self, _how=2) -> None:
+        self.close()
+
+    def settimeout(self, _t) -> None:
+        pass
+
+    def setsockopt(self, *_a) -> None:
+        pass
+
+
 SHARED_PORT = False                  # True when the daemon's TCP listener holds the port and hands connections over
 WIRE_BYTES = os.environ.get("FROGNET_WIRE_BYTES") == "1"      # [BYTES_ON_THE_CONNECTION_V1] a measurement's switch
 
@@ -102,6 +159,7 @@ class FrameCarrier:
         self._turned_away: Dict[Tuple[str, int], int] = {}
         self._next_id = 2
         self._closed = False
+        self.wire = None                              # [THE_FRAME_RIDES_THE_WIRE_SOCKET_V1] wire(far) -> a WirePipe, or None
         self.n_req_out = self.n_req_in = self.n_rep_out = self.n_rep_in = self.n_failed = 0
         self.bytes_out = self.bytes_in = 0
         self._ls = None
@@ -176,6 +234,25 @@ class FrameCarrier:
         threading.Thread(target=self._read, args=(link,), daemon=True, name="frame-read-%s" % addr[0]).start()
         return True
 
+    def _hold(self, link: F.Link) -> None:
+        link._deliver = lambda *got, _l=link: self._arrived(_l, *got)
+        link.on_broken = lambda why, _l=link: self._ended(_l, "its writer stopped: %s" % why, ours=True)
+        link.on_sent = self._sent
+        link.on_running = self._report
+
+    def adopt_pipe(self, pipe: "WirePipe", peer_ip: str) -> None:
+        """[THE_FRAME_RIDES_THE_WIRE_SOCKET_V1] The daemon's end: the wire session from `peer_ip` has carried a first
+        packet of this layer. Its packets are this carrier's from here, on that session's own sockets."""
+        _pipe_n[0] += 1
+        addr = (peer_ip, _pipe_n[0])                  # (a number where a port would be: this is no connection of its own)
+        link = F.Link(pipe, addr, False, _setting, secret=_secret, say=self._say)
+        self._hold(link)
+        with self._lock:
+            self._accepted.add(link)
+        self._say("%s [THE_FRAME_RIDES_THE_WIRE_SOCKET_V1] the wire session from %s carries this layer's packets (%d); no "
+                  "connection is opened for them" % (BUILD, peer_ip, addr[1]))
+        threading.Thread(target=self._read, args=(link,), daemon=True, name="frame-read-%s" % peer_ip).start()
+
     def send_reply(self, dest: Tuple[str, int], rpc_id: int, payload: bytes) -> None:
         with self._lock:
             hit = self._owed.pop((dest, rpc_id), None)
@@ -198,6 +275,17 @@ class FrameCarrier:
             with self._lock:
                 link = self._links.get(far)
             if link is not None:
+                return link
+            # [THE_FRAME_RIDES_THE_WIRE_SOCKET_V1] a node not told chorus: its wire session to that daemon carries it
+            pipe = self.wire(far) if self.wire is not None else None
+            if pipe is not None:
+                link = F.Link(pipe, far, True, _setting, secret=_secret, say=self._say)
+                self._hold(link)
+                with self._lock:
+                    self._links[far] = link
+                self._say("%s [THE_FRAME_RIDES_THE_WIRE_SOCKET_V1] this layer's packets for %s:%d ride the wire session "
+                          "to it; no connection is opened for them" % (BUILD, far[0], far[1]))
+                threading.Thread(target=self._read, args=(link,), daemon=True, name="frame-read-%s" % far[0]).start()
                 return link
             s = socket.socket()
             try:
