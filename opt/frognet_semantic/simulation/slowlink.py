@@ -173,10 +173,16 @@ class _Direction:
 
 class Relay:
     """Listens on 127.0.0.1:<port>; each connection is relayed to `target` through `up` (member -> target) and
-    `down` (target -> member). One Relay is one member's link."""
+    `down` (target -> member). One Relay is one member's link.
+    source: the address the member's connections arrive at the target from (its own address on the network; any
+    127.x.y.z). Default: the system's choice, as before. `target` may be assigned: connections made after that go
+    to the new one (the member's way to a service that moved).
+    cut(waiting=True): a split, not a refusal. Sessions over the link end, and a connection made while it is down is
+    not answered until restore(), when it goes through."""
 
-    def __init__(self, target, up, down=None, seed=0, name="link"):
-        self.target, self.up, self.down, self.name = target, up, down or up, name
+    def __init__(self, target, up, down=None, seed=0, name="link", source=None):
+        self.target, self.up, self.down, self.name, self.source = target, up, down or up, name, source
+        self.waiting, self.parked = False, []
         self.rng = random.Random(seed)
         self.stats = {"connections": 0}
         self.ls = socket.socket()
@@ -196,25 +202,33 @@ class Relay:
             except OSError:
                 return
             if self.dark.is_set():
-                c.close()
+                if self.waiting:
+                    self.parked.append(c)      # a split: not answered until the link is back
+                else:
+                    c.close()
                 continue
-            try:
-                t = socket.create_connection(self.target)
-            except OSError:
-                c.close()
-                continue
-            for s in (c, t):
-                s.setsockopt(socket.IPPROTO_TCP, socket.TCP_NODELAY, 1)
-            self.stats["connections"] += 1
-            self.conns.append((c, t))
-            rtt = 2 * self.up.latency_ms
-            for src, dst, L, k in ((c, t, self.up, "up"), (t, c, self.down, "down")):
-                d = _Direction(src, dst, L, self.rng, self.stats, k, rtt)
-                threading.Thread(target=d.reader, daemon=True).start()
-                threading.Thread(target=d.writer, daemon=True).start()
+            self._relay(c)
 
-    def cut(self):
-        """The link goes down: every session over it ends, and none is accepted until restore()."""
+    def _relay(self, c):
+        try:
+            t = socket.create_connection(self.target, source_address=(self.source, 0) if self.source else None)
+        except OSError:
+            c.close()
+            return
+        for s in (c, t):
+            s.setsockopt(socket.IPPROTO_TCP, socket.TCP_NODELAY, 1)
+        self.stats["connections"] += 1
+        self.conns.append((c, t))
+        rtt = 2 * self.up.latency_ms
+        for src, dst, L, k in ((c, t, self.up, "up"), (t, c, self.down, "down")):
+            d = _Direction(src, dst, L, self.rng, self.stats, k, rtt)
+            threading.Thread(target=d.reader, daemon=True).start()
+            threading.Thread(target=d.writer, daemon=True).start()
+
+    def cut(self, waiting=False):
+        """The link goes down: every session over it ends, and none is accepted until restore(). waiting: a connection
+        made meanwhile is held and goes through at restore() (a split); otherwise it is closed (a refusal)."""
+        self.waiting = waiting
         self.dark.set()
         for c, t in self.conns:
             for s in (c, t):
@@ -227,6 +241,9 @@ class Relay:
 
     def restore(self):
         self.dark.clear()
+        parked, self.parked = self.parked, []
+        for c in parked:
+            self._relay(c)
 
     def close(self):
         self.cut()

@@ -264,6 +264,15 @@ work like this -- EOC is just the example. For a media service, the requirements
   machine's election writes its own `/etc/hosts` at its own moment, so a program elsewhere can read the new AppHost
   before that machine's `fdf-ram` listens; it holds a read on this family (which also ends when `/etc/hosts` is
   written) and connects when the RAM is said to be there. First user: `ribbit/examples/worldshepherd`.
+- **Built** ([THE_APPS_OWN_RAM_HOST_V1], fdf-app r55, 2026-11-25): an app's RAM may be served by the app's own RAM
+  host in place of `fdf-ram`: `fdf-app config APP RAM[,RAM] --host RAM=PROGRAM`. Who may write a cell is the app's
+  rule and the app's RAM host enforces it; every RAM host is derived from the platform's and is not bound by the
+  general one. It is part of the app's one signed configuration (`"hosts": {ram: program}`; an app with none has
+  the same configuration text as before). `PROGRAM` is a name, found in `FDF_BIN` (`/opt/fdf/bin`) and nowhere else,
+  and is started exactly as `fdf-ram` is: on the listening socket `fdf-app` holds, with `--listen` and `--api`. A
+  machine elected to serve the RAM that does not have the program serves nothing, says so in its log, and tries
+  again at the next event; the RAM is not served by `fdf-ram` instead. First user: `ribbit/examples/worldshepherd`
+  (`worldshepherd-ram`). `rinab/tools/test_fdf_app.py` passes as before (13 checks).
 - **The app's own selection** is its configuration's `select`, per RAM (`*` for the rest): `need` (capability keys that
   must be true) and `rank` (keys compared in order, higher first; `-key` lower first); a member whose tuple lacks a key
   ranks below every member that has it; the guid breaks the last tie. Every member uses the `select` of the newest

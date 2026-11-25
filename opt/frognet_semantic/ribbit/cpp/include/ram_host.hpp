@@ -103,6 +103,14 @@ public:
     // [NET_CONFIG_IS_THE_RAM_MANAGERS_V1] A write the network may not make (a tuple only the host itself writes): why, or
     // "" to allow it. Asked of every write that arrives on the network API, in any form. Default: every write allowed.
     virtual std::string refuse_write(const std::string& s, const std::string& v, const std::string& i) const { (void)s; (void)v; (void)i; return ""; }
+    // [THE_APPS_RAM_HOST_DECIDES_ITS_WRITES_V1] (John, 2026-11-25: who may write a cell "is an app problem and the ram host
+    // for the app should enforce it"; "every ram server is derived from the system, but they are not bound by it".) A host
+    // with rules about WHO writes a cell and WHAT it says answers true to rules_on_cells(); refuse_cell is then asked of
+    // every write that arrives on the network API, in any form, once its coordinates and its bag are known: the session
+    // it arrived on (0: a plain-HTTP write, which has none), its three coordinates and its bag as JSON text. Why it is
+    // refused, or "" to take it. Default: no such rules, and nothing is asked (the bag's text is not made).
+    virtual bool rules_on_cells() const { return false; }
+    virtual std::string refuse_cell(uint64_t session, const std::string& s, const std::string& v, const std::string& i, const std::string& bag) const { (void)session; (void)s; (void)v; (void)i; (void)bag; return ""; }
     // [HOST_ANNOUNCES_ITSELF_V1] The host is listening at `bound` (HOST:PORT, the port the system gave when 0 was asked),
     // before the first session is served: a region restores what it keeps and publishes what it owns here. Default: nothing.
     virtual void listening(const std::string& bound) { (void)bound; }

@@ -3,23 +3,28 @@
 Brandon Ray Davis's SARA (`github.com/Bdavis1390/Sara_pro`) has one part meant to work across machines: the
 connector read-ticket ledger, where a ticket issued by one SARA must be claimed exactly once by one host. This
 directory is that ledger on FrogNet's shared memory. WorldShepherd's RAM is a FrogNet app service: the app
-`worldshepherd`, its one RAM `general`, served by the platform's `fdf-ram` on the machine the network elects. There is
-no WorldShepherd server and no WorldShepherd executable.
+`worldshepherd`, its one RAM `general`, served on the machine the network elects by the app's own RAM host,
+`worldshepherd-ram`. That is the platform's RAM host with WorldShepherd's rules about who may write a cell and what
+it may say (since 0.9; before, the general `fdf-ram` served it and had no such rules). It runs no ticket operation:
+a ticket is still its cells.
 
-Read `WHAT-CHANGED-FROM-SARA.md` first (each difference from SARA's stores and why), then `DESIGN.md`, then `RESULTS.md`.
+Read `WHAT-CHANGED-FROM-SARA.md` first (each difference from SARA's stores and why), then `DESIGN.md`, then
+`ACCEPTANCE.md` (the acceptance study of 2026-11-25: what was injected, what was measured, what it found), then `RESULTS.md`.
 
 | file | |
 |---|---|
 | `ribbit_claim_store.py` | `RibbitClaimStore`, a `SharedClaimStore`: a ticket is its cells; a SARA writes its own and reads. When the memory moves it finds it, writes its own again, learns which SARAs are there, and proceeds |
+| `worldshepherd_ram.cpp` | `worldshepherd-ram`, the app's RAM host: a SARA writes only its own cells; a cell says what its kind says; a claim that says won is consistent with its ticket |
 | `ticket_sql.py` | Brandon's `PostgresClaimStore`, unmodified, with no PostgreSQL: its four SQL calls done as those cells |
 | `sara_ui.py` | SARA's browser page `/ui` for the memory: the tickets as they stand, as one held read |
 | `harness/run_his_tests.py` | one command: Brandon's own tests, unmodified, on the memory with both stores, then the race between processes |
-| `harness/test_the_apphost_moves.py` | the service: configured, elected, served; the serving machine stops and then its `fdf-ram` is killed, with claims in flight |
+| `harness/test_the_apphost_moves.py` | the service: configured, elected, served; the serving machine stops and then its `worldshepherd-ram` is killed, with claims in flight |
 | `harness/on_the_memory.py` | the pytest plugin `run_his_tests.py` uses (`WS_STORE=sql` for his Postgres store on the memory) |
 | `harness/test_one_session_many_threads.py` | 16 threads of one process on one session, 300 tickets |
 | `harness/race.py` | many SARAs on many machines claiming the same tickets at once, coordinated through the memory |
+| `../../../simulation/worldshepherd_acceptance.py`, `harness/acceptance_sara.py` | the acceptance study: the memory replaced, links split, two memories, the access controls, storage; every SARA its own process on its own link (`ACCEPTANCE.md`) |
 | `../../../simulation/worldshepherd_slow_tier.py` | the simulator tier: the race with every SARA on its own shaped link, against the Postgres store |
-| `Makefile` | `make`: `lib/libkartram.so` (the session library) and `lib/ribbit.py`. Incremental |
+| `Makefile` | `make`: `bin/worldshepherd-ram`, `lib/libkartram.so` (the session library) and `lib/ribbit.py`. Incremental |
 | `WHAT-CHANGED-FROM-SARA.md`, `DESIGN.md`, `AUDIT-NO-HIDDEN-MESSAGING.md`, `study-ticket-claims.md`, `WORLDSHEPHERD-SUITE-MAP.md`, `QUESTION-3.md`, `RESULTS.md`, `VERSION` | the conversion's records |
 
 ## Build
@@ -28,8 +33,7 @@ Needs Linux, g++ with C++20, `liblz4-dev`, `libssl-dev`, Python 3.10 or later wi
 
     git clone https://github.com/FawcettJohnW/FrogNet-Living-Network.git
     cd FrogNet-Living-Network && git checkout worldshepherd-ribbit-20261124
-    (cd opt/fdf/src/fdf-source/rinab && tools/build.sh)                  # fdf-ram, the RAM manager
-    (cd opt/frognet_semantic/ribbit/examples/worldshepherd && make)      # the session library
+    (cd opt/frognet_semantic/ribbit/examples/worldshepherd && make)      # worldshepherd-ram and the session library
 
     git clone https://github.com/Bdavis1390/Sara_pro.git
     (cd Sara_pro && git checkout worldshepherd/connectors-distributed-claim-contract-v1-20260913)   # tested at 52b3764
@@ -41,7 +45,7 @@ from `opt/frognet_semantic/ribbit/examples/worldshepherd`, with `SARA=` the Sara
 
     python3 harness/run_his_tests.py --sara $SARA
 
-It starts one `fdf-ram` on a free local port and prints one line per check and `RESULT PASS`:
+It starts one `worldshepherd-ram` on a free local port and prints one line per check and `RESULT PASS`:
 
     PASS  1 his connector tests, WS_STORE=memory: ... 31 passed
     PASS  2 his connector tests, WS_STORE=sql: ... 31 passed
@@ -55,17 +59,25 @@ with `ticket_sql.connection_factory(...)` in place of a PostgreSQL connection fa
 
 ## Test 2: the RAM as a service, and what SARAs do when it moves (root, about 20 s)
 
-Needs also MariaDB, `php` with mysqli and curl, and the static binaries (`bash opt/frognet_semantic/simulation/setup.sh --yes`
+Needs also MariaDB (running), `php` with mysqli and curl, and the static binaries (`bash opt/frognet_semantic/simulation/setup.sh --yes`
 installs and builds all of it). As root:
 
     python3 harness/test_the_apphost_moves.py --sara $SARA
 
-It configures the app with `fdf-app config worldshepherd general`, installs and serves it on three machines, and
+It configures the app with `fdf-app config worldshepherd general --host general=worldshepherd-ram`, installs and serves it on three machines, and
 runs three SARAs that find the RAM with no address given. Then the serving machine stops (the RAM is elected onto
-another machine, whose memory is empty), and then that machine's `fdf-ram` is killed, each with 80 claims in flight.
+another machine, whose memory is empty), and then that machine's `worldshepherd-ram` is killed, each with 80 claims in flight.
 Six lines and `RESULT PASS`; line 5 and line 6 must say `80 answered, 0 raised` and `one winner 40, two 0, none 0`.
 
-## Test 3: across a network, in the simulator (about 1 minute; 4 minutes with all deployments)
+## Test 3: the acceptance study, in the simulator (1 minute; 7 minutes a link with the long case)
+
+From `opt/frognet_semantic`:
+
+    python3 simulation/worldshepherd_acceptance.py --sara $SARA --link lan --skip-long
+
+`ACCEPTANCE.md` says what each line is and has the measured tables.
+
+## Test 4: the race across a network, in the simulator (about 1 minute; 4 minutes with all deployments)
 
 From `opt/frognet_semantic`:
 
@@ -88,12 +100,14 @@ is written. On a node leave `WS_RAM` unset.
 
 On one node, once (the port is chosen and kept in the app's configuration tuple):
 
-    fdf-app config worldshepherd general --admin USER:PASSWORD
+    fdf-app config worldshepherd general --host general=worldshepherd-ram --admin USER:PASSWORD
 
 On every other node that may serve the RAM:
 
     fdf-app install worldshepherd --admin USER:PASSWORD
 
+`bin/worldshepherd-ram` must be in `/opt/fdf/bin` on every node that may serve the RAM; a node elected without it
+serves nothing and says so in its `fdf-app` log (it is not served by `fdf-ram` instead).
 `fdf-app.service` on each node serves it when that node is elected. A SARA on any node:
 
     store = RibbitClaimStore()                                              # the memory model

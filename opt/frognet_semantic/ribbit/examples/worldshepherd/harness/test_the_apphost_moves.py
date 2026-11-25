@@ -4,16 +4,16 @@ SARAs do when the service moves.
 
 The app "worldshepherd" is configured with its one RAM (fdf-app config worldshepherd general), installed on three
 machines and served by fdf-app on each; the election names the AppHost in the hosts file and fdf-app serves the RAM
-there with fdf-ram. Three SARAs (an issuer, a winner, a loser) are RibbitClaimStore() with no address: they find the
+there with the app's own RAM host, worldshepherd-ram (fdf-app config --host). Three SARAs (an issuer, a winner, a loser) are RibbitClaimStore() with no address: they find the
 RAM as any program on a node does. Then the machine serving it stops, the election names another machine, and that
 machine's memory is empty.
 
- 1  the service: one configuration tuple, the AppHost elected, fdf-ram answering on the configured port
+ 1  the service: one configuration tuple, the AppHost elected, worldshepherd-ram answering on the configured port
  2  before: two tickets issued, one claimed once, the second claim of it refused
  3  the AppHost moves to another machine; every SARA is on the new memory, having written its own cells into it
  4  after: the consumed ticket is refused as consumed, by every SARA; the ticket issued before is claimable, once
  5  claims made while the AppHost moves: each returns an answer, none raises, each ticket has one winner
- 6  the serving machine's fdf-ram is killed: fdf-app starts it again on the socket it holds; the same holds
+ 6  the serving machine's worldshepherd-ram is killed: fdf-app starts it again on the socket it holds; the same holds
 
 The scaffolding (role hosts on api.php, the hosts file, the election, the machines) is rinab/tools/test_fdf_app.py's.
 Needs: root, MariaDB, php with mysqli and curl, fdf-ram and ram in BUILD_STATIC_DIR, Brandon's tree in --sara.
@@ -45,6 +45,7 @@ def free():
 T = tempfile.mkdtemp(prefix="ws-app-")
 os.makedirs(T + "/bin")
 for b in ("fdf-ram", "ram"): shutil.copy(os.path.join(B, b), T + "/bin/")
+shutil.copy(os.path.join(HERE, "bin", "worldshepherd-ram"), T + "/bin/")   # [THE_APPS_OWN_RAM_HOST_V1] the app's own RAM host, on every machine
 procs = []
 os.environ["FDF_PY"] = os.path.join(F, "lib", "python")
 from core import app_hosts  # noqa: E402
@@ -147,7 +148,7 @@ def hosts():
     try: return {l.split()[1]: l.split()[0] for l in open(HOSTS) if len(l.split()) >= 2}
     except OSError: return {}
 def answers(hp):
-    try: return bool(fdfram.Ram(hp).version(timeout=2))
+    try: fdfram.Ram(hp).read("worldshepherd", "sara"); return True      # a read: what every RAM host answers (op=rina is fdf-ram's region's)
     except Exception: return False
 def wait_for(pred, limit=15.0):
     t0 = time.monotonic()
@@ -171,12 +172,12 @@ def served_on(n):
     return f
 
 try:
-    rc, out = run("a", "config", APP, "general", "--admin", "boss:adm-2026")
+    rc, out = run("a", "config", APP, "general", "--host", "general=worldshepherd-ram", "--admin", "boss:adm-2026")
     for n in "bc": run(n, "install", APP, "--admin", "boss:adm-2026")
     for n in "abc": serve(n)
     w0, dt = wait_for(served_on("c"))
     check(rc == 0 and w0 is not None and [x["instance"] for x in live(ctl(), "config")] == [APP],
-          "1 the service: one configuration tuple (%s); %sHost.frognet elected on c and fdf-ram answering at %s (%.0f ms)" % (APP, APP, w0, dt * 1000))
+          "1 the service: one configuration tuple (%s); %sHost.frognet elected on c and worldshepherd-ram answering at %s (%.0f ms)" % (APP, APP, w0, dt * 1000))
 
     # ---- three SARAs on node a: they find the RAM as fdf_appram does (this hosts file, a's copy of the configuration)
     os.environ.update(FDF_HOSTS=HOSTS, FDF_APPS=T + "/a/apps", FDF_VAR=T + "/a")
@@ -212,7 +213,7 @@ try:
     for t in th: t.join(60)
     wrote = {s.who.split("-")[0]: len(s._mine) for s in saras}
     check(w1 is not None and bool(ok) and w1 != w0,
-          "3 c stopped serving: %sHost.frognet on b, fdf-ram at %s %.0f ms after; all three SARAs on that memory %.0f ms after the stop, "
+          "3 c stopped serving: %sHost.frognet on b, worldshepherd-ram at %s %.0f ms after; all three SARAs on that memory %.0f ms after the stop, "
           "each having written its own cells into it (%s)" % (APP, w1, dt * 1000, (time.monotonic() - t0) * 1000, wrote))
     r1 = [claim(s, "T1") for s in saras]
     r2 = [claim(s, "T2") for s in (loser, winner)]
@@ -226,9 +227,9 @@ try:
           "5 %d claims made while the AppHost moved: %d answered, %d raised; tickets with one winner %d, two %d, none %d %s"
           % (2 * K, len(got), len(raised), wins.count(1), wins.count(2), wins.count(0), raised[:2]))
 
-    # ---- the serving machine's fdf-ram is killed: fdf-app starts it again on the socket it holds
+    # ---- the serving machine's worldshepherd-ram is killed: fdf-app starts it again on the socket it holds
     port = w1.rsplit(":", 1)[1]
-    pids = subprocess.run(["pgrep", "-f", "fdf-ram.*%s" % port], capture_output=True, text=True).stdout.split()
+    pids = subprocess.run(["pgrep", "-f", "worldshepherd-ram.*%s" % port], capture_output=True, text=True).stdout.split()
     for i in range(K): issue("N%d" % i)
     got2, raised2 = {}, []
     def claimer2(s, tag):
@@ -246,7 +247,7 @@ try:
     r1 = [claim(s, "T1") for s in saras] + [claim(s, "T2") for s in saras]
     check(bool(pids) and bool(ok) and not raised2 and len(got2) == 2 * K and all(w == 1 for w in wins)
           and all(not r.ok and r.reason == "ticket already consumed" for r in r1),
-          "6 fdf-ram on b killed (pid %s): all three SARAs on the memory fdf-app started %.0f ms after; %d claims across it: %d answered, "
+          "6 worldshepherd-ram on b killed (pid %s): all three SARAs on the memory fdf-app started %.0f ms after; %d claims across it: %d answered, "
           "%d raised, one winner %d, two %d, none %d; T1 and T2 still consumed (%s) %s"
           % (",".join(pids), dt * 1000, 2 * K, len(got2), len(raised2), wins.count(1), wins.count(2), wins.count(0), sorted({r.reason for r in r1}), raised2[:2]))
 finally:

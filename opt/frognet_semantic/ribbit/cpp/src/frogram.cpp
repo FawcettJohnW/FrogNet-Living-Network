@@ -437,6 +437,28 @@ struct Session::Impl {
         if (p->cb) { Session::Done cb = std::move(p->cb); cb(st, p->answer.body, err); }
     }
 };
+// [AN_OPENING_SESSION_WATCHES_ITS_OTHER_SOCKETS_V1] (WorldShepherd's acceptance study, restart:reassertion, 2026-11-25: a
+// SARA was held 10 s.) A session opens three connections, one after another. When the host is replaced between them, the
+// first is to a host that is gone and the next is to its successor, which holds that half of a pair for the other
+// half ([PAIRING_IS_AN_EVENT_V1], 10 s) -- while this end waited for its HELLO, blind to its first connection having
+// ended. So while this end waits for a HELLO it watches the connections it has already made: nothing is sent on them
+// yet, and one that becomes readable has ended (or broken the contract). The open then fails at once, and the
+// caller opens again, whole, to the host that is there.
+static std::string hello_while_watching(int fd, std::initializer_list<int> made) {
+    for (;;) {
+        std::vector<pollfd> p;
+        for (int one : {fd}) { pollfd q{}; q.fd = one; q.events = POLLIN; p.push_back(q); }
+        for (int m : made) { pollfd q{}; q.fd = m; q.events = POLLIN; p.push_back(q); }
+        if (FR_POLL(p.data(), static_cast<unsigned long>(p.size()), -1) < 0) {
+#ifndef _WIN32
+            if (errno == EINTR) continue;
+#endif
+            throw Unreachable("poll failed while the session opened"); }
+        for (size_t i = 1; i < p.size(); ++i)
+            if (p[i].revents) throw Unreachable("the far end closed the connection");   // the host this session began with is gone
+        if (p[0].revents) return recv_frame(fd);
+    }
+}
 Session::Session(const std::string& host, int port, const std::string& api) : host_(host), api_(api), port_(port), d_(new Impl) {
     std::random_device rd; std::ostringstream t; t << "frogram-cpp-" << std::hex << rd() << rd();
     token_ = t.str();
@@ -447,14 +469,14 @@ Session::Session(const std::string& host, int port, const std::string& api) : ho
     { int buf = 32 * 1024; setsockopt(req_, SOL_SOCKET, SO_SNDBUF, reinterpret_cast<const fr_optval_t*>(&buf), sizeof buf); }
     send_frame(req_, hello(token_));
     ret_ = dial(host, port); send_frame(ret_, hello("RETURN:" + token_));
-    std::string f = recv_frame(ret_);
+    std::string f = hello_while_watching(ret_, {req_});
     if (f.size() < 5 || f.compare(0, 4, MAGIC) || uint8_t(f[4]) != OP_HELLO) throw Refused("expected the far end's HELLO");
     dat_ = dial(host, port);
     // THE BUFFER IS THE LATENCY, on the data socket too: the interleaver decides what goes next, and a large kernel
     // buffer would let one transfer's segments queue ahead of every later one anyway. Keep the queue at the wire short.
     { int buf = 32 * 1024; setsockopt(dat_, SOL_SOCKET, SO_SNDBUF, reinterpret_cast<const fr_optval_t*>(&buf), sizeof buf); }
     send_frame(dat_, hello("DATA:" + token_));
-    f = recv_frame(dat_);
+    f = hello_while_watching(dat_, {req_, ret_});
     if (f.size() < 5 || f.compare(0, 4, MAGIC) || uint8_t(f[4]) != OP_HELLO)
         throw Refused("the far end did not accept the data socket (HELLO DATA:) -- it does not speak the full FNWP contract");
     sockaddr_storage me{}; socklen_t ml = sizeof me; char ip[64] = "";

@@ -1,0 +1,6 @@
+PASS  1 his connector tests, WS_STORE=memory: on_the_memory: 4 RibbitClaimStore store(s) made on the memory at 127.0.0.1:54645 | 31 passed in 0.13s
+PASS  2 his connector tests, WS_STORE=sql: on_the_memory: 4 PostgresClaimStore store(s) made on the memory at 127.0.0.1:54645 | 31 passed in 0.15s
+PASS  3 one session, many threads: 2 passed in 3.33s
+PASS  4 the race, memory: 8 processes, 400 tickets: won once 400, twice 0, never 0; 3785.4 claims/s, claim median 1.65 ms
+PASS  4 the race, sql: 8 processes, 400 tickets: won once 400, twice 0, never 0; 2279.0 claims/s, claim median 2.92 ms
+RESULT PASS

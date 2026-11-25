@@ -1,4 +1,4 @@
-# WorldShepherd SARA on the memory -- design (0.8, 2026-11-24)
+# WorldShepherd SARA on the memory -- design (0.9, 2026-11-25)
 
 Incumbent: Brandon Ray Davis's SARA, `github.com/Bdavis1390/Sara_pro`.
 - `main` (234ef0c, 7 Oct 2026): `deployments/sara_verified_local_v1`, three services on one machine. No network code.
@@ -16,11 +16,41 @@ may succeed, wherever the claimants are. The stock stores make that one claim wi
 a `BEGIN IMMEDIATE` transaction (`SqliteReadTicketLedger`) or `UPDATE ... WHERE consumed_at IS NULL` (`PostgresClaimStore`).
 
 ## WorldShepherd's RAM is a FrogNet app service (`[THE_RAM_IS_A_SERVICE_V1]`)
-The app is `worldshepherd` and it has one RAM, `general` (`fdf-app config worldshepherd general --admin USER:PASSWORD`).
-Like every app's RAM it is served by the platform's `fdf-ram`, started by `fdf-app` on the machine the election names
+The app is `worldshepherd` and it has one RAM, `general`
+(`fdf-app config worldshepherd general --host general=worldshepherd-ram --admin USER:PASSWORD`).
+It is served by the app's own RAM host, `worldshepherd-ram`, started by `fdf-app` on the machine the election names
 `worldshepherdHost.frognet` in `/etc/hosts`, on the port in the app's one configuration tuple. `fdf-app` holds its
-listening socket. There is no WorldShepherd executable and the RAM manager runs no operation of WorldShepherd's: a
-ticket is cells SARAs write and read. It keeps no file of them. A cell stays for the life of that memory, not of its
+listening socket. The RAM host runs no operation of WorldShepherd's: a ticket is cells SARAs write and read. It
+keeps no file of them.
+
+## The app's RAM host decides its writes (`[THE_APPS_RAM_HOST_DECIDES_ITS_WRITES_V1]`, 0.9)
+Who may write a cell is the app's rule, and the app's RAM host enforces it. Every RAM host is derived from the
+platform's and is not bound by it: `worldshepherd_ram.cpp` is the platform's `RamHost` with three rules about the
+service `worldshepherd`, asked of every write once its coordinates and bag are known (the platform's `refuse_cell`).
+Until 0.9 the general `fdf-ram` served this RAM and had none of them: any session could write a claim in any name
+saying won (Brandon Davis, reading the code, 2026-11-25).
+
+| rule | |
+|---|---|
+| `[A_SARA_WRITES_ONLY_ITS_OWN_CELLS_V1]` | a cell names its writer (`sara` `<who>`; `issue.<who>.<n>`, `claim.<who>.<n>`). A name belongs to the machine whose session first wrote it, for the life of the memory, and while that session is up to that session alone. Who owns a name is itself memory: the first cell, by write order, in the host's own `(#worldshepherd, who.<who>)` |
+| `[A_CELL_SAYS_WHAT_ITS_KIND_SAYS_V1]` | an issue says `sha` and `exp`; a claim says `sha` and `at`; nothing else is in the service |
+| `[WON_IS_CONSISTENT_WITH_THE_TICKET_V1]` | a claim that says won is refused when this memory shows it false; `Ticket` applies the same digest and expiry rule for every reader |
+
+What the host cannot know is whether a consistent claim that says won in a new memory was the winner in the one
+before. That is open, and `ACCEPTANCE.md` says what closes it.
+
+## What the acceptance study changed in a SARA (0.9)
+`ACCEPTANCE.md` has the measurements. Each rule is in `ribbit_claim_store.py` where it acts.
+
+| rule | |
+|---|---|
+| `[A_MEMORY_GONE_WHILE_I_WRITE_MY_OWN_V1]` | a memory that goes while a SARA writes its own truth into it: the attach is done again, whole, in the next |
+| `[A_CALL_HAS_ONE_CELL_V1]` | a call names its cell once. Made again after its session ended, it reads first and writes only if its cell is not there |
+| `[A_SARA_THAT_LEFT_IS_WAITED_FOR_V1]` | a SARA that left the memory less than a ticket's life ago is waited for like one that was there when it was lost |
+| `[A_HELD_CLAIM_AGES_V1]` | a claim that is made again is as old as it has been held: what it writes says so, and it is answered at that time |
+
+## How long a cell stays
+A cell stays for the life of that memory, not of its
 writer's session: a ticket a SARA consumed is still consumed after that SARA has gone.
 
 A SARA is given no address. It finds the RAM as any program on a node does (`fdf_appram.where`: the AppHost line and
@@ -63,7 +93,7 @@ learn the world again. Nothing is filed and nothing is restored.
 - **What a SARA owns, and keeps while it runs:** the tickets it issued, and the claims it won. A claim that lost is
   not its truth.
 - **The read it holds:** the SARAs' family, `(worldshepherd, sara, *)`. Each SARA's own cell there says it is here and
-  goes with its session. The read ends when the memory is gone (its AppHost moved, or its `fdf-ram` ended): that is
+  goes with its session. The read ends when the memory is gone (its AppHost moved, or its RAM host ended): that is
   the event.
 - **Then, on that SARA's one attaching thread:**
   1. *Find the current RAM.* `fdf_appram.where`. If nothing listens there yet, hold a read on what `fdf-app` says it
@@ -80,7 +110,7 @@ learn the world again. Nothing is filed and nothing is restored.
   issuer is gone is absent and a claim on it is refused. Claims in flight while the memory moves are answered, each
   ticket by one winner (`harness/test_the_apphost_moves.py`, checks 5 and 6).
 - Only the attaching thread replaces the session, so nothing guards it.
-- `RibbitClaimStore("HOST:PORT")` names one `fdf-ram` directly, for the simulator and the tests. When nothing answers
+- `RibbitClaimStore("HOST:PORT")` names one RAM host directly, for the simulator and the tests. When nothing answers
   there it says so and its calls raise: nothing else is tried.
 
 ## Brandon's Postgres store, unmodified, with no PostgreSQL
@@ -103,4 +133,6 @@ answers, and a client-side copy between two SQL statements. `AUDIT-NO-HIDDEN-MES
 2. WS-SOE v0.1C: the intent as the coordinator's cell and the effect as the service's cell.
 3. Relay idempotency (branch `hardening/relay-idempotency-v1`), the same shape as the ticket claim.
 4. Removing expired tickets' cells (refused claims' too) from the memory, and a SARA forgetting the expired ones it owns.
-5. A run on real nodes (the service test runs `fdf-app`, `fdf-ram`, the role hosts and the election on one machine).
+   The acceptance study measured what not having it costs (`ACCEPTANCE.md`, storage).
+5. A run on real nodes (the service test runs `fdf-app`, `worldshepherd-ram`, the role hosts and the election on one machine).
+6. Proof of a restored winner, and knowing who was in a memory from something that outlives it (`ACCEPTANCE.md`, open).

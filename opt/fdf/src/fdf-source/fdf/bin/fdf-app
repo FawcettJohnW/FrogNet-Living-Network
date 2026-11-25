@@ -41,10 +41,15 @@ Where things are [APP_SERVICES_V1]:
 
   fdf-app config APP RAM[,RAM...] [--partition relocate|fail] [--login] [--category NAME]... [--role NAME[:default][@CATEGORY]]...
                  [--user USER:PASSWORD=ROLE[+lead]]... [--join TEAMS_PASSWORD] [--serve RAM[,RAM]] [--select RAM=KEY[,-KEY]...]... [--need RAM=KEY[,KEY]...]...
-                 [--admin USER:PASSWORD]
+                 [--host RAM=PROGRAM]... [--admin USER:PASSWORD]
         the app's first installation by its Admin: this machine's copy (FDF_APPS/<app>.json, the admin key kept there
         only) and the app's one configuration tuple, signed, written into databasehost-control (a port picked for every
         RAM). --serve: the RAMs this machine offers (default all); --select/--need: the app's selection (fdf_select.py).
+        --host RAM=PROGRAM [THE_APPS_OWN_RAM_HOST_V1] (John, 2026-11-25: who may write a cell "is an app problem and the
+        ram host for the app should enforce it"; "every ram server is derived from the system, but they are not bound
+        by it"): that RAM is served by the app's own RAM host, FDF_BIN/PROGRAM (the platform's host with the app's
+        rules), in place of fdf-ram. It is part of the app's one configuration ("hosts"). A machine elected to serve
+        the RAM that does not have the program serves nothing and says so; it is not served by fdf-ram instead.
   fdf-app rename OLD NEW --admin USER:PASSWORD
         [APP_RENAMED_V1] (RangerTrak -> OpenEOC, John 2026-11-08) the app installed here as OLD is the app NEW: this
         machine's copy carried over (its RAMs, ports, roles, categories, users' and the teams-join verifiers, what it
@@ -68,7 +73,7 @@ Environment: FDF_HOSTS (/etc/hosts), RINA_CONTROL_RAM / RINA_SYSTEM_RAM (an api.
 """
 import hashlib, hmac, json, os, queue, random, signal, socket, subprocess, sys, threading, time
 
-BUILD_TAG = "fdf-app-2026-11-24-r54"   # [ROLES_ON_API_V1][CAPABILITY_ANNOUNCED_V1][APP_RENAMED_V1][SERVING_SAID_V1]
+BUILD_TAG = "fdf-app-2026-11-25-r55"   # [ROLES_ON_API_V1][CAPABILITY_ANNOUNCED_V1][APP_RENAMED_V1][SERVING_SAID_V1][THE_APPS_OWN_RAM_HOST_V1]
 LIB = os.environ.get("FDF_PY") or os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "lib", "python")
 sys.path.insert(0, LIB)
 import fdfram  # noqa: E402
@@ -276,7 +281,7 @@ def parse_text(text):
 
 def sign(app, c, seq):
     """the app's one configuration tuple, as its Admin writes it: the text, its seq, the HMAC under the admin key"""
-    text = json.dumps({k: c.get(k) for k in TEXT_KEYS}, sort_keys=True)
+    text = json.dumps({k: c.get(k) for k in TEXT_KEYS + (("hosts",) if c.get("hosts") else ())}, sort_keys=True)   # an app with none: its text as before
     a = c.get("admin") or {}
     key = bytes.fromhex(a.get("key") or "")
     mac = hmac.new(key, ("%s\n%d" % (text, seq)).encode(), hashlib.sha256).hexdigest() if key else ""
@@ -321,10 +326,24 @@ def checked(app, bag, mine):
         if part not in ("relocate", "fail"):
             raise ValueError("partition relocate or fail")
         sel = fdf_select.check(n.get("select") or {})
+        hosts = hosts_ok(n.get("hosts") or {}, rams)
     except (ValueError, TypeError, AttributeError) as e:
         return None, "not adopted: %s" % e
     return {"rams": rams, "ports": {r: ports[r] for r in rams}, "partition": part, "login": bool(n.get("login")),
-            "roles": roles, "categories": cats, "users": users, "select": sel}, ""
+            "roles": roles, "categories": cats, "users": users, "select": sel, **({"hosts": hosts} if hosts else {})}, ""
+
+
+def hosts_ok(hosts, rams):
+    """[THE_APPS_OWN_RAM_HOST_V1] {ram: program} as the configuration may say it: a RAM the app has, and a program name
+    (no path: it is found in FDF_BIN and nowhere else)"""
+    if not isinstance(hosts, dict):
+        raise ValueError("hosts is RAM: PROGRAM")
+    for r, prog in hosts.items():
+        if r not in rams:
+            raise ValueError("hosts names a RAM the app does not have: %s" % r)
+        if not isinstance(prog, str) or not prog or not all(ch.isalnum() or ch in "_-" for ch in prog):
+            raise ValueError("RAM %s's host is a program name: letters, digits, _ and -" % r)
+    return dict(hosts)
 
 
 def adopted(app, mine, cfg, bag):
@@ -508,10 +527,16 @@ class Server:
             return
         self.socks[(app, r)] = ls
         env["RIBBIT_LISTEN_FD"] = str(ls.fileno())
-        proc = subprocess.Popen([os.path.join(BIN, "fdf-ram"), "--listen", "%s:%d" % (self.addr, port), "--api", fdfram.API],
+        prog = ((installed().get(app) or {}).get("hosts") or {}).get(r) or "fdf-ram"   # [THE_APPS_OWN_RAM_HOST_V1]
+        if not os.access(os.path.join(BIN, prog), os.X_OK):
+            ls.close(); self.socks.pop((app, r), None)
+            log("%s's AppRam %s is served by %s, which is not on this machine (%s); nothing is served; the next event tries again"
+                % (app, r, prog, os.path.join(BIN, prog)))
+            return
+        proc = subprocess.Popen([os.path.join(BIN, prog), "--listen", "%s:%d" % (self.addr, port), "--api", fdfram.API],
                                 env=env, stdout=subprocess.DEVNULL, pass_fds=(ls.fileno(),), stderr=open(os.path.join(VAR, "app-%s-%s.log" % (app, r)), "a"))
         self.procs[(app, r)] = (proc, port)
-        log("serving %s's AppRam %s (%s) on %s:%d (pid %d)" % (app, r, host_name(app, r), self.addr, port, proc.pid))
+        log("serving %s's AppRam %s (%s) on %s:%d (%s, pid %d)" % (app, r, host_name(app, r), self.addr, port, prog, proc.pid))
         def exited():                              # [EVENTS_NOT_TIMERS_V1] its exit is the event it is started again on
             proc.wait()
             self.events.put("again: %s's AppRam %s exited (rc %s)" % (app, r, proc.returncode))
@@ -775,7 +800,7 @@ def rename(old, new, given, prog="fdf-app"):
     if not hmac.compare_digest(admin_key(old, who, pw).hex(), ma["key"]):   # the password is the admin's: it opens OLD's key
         print("fdf-app: that is not %s's admin password: nothing renamed" % old); return 2
     k = admin_key(new, who, pw)
-    copy = {kk: mine[kk] for kk in ("rams", "ports", "partition", "login", "roles", "categories", "users", "join", "select", "serve") if kk in mine}
+    copy = {kk: mine[kk] for kk in ("rams", "ports", "partition", "login", "roles", "categories", "users", "join", "select", "serve", "hosts") if kk in mine}
     copy.update(app=new, admin={"user": who, "salt": admin_salt(new, who).hex(), "n": ADMIN_N, "key": k.hex(), "check": admin_check(k)})
     save_installed(new, copy)                         # a copy with no signed tuple: install writes NEW's tuple from it, or adopts NEW's
     src, dst = os.path.join(APPS, old + ".json"), os.path.join(VAR, "retired-%s.json" % old)
@@ -814,7 +839,7 @@ def install(argv):
         # with the admin key it keeps
         if bag is None:
             print("fdf-app: %s: this machine's configuration from before r47 becomes the app's one configuration tuple" % app)
-            c = {k: mine0[k] for k in ("rams", "partition", "login", "roles", "categories", "users", "join", "admin", "select", "serve", "places") if k in mine0}
+            c = {k: mine0[k] for k in ("rams", "partition", "login", "roles", "categories", "users", "join", "admin", "select", "serve", "places", "hosts") if k in mine0}
             c["app"] = app
             return first_install(app, c, rm, mine0) or restart_service()   # its ports kept
         pub = bag.get("admin") or {}
@@ -922,6 +947,10 @@ def main(argv):
         serve = [r for t in opt("--serve") for r in t.split(",") if r]
         if any(r not in rams for r in serve):
             print("fdf-app: --serve names a RAM the app does not have"); return 2
+        try:                                          # [THE_APPS_OWN_RAM_HOST_V1] --host RAM=PROGRAM
+            hosts = hosts_ok(dict(t.partition("=")[::2] for t in opt("--host")), rams)
+        except ValueError as e:
+            print("fdf-app: --host RAM=PROGRAM: %s" % e); return 2
         admin = old.get("admin") or {}
         for u in opt("--admin")[-1:]:                 # [ADMIN_APP_V1] USER:PASSWORD
             who, _, pw = u.partition(":")
@@ -935,7 +964,7 @@ def main(argv):
             print("fdf-app: databasehost-control's api.php is not reachable from here (%s): nothing installed. "
                   "Install the app on a node of a network whose /etc/hosts names databasehost_control.frognet" % e); return 1
         c = {"app": argv[2], "rams": rams, "partition": part, "login": "--login" in argv, "roles": roles, "categories": cats,
-             "users": users, "admin": admin, "select": sel, **({"serve": serve} if serve else {}), **({"join": join} if join else {})}   # no --serve: every RAM, those the admin adds too
+             "users": users, "admin": admin, "select": sel, **({"serve": serve} if serve else {}), **({"join": join} if join else {}), **({"hosts": hosts} if hosts else {})}   # no --serve: every RAM, those the admin adds too
         return first_install(argv[2], c, rm, old)
     if len(argv) >= 3 and argv[1] == "install":
         return install(argv)

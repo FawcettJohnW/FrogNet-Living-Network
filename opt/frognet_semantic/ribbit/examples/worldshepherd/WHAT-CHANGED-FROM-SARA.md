@@ -32,7 +32,8 @@ Not converted yet: SARA's events to ECHO (`event_outbox.py`, `/v1/reconcile`), W
   every participant sees.
 - **Held read.** A read that says "everything in this family after number N" and stays open until something is
   written. It is how a program learns of a change. Nothing polls and nothing is notified by its writer.
-- **RAM manager.** The process that holds the memory (`fdf-ram`). It runs no WorldShepherd logic.
+- **RAM manager**, or RAM host. The process that holds the memory. Since 0.9 it is `worldshepherd-ram`: the platform's RAM host with
+  WorldShepherd's rules about who may write a cell and what it may say. It runs no ticket logic: nothing in it issues, claims or decides.
 - **SARA**, below, means one running SARA process using the ledger.
 
 ## The test that decides each difference
@@ -138,7 +139,7 @@ network's business, and no participant should need the name of any other machine
 **On memory.** WorldShepherd's RAM is a FrogNet app service: the app `worldshepherd`, configured once with
 `fdf-app config worldshepherd general`. The network elects the machine that serves it and every node's `/etc/hosts`
 names that machine as `worldshepherdHost.frognet`. A SARA is constructed with no address, `RibbitClaimStore()`, and
-finds it there. There is no WorldShepherd server program to build, install or run.
+finds it there. The one WorldShepherd program is its RAM host, `worldshepherd-ram`, which `fdf-app` starts; `make` builds it.
 
 ### 8. Failure and restart
 
@@ -236,8 +237,7 @@ Linux, g++ with C++20, `liblz4-dev`, `libssl-dev`, Python 3.10 or later with `py
 
     git clone https://github.com/FawcettJohnW/FrogNet-Living-Network.git
     cd FrogNet-Living-Network && git checkout worldshepherd-ribbit-20261124
-    (cd opt/fdf/src/fdf-source/rinab && tools/build.sh)                  # fdf-ram, the RAM manager
-    (cd opt/frognet_semantic/ribbit/examples/worldshepherd && make)      # the session library Python loads
+    (cd opt/frognet_semantic/ribbit/examples/worldshepherd && make)      # worldshepherd-ram and the session library Python loads
 
     git clone https://github.com/Bdavis1390/Sara_pro.git
     (cd Sara_pro && git checkout worldshepherd/connectors-distributed-claim-contract-v1-20260913)   # tested at 52b3764
@@ -284,9 +284,9 @@ store breaks.
 
     WS_RAM=HOST:PORT python3 -m uvicorn --factory sara_ui:standalone
 
-and open `http://127.0.0.1:8000/ui`. `HOST:PORT` is any running `fdf-ram`; test 1 prints nothing you can reuse, so
+and open `http://127.0.0.1:8000/ui`. `HOST:PORT` is a running `worldshepherd-ram`; test 1 prints nothing you can reuse, so
 start one with
-`RINA_REGION_FILE=/tmp/ws.perm FDF_VAR=/tmp ../../../../fdf/src/fdf-source/rinab/build/bin/fdf-ram --listen 127.0.0.1:45000 --api /FawcettInnovations.RINA.ram_interface.php`.
+`bin/worldshepherd-ram --listen 127.0.0.1:45000 --api /FawcettInnovations.RINA.ram_interface.php`.
 Inside SARA, mount it in place of `/ui` with `app.include_router(sara_ui.router(store))`.
 
 ## Using it in SARA

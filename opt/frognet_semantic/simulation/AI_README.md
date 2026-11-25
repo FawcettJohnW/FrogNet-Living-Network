@@ -139,10 +139,23 @@ Traps, each found by a run that failed:
 - **A check that greps logs for a word must name whose line it is.** "refused" also appears in the proxy's own error
   lines for an unrelated 410; the frame's and the setting's lines begin `[CHANNEL-FRAME]` and `[CHANNEL-SETTING]`.
 
+## `worldshepherd_acceptance.py`: WorldShepherd's acceptance study (25 Nov 2026)
+
+The study Brandon Davis asked for: the memory replaced (the RAM host killed and an empty one started on the socket
+the study holds), links split, two memories at once, the access-control negative controls through the real RAM API,
+storage, and a 310 s case for the contract's whole `MAX_TTL_SECONDS`. Every SARA is its own process
+(`ribbit/examples/worldshepherd/harness/acceptance_sara.py`) on its own `slowlink` relay, arriving from its own
+address; what they are asked and answer are cells in a second memory the study never stops, by held reads. It
+measures duplicate wins, lost tickets, how long calls were held and recovery percentiles, one JSONL row a case.
+`ribbit/examples/worldshepherd/ACCEPTANCE.md` has the cases, the measured tables and what it found. Not in
+`run_all.py`, for the same reason as the tier below. For it `slowlink.Relay` gained three things, all off unless
+asked for: `source=` (the address the member arrives from), an assignable `target`, and `cut(waiting=True)` (a
+split: a connection made while the link is down is held and goes through at `restore()`, where `cut()` closes it).
+
 ## `worldshepherd_slow_tier.py`: WorldShepherd SARA's ticket ledger, every SARA on its own link (24 Nov 2026)
 
 `lisp_slow_tier.py`'s shape for another conversion: every store unmodified, the network between the parts simulated
-with `slowlink.py`. Each SARA is a process with a relay of its own to the RAM manager (`fdf-ram`)
+with `slowlink.py`. Each SARA is a process with a relay of its own to the app's RAM host (`worldshepherd-ram`)
 (`ribbit/examples/worldshepherd`); the driver is that example's `harness/race.py`. It runs `RibbitClaimStore` and
 Brandon's `PostgresClaimStore` on the memory (`ticket_sql.py`), and needs no PostgreSQL. With `WS_PG_DSN` set it also
 runs his store on that PostgreSQL, each SARA's connections through a relay of its own: the control. It is not in

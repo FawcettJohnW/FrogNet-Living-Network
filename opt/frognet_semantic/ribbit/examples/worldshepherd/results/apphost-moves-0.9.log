@@ -1,0 +1,7 @@
+PASS  1 the service: one configuration tuple (worldshepherd); worldshepherdHost.frognet elected on c and worldshepherd-ram answering at 127.0.3.1:28208 (297 ms)
+PASS  2 before: T1 and T2 issued; T1 claimed by the winner (ticket claimed for one-time host execution); the loser's claim of it refused: ticket already consumed
+PASS  3 c stopped serving: worldshepherdHost.frognet on b, worldshepherd-ram at 127.0.2.1:28208 4743 ms after; all three SARAs on that memory 4792 ms after the stop, each having written its own cells into it ({'issuer': 42, 'winner': 41, 'loser': 0})
+PASS  4 after: T1, consumed before, is refused as consumed by every SARA (['ticket already consumed']); T2, issued before, is claimed once (ticket claimed for one-time host execution / ticket already consumed)
+PASS  5 80 claims made while the AppHost moved: 80 answered, 0 raised; tickets with one winner 40, two 0, none 0 []
+PASS  6 worldshepherd-ram on b killed (pid 15656): all three SARAs on the memory fdf-app started 60 ms after; 80 claims across it: 80 answered, 0 raised, one winner 40, two 0, none 0; T1 and T2 still consumed (['ticket already consumed']) []
+RESULT PASS

@@ -62,6 +62,22 @@ work on the host's pool); `ServerEngine::handle` takes the writer's actions too;
 Removed: `[VENDOR_STREAM_V1]` (records past the semantic engine). Not taken (RINA-region hooks, FD&F's alone):
 `[HOST_ANNOUNCES_ITSELF_V1]`, `[NET_CONFIG_IS_THE_RAM_MANAGERS_V1]`, `[REGION_COALESCE_PER_SESSION_V1]`. Built as C++20.
 
+**An app's RAM host decides its own writes** (`[THE_APPS_RAM_HOST_DECIDES_ITS_WRITES_V1]`, 2026-11-25). Who may write a
+cell, and what it may say, is the app's rule, and the app's RAM host enforces it: every RAM host is derived from
+`ribbit::RamHost` and is not bound by the general one. A host that has such rules overrides `rules_on_cells()` to
+say so and `refuse_cell(session, service, variable, instance, bag)`, which is asked of every write that arrives on
+the network API, in each of its three forms (the skimmed write, the JSON write, the cell wire), once its coordinates
+and its bag are known. It returns why the write is refused, or "" to take it. A host that does not say so is asked
+nothing and pays nothing. First user: `examples/worldshepherd/worldshepherd_ram.cpp`, which keeps what it knows (who
+owns a name, which sessions are up) as cells in a service of its own (`#...`, never served to the network).
+`fdf-app config APP RAM --host RAM=PROGRAM` serves a RAM with such a host (`opt/fdf/docs/APP-SETUP-AND-OPERATION.md`).
+
+**An opening session watches the connections it has made** (`[AN_OPENING_SESSION_WATCHES_ITS_OTHER_SOCKETS_V1]`,
+`src/frogram.cpp`, 2026-11-25). A session opens three connections in turn. When the host is replaced between them,
+the first is to a host that is gone and the next to its successor, which holds a half pair for 10 s; the session
+used to wait that long, blind to its first connection having ended. It now fails at once and the caller opens again.
+Measured in WorldShepherd's acceptance study: recovery 10,120 ms before, 596 ms after.
+
 ## The memory's verbs in binary (2026-10-17) -- what MQTT and Redis on the memory use
 A participant that uses the memory as memory writes its truths and holds triggers on families; these are the verbs
 for that, as frames on the session's permanent sockets, past the semantic engine (frogram.hpp, ram_host.cpp):

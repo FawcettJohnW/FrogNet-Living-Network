@@ -361,6 +361,7 @@ bool api(const std::string& method, const std::string& path, const std::string& 
                 if (sv.empty() || vv.empty() || iv.empty()) { out = bad(400, std::string("missing coordinate: ") + (sv.empty() ? "service" : vv.empty() ? "variable" : "instance")); return true; }
                 if (private_service(sv)) { out = bad(403, "service " + sv + " is not served"); return true; }
                 { const std::string no = HOST->refuse_write(sv, vv, iv); if (!no.empty()) { out = bad(403, no); return true; } }   // [NET_CONFIG_IS_THE_RAM_MANAGERS_V1]
+                if (HOST->rules_on_cells()) { const std::string no = HOST->refuse_cell(tl_session_id, sv, vv, iv, body.substr(b0, b1 - b0)); if (!no.empty()) { out = bad(403, no); return true; } }   // [THE_APPS_RAM_HOST_DECIDES_ITS_WRITES_V1]
                 out = Reply{200, "{\"ok\":true,\"id\":" + std::to_string(MEM.write(sv, vv, iv, body.substr(b0, b1 - b0), wall())) + "}"}; return true;
             }
         }
@@ -369,6 +370,7 @@ bool api(const std::string& method, const std::string& path, const std::string& 
         if (in["bag"].type != Json::Obj) { out = bad(400, "bag must be a JSON object"); return true; }
         if (private_service(in["service"].s)) { out = bad(403, "service " + in["service"].s + " is not served"); return true; }
         { const std::string no = HOST->refuse_write(in["service"].s, in["variable"].s, in["instance"].s); if (!no.empty()) { out = bad(403, no); return true; } }   // [NET_CONFIG_IS_THE_RAM_MANAGERS_V1]
+        if (HOST->rules_on_cells()) { const std::string no = HOST->refuse_cell(tl_session_id, in["service"].s, in["variable"].s, in["instance"].s, dump(in["bag"])); if (!no.empty()) { out = bad(403, no); return true; } }   // [THE_APPS_RAM_HOST_DECIDES_ITS_WRITES_V1]
         if (fdf) {                                        // [OWN_FLAG_DECIDES_V1] fdf-ram's rules, word for word
             const bool own = in["own"].type == Json::Bool && in["own"].b, perm = in["permanent"].type == Json::Bool && in["permanent"].b;
             if (perm && own) { out = bad(400, "a tuple is permanent or goes with its session, not both"); return true; }
@@ -1148,6 +1150,7 @@ static void cell_write_step(const std::shared_ptr<Session>& s, uint32_t seq, cel
         ribbit::BagArrP prev = (ref && !(x.flags & cellwire::F_KEYS)) ? ref->arr : nullptr;
         std::unique_ptr<cellwire::Ref> mine = cellwire::decode(x, ref, bag, &changed);
         if (x.inst.empty()) return fail(400, "cell write: missing coordinate: instance");
+        if (HOST->rules_on_cells()) { const std::string no = HOST->refuse_cell(s->epoch, nm->sv, nm->var, x.inst, bag->json()); if (!no.empty()) return fail(403, no); }   // [THE_APPS_RAM_HOST_DECIDES_ITS_WRITES_V1]
         ch.last = std::move(mine); ch.last_c = x.counter;
         { static const bool tr = getenv("FROGRAM_DIAG") && atoi(getenv("FROGRAM_DIAG")) >= 2;   // [DIAG-CELL] each write stored
           if (tr) fprintf(stderr, "[DIAG-CELL] %s/%s/%s chain %llu.%llu #%u %zu fields%s\n", nm->sv.c_str(), nm->var.c_str(), x.inst.c_str(), (unsigned long long)x.slot,

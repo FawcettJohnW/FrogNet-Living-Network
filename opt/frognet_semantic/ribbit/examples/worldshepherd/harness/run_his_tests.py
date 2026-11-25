@@ -3,10 +3,11 @@
 # SPDX-License-Identifier: GPL-2.0-only
 """run_his_tests.py -- Brandon's own connector tests, unmodified, on the memory; then the race between processes.
 
-    python3 harness/run_his_tests.py --sara DIR [--fdf-ram PATH] [--claimants 8] [--tickets 400]
+    python3 harness/run_his_tests.py --sara DIR [--ram PATH] [--claimants 8] [--tickets 400]
 
 DIR is a checkout of Sara_pro at the branch worldshepherd/connectors-distributed-claim-contract-v1-20260913.
-It starts one fdf-ram (the RAM manager fdf-app serves an app's RAM with) on a free local port, and runs against it:
+It starts one worldshepherd-ram (the app's RAM host, which fdf-app serves; PATH is another build of it) on a free local
+port, and runs against it:
   1  his tests/test_connector_*.py with the shared store replaced by RibbitClaimStore            (WS_STORE=memory)
   2  the same tests with his own PostgresClaimStore, its four SQL statements carried out as cells (WS_STORE=sql)
   3  one session used by many threads, both stores
@@ -18,22 +19,22 @@ import argparse, glob, json, os, socket, subprocess, sys, tempfile, time
 HERE = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 ap = argparse.ArgumentParser()
 ap.add_argument("--sara", required=True)
-ap.add_argument("--fdf-ram", default=os.environ.get("FDF_RAM") or os.path.normpath(os.path.join(HERE, "..", "..", "..", "..", "fdf", "src", "fdf-source", "rinab", "build", "bin", "fdf-ram")))
+ap.add_argument("--ram", default=os.environ.get("WS_RAM_HOST") or os.path.join(HERE, "bin", "worldshepherd-ram"))
 ap.add_argument("--claimants", type=int, default=8)
 ap.add_argument("--tickets", type=int, default=400)
 A = ap.parse_args()
-for f in (A.fdf_ram, os.path.join(HERE, "lib", "libkartram.so"), os.path.join(A.sara, "worldshepherd_sara", "connector_ticket_shared.py")):
+for f in (A.ram, os.path.join(HERE, "lib", "libkartram.so"), os.path.join(A.sara, "worldshepherd_sara", "connector_ticket_shared.py")):
     if not os.path.exists(f):
         sys.exit("run_his_tests: %s is not there (README.md: Build)" % f)
 s = socket.socket(); s.bind(("127.0.0.1", 0)); port = s.getsockname()[1]; s.close()
-T = tempfile.mkdtemp(prefix="ws-his-tests-")               # fdf-ram's own files: its log, and the file it requires for Permanent
-ram = subprocess.Popen([A.fdf_ram, "--listen", "127.0.0.1:%d" % port, "--api", "/FawcettInnovations.RINA.ram_interface.php"],   # cells (WorldShepherd writes none)
-                       env=dict(os.environ, RINA_REGION_FILE=T + "/region.perm", FDF_VAR=T), stdout=subprocess.DEVNULL, stderr=open(T + "/fdf-ram.log", "w"))
+T = tempfile.mkdtemp(prefix="ws-his-tests-")               # the RAM host's log, and the claimants'
+ram = subprocess.Popen([A.ram, "--listen", "127.0.0.1:%d" % port, "--api", "/FawcettInnovations.RINA.ram_interface.php"],
+                       stdout=subprocess.DEVNULL, stderr=open(T + "/worldshepherd-ram.log", "w"))
 for _ in range(100):
     try: socket.create_connection(("127.0.0.1", port), 0.2).close(); break
     except OSError: time.sleep(0.05)
 else:
-    sys.exit("run_his_tests: fdf-ram did not listen on 127.0.0.1:%d: %s" % (port, open(T + "/fdf-ram.log").read()[-400:]))
+    sys.exit("run_his_tests: worldshepherd-ram did not listen on 127.0.0.1:%d: %s" % (port, open(T + "/worldshepherd-ram.log").read()[-400:]))
 where = "127.0.0.1:%d" % port
 SRC = os.path.normpath(os.path.join(HERE, "..", "..", "..", "..", "fdf", "src", "fdf-source", "fdf", "lib", "python"))
 if not os.environ.get("FDF_PY") and os.path.isdir(SRC):     # in a checkout the fdf library is in its source tree; on a node, /opt/fdf/lib/python

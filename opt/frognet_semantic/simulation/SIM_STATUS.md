@@ -1,5 +1,12 @@
 # Simulator status (last full run 2026-11-15)
 
+## WorldShepherd acceptance study, 2026-11-25 (`worldshepherd_acceptance.py`, not in the gate)
+PASS on lan and wan-100ms, 5 repetitions of each injection, with the 310 s case: no ticket won twice, none lost, no
+call raised. One case is reported OPEN (the provenance of a restored winner) and one FINDING (storage is not bounded
+within a memory's life). The tables and what the study found are in `ribbit/examples/worldshepherd/ACCEPTANCE.md`;
+the rows are `ribbit/examples/worldshepherd/results/acceptance-0.9-20261125.jsonl`. The slow tier below was run again
+on the app's own RAM host: wan-100ms claim medians 107.4 ms and 213.6 ms, as before.
+
 ## WorldShepherd slow tier, 2026-11-24 (`worldshepherd_slow_tier.py`, not in the gate)
 
 24 runs, all PASS (every ticket won exactly once): lan, wan-100ms, 4g and mixed links, 8 SARAs, 1 and 8 claims at

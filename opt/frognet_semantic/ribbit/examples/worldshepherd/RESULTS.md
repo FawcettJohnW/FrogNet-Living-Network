@@ -1,6 +1,26 @@
-# Results -- worldshepherd-ribbit 0.8, its RAM an app service on fdf-ram (fdf-2026-11-15-r54, fdf-app r54), 2026-11-24
+# Results -- worldshepherd-ribbit 0.9, its RAM served by the app's own RAM host (worldshepherd-ram 0.9, fdf-app r55), 2026-11-25
+
+## 0.9: the app's RAM host and the acceptance study
+`ACCEPTANCE.md` has the study: every case, both links, and what it found. What else was run on 0.9, all on `worldshepherd-ram`:
+
+| check | result |
+|---|---|
+| Brandon's `tests/test_connector_*.py`, unmodified, `RibbitClaimStore` (`harness/run_his_tests.py`) | 31 passed |
+| the same, his `PostgresClaimStore` on `ticket_sql.py` | 31 passed |
+| one session, 16 threads, 300 tickets, both stores | 2 passed |
+| the race, 8 processes, 400 tickets, no network: `RibbitClaimStore` | every ticket won once; 3,785 claims/s, claim median 1.65 ms (0.8, on `fdf-ram` with no rules: 4,642 and 1.5) |
+| the same race, his store on the memory | every ticket won once; 2,279 claims/s, claim median 2.92 ms |
+| simulator, lan, 8 SARAs, 8 claims at once each: `RibbitClaimStore` / his store on the memory | PASS; 3,451 / 1,736 claims/s; claim median 14.1 / 26.8 ms |
+| simulator, wan-100ms, 8 SARAs, 1 claim at once each: `RibbitClaimStore` / his store on the memory | PASS; claim median 107.4 / 213.6 ms; 74.0 / 38.2 claims/s |
+| simulator, wan-100ms, 8 SARAs, 8 claims at once each | PASS; claim median 109.7 / 218.7 ms; 455 / 227 claims/s |
+| the service, `harness/test_the_apphost_moves.py`, with `fdf-app config --host general=worldshepherd-ram` | 6 checks pass (`results/apphost-moves-0.9.log`): the RAM on the new AppHost 4.7 s after the old one stopped; 80 claims in flight across the move and 80 across a killed RAM host, all answered, 40 tickets one winner each |
+| `fdf-app`'s own test, `rinab/tools/test_fdf_app.py`, on r55 | 13 checks pass |
+| the acceptance study, lan and wan-100ms, 5 repetitions (`results/acceptance-0.9-20261125.jsonl`) | PASS on both; no ticket won twice, none lost, no call raised; one case OPEN and one FINDING (`ACCEPTANCE.md`) |
+
+Not run again on 0.9: the full simulator matrix, the PostgreSQL control and the ramp. Their 0.7 numbers are below.
 
 ## 0.8: the RAM is a service; on failover a SARA reasserts, learns the world again, and proceeds
+Measured 2026-11-24 on `fdf-ram` (fdf-2026-11-15-r54, fdf-app r54), before the app had a RAM host of its own.
 Sections below this one were measured on 0.7 with its own RAM manager (`worldshepherd-ram`), which 0.8 removed. What
 was run again on 0.8, all on `fdf-ram`:
 

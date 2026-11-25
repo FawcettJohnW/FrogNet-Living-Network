@@ -672,7 +672,21 @@ Every AppRam (the general one, each Team's) is a **service** served by its **App
 configuration tuple, its own capability tuples and its own **port**. Services that run the same program (team_alpha,
 team_bravo: both the Team RAM host), even on one machine, differ by port. The port is picked at random between 20000
 and 65535 when the service is created, kept in its configuration tuple, and used by every later instance wherever it
-runs; a port change updates the tuple and restarts the service. The general AppRam's AppHost is picked by **the app's
+runs; a port change updates the tuple and restarts the service.
+
+**Who may write a cell in an app's RAM is the app's rule, and the app's RAM host enforces it** (John, 2026-11-25:
+"That is an app problem and the ram host for the app should enforce it. Remember that every ram server is derived
+from the system, but they are not bound by it. This is all by design."). The platform's memory does not check who
+writes a cell: write-your-own-truth is an addressing rule. Apps are separated by each having its own RAM (its own
+data space), and a node is on the network only by admission. Inside an app's RAM, an app that needs writer or
+content rules has its own RAM host: the platform's `ribbit::RamHost` with `rules_on_cells()` and `refuse_cell(...)`
+overridden (`opt/frognet_semantic/ribbit/cpp/README.md`), served by `fdf-app` in place of `fdf-ram`
+(`fdf-app config APP RAM --host RAM=PROGRAM`, `[THE_APPS_OWN_RAM_HOST_V1]`, r55). Do not put an app's rule into
+`fdf-ram` or the platform, and do not infer protection inside an app's RAM from the general host: test it through
+the real API. The worked example, with its negative controls, is `ribbit/examples/worldshepherd`
+(`worldshepherd_ram.cpp`, `ACCEPTANCE.md`).
+
+The general AppRam's AppHost is picked by **the app's
 own deterministic selection** over the capability tuples and every node writes it as `<app>Host.frognet`. A Team's
 AppHost is the one its lead designates: the lead's own device or `databasehost.frognet` (`[GROUP_PLACE_V1]`). The
 group's service writes its capability tuple, held by its session, and registers as a child of its parent. On a Pi

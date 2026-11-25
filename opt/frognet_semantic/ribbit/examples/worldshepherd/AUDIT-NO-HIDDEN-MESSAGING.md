@@ -89,3 +89,12 @@ winner rule reversed (fails, 400 of 400), and `harness/test_the_memory_is_anothe
   ticket's life, not a retry timer: after it, nothing that SARA owned can affect a claim.
 - `fdf-app`'s `(fdf-app, serving, ...)` is the server's own cell, written by its owner, read by whoever holds a read.
 
+
+## 0.9, audited the same way
+- The RAM host is `worldshepherd-ram`: the platform's, with rules about writes to the service `worldshepherd`. A rule
+  refuses a write or takes it. It asks nothing of anyone, answers no operation, and keeps what it knows (who owns a
+  name, which sessions are up) as cells in its own memory, decided by write order. No lock, no compare-and-set.
+- `_write_mine` reads before it writes only when a call is made again. That is not a retry against a peer: the
+  session ended, and the read is how the SARA learns whether its one cell is already there.
+- `_learn_the_saras` waits by a held read, for each SARA until that SARA's own deadline. There is no timer loop.
+- The study's SARAs are told what to do and answer through cells in a second memory, by held reads.
