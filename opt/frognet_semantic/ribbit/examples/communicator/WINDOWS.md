@@ -27,7 +27,7 @@ are not in the archive: they stay, and the rebuild takes minutes.
 
 ```
 cd F:\Temp
-tar -xf $HOME\Downloads\communicator-r3-full.zip
+tar -xf $HOME\Downloads\communicator-r5-full-20261126.zip
 cd comms
 powershell -ExecutionPolicy Bypass -File .\build-windows.ps1
 ```
@@ -47,6 +47,33 @@ That prints each camera with the exact `--camera` value to use, and the numbered
 ```
 
 Leave out `--mic`/`--speaker` for the Windows defaults. Windows Firewall may ask about network access the first time.
+
+## Under the frame: cipher, key, protocol and the RAM host switched from the call (r5, 2026-11-26)
+
+Add `--channel mediahost` and the window's planes are under the protocol layer's frame: the row under the picture
+(Cipher, New key, Protocol, Memory) and the Security tab change the Role's setting while the call runs, and the
+overlay shows the call, the link and the channel. Without `--channel` the window is as it was and cannot join a
+sealed call.
+
+A sealed call needs the Role's secret on this machine: the same file the other machines have in
+`/etc/frognet/channel_secrets` (named `default`, or `mediahost`). Copy it into a folder and name the folder in
+`FROGNET_CHANNEL_SECRETS`:
+
+```
+mkdir $HOME\frognet-secrets
+copy <the file named default from a Linux machine> $HOME\frognet-secrets\default
+$env:FROGNET_CHANNEL_SECRETS = "$HOME\frognet-secrets"
+.\dist\comms-app.exe --ram 10.251.251.1:8800 --media 10.251.251.1:8994 --name John --channel mediahost --camera "video=<name from the list>" --mic N
+```
+
+With the variable not set the window looks in `\etc\frognet\channel_secrets` on the drive it was started from.
+The first console line is `[app] build comms-app-2026-11-26-r5`.
+
+r5 on Windows, what is proven: every source file the Windows build compiles (the vendored memory client, the frame,
+fnav, the codec, the comms library, `comms-feed`, and the Qt window `src/app/main.cpp`) compiles with MinGW-w64 13
+against the Windows headers (2026-11-26, compile only: no link, no run). It has NOT been compiled with MSVC or run on
+Windows; the last tree confirmed on Windows with MSVC is r3. `build-windows.ps1` and `vcpkg.json` (which already
+names OpenSSL, the frame's one new library) are unchanged since r4.
 
 ## What is and is not proven
 
