@@ -35,6 +35,7 @@
 #include "channel_frame.hpp"
 #include "room.hpp"
 #include <atomic>
+#include <chrono>
 #include <map>
 #include <memory>
 #include <mutex>
@@ -73,6 +74,12 @@ public:
     std::string end() const { return sender_ + "." + std::to_string(pid_); }
     bool sealed() const;                                      // the setting this process holds is sealed
     uint64_t changes() const { return changes_.load(); }      // how many settings this process has taken
+    // [THE_OVERLAY_SHOWS_THE_CHANNEL_V1] for a screen: what this process's planes have done under the frame, which key
+    // it sends under (8 characters of a hash of it, never the key; "" when not sealed), and the last change it took.
+    channel_frame::Counts totals() const;                     // summed over this process's planes
+    std::string key_tag() const;
+    struct Change { std::string what; std::string at; double age_s = -1; };   // what changed, the wall clock then, seconds since
+    Change last_change() const;
 
     static void set_for_process(std::shared_ptr<Channel> c);  // the program's main: every plane it makes is under the frame
     static std::shared_ptr<Channel> of_process();             // null: this program's planes are as they were
@@ -86,6 +93,10 @@ private:
     std::vector<std::weak_ptr<channel_frame::Codec>> codecs_;
     std::atomic<uint64_t> changes_{0};
     std::string ignored_;                                     // why the last setting read was ignored ("" when it was taken)
+    std::string key_tag_, changed_what_, changed_at_;
+    std::chrono::steady_clock::time_point changed_when_{};
+    mutable channel_frame::Counts gone_;                      // the counts of planes that have closed, as last seen
+    mutable std::vector<std::pair<std::weak_ptr<channel_frame::Codec>, channel_frame::Counts>> seen_;
     const long pid_;
 };
 

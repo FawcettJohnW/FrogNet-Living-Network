@@ -91,12 +91,19 @@ Room::~Room() {
 // RESYNC_S is followed by one full read, because a removal or an expiry writes nothing newer.
 void Room::watch() {
     constexpr double HOLD_S = 15.0;
+    // [A_FAILED_WATCH_OPENS_ITS_SESSION_AGAIN_V1] Found 2026-11-26 by tests/py/test_the_whole_cycle.py: after the memory
+    // moved a second time one window's watch failed once a second for ever, and that window never saw another call
+    // ring. attach() says "moved" and then ends this session's read; when this thread had already opened its new
+    // session in between, the new one was what got ended, with nothing left to say so. A read that fails for any
+    // reason now opens its session again at the memory's address, and reads the whole copy again.
+    bool again = false;
     while (!stop_) {
         try {
-            if (moved_.exchange(false)) {                     // [THE_MEMORY_MOVES_V1] this session too, then the whole copy again
+            if (moved_.exchange(false) || again) {            // [THE_MEMORY_MOVES_V1] this session too, then the whole copy again
+                again = false;
                 const auto at = RamAt::process().at();
                 try { w_.close(); } catch (const std::exception&) {}
-                try { w_.connect(at.first, at.second); } catch (...) { moved_ = true; throw; }
+                try { w_.connect(at.first, at.second); } catch (...) { again = true; throw; }
                 { std::lock_guard<std::mutex> g(cache_mu_); last_id_ = -1; }
                 absorb(w_.get_all(SERVICE), true);
             }
@@ -108,6 +115,7 @@ void Room::watch() {
             else absorb(std::move(ts), false);
         } catch (const std::exception& e) {
             if (stop_) break;                                 // the close itself ended the read
+            again = true;
             if (moved_) continue;                             // the move ended the read: attach at once
             std::fprintf(stderr, "[room] watch failed: %s (retrying)\n", e.what());   // logged, never silent
             for (int i = 0; i < 10 && !stop_ && !moved_; ++i) std::this_thread::sleep_for(std::chrono::milliseconds(100));

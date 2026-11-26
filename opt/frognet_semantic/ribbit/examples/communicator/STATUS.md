@@ -1,3 +1,40 @@
+## 2026-11-26: switch it from the call; the overlay shows the channel; the whole cycle, again and again
+
+`comms-app-2026-11-26-r5` (the C++ window). John: "I need to be able to see who is there, to call them, to answer the
+call, stay in the call, and hang up, then do it all over again. While it is running I want to be able to switch
+ciphers, keys, protocols, etc. from the app in real time. The perf overlay should show all."
+
+- [SWITCH_IT_FROM_THE_CALL_V1] Under the picture on the Call tab: Cipher (not sealed, aes-256-gcm, chacha20-poly1305),
+  New key, Protocol (tcp, chorus, openqasm) and Memory (host:port, Move). A pick takes effect as it is picked; it is
+  the same one write the Security tab makes, by the same code, and its answer is shown under the row. Both tabs'
+  pickers follow the setting whoever changed it.
+- [THE_OVERLAY_SHOWS_THE_CHANNEL_V1] The overlay on the picture now carries everything: who the call is with and
+  which call of this run it is; what is received (rung, size, fps, kb/s) and sent (rung, size, kb/s, ceiling); audio,
+  shed, key requests; the link (cap, jitter) and what the media server does for this viewer; then the channel: the
+  Role, protocol, cipher, 8 characters of a hash of the key this end sends under (never the key), where the memory
+  is, kB under the frame each way, the switch calls sent and received, frames sent again and not opened, and the
+  last change taken with its time and how long ago. `Channel::totals()` keeps the counts of planes that have closed,
+  so the numbers span every call of the run.
+- [THE_CALL_ENDS_WHEN_THE_OTHER_LEAVES_V1] A call with one other person ends at this end when that person leaves it.
+  Before, the window stayed in the call waiting for a picture, and "do it all over again" needed both to hang up.
+- [THE_WHOLE_USE_AS_A_SCRIPT_V1] `--script "step;step;..."` and `--auto-answer` (main.cpp `run_script`): wait-for,
+  call, answer, stay, hang, wait-idle, cipher, key, protocol, ram, bandwidth, jitter, shot, quit. Each step says what
+  it measured: pictures received since the step before and the longest time between two.
+- **Found by the new test and fixed** ([A_FAILED_WATCH_OPENS_ITS_SESSION_AGAIN_V1]): after the memory moved a second
+  time, one window's watch of the room failed once a second for ever and that window never saw another call ring.
+  `Room::attach` said "moved" and then ended the watch session's read; when the watcher had already opened its new
+  session in between, the new one was ended. A read that fails now opens its session again (C++ and Python); the
+  phone's `Room.attach` ends the session it names, the old one ([THE_READ_THAT_IS_ENDED_IS_THE_OLD_ONE_V1]).
+- Proof: `python3 tests/py/test_the_whole_cycle.py build 3` -- two windows, two comms-ram, three calls one after
+  another; in each call nine changes from the window (cipher x3, key x2, protocol x3, the memory moved) and the link
+  narrowed to 300 kb/s and opened again. 83 script steps done; 27 of 27 changes answered by every end running them
+  (median 5 ms after the write, longest 60 ms); the other window answered all three calls and ended each by itself;
+  longest time between two pictures across any change 85 ms (the window paints every 40 ms). The earlier tests
+  (test_ring, test_room, test_channel, test_call, test_call_audio, test_the_memory_moves.py) pass unchanged.
+- Not done: the Python window and the phone do not have the row under the picture, the larger overlay or the script
+  yet (they keep their Security tabs); the phone's one-line fix is not compiled (no Android SDK here). Not run on
+  separate machines, on Windows, or with a camera and sound.
+
 ## 2026-11-25: the Security tab; the memory moves; the phone is under the frame
 
 [THE_MEMORY_MOVES_V1] `comms-app-2026-11-25-r4`, `comms-android-2026-11-25-r6`. Every process holds the read on the

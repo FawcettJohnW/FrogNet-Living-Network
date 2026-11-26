@@ -1,6 +1,7 @@
 // Copyright (C) 2016-2026 Fawcett Innovations LLC
 // SPDX-License-Identifier: GPL-2.0-only
 #include "channel.hpp"
+#include "stamp.hpp"
 #include <chrono>
 #include <cmath>
 #include <cstdio>
@@ -92,6 +93,29 @@ void Channel::read(const std::optional<std::map<std::string, std::string>>& fiel
         const channel_frame::Taken t = channel_frame::take_setting(role_, *fields, secrets_);
         if (!t.taken) { ignored_ = t.why; say("a setting of '" + role_ + "' is IGNORED: " + t.why + ". This process keeps " + text_of(held_)); return; }
         ignored_.clear();
+        {   // [THE_OVERLAY_SHOWS_THE_CHANNEL_V1] what this setting changed, in words, and when it was taken
+            const channel_frame::Setting was = held_ ? *held_ : channel_frame::Setting{};
+            const channel_frame::Setting& now = t.setting;
+            auto cipher = [](const channel_frame::Setting& s) { return s.number ? s.protection : std::string("not sealed"); };
+            std::string what;
+            auto add = [&what](const std::string& w) { what += (what.empty() ? "" : ", ") + w; };
+            if (!held_) add("first setting: " + now.driver + ", " + cipher(now));
+            else {
+                if (was.driver != now.driver) add("protocol " + was.driver + " -> " + now.driver);
+                if (cipher(was) != cipher(now)) add("cipher " + cipher(was) + " -> " + cipher(now));
+                else if (was.number != now.number) add("new key");
+            }
+            auto wh = fields->find("ram_host"); auto wp = fields->find("ram_port"); auto oh = fields_.find("ram_host"); auto op = fields_.find("ram_port");
+            if (held_ && wh != fields->end() && !wh->second.empty() && (oh == fields_.end() || oh->second != wh->second || op == fields_.end() || wp == fields->end() || op->second != wp->second))
+                add("memory -> " + wh->second + ":" + (wp == fields->end() ? std::string("?") : wp->second));
+            if (what.empty()) what = "setting written again";
+            changed_what_ = what; changed_at_ = wall_clock_ms(); changed_when_ = std::chrono::steady_clock::now();
+            key_tag_.clear();
+            if (now.number) {
+                try { key_tag_ = channel_frame::secret_fingerprint(channel_frame::key_for(channel_frame::secret_at(role_, now.step, secrets_).value, sender_, role_, now.number)); }
+                catch (const std::exception&) { key_tag_ = "no secret"; }
+            }
+        }
         held_ = t.setting;
         fields_ = *fields; fields_.erase("ts");
         changes_++;
@@ -108,6 +132,35 @@ void Channel::read(const std::optional<std::map<std::string, std::string>>& fiel
 }
 
 std::map<std::string, std::string> Channel::fields() const { std::lock_guard<std::mutex> g(mu_); return fields_; }
+channel_frame::Counts Channel::totals() const {
+    std::lock_guard<std::mutex> g(mu_);
+    auto add = [](channel_frame::Counts& t, const channel_frame::Counts& c) {
+        t.sent += c.sent; t.received += c.received; t.not_opened += c.not_opened; t.sent_again += c.sent_again;
+        for (int i = 0; i < 2; ++i) { t.protocol[i] += c.protocol[i]; t.encryption[i] += c.encryption[i]; t.not_opened_calls[i] += c.not_opened_calls[i];
+                                      t.again[i] += c.again[i]; t.received_calls[i] += c.received_calls[i]; }
+    };
+    auto same = [](const std::weak_ptr<channel_frame::Codec>& a, const std::weak_ptr<channel_frame::Codec>& b) { return !a.owner_before(b) && !b.owner_before(a); };
+    // A plane that has closed keeps what it had done when this was last asked (the screen asks every second), so the
+    // totals span every call this program has been in.
+    std::vector<std::pair<std::weak_ptr<channel_frame::Codec>, channel_frame::Counts>> live;
+    for (auto& w : codecs_) if (auto c = w.lock()) live.emplace_back(w, c->counts());
+    for (auto& s : seen_) {
+        bool still = false;
+        for (auto& l : live) if (same(s.first, l.first)) still = true;
+        if (!still) add(gone_, s.second);
+    }
+    seen_.swap(live);
+    channel_frame::Counts t = gone_;
+    for (auto& s : seen_) add(t, s.second);
+    return t;
+}
+std::string Channel::key_tag() const { std::lock_guard<std::mutex> g(mu_); return key_tag_; }
+Channel::Change Channel::last_change() const {
+    std::lock_guard<std::mutex> g(mu_);
+    Change c; c.what = changed_what_; c.at = changed_at_;
+    if (!changed_what_.empty()) c.age_s = std::chrono::duration<double>(std::chrono::steady_clock::now() - changed_when_).count();
+    return c;
+}
 std::string Channel::ignored() const { std::lock_guard<std::mutex> g(mu_); return ignored_; }
 
 std::string Channel::held() const { std::lock_guard<std::mutex> g(mu_); return text_of(held_); }

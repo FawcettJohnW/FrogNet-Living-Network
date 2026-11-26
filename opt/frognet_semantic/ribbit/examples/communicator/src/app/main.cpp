@@ -187,7 +187,7 @@ protected:
             // [STAMP_THE_PICTURE_V1] this machine's clock, read at paint: minus the clock stamped in the picture = the lag
             const QString ov = "here " + QString::fromStdString(comms::wall_clock_ms()) + "\n" + overlay;
             QFont f("Monospace"); f.setStyleHint(QFont::Monospace); f.setPointSize(9); g.setFont(f);
-            QRect tr = g.fontMetrics().boundingRect(QRect(0, 0, 400, 200), Qt::AlignLeft, ov).adjusted(-8, -6, 8, 6);
+            QRect tr = g.fontMetrics().boundingRect(QRect(0, 0, 900, 600), Qt::AlignLeft, ov).adjusted(-8, -6, 8, 6);
             tr.moveTo(10, 10);
             g.setPen(Qt::NoPen); g.setBrush(QColor(0, 0, 0, 150)); g.drawRoundedRect(tr, 6, 6);
             g.setPen(QColor(225, 230, 235)); g.drawText(tr.adjusted(8, 6, -8, -6), Qt::AlignLeft, ov);
@@ -382,6 +382,8 @@ struct Options {
     std::string channel;                                 // --channel ROLE: this program's planes are under the frame, for that Role
     std::string tab;                                     // --tab security: open on the Security tab
     std::string security;                                // --security "...": unattended, the Security tab's buttons pressed in order
+    std::string script;                                  // --script "...": unattended, the whole use of the window, step by step (run_script)
+    bool auto_answer = false;                            // --auto-answer: a call that rings is answered
 };
 
 class Window : public QWidget {
@@ -482,6 +484,25 @@ public:
         auto* tiles = new QHBoxLayout;
         for (QLabel** l : {&t_up_, &t_down_, &t_send_, &t_audio_}) { *l = new QLabel; (*l)->setObjectName("tile"); tiles->addWidget(*l, 1); }
         mid->addLayout(tiles);
+        // [SWITCH_IT_FROM_THE_CALL_V1] (John 2026-11-26: "While it is running I want to be able to switch ciphers, keys,
+        // protocols, etc. from the app in real time.") The owner's changes beside the picture: the same one write the
+        // Security tab makes, by the same code. A pick takes effect as it is picked.
+        auto* sw = new QHBoxLayout; sw->setSpacing(8);
+        auto small = [](const char* t) { auto* l = new QLabel(t); l->setObjectName("muted"); return l; };
+        c_cipher_ = new QComboBox; c_cipher_->addItems({"not sealed", "aes-256-gcm", "chacha20-poly1305"});
+        connect(c_cipher_, &QComboBox::textActivated, [this](const QString& a) { set_cipher(a); });
+        c_key_ = new QPushButton("New key"); connect(c_key_, &QPushButton::clicked, [this] { new_key(); });
+        c_protocol_ = new QComboBox; c_protocol_->addItems({"tcp", "chorus", "openqasm"});
+        connect(c_protocol_, &QComboBox::textActivated, [this](const QString& p) { set_protocol(p); });
+        c_ram_to_ = new QLineEdit; c_ram_to_->setPlaceholderText("RAM host:port"); c_ram_to_->setMinimumWidth(150); c_ram_to_->setMaximumWidth(190);
+        c_ram_go_ = new QPushButton("Move"); connect(c_ram_go_, &QPushButton::clicked, [this] { move_ram(c_ram_to_->text()); });
+        connect(c_ram_to_, &QLineEdit::returnPressed, [this] { move_ram(c_ram_to_->text()); });
+        sw->addWidget(small("Cipher")); sw->addWidget(c_cipher_); sw->addWidget(c_key_);
+        sw->addSpacing(6); sw->addWidget(small("Protocol")); sw->addWidget(c_protocol_);
+        sw->addSpacing(6); sw->addWidget(small("Memory")); sw->addWidget(c_ram_to_); sw->addWidget(c_ram_go_); sw->addStretch();
+        mid->addLayout(sw);
+        c_result_ = new QLabel("Cipher, key, protocol and where the memory is can be changed here while a call runs."); c_result_->setObjectName("muted"); c_result_->setWordWrap(true);
+        mid->addWidget(c_result_);
         body->addLayout(mid, 1);
 
         // chat
@@ -531,30 +552,15 @@ public:
         auto* set = new QGridLayout; set->setHorizontalSpacing(10); set->setVerticalSpacing(8);
         s_cipher_pick_ = new QComboBox; s_cipher_pick_->addItems({"not sealed", "aes-256-gcm", "chacha20-poly1305"});
         auto* cipher_go = new QPushButton("Set cipher");
-        connect(cipher_go, &QPushButton::clicked, [this] {
-            ChannelChange c; const QString a = s_cipher_pick_->currentText();
-            if (a == "not sealed") c.unseal = true; else c.algorithm = a.toStdString();
-            owner_change(("cipher " + a).toStdString(), c);
-        });
+        connect(cipher_go, &QPushButton::clicked, [this] { set_cipher(s_cipher_pick_->currentText()); });
         auto* key_go = new QPushButton("New key");
-        connect(key_go, &QPushButton::clicked, [this] { ChannelChange c; c.new_key = true; owner_change("a new key", c); });
+        connect(key_go, &QPushButton::clicked, [this] { new_key(); });
         s_protocol_pick_ = new QComboBox; s_protocol_pick_->addItems({"tcp", "chorus", "openqasm"});
         auto* protocol_go = new QPushButton("Set protocol");
-        connect(protocol_go, &QPushButton::clicked, [this] {
-            ChannelChange c; c.protocol = s_protocol_pick_->currentText().toStdString();
-            owner_change("protocol " + c.protocol, c);
-        });
+        connect(protocol_go, &QPushButton::clicked, [this] { set_protocol(s_protocol_pick_->currentText()); });
         s_ram_to_ = new QLineEdit; s_ram_to_->setPlaceholderText("host:port of another comms-ram that is running");
         auto* ram_go = new QPushButton("Change RAM host");
-        connect(ram_go, &QPushButton::clicked, [this] {
-            const std::string to = s_ram_to_->text().trimmed().toStdString();
-            const auto colon = to.rfind(':');
-            if (colon == std::string::npos || colon == 0 || colon + 1 >= to.size() || to.find_first_not_of("0123456789", colon + 1) != std::string::npos) {
-                s_result_->setText("Give the new RAM host as host:port."); return;
-            }
-            ChannelChange c; c.move_host = to.substr(0, colon); c.move_port = std::stoi(to.substr(colon + 1));
-            owner_change("the memory to " + to, c);
-        });
+        connect(ram_go, &QPushButton::clicked, [this] { move_ram(s_ram_to_->text()); });
         set->addWidget(muted("Cipher"), 0, 0); set->addWidget(s_cipher_pick_, 0, 1); set->addWidget(cipher_go, 0, 2);
         set->addWidget(muted("Key"), 1, 0); set->addWidget(muted("A new random number in the setting: every sender computes a new key from it."), 1, 1); set->addWidget(key_go, 1, 2);
         set->addWidget(muted("Protocol"), 2, 0); set->addWidget(s_protocol_pick_, 2, 1); set->addWidget(protocol_go, 2, 2);
@@ -580,8 +586,10 @@ public:
         const auto at = RamAt::process().at();
         auto ch = Channel::watching();
         const std::string role = ch ? ch->role() : std::string(CHANNEL_ROLE);
-        s_result_->setText(QString::fromStdString("Setting " + what + " ..."));
+        said_both(QString::fromStdString("Setting " + what + " ..."));
+        changing_ = true;
         for (auto* b : s_buttons_) b->setEnabled(false);
+        for (QWidget* b : std::initializer_list<QWidget*>{c_cipher_, c_key_, c_protocol_, c_ram_go_}) b->setEnabled(false);
         std::thread([this, what, c, at, role] {
             std::string said;
             try {
@@ -593,11 +601,72 @@ public:
             } catch (const std::exception& e) { said = std::string("Not set: ") + e.what(); }
             std::fprintf(stderr, "[security] %s\n", said.c_str());
             QMetaObject::invokeMethod(this, [this, said] {
-                s_result_->setText(QString::fromStdString(said));
+                said_both(QString::fromStdString(said));
                 for (auto* b : s_buttons_) b->setEnabled(true);
+                for (QWidget* b : std::initializer_list<QWidget*>{c_cipher_, c_key_, c_protocol_, c_ram_go_}) b->setEnabled(true);
+                changing_ = false;
                 ends_age_ = 99; refresh_security();
             }, Qt::QueuedConnection);
         }).detach();
+    }
+
+    void said_both(const QString& t) { s_result_->setText(t); c_result_->setText(QString(t).replace("\n", "  ·  ")); }
+    void set_cipher(const QString& a) {
+        ChannelChange c;
+        if (a == "not sealed") c.unseal = true; else c.algorithm = a.toStdString();
+        owner_change(("cipher " + a).toStdString(), c);
+    }
+    void new_key() { ChannelChange c; c.new_key = true; owner_change("a new key", c); }
+    void set_protocol(const QString& p) { ChannelChange c; c.protocol = p.toStdString(); owner_change("protocol " + c.protocol, c); }
+    void move_ram(const QString& text) {
+        const std::string to = text.trimmed().toStdString();
+        const auto colon = to.rfind(':');
+        if (colon == std::string::npos || colon == 0 || colon + 1 >= to.size() || to.find_first_not_of("0123456789", colon + 1) != std::string::npos) {
+            said_both("Give the new RAM host as host:port."); return;
+        }
+        ChannelChange c; c.move_host = to.substr(0, colon); c.move_port = std::stoi(to.substr(colon + 1));
+        owner_change("the memory to " + to, c);
+    }
+    // every picker shows the setting this program holds, whoever changed it and from where
+    void show_setting() {
+        auto ch = Channel::watching();
+        if (!ch || ch->changes() == shown_changes_) return;
+        shown_changes_ = ch->changes();
+        const auto f = ch->fields();
+        auto get = [&f](const char* k) { auto it = f.find(k); return it == f.end() ? std::string() : it->second; };
+        const bool sealed = !get("number").empty() && get("number") != "0";
+        const QString cipher = QString::fromStdString(sealed ? get("protection") : std::string("not sealed"));
+        const QString protocol = QString::fromStdString(get("driver").empty() ? std::string("tcp") : get("driver"));
+        for (QComboBox* b : {c_cipher_, s_cipher_pick_}) b->setCurrentText(cipher);
+        for (QComboBox* b : {c_protocol_, s_protocol_pick_}) b->setCurrentText(protocol);
+    }
+    // [THE_OVERLAY_SHOWS_THE_CHANNEL_V1] (John 2026-11-26: "The perf overlay should show all.") The channel's lines of
+    // the overlay: what is on the wire now, where the memory is, what this program's planes have done under the frame
+    // over every call of this run, and the last change taken with how long ago.
+    QString channel_lines() {
+        auto ch = Channel::watching();
+        if (!ch) return "channel: none (start with --channel ROLE)";
+        const auto f = ch->fields();
+        auto get = [&f](const char* k) { auto it = f.find(k); return it == f.end() ? std::string() : it->second; };
+        const bool sealed = !get("number").empty() && get("number") != "0";
+        const auto at = RamAt::process().at();
+        const channel_frame::Counts n = ch->totals();
+        const Channel::Change lc = ch->last_change();
+        QString t = QString("channel %1%2\nprotocol %3 · cipher %4%5\nmemory %6:%7\nunder the frame %8 kB out · %9 kB in\nswitch calls sent: protocol %10 · key/cipher %11 · received: protocol %12 · key/cipher %13\nsent again %14 · not opened %15")
+            .arg(QString::fromStdString(ch->role()), ch->framed() ? "" : " (planes NOT under the frame)")
+            .arg(QString::fromStdString(get("driver").empty() ? std::string("tcp") : get("driver")))
+            .arg(QString::fromStdString(sealed ? get("protection") : std::string("not sealed")))
+            .arg(sealed ? QString(" · key %1").arg(QString::fromStdString(ch->key_tag())) : QString())
+            .arg(QString::fromStdString(at.first)).arg(at.second)
+            .arg(qulonglong(n.sent / 1000)).arg(qulonglong(n.received / 1000))
+            .arg(qulonglong(n.protocol[0])).arg(qulonglong(n.encryption[0])).arg(qulonglong(n.protocol[1])).arg(qulonglong(n.encryption[1]))
+            .arg(qulonglong(n.sent_again)).arg(qulonglong(n.not_opened));
+        if (!lc.what.empty())
+            t += QString("\nlast: %1\n      at %2 (%3 ago) · %4 change(s) taken")
+                     .arg(QString::fromStdString(lc.what), QString::fromStdString(lc.at),
+                          lc.age_s < 90 ? QString("%1 s").arg(lc.age_s, 0, 'f', 0) : QString("%1 min").arg(lc.age_s / 60, 0, 'f', 0))
+                     .arg(qulonglong(ch->changes()));
+        return t;
     }
 
     void refresh_security() {
@@ -652,8 +721,8 @@ public:
 
     void start_call(const std::string& session, const std::string& host, int port, const std::string& with) {
         hang_up();
-        session_ = session; with_ = with;
-        last_picture_ = std::chrono::steady_clock::now();
+        session_ = session; with_ = with; ++calls_made_; other_on_ = false;
+        last_picture_ = std::chrono::steady_clock::now(); got_picture_ = false; mark();
         std::unique_ptr<AudioSource> mic; std::unique_ptr<AudioSink> spk;
         if (opt_.audio) {
             try { mic = std::make_unique<PaMic>(opt_.mic); } catch (const std::exception& e) { std::cerr << "[audio] mic: " << e.what() << " -- the call goes on without it\n"; }
@@ -801,6 +870,7 @@ public:
 
     void tick() {
         if (tabs_->currentIndex() == 1) refresh_security();
+        show_setting();
         // lobby
         bool changed = room_->version() != seen_;               // [HOLD_THE_READ_V1] redraw only on a change
         seen_ = room_->version();
@@ -831,6 +901,20 @@ public:
                     }
         }
         if (call_ && changed) read_chat();
+        // [THE_CALL_ENDS_WHEN_THE_OTHER_LEAVES_V1] A call with one other person ends here when that person leaves it,
+        // as a telephone's does: the lobby is back, and either of them can call again. (A feed is watched until this
+        // end stops watching.) Before this the window stayed in the call, waiting for a picture that would not come.
+        if (call_ && !with_.empty() && with_[0] != '*') {
+            bool on = false;
+            for (auto& x : room_->calls_of(with_)) if (x == session_) on = true;
+            if (on) other_on_ = true;
+            else if (other_on_) {
+                const std::string who = with_;
+                std::cerr << "[app] " << who << " left the call (session " << session_ << "): this end hangs up\n";
+                hang_up();
+                status_->setText(QString::fromStdString(who + " hung up"));
+            }
+        }
         update_tiles();
         auto_test();
     }
@@ -874,7 +958,10 @@ public:
         for (auto& s : srcs) if (s != opt_.name) { src = s; break; }
         if (!src.empty() && !view_->paused && call_->latest(src, p) && p.seq != last_seq_) {
             last_seq_ = p.seq; view_->remote = to_image(p, sws_remote_); rx_w_ = p.w; rx_h_ = p.h; rx_level_ = int(p.level);
-            last_picture_ = std::chrono::steady_clock::now(); view_->no_video.clear();
+            const auto now = std::chrono::steady_clock::now();
+            if (got_picture_) gap_max_ms_ = std::max(gap_max_ms_, std::chrono::duration<double, std::milli>(now - prev_picture_).count());
+            got_picture_ = true; prev_picture_ = now; ++pictures_;
+            last_picture_ = now; view_->no_video.clear();
         }
         Picture me;
         if (call_->self_view(me) && me.seq != self_seq_) { self_seq_ = me.seq; view_->self = to_image(me, sws_self_); }
@@ -914,14 +1001,97 @@ public:
         t_send_->setText(s.send_w ? QString("Sending\nL%1 · %2x%3").arg(int(s.rung)).arg(int(s.send_w)).arg(int(s.send_h))
                                   : QString("Sending\nL%1 · audio only").arg(int(s.rung)));
         t_audio_->setText(QString("Audio\n%1 blocks/s%2").arg(abps, 0, 'f', 0).arg(ashed ? QString(" · %1 shed").arg(ashed) : ""));
-        view_->overlay = rx_w_ ? QString("L%1 · %2x%3 · %4 fps\nvideo %5 kb/s\naudio %6 blocks/s\nshed %7 · keyreq %8")
-                                     .arg(rx_level_).arg(rx_w_).arg(rx_h_).arg(fps, 0, 'f', 1).arg(down, 0, 'f', 0)
-                                     .arg(abps, 0, 'f', 0).arg(shed).arg(uint64_t(s.keyreqs))
-                               : QString();
+        const long cap = call_->throttle();
+        Room::Hold h = room_->my_hold(session_);
+        const QString served = !h.present ? QString("--") : h.audio_only ? QString("audio only") : h.passthrough ? QString("pass-through") : QString("transcoded to %1x%2").arg(h.w).arg(h.h);
+        const QString recv = rx_w_ ? QString("receiving L%1 · %2x%3 · %4 fps · %5 kb/s").arg(rx_level_).arg(rx_w_).arg(rx_h_).arg(fps, 0, 'f', 1).arg(down, 0, 'f', 0)
+                                   : QString("receiving no picture · %1 kb/s").arg(down, 0, 'f', 0);
+        const QString send = s.send_w ? QString("sending   L%1 · %2x%3 · %4 kb/s (ceiling L%5)").arg(int(s.rung)).arg(int(s.send_w)).arg(int(s.send_h)).arg(up, 0, 'f', 0).arg(int(s.ceiling))
+                                      : QString("sending   L%1 · audio only · %2 kb/s").arg(int(s.rung)).arg(up, 0, 'f', 0);
+        view_->overlay = QString("with %1 · call %2\n%3\n%4\naudio %5 blocks/s · shed video %6 audio %7 · keyreq %8\nlink %9 · jitter %10 ms · server %11\n%12")
+                             .arg(QString::fromStdString(with_), calls_made_ ? QString("#%1").arg(calls_made_) : QString("--"))
+                             .arg(recv, send).arg(abps, 0, 'f', 0).arg(shed).arg(ashed).arg(uint64_t(s.keyreqs))
+                             .arg(cap == 0 ? QString("unlimited") : cap >= 1000000 ? QString("%1 Mb/s").arg(cap / 1e6, 0, 'f', 2) : QString("%1 kb/s").arg(cap / 1000))
+                             .arg(jit_->value()).arg(served, channel_lines());
         view_->self_note = QString("you · %1 kb/s up").arg(up, 0, 'f', 0);
     }
 
+    void mark() { mark_at_ = std::chrono::steady_clock::now(); mark_pictures_ = pictures_; gap_max_ms_ = 0; }
+
+    // [THE_WHOLE_USE_AS_A_SCRIPT_V1] --script "step;step;...": the window used as a person uses it, one step after the
+    // one before is done, each step saying what it measured. Steps:
+    //   wait-for NAME    until NAME is in the room          call NAME     call, until NAME's picture arrives
+    //   answer           until a call rings, then answer it, until the caller's picture arrives
+    //   stay N           N seconds                           hang          hang up
+    //   wait-idle        until this end is in no call (the other hung up)
+    //   cipher X | key | protocol X | ram HOST:PORT          the owner's changes, each until every end has answered
+    //   bandwidth KBPS (0: unlimited) | jitter MS            the link
+    //   shot FILE        a picture of the window             quit
+    // After each step: "[script] done ..." with the pictures received since the step before and the longest time
+    // between two of them. A step that is not done in 45 s ends the program with exit code 3 and says which.
+    void run_script() {
+        if (steps_.empty()) {
+            const std::string all = opt_.script;
+            for (size_t a = 0; a <= all.size();) {
+                size_t b = all.find(';', a);
+                if (b == std::string::npos) b = all.size();
+                std::string st = all.substr(a, b - a);
+                while (!st.empty() && st[0] == ' ') st.erase(0, 1);
+                while (!st.empty() && st.back() == ' ') st.pop_back();
+                if (!st.empty()) steps_.push_back(st);
+                a = b + 1;
+            }
+            mark();
+        }
+        if (step_ >= steps_.size()) return;
+        const std::string st = steps_[step_];
+        const auto sp = st.find(' ');
+        const std::string what = st.substr(0, sp), arg = sp == std::string::npos ? "" : st.substr(sp + 1);
+        const auto now = std::chrono::steady_clock::now();
+        auto in_room = [this](const std::string& n) { for (int i = 0; i < lobby_->count(); ++i) if (lobby_->item(i)->data(Qt::UserRole).toString().toStdString() == n) return i; return -1; };
+        bool done = false; std::string note;
+        if (!step_begun_) {
+            bool begun = true;
+            if (what == "call") { int i = in_room(arg); if (i < 0 || call_) begun = false; else { lobby_->setCurrentRow(i); call_selected(); } }
+            else if (what == "answer") { if (pending_.session.empty() || call_) begun = false; else answer(); }
+            else if (what == "hang") hang_up();
+            else if (what == "cipher") { if (changing_) begun = false; else { c_cipher_->setCurrentText(QString::fromStdString(arg)); set_cipher(QString::fromStdString(arg)); } }
+            else if (what == "key") { if (changing_) begun = false; else new_key(); }
+            else if (what == "protocol") { if (changing_) begun = false; else { c_protocol_->setCurrentText(QString::fromStdString(arg)); set_protocol(QString::fromStdString(arg)); } }
+            else if (what == "ram") { if (changing_) begun = false; else { c_ram_to_->setText(QString::fromStdString(arg)); move_ram(QString::fromStdString(arg)); } }
+            else if (what == "bandwidth") { const long kb = std::stol(arg); bw_->setValue(kb > 0 ? pos_of(kb * 1000) : kSteps); apply_bw(bw_->value()); }
+            else if (what == "jitter") jit_->setValue(std::stoi(arg));
+            else if (what == "shot") { paint_frame(); view_->update(); grab().save(QString::fromStdString(arg)); }
+            if (step_at_ == std::chrono::steady_clock::time_point{}) step_at_ = now;
+            if (begun) { step_begun_ = true; std::cerr << "[script] step " << step_ + 1 << " of " << steps_.size() << ": " << st << "\n"; }
+        }
+        const double took = std::chrono::duration<double>(now - step_at_).count();
+        if (step_begun_) {
+            if (what == "wait-for") done = in_room(arg) >= 0;
+            else if (what == "call" || what == "answer") { done = call_ && got_picture_; if (done) note = "first picture " + std::to_string(int(took * 1000)) + " ms after the step began"; }
+            else if (what == "stay") done = took >= std::stod(arg);
+            else if (what == "wait-idle") done = !call_;
+            else if (what == "cipher" || what == "key" || what == "protocol" || what == "ram") { done = !changing_; if (done) note = c_result_->text().toStdString(); }
+            else if (what == "quit") { std::cerr << "[script] finished: every step done\n"; hang_up(); QApplication::exit(0); step_ = steps_.size(); return; }
+            else done = true;
+        }
+        if (done) {
+            const double since = std::chrono::duration<double>(now - mark_at_).count();
+            std::cerr << "[script] done " << step_ + 1 << ": " << st << " (" << int(took * 1000) << " ms)"
+                      << (call_ || pictures_ != mark_pictures_ ? "; pictures since the step before: " + std::to_string(pictures_ - mark_pictures_) + " in " + std::to_string(int(since * 1000))
+                                 + " ms, longest between two " + std::to_string(int(gap_max_ms_)) + " ms" : std::string())
+                      << (note.empty() ? "" : "; " + note) << "\n";
+            mark(); ++step_; step_begun_ = false; step_at_ = {};
+        } else if (took > 45 && what != "stay") {
+            std::cerr << "[script] FAILED at step " << step_ + 1 << ": '" << st << "' was not done in 45 s"
+                      << (call_ ? " (in a call, " + std::string(got_picture_ ? "pictures arriving" : "no picture yet") + ")" : " (in no call)") << "\n";
+            hang_up(); QApplication::exit(3); step_ = steps_.size();
+        }
+    }
+
     void auto_test() {                                        // unattended: join a named participant, screenshot
+        if (opt_.auto_answer && !call_ && !pending_.session.empty()) answer();
+        if (!opt_.script.empty()) run_script();
         if (!opt_.auto_join.empty() && !call_) {
             for (int i = 0; i < lobby_->count(); ++i) {
                 QString n = lobby_->item(i)->data(Qt::UserRole).toString();
@@ -989,6 +1159,21 @@ private:
     int rx_w_ = 0, rx_h_ = 0, rx_level_ = 0, ticks_ = 0, age_redraw_ = 0;
     uint64_t seen_ = ~0ull;
     std::chrono::steady_clock::time_point t_last_ = std::chrono::steady_clock::now();
+    // the owner's changes beside the picture
+    QComboBox *c_cipher_ = nullptr, *c_protocol_ = nullptr;
+    QPushButton *c_key_ = nullptr, *c_ram_go_ = nullptr;
+    QLineEdit* c_ram_to_ = nullptr;
+    QLabel* c_result_ = nullptr;
+    uint64_t shown_changes_ = ~0ull;
+    bool changing_ = false, other_on_ = false;
+    int calls_made_ = 0;
+    // the script, and what it measures between two of its steps
+    std::vector<std::string> steps_;
+    size_t step_ = 0;
+    bool step_begun_ = false, got_picture_ = false;
+    std::chrono::steady_clock::time_point step_at_{}, mark_at_{}, prev_picture_{};
+    uint64_t mark_pictures_ = 0, pictures_ = 0;
+    double gap_max_ms_ = 0;
     // the Security tab
     QTabWidget* tabs_ = nullptr;
     QLabel *s_role_ = nullptr, *s_cipher_ = nullptr, *s_key_ = nullptr, *s_protocol_ = nullptr, *s_ram_ = nullptr, *s_me_ = nullptr, *s_result_ = nullptr;
@@ -1015,6 +1200,8 @@ static int run_main(int argc, char** argv) {
         else if (k == "--channel") o.channel = v();
         else if (k == "--tab") o.tab = v();
         else if (k == "--security") o.security = v();
+        else if (k == "--script") o.script = v();
+        else if (k == "--auto-answer") o.auto_answer = true;
         else if (k == "--show-controls") o.show_controls = true;
         else if (k == "--diagnostics") o.diagnostics = true;
         else if (k == "--list-devices") { std::cout << "cameras:\n" << video_devices() << "audio (--mic N / --speaker N):\n" << audio_devices(); return 0; }

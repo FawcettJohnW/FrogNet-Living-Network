@@ -101,8 +101,12 @@ public final class Room {
                 return;
             } finally { old.close(); }
         }
+        // [THE_READ_THAT_IS_ENDED_IS_THE_OLD_ONE_V1] the session whose read is ended is the one that was open when the
+        // memory moved, by name: the watcher may already have opened its new one (found in the desktop window,
+        // 2026-11-26, where ending "the" watch session ended the new one and the watch failed for ever).
+        final RamSession leaving = w;
         moved = true;
-        w.close();                                             // the held read ends now; the watcher attaches its own session
+        leaving.close();                                       // its held read ends now; the watcher attaches its own session
         try {
             announce(status);
             refreshCalls();

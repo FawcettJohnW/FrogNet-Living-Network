@@ -114,3 +114,17 @@ The Security tab's buttons, pressed by the window itself against a live call (of
         --auto-join "Chapel camera" --tab security --security "cipher chacha20-poly1305;key;protocol openqasm;ram OTHERHOST:PORT" \
         --screenshot security.png --after 14
     (python/comms_app.py takes the same options)
+
+## The whole cycle, with every switch made from the window (2026-11-26)
+
+    python3 tests/py/test_the_whole_cycle.py build [CALLS] [OUT_DIR]
+
+Two comms-ram, comms-media and two comms-app windows (offscreen). John's window runs a script: it waits for Donna,
+calls her, and during the call changes the cipher, the key, the protocol, where the memory is and the link, then
+hangs up -- CALLS times (default 3). Donna's window answers what rings. It prints PASS or FAIL for each thing it
+checks, the time each kind of change took, and the longest time between two pictures across each. The windows' logs
+and a picture of John's window in each call are left in OUT_DIR.
+
+To watch it instead of testing it, start the two windows without QT_QPA_PLATFORM=offscreen and give one of them
+`--script "wait-for Donna;call Donna;stay 5;cipher chacha20-poly1305;stay 3;key;stay 3;protocol chorus;stay 3;hang"`.
+

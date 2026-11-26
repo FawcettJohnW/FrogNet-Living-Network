@@ -132,15 +132,21 @@ class Room:
 
     # -- the copy of the region ------------------------------------------------------------------------------
     def _watcher(self):
+        # [A_FAILED_WATCH_OPENS_ITS_SESSION_AGAIN_V1] attach() says "moved" and then ends this session's read; when this
+        # thread had already opened its new session in between, the new one was what got ended and the watch failed
+        # for ever (found in the C++ window, 2026-11-26). A read that fails for any reason opens its session again
+        # at the memory's address and reads the whole copy again.
+        again = False
         while not self._stop:
             try:
-                if self._moved:                    # [THE_MEMORY_MOVES_V1] this session too, then the whole copy again
+                if self._moved or again:           # [THE_MEMORY_MOVES_V1] this session too, then the whole copy again
                     self._moved = False
+                    again = False
                     try:
                         self._w.close()
                         self._w = Client(*ram_at.at())
                     except MemoryError_:
-                        self._moved = True
+                        again = True
                         raise
                     with self._mu:
                         self._last_id = -1
@@ -157,6 +163,7 @@ class Room:
             except MemoryError_ as e:
                 if self._stop:
                     break
+                again = True
                 if self._moved:                    # the move ended the read: attach at once
                     continue
                 print("[room] watch failed: %s (retrying)" % e, flush=True)   # logged, never silent
