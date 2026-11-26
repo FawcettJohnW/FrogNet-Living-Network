@@ -42,11 +42,12 @@ import struct
 import sys
 import threading
 import time
+import urllib.error
 import urllib.parse
 import urllib.request
 from typing import Any, Dict, List, Optional
 
-BUILD = "frognet_held 20261123-held2 [HELD_READ_IN_API_V1][A_HOLD_THAT_ENDED_IS_HELD_AGAIN_V1]"
+BUILD = "frognet_held 20261126-held3 [HELD_READ_IN_API_V1][A_HOLD_THAT_ENDED_IS_HELD_AGAIN_V1][A_REFUSED_HOLD_SAYS_WHO_REFUSED_IT_V1]"
 HELD_DIR = os.environ.get("FROGNET_HELD_DIR", "/run/frognet/held")
 HOSTS = os.environ.get("FROGNET_HOSTS") or os.environ.get("FDF_HOSTS") or "/etc/hosts"   # the fdf tools name it FDF_HOSTS
 
@@ -175,6 +176,19 @@ class Holder:
         try:
             with urllib.request.urlopen(q, timeout=timeout) as r:
                 d = json.loads(r.read().decode())
+        except urllib.error.HTTPError as e:
+            # [A_REFUSED_HOLD_SAYS_WHO_REFUSED_IT_V1] the refusal's own text is in the reply's body (a daemon's
+            # "[Daemon: ...]", a proxy's, a RAM host's "what: why"); the status line alone ("400 Bad Request") says
+            # nothing of who refused or why. Said here whole, with the address the name was at.
+            try:
+                body = e.read().decode("utf-8", "replace").strip()
+            except Exception as be:
+                body = "(the reply's body could not be read: %s)" % be
+            try:
+                at = socket.gethostbyname(dbhost.split(":")[0])
+            except OSError:
+                at = "not in this machine's hosts"
+            raise HoldError("hold %s at %s (%s): HTTP %s %s; the reply said: %s" % (service, dbhost, at, e.code, e.reason, body[:600] or "(nothing)")) from e
         except Exception as e:
             raise HoldError("hold %s at %s: %s" % (service, dbhost, e)) from e
         if not d.get("ok") or "hold" not in d:

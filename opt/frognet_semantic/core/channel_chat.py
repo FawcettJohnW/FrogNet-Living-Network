@@ -42,7 +42,7 @@ import time
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
-BUILD = "channel-chat-v2-20261123m"
+BUILD = "channel-chat-v2-20261126a"
 APP = "protocolchat"
 
 
@@ -166,7 +166,7 @@ def main(argv=None) -> int:
                 if not any(c == made_cell for _h, c in made):
                     made.append((memory, made_cell))
             except Exception as e:
-                print("   %s  %-12s  %-34s  %-9s  %s" % (time.strftime("%H:%M:%S"), node_name(me), "NOT SAID: %s" % str(e)[:60], "", how()), flush=True)
+                print("   %s  %-12s  %-34s  %-9s  %s" % (time.strftime("%H:%M:%S"), node_name(me), "NOT SAID: %s" % str(e), "", how()), flush=True)
                 return 0
             return n
 
@@ -217,7 +217,7 @@ def main(argv=None) -> int:
                         stop.set()
                         got_one.set()
                         return
-                    print("   %s  (the read held on the conversation ended: %s; held again)" % (time.strftime("%H:%M:%S"), str(e)[:120]), flush=True)
+                    print("   %s  (the read held on the conversation ended: %s; held again)" % (time.strftime("%H:%M:%S"), str(e)), flush=True)
                     stop.wait(2)
         threading.Thread(target=hear, daemon=True, name="chat-hear").start()
 

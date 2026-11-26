@@ -3284,6 +3284,23 @@ what the 400 of 25 Nov was: a node that has not yet elected the memory answers "
 higher is not caught by `set`. `frognet_held` still reports a hold's HTTP error without the body, and
 `channel_chat.py` still cuts an error at 60 characters, which is why the chat showed a bare 403.
 
+### 26 Nov 2026, 15:06 PST (from John's paste): a bare "HTTP Error 400" on the chat's held read; a refused hold now says who refused it
+
+**What John saw.** `channel_chat.py --start` on Seattle3B, hours after an earlier run that worked (Seattle7 answering,
+chorus, not sealed) and was ended with Ctrl-C. The memory `unitsHost.protocolchat` was asked for on New-York-2 and
+was in the hosts file at once. The read held on the conversation ended twice, at 15:06:23 and 15:06:25, with
+"HTTP Error 400: Bad Request"; no third line followed, so the hold made at about 15:06:27 was taken. Then
+"waiting for the other client" at 10 s and 20 s, and Ctrl-C.
+
+**What is and is not established.** Which process answered 400, and why, is NOT established: `frognet_held.hold`
+dropped the reply's body, the item left "not done" on 25 Nov. Nothing from a second node is in the paste. A client
+started without `--start` ends when the memory is given back (channel_chat.py `hear`), so the earlier run's client
+on Seattle7 ended at the first Ctrl-C and has to be started again for a second run.
+
+**What changed.** `core/frognet_held.py` (`frognet_held 20261126-held3`, [A_REFUSED_HOLD_SAYS_WHO_REFUSED_IT_V1]): a
+hold answered with an HTTP error raises with the reply's body and the address the name was at.
+`core/channel_chat.py` (`channel-chat-v2-20261126a`) prints the error whole. The held-read oracles pass (9 and 6).
+
 ## 4. The interventions: what was said, why it was noticed, what had not been considered
 
 John, 17 Nov, of the first version of this file: "It is not just the order. It is what I asked and why I asked it.
