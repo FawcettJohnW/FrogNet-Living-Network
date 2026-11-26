@@ -3248,6 +3248,42 @@ statement against the code before writing it found two things that no test exerc
 
 Both are stated in the design document's "Open findings and limits" and in the test document's limits.
 
+### 25 Nov 2026, 11:22 to 11:52 PST (from John's pastes): the nodes held different secrets for units; `show` and `set` changed
+
+**What John saw.** `channel_chat.py --start` on Seattle3B: every held read on `unitsHost.protocolchat` (on New-York-2)
+ended with "HTTP Error 403: Forbidden". `channel_test.py` on Seattle3B then stopped at part T, up at 2 of 7 nodes,
+with the refusal's text: "[Daemon: the Role 'units' is sealed: its traffic is taken only inside the frame]". Part A
+passed: every node ran one build.
+
+**What it was.** `channel_admin.py show units` printed a setting (chorus, sealed, number 2966159178094958340) that
+none of 22 ends held; every end said "holds another". Three daemons were sending under number 1916928989012993752
+and one proxy under 2783878717251626041. Seattle7's journal had the reason, twice:
+"its check does not verify against this machine's secret for units at step 110", and "step 107 is lower than the
+step this machine's secret for 'units' is at (110): a setting does not take a Role's secret back". Seattle7 kept
+running openqasm, number 741535880863264567, step 110. So the machines' secret files for units were not the same:
+one writer was three or four steps behind Seattle7, and one writer's secret at step 110 was not Seattle7's. Each
+end kept the last setting it could verify, a process started fresh held none, and a daemon holding a sealed
+setting refused an end that held an unsealed one. How the files came apart is NOT established.
+
+**Wrong on the way.** I gave John a `journalctl --since` window in Pacific time for a node whose clock is Eastern;
+it matched nothing. A time given for a node is in that node's clock, or in UTC with the zone written.
+
+**What changed** (`core/channel_admin.py` v6, `channel-admin-v6-20261125a`, and nothing else in the engine):
+`show` prints each node's step by name, highest first, this node's own step and hash, the setting an end holds
+when it is not the ControlRam's, and the setting an end ignored. `write_and_wait` writes nothing when an end
+reports a step above this node's own file, and names those nodes (`[A_SETTING_IS_NOT_WRITTEN_FROM_BEHIND_V1]`).
+`core/test_setting_not_written_from_behind_oracle.py` is the oracle, with John's numbers; it is in the gate.
+
+**The recovery, on hardware, 26 Nov 2026 (from John's paste).** With v6 installed and the secret file placed,
+`show units` listed all seven nodes at one step: "115 at New-York-1, BABox, Seattle7, BAMacBook, Seattle5,
+Seattle3B, New-York-2". `channel_test.py` on Seattle3B then passed: 24 tests, 96 checks, 0 failed; 4,168 round
+trips to 7 nodes, 0 failed, the slowest 3,706 ms; units left unsealed at step 124. Part T's early requests show
+what the 400 of 25 Nov was: a node that has not yet elected the memory answers "400 Missing/invalid Host header".
+
+**Not done.** A node holding a different secret at a step that is not
+higher is not caught by `set`. `frognet_held` still reports a hold's HTTP error without the body, and
+`channel_chat.py` still cuts an error at 60 characters, which is why the chat showed a bare 403.
+
 ## 4. The interventions: what was said, why it was noticed, what had not been considered
 
 John, 17 Nov, of the first version of this file: "It is not just the order. It is what I asked and why I asked it.

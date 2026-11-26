@@ -583,6 +583,11 @@ def main():
     # made for it: the held-read sockets are left, and a fire reaches a process that was running before the merge.
     results.append(_run_proc("the merge's wipe of /run/frognet leaves the held-read sockets (test_held_sockets_survive_the_merge_oracle)",
                              ["core/test_held_sockets_survive_the_merge_oracle.py"], retry=False))
+    # [A_SETTING_IS_NOT_WRITTEN_FROM_BEHIND_V1] the owner's write from a node whose secret file is behind an end's
+    # reported step writes nothing and names the nodes ahead; `channel_admin.py show` says each node's step and what
+    # each end ignored. The numbers are the ones John's network printed on 25 Nov 2026.
+    results.append(_run_proc("a setting is not written from a node that is behind, and show says each node's step (test_setting_not_written_from_behind_oracle)",
+                             ["core/test_setting_not_written_from_behind_oracle.py"], retry=False))
     # [THE_FULL_TEST_FOR_A_REAL_NETWORK_V1] core/channel_test.py, the test John runs on his real network, between
     # machines: a memory for the Role on each other machine, traffic throughout, the settings, the three refusals,
     # the keys of its part L, one change made from another machine; then with one machine holding another secret,

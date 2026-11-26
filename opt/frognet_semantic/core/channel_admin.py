@@ -15,7 +15,9 @@ is running it. It never sends anything to an end and it never touches a connecti
         it there by whatever means you move files between your nodes. It is never sent by this software.
 
     /opt/frognet_semantic/venv/bin/python3 /opt/frognet_semantic/core/channel_admin.py show [<role>]
-        Each Role's setting, and what every daemon and proxy says it holds and is sending under.
+        Each Role's setting, and what every daemon and proxy says it holds and is sending under: the setting an end
+        holds when it is not the ControlRam's, the step of the Role's own secret each end is on, and the setting an
+        end IGNORED. Then the step each node is at, which node is at the highest, and whether this node is behind.
 
     /opt/frognet_semantic/venv/bin/python3 /opt/frognet_semantic/core/channel_admin.py set <role> --protocol tcp|chorus|openqasm
     /opt/frognet_semantic/venv/bin/python3 /opt/frognet_semantic/core/channel_admin.py set <role> --seal [--algorithm aes-256-gcm|chacha20-poly1305]
@@ -27,6 +29,8 @@ is running it. It never sends anything to an end and it never touches a connecti
         ([THE_KEY_IS_COMPUTED_V1], core/channel_frame.py). A protocol and an encryption are not changed in one write.
         The command returns when every end that carries the Role reports it is sending the new way, or says which
         have not after --wait seconds (60).
+        [A_SETTING_IS_NOT_WRITTEN_FROM_BEHIND_V1] Nothing is written from a node whose own secret for the Role is at
+        a lower step than an end reports: those ends would refuse it. The command says which nodes are ahead.
 
 A Role is the name before "Host" in its memory's name: unitsHost.exercise is the Role "units".
 """
@@ -39,7 +43,7 @@ import time
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
-BUILD = "channel-admin-v5-20261123d"
+BUILD = "channel-admin-v6-20261125a"
 PROTOCOLS = ("tcp", "chorus", "openqasm")
 
 
@@ -49,6 +53,64 @@ def _fits(run: dict, value: dict) -> bool:
             and (not value.get("number") or run.get("protection") == (value.get("protection") or "aes-256-gcm"))
             # an end that holds the Role's own secret reports the step it is on; one that does not reports none
             and (run.get("step") is None or not value.get("step") or int(run["step"]) == int(value["step"])))
+
+
+def _hosts() -> list:
+    try:
+        return [l.rstrip("\n") for l in open(os.environ.get("FROGNET_HOSTS") or os.environ.get("FDF_HOSTS") or "/etc/hosts")]
+    except OSError:
+        return []
+
+
+def node_name(end: str, hosts: list = None) -> str:
+    """A node's name, "Seattle7", from an end's name or an address; "" when this node's hosts file does not name it.
+    Every node's hostname is FrogNetHost; its name is the hosts file's FrogNetHost.<name> on the line of its address."""
+    ip = str(end).split(":", 1)[0]
+    for l in (_hosts() if hosts is None else hosts):
+        w = l.split()
+        if w and w[0] == ip:
+            for name in w[1:]:
+                if name.startswith("FrogNetHost.") and len(name) > 12:
+                    return name[12:]
+    return ""
+
+
+def node_of(end: str, hosts: list = None) -> str:
+    """A node by its name and address, "Seattle7 (10.170.170.1)"; its address alone when it has no name here."""
+    ip, name = str(end).split(":", 1)[0], node_name(end, hosts)
+    return "%s (%s)" % (name, ip) if name else ip
+
+
+def steps_reported(role: str, ends: dict = None) -> dict:
+    """{a node's address: the highest step of the Role's own secret that any end on it reports}. An end that does not
+    hold the Role's own secret reports no step and is not here."""
+    out = {}
+    for end, d in (reports() if ends is None else ends).items():
+        step = ((d.get("rams") or {}).get(role.lower()) or {}).get("step")
+        if step is not None:
+            ip = str(end).split(":", 1)[0]
+            out[ip] = max(out.get(ip, 0), int(step))
+    return out
+
+
+def ahead_of_here(role: str, ends: dict = None):
+    """[A_SETTING_IS_NOT_WRITTEN_FROM_BEHIND_V1] (the step this node's own secret file for the Role is at, {address:
+    step} of the nodes whose ends report a higher one). (None, {}) for a Role with no secret of its own here: such a
+    Role has no steps.
+
+    Found on John's network, 25 Nov 2026. Seattle7's secret for units was at step 110. A setting written from a node
+    whose file was at step 106 carried step 107, and Seattle7 refused it: "a setting does not take a Role's secret
+    back". Every end kept the last setting it could verify, the ends no longer agreed, and a sealed request between
+    two of them was refused (HTTP 403). A node whose file is behind cannot write a setting the nodes ahead will take,
+    so it does not write one. Nothing is tried in its place: the owner places the current secret file on this node."""
+    from core import channel_frame as F
+    try:
+        _secret, at, own = F.read_secret(role.lower())
+    except F.DoesNotOpen:
+        return None, {}
+    if not own:
+        return None, {}
+    return at, {ip: step for ip, step in steps_reported(role, ends).items() if step > at}
 
 
 def with_step(role: str, value: dict, now: dict) -> dict:
@@ -83,6 +145,17 @@ def write_and_wait(role: str, value: dict, ends: int = 1, wait_s: float = 60.0) 
     from core import channel_setting as C
     T, H = C._tuples()
     role = role.lower()
+    at, ahead = ahead_of_here(role)
+    if ahead:
+        from core import channel_frame as F
+        top = max(ahead.values())
+        why = ("this node's secret for %s is at step %d and %s. A setting written here would be refused there (a "
+               "setting does not take a Role's secret back), so it is NOT WRITTEN. Place %s from a node at step %d on "
+               "this node, then write again."
+               % (role, at, "; ".join("%s is at step %d" % (node_of(ip), step) for ip, step in sorted(ahead.items(), key=lambda x: (-x[1], x[0]))),
+                  os.path.join(F.SECRETS, role), top))
+        print("[CHANNEL-ADMIN] %s [A_SETTING_IS_NOT_WRITTEN_FROM_BEHIND_V1] %s" % (BUILD, why), flush=True)
+        return {"ok": False, "done": False, "took": 0.0, "refused": why, "ahead": ahead, "at": at}
     value = with_step(role, value, settings().get(role) or {})
     t0 = time.time()
     ok = C.write(value, ram=role)
@@ -166,20 +239,71 @@ def cmd_secret(a) -> int:
     return 0
 
 
+def _setting_text(v: dict) -> str:
+    """A setting, or what an end holds, in words: the protocol, sealed or not, the number, the step."""
+    return "protocol %s, %s%s" % (v.get("driver") or "(the node's own)",
+                                  "sealed with %s, number %s" % (v.get("protection") or "aes-256-gcm", v.get("number")) if v.get("number") else "not sealed",
+                                  ", step %s" % v.get("step") if v.get("step") is not None else "")
+
+
 def cmd_show(a) -> int:
+    from core import channel_frame as F
+    from core import channel_setting as C
     held, ends = settings(), reports()
+    hosts = _hosts()
+    try:
+        me = C._tuples()[0].my_ip()
+    except Exception:
+        me = ""
     roles = sorted(r for r in held if r != "semantic" and (not a.role or r == a.role.lower()))
     if not roles:
         print("no Role has a channel setting%s" % (" named %r" % a.role if a.role else ""))
     for role in roles:
         s = held[role]
-        print("%s: protocol %s, %s" % (role, s.get("driver") or "(the node's own)",
-              "sealed with %s, number %s" % (s.get("protection") or "aes-256-gcm", s.get("number")) if s.get("number") else "not sealed"))
+        print("%s: %s" % (role, _setting_text(s)))
+        # this node's own secret file for the Role: read, never made here (`secret <role>` makes one)
+        try:
+            secret, at, own = F.read_secret(role)
+            print("    this node, %s: %s" % (node_of(me, hosts) if me else "(no FrogNet address)",
+                  "its secret for %s is at step %d, hash %s" % (role, at, F.secret_fingerprint(secret)) if own
+                  else "it has no secret of %s's own: it uses the network's default secret, which has no steps" % role))
+        except F.DoesNotOpen:
+            at, own = None, False
+            print("    this node, %s: it holds no secret for %s" % (node_of(me, hosts) if me else "(no FrogNet address)", role))
+        ignored_it = 0
         for end in sorted(ends):
             d = ends[end]
-            h, r = (d.get("rams") or {}).get(role), (d.get("running") or {}).get(role)
-            print("    %-34s holds %-9s sending %s" % (end, "it" if h and _fits(h, s) else ("another" if h else "nothing"),
-                  ("this way" if _fits(r, s) else "ANOTHER WAY: %s" % json.dumps(r, sort_keys=True)) if r else "nothing for this Role"))
+            h, r = dict((d.get("rams") or {}).get(role) or {}), (d.get("running") or {}).get(role)
+            ig = h.pop("ignored", None)
+            holds = ("it%s" % (" (step %s)" % h["step"] if h.get("step") is not None else "") if h and _fits(h, s)
+                     else ("another: %s" % _setting_text(h) if h else "nothing"))
+            print("    %-46s holds %s; sending %s" % (("%s %s" % (node_name(end, hosts), end)).strip(), holds, ("this way" if _fits(r, s) else "ANOTHER WAY: %s" % json.dumps(r, sort_keys=True)) if r else "nothing for this Role"))
+            if ig:
+                # [AN_END_SAYS_WHAT_IT_IGNORED_V1] the end names the setting it ignored; its journal has the reason
+                this = (int(ig.get("number") or 0) == int(s.get("number") or 0) and ig.get("driver") == s.get("driver")
+                        and int(ig.get("step") or 0) == int(s.get("step") or 0))
+                ignored_it += this
+                # (an end reports the number, protocol and step of what it ignored, and nothing else of it)
+                print("        IGNORED %s: protocol %s, number %s, step %s. Its journal says why, on a line with [A_SETTING_PROVES_ITSELF_V1]."
+                      % ("THIS setting" if this else "a setting", ig.get("driver") or "(the node's own)", ig.get("number") or "none", ig.get("step") or 0))
+        steps = steps_reported(role, ends)
+        if steps:
+            by = {}
+            for ip, step in steps.items():
+                by.setdefault(step, []).append(ip)
+            print("    steps of the secret of %s, by node: %s" % (role, "; ".join("%d at %s" % (step, ", ".join(node_of(ip, hosts) for ip in sorted(by[step])))
+                                                                        for step in sorted(by, reverse=True))))
+            top = max(by)
+            if len(by) > 1:
+                print("    THE NODES ARE NOT AT ONE STEP. The highest is %d, at %s. A setting written from a node below "
+                      "the highest is refused by the nodes above it." % (top, ", ".join(node_of(ip, hosts) for ip in sorted(by[top]))))
+            if own and at is not None and top > at:
+                print("    THIS NODE IS BEHIND: its file is at step %d and the highest reported is %d. `set` does not write "
+                      "from here ([A_SETTING_IS_NOT_WRITTEN_FROM_BEHIND_V1])." % (at, top))
+        else:
+            print("    no end reports a step for %s: none holds a secret of %s's own" % (role, role))
+        if ignored_it:
+            print("    %d end(s) IGNORED the setting the ControlRam holds." % ignored_it)
     return 0
 
 
@@ -218,6 +342,8 @@ def cmd_set(a) -> int:
             new["protection"] = a.algorithm or now.get("protection") or "aes-256-gcm"
     new.setdefault("driver", "tcp")
     saw = write_and_wait(role, new, ends=1, wait_s=a.wait)
+    if saw.get("refused"):
+        return 1                                        # said by write_and_wait, with the nodes that are ahead
     print("%s: %s" % (role, json.dumps(saw.get("wrote") or new, sort_keys=True)))
     if saw.get("ignored"):
         print("%d end(s) IGNORED it: its check did not verify there. They do not hold %s's secret at this step (or hold "

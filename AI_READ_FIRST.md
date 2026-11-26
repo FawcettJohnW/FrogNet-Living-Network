@@ -921,6 +921,21 @@ switched, the design as built, and in its section 11.3 what is built and what is
   check verifies, never let a setting take a secret back. A machine that cannot verify a Role's setting (it does not
   hold that Role's own secret) ignores it and says which setting it ignored in its report
   (`[AN_END_SAYS_WHAT_IT_IGNORED_V1]`); the owner's page does not wait for such an end.
+- **A setting is not written from a node that is behind** (John's network, 2026-11-25,
+  `[A_SETTING_IS_NOT_WRITTEN_FROM_BEHIND_V1]`; `core/channel_admin.py` v6 `ahead_of_here`, `steps_reported`,
+  `write_and_wait`; `core/test_setting_not_written_from_behind_oracle.py`). The step is in two places: the setting's
+  tuple and each machine's own secret file. A writer stamps `max(the tuple's step, its own file's step)`, so a node
+  whose file is behind writes a step the nodes ahead of it must refuse. That happened: Seattle7's secret for units
+  was at step 110, a setting arrived at step 107 and was refused, every end kept the last setting it could verify,
+  and a daemon refused traffic for the sealed Role from an end that held an unsealed setting (HTTP 403, "its
+  traffic is taken only inside the frame"). So `write_and_wait`, the one write behind `set` and `core/channel_test.py`,
+  writes NOTHING when any end reports a step above this node's own file, and names the nodes that are ahead. Nothing
+  is tried in its place. The owner places `/etc/frognet/channel_secrets/<role>` from a node at the highest step on
+  the nodes below it. `show <role>` says which node that is: it prints each node's step by name, this node's own
+  step and hash, the setting each end holds when it is not the ControlRam's, and the setting each end ignored.
+  Do NOT run `channel_admin.py secret <role>` to look at a node: on a node with no file it makes a new secret.
+  Not caught by `set`: a node that holds a different secret at a step that is not higher. `show` shows it as an end
+  that IGNORED the setting. A 403 from a daemon for a sealed Role is this symptom until `show` says otherwise.
 - **The transport file says what a node SENDS, and nothing else** (John, 2026-11-22: "I should never have to tell the
   system what protocol a distant node is using"). A daemon takes what arrives: its TCP listener reads each
   connection's first word, and starts the frame carrier's receiving end at the first framed arrival whatever the
