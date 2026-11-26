@@ -58,17 +58,24 @@ took 5.9, 6.3, 5.7 and 6.5 s (slowest claimant) with the RAM host at 2.6 to 3.0 
 claim was 758, 238, 187 and 248 ms; build g run again on the same machine the day before, the same hour as build i,
 gave 476, 231, 182 and 183 ms against i's 506, 217, 193 and 185, so the higher p99 is the machine and not the build.
 
-**On real nodes (John's network, 2026-11-25; 7 claimants on Seattle3B, Seattle5, Seattle7, BABox, BAMacBook,
-New-York-1, New-York-2; the RAM on the x86 node at 10.188.188.1; 4,000 tickets, all at once).** These are 0.9 and
-0.10; 0.11 has not been run on the nodes.
+**On real nodes (John's network; 7 claimants on Seattle3B, Seattle5, Seattle7, BABox, BAMacBook, New-York-1,
+New-York-2; the RAM on the x86 node BAMacBook, 10.188.188.1; 4,000 tickets, every call in flight at once; 28,000
+claims a run).** 0.9 and 0.10 on 2026-11-25, 0.11 (build 2026-11-26j, platform 0.73) on 2026-11-26. Every run of
+every version: each ticket won exactly once, none twice, none never.
 
-| | 0.9, three runs | 0.10, four runs in a row |
-|---|---|---|
-| verdict | PASS, each ticket won once | PASS, each ticket won once |
-| slowest claimant | 13.6 s, 13.5 s, 18.0 s | 3.8 s, 7.6 s, 12.1 s, 16.9 s |
-| claims a second | 2,055, 2,070, 1,554 | 7,315, 3,670, 2,310, 1,655 |
+| | 0.9, three runs | 0.10, four runs in a row | 0.11j, four runs in a row on the same claimants |
+|---|---|---|---|
+| controller | three nodes | four nodes | Seattle3B, Seattle7, New-York-1, BAMacBook |
+| slowest claimant | 13.6 s, 13.5 s, 18.0 s | 3.8 s, 7.6 s, 12.1 s, 16.9 s | 3.7 s, 4.1 s, 4.2 s, 3.4 s |
+| claims a second | 2,055, 2,070, 1,554 | 7,315, 3,670, 2,310, 1,655 | 7,598, 6,755, 6,737, 8,168 |
+| claim median | | | 262, 303, 277, 266 ms |
+| worst p99 claim | | | 1,239, 1,408, 1,834, 804 ms |
 
-0.10's runs slow from one to the next for the reason in the table above; it was found from these four runs.
+0.10's runs slow from one to the next (the session library's reclaimer kept a record per thread and walked them;
+found from these four runs, fixed in platform 0.72). 0.11's do not. A fifth 0.11j run before these four, on freshly
+started claimants, controlled from Seattle7: PASS, slowest claimant 5.1 s, 5,444 claims a second, claim median
+255 ms. Brandon's 31 tests on both stores, the threads test and the 8-process race (`worldshepherd his-tests`) pass
+on Seattle7 and on Seattle3B, both aarch64 Raspberry Pis.
 
 **Storage.** A ticket is two cells at most, that it was issued and that it was won, however often it is claimed
 (0.9: one more cell per claim call). Nothing removes them.
@@ -90,15 +97,12 @@ sessions' engines were all still held at the end, four of them closed. Not found
 | 0.10 | 205 | 167 |
 | 0.11 | 224 | 180 |
 
-**aarch64.** His 31 tests on both stores, the threads test, the 400-ticket race and the acceptance study (LAN link,
-once) pass against the aarch64 RAM host under emulation. The aarch64 session library is built and has not been
-loaded anywhere but John's Pis, which ran 0.9's and 0.10's.
+**aarch64.** His 31 tests on both stores, the threads test, the 400-ticket race, the 4,000-ticket race and the
+acceptance study (LAN link) pass against the aarch64 RAM host under emulation; `make session-check` passes on the
+aarch64 session library under emulation; and all of it ran on John's aarch64 Pis as above.
 
-**Not done on 0.11.** Not run on real nodes. The emulated aarch64 RAM host
-answers about 680 claims a second, so 4,000 tickets claimed by 7 at once (28,000 calls) overrun the session
-library's 15 s call limit there; 1,000 tickets pass. That limit is counted from when a call is queued, not sent.
-The RAM host's own reclaimer (`cpp/src/lf_ebr.cpp`) still reads a fixed array of thread slots. The other examples
-that use the session library were not rebuilt or rerun against the new `ebr.hpp`.
+**Not done on real nodes.** The acceptance study's failure injections (the RAM host killed, a link cut, the RAM
+moved, two memories) have run in the simulator only.
 
 ## 0.9: the app's RAM host and the acceptance study
 `ACCEPTANCE.md` has the study: every case, both links, and what it found. What else was run on 0.9, all on `worldshepherd-ram`:

@@ -86,10 +86,8 @@ into it again. On a node that is not serving the RAM there is nothing to restart
 run again. Stop the claimants of an earlier race first (`W end`, or Ctrl-C): a claimant is a program of the earlier
 build until it is started again.
 
-## Not yet done on hardware
+## On hardware
 
-Everything here was built and tested on one x86_64 machine. 0.11 has not run on a node. The aarch64 RAM host passed
-SARA's 31 tests, the race and the acceptance study's LAN cases under emulation; the aarch64 session library passed
-`make session-check` under emulation (it has not been loaded by an aarch64 Python: there is none here). The
-separation of `fdf-app.service` was tested with fdf-app's own test (check 14) and with a stand-in for systemd; the
-restart of an earlier build's RAM host by `W setup` was tested with a stand-in for systemd. Neither on a node.
+Build 2026-11-26j ran on John's seven nodes on 2026-11-26 (`RESULTS.md`, "On real nodes"): `W his-tests` on two Pis,
+and five 4,000-ticket races across all seven, four of them in a row on the same claimants. What has not run on
+nodes is the acceptance study's failure injections.
