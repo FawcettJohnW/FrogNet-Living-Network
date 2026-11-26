@@ -1,12 +1,12 @@
 # Simulator status (last full run 2026-11-15)
 
 ## WorldShepherd acceptance study, 2026-11-26 (`worldshepherd_acceptance.py`, not in the gate)
-**On worldshepherd-ribbit 0.11 2026-11-25i with ribbit-platform 0.72 (a ticket is one record in `worldshepherd-ram`;
-the issuer says who won; study build 2026-11-25d, run 2026-11-26):** PASS on lan and wan-100ms, 3 repetitions, and
-the 310 s case on lan: 49 rows PASS, 2 OPEN, none FAIL; no ticket won twice, none lost. The restored-winner control
-is now two: PASS when the issuer saw the win, OPEN when its link was down while the ticket was won. Also PASS on lan,
-3 repetitions, against the aarch64 RAM host under emulation (24 PASS, the same one OPEN). Rows:
-`ribbit/examples/worldshepherd/results/acceptance-0.11i-20261126.jsonl`. The study needs SARA's
+**On worldshepherd-ribbit 0.11 2026-11-26j with ribbit-platform 0.73 (a ticket is one record in `worldshepherd-ram`
+and writes each of its two facts in its own cell; the issuer says who won; a stored bag is ASCII; study build
+2026-11-26e):** PASS on lan and wan-100ms, 3 repetitions, and the 310 s case on lan: 51 rows PASS, 2 OPEN, none
+FAIL; no ticket won twice, none lost. The restored-winner control is two: PASS when the issuer saw the win, OPEN
+when its link was down while the ticket was won. Also PASS on lan, 3 repetitions, against the aarch64 RAM host under
+emulation (24 PASS, the same one OPEN). Rows: `ribbit/examples/worldshepherd/results/acceptance-0.11j-20261126.jsonl`. The study needs SARA's
 Python packages on the caller's `PYTHONPATH`, and sets `FROGNET_BLOB_ROOT` to its own output directory.
 What follows is the 0.9 run of the same day:
 

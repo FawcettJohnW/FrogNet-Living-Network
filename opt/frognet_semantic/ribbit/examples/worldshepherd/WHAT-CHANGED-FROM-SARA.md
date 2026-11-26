@@ -58,8 +58,9 @@ process and each operation costs at least one round trip to wherever it is.
 
 **On memory, since 0.11.** A ticket is one record in WorldShepherd's RAM host, found by its id. Its issue is one word
 and its winner is one word, each set once by one compare-and-swap. Registering is one call (`op=issue`), claiming is
-one call (`op=claim`), and the ticket writes how it stands in one cell, `(worldshepherd, tickets.<its issuer>, <ticket_id>)`, which
-its issuer's held read and the page read; `status` is one call to the ticket (`op=status`). "Consumed" is the winner's word being set. `DESIGN.md`, "A ticket is one record", has the table.
+one call (`op=claim`), and the ticket writes each of its two facts once, in its own cell: `(worldshepherd, ticket, <ticket_id>)` when it is
+issued, `(worldshepherd, won.<its issuer>, <ticket_id>)` when it is won. `status` is a read of those two cells; the
+issuer holds a read on its own `won.` family. "Consumed" is the winner's word being set. `DESIGN.md`, "A ticket is one record", has the table.
 
 **On memory, 0.7 to 0.9 (what the rest of this section and section 2 describe).** A ticket was its cells: family `(worldshepherd, ticket.<ticket_id>)`. The issuing SARA writes one cell,
 `issue.<who>.<n>`, holding the digest and the expiry. Each claiming SARA writes one cell, `claim.<who>.<n>`, holding
@@ -185,8 +186,7 @@ afterwards.
 
 **In the memory model.** A status call is a request for something the caller could simply read.
 
-**On memory.** Through 0.9 `status` was a read of the ticket's family; on 0.11 it is one call to the ticket, which
-is found by its id (the ticket's cell is in its issuer's family, and a SARA that did not issue it does not know that name). `sara_ui.py` replaces `/ui` with a page that is one held
+**On memory.** `status` is a read: through 0.9 of the ticket's family, on 0.11 of the ticket's two cells. `sara_ui.py` replaces `/ui` with a page that is one held
 read of the memory: where the RAM is served, the SARAs in it, and every ticket as it stands, the same in every SARA's
 browser because they all read the same cells. It changes when a cell is written and asks nothing on a timer: in
 Chrome, a claim written while the page was open appeared on it with no reload, and the page had made two requests in

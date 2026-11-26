@@ -46,14 +46,15 @@ def as_it_stands(store, after=-1, memory_id=""):
     memory, cells, top = store._in_the_memory(read)
     now = time.time()
     tickets = []
-    for c in cells:                                            # a ticket is its own state, as the ticket wrote it
-        if not (c["variable"].startswith("tickets.") and c["bag"]):
+    won = {c["instance"]: c["bag"]["won"] for c in cells if c["variable"].startswith("won.") and c["bag"]}
+    for c in cells:                                            # a ticket's two cells, as the ticket wrote them: issued, and won
+        if not (c["variable"] == "ticket" and c["bag"]):
             continue
         ticket_id, t = c["instance"], c["bag"]
-        exp = float(t["exp"])
-        stands = "consumed" if t["won"] else ("expired" if now > exp else "issued")
+        exp, by = float(t["exp"]), won.get(c["instance"], "")
+        stands = "consumed" if by else ("expired" if now > exp else "issued")
         tickets.append({"id": ticket_id, "stands": stands, "issuer": t["by"].rsplit("-", 1)[0], "ends_in": round(exp - now),
-                        "by": t["won"].rsplit("-", 1)[0], "claims": 1 if t["won"] else 0})
+                        "by": by.rsplit("-", 1)[0], "claims": 1 if by else 0})
     tickets.sort(key=lambda t: (t["stands"] != "issued", t["ends_in"] is None, -(t["ends_in"] or 0)))
     return {"build": BUILD, "ui": UI_BUILD, "me": store.who, "app": APP, "at": memory.where.split("/")[0],
             "memory": "%s#%d" % (memory.where, id(memory)), "top": top,
@@ -83,7 +84,7 @@ th{color:#8a97b5;font-weight:600} .n{font-size:1.5rem;font-weight:700} .row{disp
 <div><div class="n" id="n-expired">-</div><div class="dim">expired unclaimed</div></div></div>
 <div class="scroll"><table><thead><tr><th>Ticket</th><th>Stands</th><th>Issued by</th><th>Consumed by</th><th>Ends in</th><th>Claims</th></tr></thead>
 <tbody id="tickets"></tbody></table></div>
-<p class="dim">A ticket is one record in the memory and writes how it stands in one cell. This page is one held read of those cells.</p></div>
+<p class="dim">A ticket is one record in the memory and writes that it was issued, and that it was won, each in its own cell. This page is one held read of those cells.</p></div>
 <div class="card"><strong>Authority separation</strong><p>CRE1AWS approves high-impact releases. SSPADAWANZZ operates the local service.</p></div>
 <div class="card"><strong>Security boundary</strong><p>Tokens are never stored in this page. Ticket digests are not shown. This page writes nothing. PRIME SENTINEL private signing keys are not stored by SARA.</p></div>
 <p class="dim" id="build"></p>

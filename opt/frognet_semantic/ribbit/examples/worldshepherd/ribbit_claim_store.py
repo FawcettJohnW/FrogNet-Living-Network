@@ -12,9 +12,9 @@
 #              is another's ticket: a duplicate.
 #   claim      op=claim {"who","ticket","sha","at","n"[,"held":1]} -> {"outcome", "state"}. The outcome: claimed,
 #              consumed, digest, expired or absent.
-#   status     op=status {"who","ticket"} -> {"state"}.
-# The ticket writes how it stands in (worldshepherd, tickets.<its issuer>, <ticket>). The issuer holds a read on its
-# own family, sees each of its tickets won, and says so when it makes them again in a new memory
+#   status     two reads of one cell each: (worldshepherd, ticket, <ticket>), then (worldshepherd, won.<its issuer>, <ticket>).
+# [EACH_FACT_ITS_OWN_CELL_V1] The ticket writes each of its two facts once, in its own cell. The issuer holds a read on
+# won.<itself>, sees each of its tickets won, and says so when it makes them again in a new memory
 # ([THE_ISSUER_SAYS_WHO_WON_V1]).
 # The only cell this SARA writes itself is (worldshepherd, sara, <who>): it is here; it goes with its session.
 #
@@ -66,7 +66,7 @@ import ribbit
 from worldshepherd_sara.connector_ticket_lifecycle import MAX_TTL_SECONDS, TicketClaim
 from worldshepherd_sara.connector_ticket_shared import SharedClaimRecord
 
-BUILD = "worldshepherd-ribbit 0.11 2026-11-25i [A_TICKET_IS_ONE_RECORD_V1] [A_SARA_BRINGS_ITS_OWN_BACK_IN_ONE_CALL_V1] [THE_ISSUER_SAYS_WHO_WON_V1] [A_SESSION_I_OPENED_AND_DROP_IS_CLOSED_V1] [AN_ANSWER_THAT_REFUSES_IS_WAITED_ON_V1] [A_SARA_WRITES_ONLY_ITS_OWN_SPACE_V1] [A_SARA_REASSERTS_ITS_OWN_V1] [THEN_LEARN_THE_WORLD_AGAIN_V1] [THE_RAM_IS_A_SERVICE_V1] [A_MEMORY_GONE_WHILE_I_WRITE_MY_OWN_V1] [A_CALL_HAS_ONE_CELL_V1] [A_HELD_CLAIM_AGES_V1]"
+BUILD = "worldshepherd-ribbit 0.11 2026-11-26j [A_TICKET_IS_ONE_RECORD_V1] [A_SARA_BRINGS_ITS_OWN_BACK_IN_ONE_CALL_V1] [THE_ISSUER_SAYS_WHO_WON_V1] [A_SESSION_I_OPENED_AND_DROP_IS_CLOSED_V1] [AN_ANSWER_THAT_REFUSES_IS_WAITED_ON_V1] [A_SARA_WRITES_ONLY_ITS_OWN_SPACE_V1] [A_SARA_REASSERTS_ITS_OWN_V1] [THEN_LEARN_THE_WORLD_AGAIN_V1] [THE_RAM_IS_A_SERVICE_V1] [A_MEMORY_GONE_WHILE_I_WRITE_MY_OWN_V1] [A_CALL_HAS_ONE_CELL_V1] [A_HELD_CLAIM_AGES_V1]"
 APP, RAM = "worldshepherd", "general"
 API = fdfram.API
 SERVICE = "worldshepherd"
@@ -273,13 +273,13 @@ class RibbitClaimStore:
             threading.Thread(target=self._see_my_tickets_won, daemon=True, name="worldshepherd-issuer-" + self.who).start()
 
     def _see_my_tickets_won(self):
-        """[THE_ISSUER_SAYS_WHO_WON_V1] One held read on this SARA's own tickets, (worldshepherd, tickets.<who>): the ticket
-        writes there when it is won. What is seen is kept with the issue, and said when the issue is made again in a
+        """[THE_ISSUER_SAYS_WHO_WON_V1] One held read on (worldshepherd, won.<who>): each ticket this SARA issued writes
+        there, once, when it is won. What is seen is kept with the issue, and said when the issue is made again in a
         new memory -- so a ticket this SARA saw won comes back consumed by its winner, whoever claims to have held it."""
         seen_in, last = None, 0
         while True:
             def read(memory):
-                return memory, memory.read(SERVICE, "tickets." + self.who, "", after=(last if memory is seen_in else 0), wait_s=ribbit.HOLD_S)
+                return memory, memory.read(SERVICE, "won." + self.who, "", after=(last if memory is seen_in else 0), wait_s=ribbit.HOLD_S)
             try:
                 memory, cells = self._in_the_memory(read)
             except (ribbit.RibbitError, NoRamManager) as e:
@@ -319,7 +319,17 @@ class RibbitClaimStore:
         return self.claim_as_it_stands(ticket_id, ticket_sha256, now)[0]
 
     def status(self, ticket_id):
-        state = self._in_the_memory(lambda memory: self._ticket(memory, "status", {"who": self.who, "ticket": ticket_id}))["state"]
+        def read(memory):                                     # [EACH_FACT_ITS_OWN_CELL_V1] two reads of one cell each: its issue, then its win
+            for c in memory.read(SERVICE, "ticket", ticket_id):
+                if c["bag"]:
+                    for w in memory.read(SERVICE, "won." + c["bag"]["by"], ticket_id):
+                        if w["bag"]: return dict(c["bag"], **w["bag"])
+                    return dict(c["bag"], won="", wn=0, at=0)
+        return self.status_of(ticket_id, self._in_the_memory(read))
+
+    @staticmethod
+    def status_of(ticket_id, state):
+        """the contract's status, from a ticket's state (read from its cells, or as its claim operation answered)"""
         if state is None:
             return {"known": False, "ticket_id": ticket_id}
         return {"known": True, "ticket_id": ticket_id, "ticket_sha256": state["sha"],

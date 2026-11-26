@@ -14,6 +14,31 @@ What every vendor's executable and client library is built from.
 | `tools/tuple_write.cpp` | `tuple-write`: cells written and read from a script, one JSON line at a time |
 | `tests/` | the platform's tests; the oracle the C++ wire is compared with is FrogNet's live Python engine, `opt/frognet_semantic` |
 
+## 0.73 (2026-11-26): a stored bag is ASCII, in one form
+`[A_STORED_BAG_IS_ASCII_V1]` (John: "The stored bag should be ASCII. Convert the binary before storing it.")
+
+- **What was wrong.** A bag written as text was stored as its writer sent it: spaced or not, raw UTF-8 or escaped,
+  `1.50` or `1.5`. The RAM-answer handler (`ramrows.hpp`), which rebuilds an answer from a difference and hands that to
+  the reader, wrote its own form: compact, raw UTF-8, every number a double. So a reader was given different bytes for
+  the same cell depending on whether its answer came whole or as a difference, and an integer past 2^53 came back
+  changed. `qualify.sh` stages `fnwp` (556 of 2,000 answers differed) and `ramrows` (none exact) failed on it.
+- **Now.** `include/bagtext.hpp`, `ribbit::stored_bag(text)`: one pass, no tree, in `ramm::Memory::write` -- every bag
+  written as text, from the network or from this process, is stored compact and ASCII (`\uXXXX`, a surrogate pair
+  above U+FFFF), an integer as its digits, a float as its shortest round-trip text. It is byte for byte what the wire
+  writes for the same value (`semtpl::dumps_ascii`) and what a bag written as fields already read back as.
+  `ramrows.hpp` rebuilds in that form and keeps integers exact (`Json::parse` keeps a number's text).
+- **Checked.** `tests/bagtext_check.cpp` (in `qualify.sh`'s `ramrows` stage): 200,008 texts against
+  `dumps_ascii(json_loads(text))`, under AddressSanitizer. `qualify.sh`: `fnwp` PASS on 3 seeds and both endpoints,
+  `ramrows` PASS, and every other stage but the two races below. Redis's concurrency audit 39 of 39; fdf's
+  `test_fdf_app.py` 14 of 14, `memory-order-check.sh`, `daf-check.sh`; the chat example's test; WorldShepherd's whole
+  validation (`examples/worldshepherd/RESULTS.md`).
+- **A reader sees a change:** a bag reads back in the stored form, not as it was typed. `{"a": 1}` reads back
+  `{"a":1}`; `"é"` reads back `"\u00e9"`. The value is the same.
+- **Two racing memory tests fail some runs, before and after this work** (`qualify.sh` stage `memory` repeats them and
+  reports FAIL if any run fails). Measured on this 2-core machine, runs passed: `test-row-scan-bound` 27 of 30 at
+  bc7221b, 22 of 30 at 0.72, 23 of 30 now ("reader missed the final write of 1 rows"); `test-write-window` 197 of 200
+  at bc7221b, 196 of 200 at 0.72, 239 of 240 now (the failures are segmentation faults). Not found yet.
+
 ## 0.72 (2026-11-25): nobody is asked; a call's time is counted from when it is sent
 Found by WorldShepherd's race on John's nodes and in the simulator (`examples/worldshepherd/RESULTS.md`).
 
@@ -39,13 +64,8 @@ Found by WorldShepherd's race on John's nodes and in the simulator (`examples/wo
 - Qualified with: `STAGES="build memory lockfree capabilities" bash qualify.sh` (PASS); Redis's concurrency audit, 39 of
   39 families; `rinab/tools/test_fdf_app.py`, 14 of 14, on rebuilt static binaries; `memory-order-check.sh` and
   `daf-check.sh` PASS; the chat and communicator examples' session tests PASS.
-- **Failing before this change and still failing, on this machine** (the same with the four changed files as
-  committed in bc7221b, and at b938ac9): `qualify.sh` stages `fnwp` and `ramrows`. A read answered through the
-  engines is not byte-equal to `api()`'s own when a bag holds non-ASCII text: a bag written through a request the
-  server rebuilt from a template is stored ASCII-escaped (`\u00e9`), one written by a full request is stored as sent
-  (`é`), and the answer rebuilder writes raw UTF-8 for both. 427 to 617 of 2,000 answers differ per seed; they are
-  equal as JSON. Not changed here: which form a stored bag takes is the platform's ruling to make.
-  `examples/lispers.net/tools/qualify.sh` stage `handler` also fails here before and after (4 checks before, 1 after).
+- `qualify.sh` stages `fnwp` and `ramrows` failed before this change and after it (answers that differed in bytes
+  where a bag held non-ASCII text). Fixed in 0.73.
 
 ## Qualification
 

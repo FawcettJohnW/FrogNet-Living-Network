@@ -11,15 +11,15 @@ what it runs, what it measured on 2026-11-25, what it found, and what was change
 0.9: its method, cases and injections are unchanged and still read true; its numbers, its access controls and its
 storage finding are 0.9's.**
 
-Pinned: FrogNet `bc7221b+uncommitted` on `worldshepherd-ribbit-20261124`; SARA `52b3764c`; `worldshepherd-ram worldshepherd-ram 0.11 2026-11-25i`; platform `ribbit-platform 0.72`; `fdf-app-2026-11-25-r56`; study `worldshepherd-acceptance 2026-11-25d`. Three repetitions
-of each injection on each link; the 310-second case once, on the LAN link. Rows: `results/acceptance-0.11i-20261126.jsonl`.
+Pinned: FrogNet `b5442b3+uncommitted` on `worldshepherd-ribbit-20261124`; SARA `52b3764c`; `worldshepherd-ram worldshepherd-ram 0.11 2026-11-26j`; platform `ribbit-platform 0.73`; `fdf-app-2026-11-25-r56`; study `worldshepherd-acceptance 2026-11-26e`. Three repetitions
+of each injection on each link; the 310-second case once, on the LAN link. Rows: `results/acceptance-0.11j-20261126.jsonl`.
 
 From `opt/frognet_semantic`, with SARA's Python packages importable:
 
     python3 simulation/worldshepherd_acceptance.py --sara $SARA --link lan wan-100ms --skip-long --reps 3
     python3 simulation/worldshepherd_acceptance.py --sara $SARA --link lan --only long
 
-**Result: PASS on both links: 49 rows PASS, 2 OPEN, 0 FAIL. No ticket was won twice and none was lost in any case.
+**Result: PASS on both links: 51 rows PASS, 2 OPEN, 0 FAIL. No ticket was won twice and none was lost in any case.
 The one control left OPEN is a restored winner whose issuer did not see the win.**
 
 **Not done: nothing removes a ticket.** An expired or consumed ticket's record and its cell stay for the life of the
@@ -29,26 +29,26 @@ memory; the RAM host grows with every ticket ever issued. Removing them changes 
 ### LAN (0.5 ms each way)
 | case | tickets | claims | duplicate wins | lost tickets | claim p50 / p99 ms | recovery p50 / max ms | 0.9 recovery p50 / max ms |
 |---|---|---|---|---|---|---|---|
-| baseline | 240 | 720 | 0 | 0 | 2.4 / 12.0 | none injected | none injected |
-| restart:before-claims | 720 | 2160 | 0 | 0 | 2.4 / 43.4 | 74.6 / 84.3 | 171.5 / 293.5 |
-| restart:claims-in-flight | 720 | 2160 | 0 | 0 | 2.5 / 79.9 | 77.4 / 109.7 | 250.3 / 451.0 |
-| restart:reassertion | 720 | 3240 | 0 | 0 | 2.5 / 126.8 | 180.2 / 215.0 | 595.6 / 650.4 |
-| restart:completion | 720 | 4320 | 0 | 0 | 2.5 / 8.9 | 199.6 / 202.8 | 612.6 / 787.2 |
-| split:issuer | 720 | 2160 | 0 | 0 | 2.2 / 9.0 | 13.0 / 15.9 | 20.1 / 26.6 |
-| split:claimant-in-flight | 720 | 2160 | 0 | 0 | 2.1 / 9.3 | 2.5 / 2040.4 | 5.2 / 2405.0 |
-| split:winner+restart | 720 | 2160 | 0 | 0 | 2.0 / 3037.3 | 3065.5 / 3095.4 | 3210.5 / 3252.3 |
+| baseline | 240 | 720 | 0 | 0 | 2.4 / 9.4 | none injected | none injected |
+| restart:before-claims | 720 | 2160 | 0 | 0 | 2.3 / 49.6 | 73.7 / 116.7 | 171.5 / 293.5 |
+| restart:claims-in-flight | 720 | 2160 | 0 | 0 | 2.5 / 120.8 | 89.1 / 125.0 | 250.3 / 451.0 |
+| restart:reassertion | 720 | 3240 | 0 | 0 | 2.5 / 119.9 | 177.2 / 185.2 | 595.6 / 650.4 |
+| restart:completion | 720 | 4320 | 0 | 0 | 2.1 / 10.2 | 166.1 / 170.6 | 612.6 / 787.2 |
+| split:issuer | 720 | 2160 | 0 | 0 | 2.3 / 8.3 | 15.3 / 19.2 | 20.1 / 26.6 |
+| split:claimant-in-flight | 720 | 2160 | 0 | 0 | 2.2 / 12.3 | 1.9 / 2041.0 | 5.2 / 2405.0 |
+| split:winner+restart | 720 | 2160 | 0 | 0 | 1.9 / 3039.7 | 3064.5 / 3118.8 | 3210.5 / 3252.3 |
 
 ### WAN (50 ms each way)
 | case | tickets | claims | duplicate wins | lost tickets | claim p50 / p99 ms | recovery p50 / max ms | 0.9 recovery p50 / max ms |
 |---|---|---|---|---|---|---|---|
-| baseline | 24 | 72 | 0 | 0 | 107.4 / 111.4 | none injected | none injected |
-| restart:before-claims | 72 | 216 | 0 | 0 | 107.4 / 651.8 | 653.0 / 669.9 | 670.3 / 678.9 |
-| restart:claims-in-flight | 72 | 216 | 0 | 0 | 108.0 / 797.6 | 660.2 / 665.8 | 679.2 / 696.9 |
-| restart:reassertion | 72 | 324 | 0 | 0 | 107.6 / 645.6 | 813.9 / 817.9 | 852.8 / 902.2 |
-| restart:completion | 72 | 432 | 0 | 0 | 107.6 / 655.4 | 667.7 / 687.8 | 709.8 / 721.3 |
-| split:issuer | 72 | 216 | 0 | 0 | 107.2 / 111.2 | 111.6 / 116.6 | 114.5 / 118.1 |
-| split:claimant-in-flight | 72 | 216 | 0 | 0 | 107.4 / 2564.3 | 95.9 / 2547.6 | 98.1 / 2581.5 |
-| split:winner+restart | 72 | 216 | 0 | 0 | 107.6 / 3545.2 | 3557.5 / 3558.0 | 3567.3 / 3579.3 |
+| baseline | 24 | 72 | 0 | 0 | 108.1 / 111.2 | none injected | none injected |
+| restart:before-claims | 72 | 216 | 0 | 0 | 107.9 / 648.9 | 654.7 / 662.3 | 670.3 / 678.9 |
+| restart:claims-in-flight | 72 | 216 | 0 | 0 | 107.9 / 681.6 | 657.3 / 663.0 | 679.2 / 696.9 |
+| restart:reassertion | 72 | 324 | 0 | 0 | 107.7 / 648.5 | 821.9 / 823.5 | 852.8 / 902.2 |
+| restart:completion | 72 | 432 | 0 | 0 | 107.8 / 649.6 | 662.8 / 674.5 | 709.8 / 721.3 |
+| split:issuer | 72 | 216 | 0 | 0 | 107.2 / 110.6 | 112.2 / 137.9 | 114.5 / 118.1 |
+| split:claimant-in-flight | 72 | 216 | 0 | 0 | 106.9 / 2565.0 | 95.7 / 2548.3 | 98.1 / 2581.5 |
+| split:winner+restart | 72 | 216 | 0 | 0 | 107.5 / 3544.4 | 3557.0 / 3563.1 | 3567.3 / 3579.3 |
 
 Recovery is the time from the injection to the first answer after it. On 0.11 a SARA brings its issues and its won
 claims back to a new memory in one call (`op=again`). The first build of 0.11 made one call per ticket, one after
@@ -61,15 +61,17 @@ ticket can live (300 s). PASS: no ticket won twice, none lost. Side B (issuer ab
 
 ### The access controls (LAN; the WAN link gave the same verdicts)
 On 0.11 a SARA writes one cell itself, `(worldshepherd, sara, <who>)`; everything about a ticket goes through the
-ticket's operations, and the ticket writes how it stands in `(worldshepherd, tickets.<its issuer>, <ticket>)`. Each
-control passes when the ticket stands afterwards exactly as it did before.
+ticket's operations, and the ticket writes its two facts each in its own cell: `(worldshepherd, ticket, <ticket>)`
+when it is issued and `(worldshepherd, won.<its issuer>, <ticket>)` when it is won. Each control passes when the
+ticket stands afterwards exactly as it did before.
 
 | control | result | what happened |
 |---|---|---|
-| access:other-name(claim) | PASS | refused: a-b61cd48b0299 is the SARA at 127.0.1.11; this is from 127.0.1.99; the ticket stands as it did |
-| access:other-name(held-claim) | PASS | refused: a-b61cd48b0299 is the SARA at 127.0.1.11; this is from 127.0.1.99; the ticket stands as it did |
-| access:other-name(here) | PASS | refused: a-b61cd48b0299 is the SARA at 127.0.1.11; this is from 127.0.1.99 |
-| access:ticket-cell | PASS | refused: (worldshepherd, tickets.issuer-75bf3ce64536) is written by the ticket; a SARA writes (worldshepherd, sara, <who>) and calls issue and claim |
+| access:other-name(claim) | PASS | refused: a-8e4c0262a706 is the SARA at 127.0.1.11; this is from 127.0.1.99; the ticket stands as it did |
+| access:other-name(held-claim) | PASS | refused: a-8e4c0262a706 is the SARA at 127.0.1.11; this is from 127.0.1.99; the ticket stands as it did |
+| access:other-name(here) | PASS | refused: a-8e4c0262a706 is the SARA at 127.0.1.11; this is from 127.0.1.99 |
+| access:ticket-cell | PASS | refused: (worldshepherd, ticket) is written by the ticket; a SARA writes (worldshepherd, sara, <who>) and calls issue and claim |
+| access:won-cell | PASS | refused: (worldshepherd, won.issuer-2cb0bd7a41ed) is written by the ticket; a SARA writes (worldshepherd, sara, <who>) and calls issue and claim |
 | access:not-a-family | PASS | refused: (worldshepherd, junk) is written by the ticket; a SARA writes (worldshepherd, sara, <who>) and calls issue and claim |
 | access:claim-other-digest | PASS | answered digest; the ticket stands as it did |
 | access:claim-past-expiry | PASS | answered expired; the ticket stands as it did |
@@ -77,7 +79,7 @@ control passes when the ticket stands afterwards exactly as it did before.
 | access:held-claim-on-consumed | PASS | answered consumed; the ticket stands as it did |
 | access:malformed-claim | PASS | refused: claim says "who", "ticket", "sha", "n" and "at"; the ticket stands as it did |
 | access:issue-of-an-issued-ticket | PASS | answered ok; the ticket stands as it did |
-| access:other-session | PASS | refused: a-b61cd48b0299 is session 5's, which is up; this is on session 25; the ticket stands as it did |
+| access:other-session | PASS | refused: a-8e4c0262a706 is session 5's, which is up; this is on session 26; the ticket stands as it did |
 | access:no-session | PASS | refused: HTTP 403: {"ok":false,"error":"a WorldShepherd call is made on a session; this one has none"} |
 | access:tickets-after | PASS |  |
 | access:restored-winner(issuer-saw) | PASS | a member that said it held a ticket, in a new memory before the winner returned, was answered claimed for 0 of 4 tickets; afterwards 0 stand won by it and 4 by the true winner. the issuer had seen each ticket won before the memory was replaced, and said so when it issued them again |
@@ -85,7 +87,7 @@ control passes when the ticket stands afterwards exactly as it did before.
 
 ### The provenance of a restored winner
 In a new memory a ticket exists again when its issuer makes it again. `[THE_ISSUER_SAYS_WHO_WON_V1]`: the issuer holds
-one read on its own tickets' family, sees each of them won, and says who won when it makes the ticket again. A ticket
+one read on `(worldshepherd, won.<itself>)`, sees each of its tickets won, and says who won when it makes the ticket again. A ticket
 made again that way comes back consumed by its winner, and a member that says it held it is answered consumed
 (`access:restored-winner(issuer-saw)`, PASS on both links).
 
@@ -99,16 +101,17 @@ receipts are sealed with an unkeyed SHA-256 and are not signed, so that is World
 | | 0.9 | 0.11 |
 |---|---|---|
 | cells for 200 tickets after issue | 200 | 200 |
-| after 3 SARAs claimed each | 800 | 200 |
-| after they claimed each again | 1400 | 200 |
-| cells a claim call adds | 1.0 | 0.0 |
-| in a replaced memory | 400 | 200 |
+| after 3 SARAs claimed each | 800 | 400 |
+| after they claimed each again | 1400 | 400 |
+| in a replaced memory | 400 | 400 |
 
-On 0.9 every claim call added a cell and the finding was that nothing bounded them. On 0.11 a ticket is one cell
-however often it is claimed. In this case (200 tickets, 1,200 claim calls, each ticket's status read by every SARA)
-the RAM host grew 29.4 kB a ticket on the LAN link and 29.1 on the WAN link; most of that is the wire's reference for
-each cell a session has been sent, kept by the platform's session code for the life of that session, not the ticket.
-**Still true: a ticket's record and its cell stay for the life of the memory; nothing removes an expired ticket.**
+On 0.9 every claim call added a cell and the finding was that nothing bounded them. On 0.11 a ticket is two cells at
+most, that it was issued and that it was won, however often it is claimed. In this case (200 tickets, 1,200 claim
+calls, each ticket's status read by every SARA) the RAM host grew 32.2 kB a ticket on the LAN link and 32.8 on the WAN
+link. A tenth of that is the cells and the ticket's record; the rest is the platform's host keeping what each session
+has asked and been answered, and not giving it back when the session ends (`RESULTS.md`, "The RAM host's memory grows
+with every call").
+**Still true: a ticket's record and its cells stay for the life of the memory; nothing removes a ticket.**
 
 ### What this study found in 0.11, and what was changed
 1. **Recovery of 10 to 33 s on the WAN link** (0.9: 0.7 to 0.9 s). A SARA made each of its issues and won claims again
@@ -129,8 +132,9 @@ each cell a session has been sent, kept by the platform's session code for the l
 
 ### aarch64
 The study was also run on the LAN link, three repetitions, against the aarch64 RAM host under emulation (the SARAs'
-session library x86_64): 24 PASS and the same one OPEN (access:restored-winner(issuer-did-not-see)). Rows:
-`results/acceptance-0.11i-aarch64-emulated-20261126.jsonl`. The aarch64 session library is checked without Python by
+session library x86_64): 24 PASS and the same one OPEN (access:restored-winner(issuer-did-not-see)); its storage row reads FINDING,
+by the rule that run still had (it counted the won cell as growth), with the same cell counts as above. Rows:
+`results/acceptance-0.11j-aarch64-emulated-20261126.jsonl`. The aarch64 session library is checked without Python by
 `make session-check` (1,000 tickets, 7 sessions, 7,000 claims on 7,000 threads, under emulation: PASS).
 
 ### What was not run

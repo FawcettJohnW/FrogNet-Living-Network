@@ -20,6 +20,7 @@
 //   {"ok":true,"hold":true,"exact":B,"diff_bytes":N,"raw_bytes":M,"fields":F,"changed":C}
 // exact: rebuild(learn(ref), decode(encode_reply_diff(extract(new), reference=extract(ref)))) == new, byte for byte.
 #include "ramrows.hpp"
+#include <cstdlib>
 #include <iostream>
 using frogram::Json; using pyv::Dict; using pyv::List;
 int main() {
@@ -42,6 +43,7 @@ int main() {
                 for (auto& kv : dec) vals.push_back(kv.second);
             }
             std::string out = ramrows::rebuild(frag, vals);
+            if (out != nw && std::getenv("WHY")) std::cerr << "[DIAG-RAMROWS] rebuilt: " << out << "\n[DIAG-RAMROWS] answer:  " << nw << "\n";
             size_t changed = 0; for (size_t i = 0; i < fnew->size(); ++i) if (!semcodec::values_equal((*fnew)[i].second, (*fref)[i].second)) ++changed;
             std::cout << "{\"ok\":true,\"hold\":true,\"exact\":" << (out == nw ? "true" : "false") << ",\"diff_bytes\":" << (d.identical ? 0 : d.bytes.size())
                       << ",\"raw_bytes\":" << nw.size() << ",\"fields\":" << fnew->size() << ",\"changed\":" << changed << "}\n" << std::flush;

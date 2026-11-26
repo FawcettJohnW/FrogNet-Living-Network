@@ -77,6 +77,9 @@ so it does not survive that RAM being moved or killed. A node study needs its in
     cd / && tar xvzf - < /tmp/worldshepherd-node-<build>-<arch>.tgz
     W setup
 
+A claimant or SARA still running from the earlier build must be stopped first (`W end`, or Ctrl-C): from build
+2026-11-26j the ticket's cells are different ones and `status` reads them.
+
 `W setup` sees a RAM host that was started before the tarball was unpacked, says so, asks, and restarts
 `fdf-app@worldshepherd.service` on that node. The RAM is replaced with an empty one and each SARA writes its own
 into it again. On a node that is not serving the RAM there is nothing to restart. `config` and `install` are not

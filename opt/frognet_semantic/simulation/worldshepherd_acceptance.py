@@ -87,7 +87,7 @@ _HERE = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, _HERE)
 import slowlink as SL                         # noqa: E402
 
-BUILD = "worldshepherd-acceptance 2026-11-25d [WS_ACCEPTANCE_V1] for worldshepherd-ribbit 0.11"
+BUILD = "worldshepherd-acceptance 2026-11-26e [WS_ACCEPTANCE_V1] for worldshepherd-ribbit 0.11"
 EXAMPLE = os.path.normpath(os.path.join(_HERE, "..", "ribbit", "examples", "worldshepherd"))
 FDF_PY = os.path.normpath(os.path.join(_HERE, "..", "..", "fdf", "src", "fdf-source", "fdf", "lib", "python"))
 os.environ.setdefault("FDF_PY", FDF_PY)
@@ -409,9 +409,11 @@ def access(st, rp):
     def there(family, instance):
         return any(c["variable"] == family and c["instance"] == instance for c in st.cells())
     def stands(ticket):                                                       # the ticket's own cell: who issued it, who won it
-        for c in st.cells():
-            if c["variable"].startswith("tickets.") and c["instance"] == ticket:
-                return (c["bag"]["sha"], c["bag"]["by"], c["bag"]["won"])
+        cells = st.cells()                                                    # its two cells: that it was issued, that it was won
+        for c in cells:
+            if c["variable"] == "ticket" and c["instance"] == ticket and c["bag"]:
+                won = [w["bag"]["won"] for w in cells if w["variable"].startswith("won.") and w["instance"] == ticket and w["bag"]]
+                return (c["bag"]["sha"], c["bag"]["by"], won[0] if won else "")
     def control(case, refused_why, present, more=""):
         ok = bool(refused_why) and not present
         rp.row(link, case, "PASS" if ok else "FAIL", {}, ("refused: " + refused_why if refused_why else "ACCEPTED") + ("; the cell is in the memory" if present else "") + more)
@@ -435,7 +437,8 @@ def access(st, rp):
     called("access:other-name(held-claim)", o, "claim", X[2], who=victim, sha=sha_of(X[2]), at=now, n=9002, held=1)
     control("access:other-name(here)", landed(o, "sara", victim, {"x": 1}), False)
     # the ticket's own cell, and any other cell in the service, written from the network
-    control("access:ticket-cell", landed(o, "tickets." + st.who["issuer"], X[2], {"sha": sha_of(X[2]), "exp": now + 250, "by": imp, "bn": 1, "won": imp, "wn": 1, "at": now}), stands(X[2])[2] == imp)
+    control("access:ticket-cell", landed(o, "ticket", X[2], {"sha": sha_of(X[2]), "exp": now + 250, "by": imp, "bn": 1}), stands(X[2])[1] == imp)
+    control("access:won-cell", landed(o, "won." + st.who["issuer"], X[2], {"won": imp, "wn": 1, "at": now}), stands(X[2])[2] == imp)
     control("access:not-a-family", landed(o, "junk", "x", {"a": 1}), there("junk", "x"))
     # in its own name: a claim the ticket does not take
     called("access:claim-other-digest", o, "claim", X[3], who=imp, sha="00" * 32, at=now, n=1)
@@ -505,17 +508,18 @@ def storage(st, rp, n=200):
     """in a study of its own: SARAs that have issued and won nothing before, so what is counted is these tickets"""
     link = st.link
     T = ["%s-sto-%04d" % (link, k) for k in range(n)]
-    tick = lambda: [c for c in st.cells() if c["variable"].startswith("tickets.")]
+    tick = lambda: [c for c in st.cells() if c["variable"] == "ticket" or c["variable"].startswith("won.")]
     time.sleep(0.5); r0 = st.rss_kb(); st.issue(T, life=250.0); time.sleep(0.5); c1 = len(tick()); r1 = st.rss_kb()
     st.answers(st.claims(T), limit=600); time.sleep(0.5); c2 = len(tick()); r2 = st.rss_kb()
     st.answers(st.claims(T), limit=600); time.sleep(0.5); c3 = len(tick()); r3 = st.rss_kb()
     st.replace(); time.sleep(2.0 + 10 * SL.profile(link).latency_ms / 1000.0); c4 = len(tick())
     per_claim = (c3 - c1) / float(6 * n)
-    rp.row(link, "storage", "FINDING" if per_claim > 0.01 or c1 != n else "PASS",
+    # a ticket is one cell when issued and one more when won; a claim made again adds none
+    rp.row(link, "storage", "PASS" if c1 == n and c2 <= 2 * n and c3 == c2 else "FINDING",
            {"tickets": n, "cells_after_issue": c1, "cells_after_one_round": c2, "cells_after_two_rounds": c3, "cells_in_replaced_memory": c4,
             "ram_host_rss_kb": [r0, r1, r2, r3], "ram_host_kb_per_ticket": round((r3 - r0) / float(n), 1), "cells_per_claim_call": round(per_claim, 3)},
-           "%d tickets: %d cell(s) after issue, %d after 3 SARAs claimed each, %d after they claimed again (%.3f a claim call: a ticket is one cell however often "
-           "it is claimed); the RAM host grew %d kB over the %d tickets and their %d claim calls (%.1f kB a ticket); a ticket's record and its cell stay while its "
+           "%d tickets: %d cell(s) after issue, %d after 3 SARAs claimed each, %d after they claimed again (%.3f a claim call: a ticket is one cell when issued and one more "
+           "when won, however often it is claimed); the RAM host grew %d kB over the %d tickets and their %d claim calls (%.1f kB a ticket); nothing removes a ticket while its "
            "memory lives. A replaced memory held %d (each ticket its issuer made again)"
            % (n, c1, c2, c3, per_claim, r3 - r0, n, 6 * n, (r3 - r0) / float(n), c4))
 

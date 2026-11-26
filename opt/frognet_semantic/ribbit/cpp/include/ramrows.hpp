@@ -21,7 +21,10 @@
 #pragma once
 #include "frogram.hpp"
 #include "semcodec.hpp"
+#include "semtpl.hpp"
 #include <algorithm>
+#include <cerrno>
+#include <cstdlib>
 #include <cmath>
 #include <cstdio>
 #include <optional>
@@ -32,24 +35,6 @@ namespace ramrows {
 using pyv::Dict; using pyv::List; using pyv::Obj; using semcodec::Fields;
 using frogram::Json;
 namespace detail {
-// ram_server.cpp dump(), exactly: every number is a double; integral and |x| < 9e15 prints "%.0f", else "%.17g".
-inline std::string num(double n) {
-    char b[40];
-    if (std::floor(n) == n && std::fabs(n) < 9e15) std::snprintf(b, sizeof b, "%.0f", n);
-    else std::snprintf(b, sizeof b, "%.17g", n);
-    return b;
-}
-inline std::string dump(const Json& j) {
-    switch (j.type) {
-        case Json::Null: return "null";
-        case Json::Bool: return j.b ? "true" : "false";
-        case Json::Num: return num(j.n);
-        case Json::Str: return Json::quote(j.s);
-        case Json::Arr: { std::string o = "["; for (size_t i = 0; i < j.a.size(); ++i) o += (i ? "," : "") + dump(j.a[i]); return o + "]"; }
-        case Json::Obj: { std::string o = "{"; for (size_t i = 0; i < j.o.size(); ++i) o += (i ? "," : "") + Json::quote(j.o[i].first) + ":" + dump(j.o[i].second); return o + "}"; }
-    }
-    return "null";
-}
 inline std::string epoch(double u) { char b[64]; std::snprintf(b, sizeof b, "%.3f", u); return b; }   // row_json's updated_epoch
 inline bool dup_keys(const Json& j) {                                  // a pyv Dict cannot hold duplicate keys
     if (j.type == Json::Arr) { for (auto& x : j.a) if (dup_keys(x)) return true; return false; }
@@ -57,28 +42,29 @@ inline bool dup_keys(const Json& j) {                                  // a pyv 
     for (size_t i = 0; i < j.o.size(); ++i) { for (size_t k = 0; k < i; ++k) if (j.o[k].first == j.o[i].first) return true; if (dup_keys(j.o[i].second)) return true; }
     return false;
 }
-inline Obj to_obj(const Json& j) {                                     // a leaf value for the codec; numbers stay doubles
+// A leaf value for the codec, exact: an integer is an integer however large (the text it was written as), a float a
+// double. [A_STORED_BAG_IS_ASCII_V1] So what rebuild writes is the bag as the memory stores it, byte for byte.
+inline Obj num(const Json& j) {
+    const std::string& t = j.s;
+    if (t.empty() || t.find_first_of(".eE") != std::string::npos) return j.n;
+    size_t d = t[0] == '-' ? 1 : 0; while (d + 1 < t.size() && t[d] == '0') ++d;        // its digits, no leading zeros
+    const std::string digits = t.substr(d);
+    if (digits == "0") return pyv::Int::of(0);
+    if (digits.size() < 19) return pyv::Int::of(std::strtoll(t.c_str(), nullptr, 10));
+    errno = 0; const long long v = std::strtoll(t.c_str(), nullptr, 10);
+    if (errno == 0) return pyv::Int::of(v);
+    pyv::Int big; big.big = true; big.dec = (t[0] == '-' ? "-" : "") + digits; return big;
+}
+inline Obj to_obj(const Json& j) {
     switch (j.type) {
         case Json::Null: return pyv::None{};
         case Json::Bool: return j.b;
-        case Json::Num: return j.n;
+        case Json::Num: return num(j);
         case Json::Str: return pyv::Str{j.s};
         case Json::Arr: { List l; for (auto& x : j.a) l.push_back(to_obj(x)); return l; }
         case Json::Obj: { Dict d; for (auto& kv : j.o) d.set(kv.first, to_obj(kv.second)); return d; }
     }
     return pyv::None{};
-}
-inline Json to_json(const Obj& o) {                                    // back, for the server's dump
-    Json j;
-    if (o.is<pyv::None>()) j.type = Json::Null;
-    else if (o.is<bool>()) { j.type = Json::Bool; j.b = o.as<bool>(); }
-    else if (o.is<double>()) { j.type = Json::Num; j.n = o.as<double>(); }
-    else if (o.is<pyv::Int>()) { j.type = Json::Num; j.n = semcodec::detail::int_to_float(o.as<pyv::Int>()); }
-    else if (o.is<pyv::Str>()) { j.type = Json::Str; j.s = o.as<pyv::Str>().s; }
-    else if (o.is<List>()) { j.type = Json::Arr; for (auto& x : o.as<List>()) j.a.push_back(to_json(x)); }
-    else if (o.is<Dict>()) { j.type = Json::Obj; const Dict& d = o.as<Dict>(); for (size_t i = 0; i < d.size(); ++i) j.o.push_back({d.keys[i], to_json(d.vals[i])}); }
-    else throw std::runtime_error("ramrows: a bytes value in a RAM answer");
-    return j;
 }
 inline Obj shape(const Json& bag) {                                    // object structure: Dict of key -> shape, leaf = None
     if (bag.type != Json::Obj) return pyv::None{};
@@ -100,11 +86,11 @@ inline void leaf_values(const Json& bag, Fields& out, const std::string& pre) {
     if (bag.type != Json::Obj) { out.emplace_back(pre, to_obj(bag)); return; }
     for (auto& kv : bag.o) leaf_values(kv.second, out, pre + "/" + esc(kv.first));
 }
-inline Json fill(const Obj& sh, const List& vals, size_t& k) {         // the bag from its shape and the leaf values, in order
-    if (!sh.is<Dict>()) return to_json(vals.at(k++));
-    Json j; j.type = Json::Obj; const Dict& d = sh.as<Dict>();
-    for (size_t i = 0; i < d.size(); ++i) j.o.push_back({d.keys[i], fill(d.vals[i], vals, k)});
-    return j;
+inline Obj fill(const Obj& sh, const List& vals, size_t& k) {          // the bag from its shape and the leaf values, in order
+    if (!sh.is<Dict>()) { const Obj& v = vals.at(k++); if (v.is<pyv::Bytes>()) throw std::runtime_error("ramrows: a bytes value in a RAM answer"); return v; }
+    Dict out; const Dict& d = sh.as<Dict>();
+    for (size_t i = 0; i < d.size(); ++i) out.set(d.keys[i], fill(d.vals[i], vals, k));
+    return out;
 }
 struct Row { double id; std::string s, v, i; const Json* bag; double upd; };
 inline std::vector<Row> rows(const Json& ans) {
@@ -152,10 +138,10 @@ inline std::string rebuild(const Dict& frag, const List& values) {
     for (const Obj& ro : tr) {
         const Dict& t = ro.as<Dict>(); auto str = [&](const char* key) { return t.vals[size_t(t.find(key))].as<pyv::Str>().s; };
         const pyv::Int& id = values.at(k++).as<pyv::Int>(); std::string upd = values.at(k++).as<pyv::Str>().s;
-        Json bag = detail::fill(t.vals[size_t(t.find("shape"))], values, k);
+        const Obj bag = detail::fill(t.vals[size_t(t.find("shape"))], values, k);
         outs.push_back(Out{uint64_t(id.v), std::string("{\"id\":") + std::to_string(uint64_t(id.v)) + ",\"service\":" + Json::quote(str("service")) +
                            ",\"variable\":" + Json::quote(str("variable")) + ",\"instance\":" + Json::quote(str("instance")) + ",\"bag\":" +
-                           detail::dump(bag) + ",\"updated_epoch\":" + upd + "}"});
+                           semtpl::dumps_ascii(bag, false) + ",\"updated_epoch\":" + upd + "}"});
     }
     if (k != values.size()) throw std::runtime_error("ramrows: " + std::to_string(values.size()) + " values for " + std::to_string(k) + " fields");
     std::sort(outs.begin(), outs.end(), [](const Out& a, const Out& b) { return a.id < b.id; });   // the server answers in id order

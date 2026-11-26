@@ -60,6 +60,7 @@ if has build; then
   run bin/semtpl-driver -std=c++20 -O2 $WERR $I tests/semtpl_driver.cpp -llz4 -lcrypto
   run bin/bench-semtpl -std=c++20 $NOFP -O2 $I tests/bench_semtpl.cpp -llz4 -lcrypto
   run bin/ramrows-driver -std=c++20 $NOFP -O2 $I tests/ramrows_driver.cpp $FO -llz4 -lcrypto
+  run bin/bagtext-check -std=c++20 $NOFP -O2 $I tests/bagtext_check.cpp -llz4 -lcrypto
   run bin/test-lockfree-snapshot -std=c++20 $NOFP -O2 -pthread $I tests/test_lockfree_snapshot.cpp
   run bin/test-ebr-stress -std=c++20 $NOFP -O2 -pthread $I tests/test_ebr_stress.cpp
   run bin/test-lf-primitives -std=c++20 -O2 -pthread $WERR $I tests/test_lf_primitives.cpp src/lf_ebr.cpp   # [LF_PRIMITIVES_V1]
@@ -176,6 +177,7 @@ fi
 
 if has ramrows; then
   note "== the RAM-answer handler (ramrows.hpp) against ribbit-ram's real answers"
+  note "-- [A_STORED_BAG_IS_ASCII_V1] a bag's stored form is the wire's own"; ./bin/bagtext-check > "$OUT/bagtext.txt" 2>&1; note "$(tail -1 "$OUT/bagtext.txt")"
   ./bin/ribbit-ram --listen 127.0.0.1:8788 > "$OUT/ribbit-ram-ramrows.log" 2>&1 & RR=$!; sleep 0.5
   timeout 300 $PY tests/test_ramrows.py 8788 > "$OUT/ramrows.txt" 2>&1; note "$(tail -1 "$OUT/ramrows.txt")"
   kill $RR 2>/dev/null; wait $RR 2>/dev/null

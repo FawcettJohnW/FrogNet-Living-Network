@@ -14,7 +14,7 @@ Read `WHAT-CHANGED-FROM-SARA.md` first (each difference from SARA's stores and w
 
 | file | |
 |---|---|
-| `ribbit_claim_store.py` | `RibbitClaimStore`, a `SharedClaimStore`: register, claim and status are one call each to the ticket; it holds one read on the tickets it issued and says who won them when it makes them again in a new memory. When the memory moves it finds it, brings its own issues and won claims back in one call, learns which SARAs are there, and proceeds |
+| `ribbit_claim_store.py` | `RibbitClaimStore`, a `SharedClaimStore`: register and claim are one call each to the ticket and status is two reads of one cell each; it holds one read on the wins of the tickets it issued and says who won them when it makes them again in a new memory. When the memory moves it finds it, brings its own issues and won claims back in one call, learns which SARAs are there, and proceeds |
 | `worldshepherd_ram.cpp` | `worldshepherd-ram`, the app's RAM host: the tickets, each one record; the operations `issue`, `claim` and `again`; a name belongs to the session that first used it |
 | `ticket_sql.py` | Brandon's `PostgresClaimStore`, unmodified, with no PostgreSQL: its four SQL calls done on the same tickets |
 | `sara_ui.py` | SARA's browser page `/ui` for the memory: the tickets as they stand, as one held read |

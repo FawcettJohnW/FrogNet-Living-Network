@@ -221,6 +221,7 @@ struct P {
         // (t.substr(i)), quadratic in the body -- 60% of the memory host's time on a batch of writes, measured
         j.type = Json::Num; const char* b0 = t.c_str() + i; char* e0 = nullptr;
         j.n = std::strtod(b0, &e0); if (e0 == b0) bad("number");
+        j.s.assign(b0, size_t(e0 - b0));                    // the number as it was written: an integer past 2^53 is not a double
         i += size_t(e0 - b0); return j;
     }
 };

@@ -41,7 +41,7 @@ int main(int argc, char** argv) {
         else other.fetch_add(1); });
     for (auto& t : th) t.join();
     int once = 0, twice = 0, never = 0; for (auto& w : won) { int x = w.load(); if (x == 1) ++once; else if (x > 1) ++twice; else ++never; }
-    char* err = nullptr; char* cells = kr_read(issuer, "worldshepherd", ("tickets.issuer-" + run).c_str(), "", -1, 0.0, &err);
+    char* err = nullptr; char* cells = kr_read(issuer, "worldshepherd", ("won.issuer-" + run).c_str(), "", -1, 0.0, &err);
     long says = 0; if (cells) { for (const char* p = cells; (p = strstr(p, "\"won\":\"c")); ++p) ++says; kr_free(cells); }
     for (void* h : hs) kr_close(h);
     kr_close(issuer);

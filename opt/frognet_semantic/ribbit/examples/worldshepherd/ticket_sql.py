@@ -19,13 +19,20 @@
 #
 # A statement is recognized by being one of those four, as the store's own module spells them. Anything else is
 # refused by name: this is not a SQL engine and does not pretend to be one. connection(), commit(), rollback() and
-# close() send nothing: the store's "connection per call" is an object over the one permanent session. Nothing is
-# kept here between statements: a refused claim's status query is a read of the memory, as the store wrote it.
+# close() send nothing: the store's "connection per call" is an object over the one permanent session. A claim's
+# answer carries how the ticket stood when it answered; the status query the store makes next on the same thread, to say
+# why a claim was refused, is answered from that (its own claim's answer, not a second trip). A status query on its
+# own is a read of the ticket's cells.
+import threading
+
 from worldshepherd_sara import connector_ticket_postgres as stock
 
 from ribbit_claim_store import RibbitClaimStore
 
-BUILD = "worldshepherd-ribbit 0.7 [THE_SQL_CALLS_ARE_CELLS_V1]"
+BUILD = "worldshepherd-ribbit 0.11 [THE_SQL_CALLS_ARE_CELLS_V1]"
+
+
+_stood = threading.local()                     # .was: (ticket_id, the ticket's state) as this thread's refused claim was answered
 
 
 class NotOneOfTheFour(Exception):
@@ -50,12 +57,14 @@ class _Cursor:
         if sql == stock.CLAIM_SQL:
             now, ticket_id, sha, _now_again = params
             claim, ticket = self._cells.claim_as_it_stands(ticket_id, sha, now)
+            _stood.was = None if claim.ok else (ticket_id, ticket)   # how it stood when it refused: this thread's next status of it
             self._row = (float(ticket["exp"]), claim.consumed_at) if claim.ok else None
             self.rowcount = 1 if claim.ok else 0
             return
         if sql == stock.STATUS_SQL:
             (ticket_id,) = params
-            s = self._cells.status(ticket_id)
+            stood, _stood.was = getattr(_stood, "was", None), None
+            s = self._cells.status_of(ticket_id, stood[1]) if stood and stood[0] == ticket_id else self._cells.status(ticket_id)
             self._row = (s["ticket_sha256"], s["expires_at"], s["consumed_at"]) if s["known"] else None
             return
         raise NotOneOfTheFour("ticket_sql: not one of PostgresClaimStore's four statements: %r" % " ".join(sql.split())[:120])

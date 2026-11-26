@@ -12,7 +12,7 @@ A=${1:?package.sh aarch64|x86_64}; H=$(cd "$(dirname "$0")/.." && pwd); TREE=$(c
 : "${SARA:?package.sh: SARA=DIR, a checkout of Sara_pro at worldshepherd/connectors-distributed-claim-contract-v1-20260913}"
 [ -f "$SARA/worldshepherd_sara/connector_ticket_shared.py" ] || { echo "package.sh: $SARA is not that checkout" >&2; exit 1; }
 B="$(cut -d' ' -f2 "$H/VERSION")-$(sed -n 's/^BUILD_TAG = "fdf-app-\(.*\)".*/\1/p' "$TREE/opt/fdf/src/fdf-source/fdf/bin/fdf-app")"
-REV=i
+REV=j
 B="$B$REV"
 S=$(mktemp -d); E=$S/opt/frognet_semantic/ribbit/examples/worldshepherd
 mkdir -p "$S/opt/fdf/bin" "$E/lib" "$E/node" "$E/harness" "$E/Sara_pro" "$H/dist"

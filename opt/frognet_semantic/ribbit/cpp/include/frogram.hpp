@@ -45,7 +45,7 @@ struct Refused     : std::runtime_error { using std::runtime_error::runtime_erro
 // ---- a small JSON value: enough to read what the memory returns -------------
 struct Json {
     enum Type { Null, Bool, Num, Str, Arr, Obj } type = Null;
-    bool b = false; double n = 0; std::string s;
+    bool b = false; double n = 0; std::string s;             // a Num's s: the number as it was written
     std::vector<Json> a; std::vector<std::pair<std::string, Json>> o;
     const Json& operator[](const std::string& k) const;     // Null if absent
     const Json& operator[](size_t i) const { return a.at(i); }

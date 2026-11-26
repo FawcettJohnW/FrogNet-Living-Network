@@ -33,13 +33,16 @@
 //     op=issue {"who","ticket","sha","exp","n"}            -> {"state": the ticket's state, or null}
 //     op=claim {"who","ticket","sha","at","n"[,"held":1]}  -> {"outcome": claimed|consumed|digest|expired|absent, "state"}
 //     op=again (a line {"who"}, then a line an issue or claim) -> every issue and every won claim of one SARA, in one call
-//     op=status {"who","ticket"}                           -> {"state": the ticket's state, or null}
 // A claim is refused, in this order: no such ticket (absent); another digest; "at" past its expiry; a winner already.
 // A call made again (its session ended under it) carries the same "n" and is answered as it was before.
 //
-// The ticket writes how it stands in its own space, (worldshepherd, tickets.<its issuer>, <ticket>)
-// {"sha","exp","by","bn","won","wn","at"}, twice in its life: when it is made and when it is won. Whoever holds a
-// read on that cell is given it. The answer to a call is made from the record, never read back from the cell.
+// The ticket writes in its own space, two cells, each once ([EACH_FACT_ITS_OWN_CELL_V1]; John 2026-11-26: "You are not
+// locked into any specific tuple indices. If the ones you have aren't working, use others."):
+//     (worldshepherd, ticket, <ticket>)        {"sha","exp","by","bn"}   when it is issued
+//     (worldshepherd, won.<issuer>, <ticket>)  {"won","wn","at"}         when it is won
+// How a ticket stands is read, not asked: its issue by the ticket's name alone, then its win in the family its issue
+// names -- two reads of one cell each. Its issuer holds one read on won.<itself> and is given each of its tickets as
+// it is won. The answer to a call is made from the record, never read back from a cell.
 //
 // After the memory is replaced each SARA brings its own back in one call (op=again): its issues, and the claims it
 // won, as held claims. A held claim made before its ticket's issue is kept on the ticket; the issue, when it is made,
@@ -72,7 +75,7 @@
 #include <string>
 #include <vector>
 
-#define WORLDSHEPHERD_RAM_BUILD "worldshepherd-ram 0.11 2026-11-25i [THE_APPS_RAM_HOST_DECIDES_ITS_WRITES_V1] [A_TICKET_IS_ONE_RECORD_V1] [A_SARA_BRINGS_ITS_OWN_BACK_IN_ONE_CALL_V1] [THE_ISSUER_SAYS_WHO_WON_V1] [A_SARA_WRITES_ONLY_ITS_OWN_SPACE_V1]"
+#define WORLDSHEPHERD_RAM_BUILD "worldshepherd-ram 0.11 2026-11-26j [THE_APPS_RAM_HOST_DECIDES_ITS_WRITES_V1] [A_TICKET_IS_ONE_RECORD_V1] [A_SARA_BRINGS_ITS_OWN_BACK_IN_ONE_CALL_V1] [THE_ISSUER_SAYS_WHO_WON_V1] [A_SARA_WRITES_ONLY_ITS_OWN_SPACE_V1]"
 
 using frogram::Json;
 static const std::string SVC = "worldshepherd";
@@ -142,12 +145,16 @@ struct Ticket {
         return "{\"sha\":" + Json::quote(is.sha) + ",\"exp\":" + num(is.exp) + ",\"by\":" + Json::quote(is.who) + ",\"bn\":" + std::to_string(is.n)
              + ",\"won\":" + Json::quote(w ? w->who : "") + ",\"wn\":" + std::to_string(w ? w->n : 0) + ",\"at\":" + num(w ? w->at : 0) + "}";
     }
-    // in its own space. Written until what was written is how it stands: a write that lost a race to a later one is written over.
-    void tell(const Issue& is) const {
+    // [EACH_FACT_ITS_OWN_CELL_V1] In its own space, two cells, each written once by the call that made the fact:
+    //   (worldshepherd, ticket, <ticket>)        {"sha","exp","by","bn"}   that it was issued: read by its name alone
+    //   (worldshepherd, won.<issuer>, <ticket>)  {"won","wn","at"}         that it was won: its issuer's family
+    void tell_issued(const Issue& is) const {
         ramm::WritingFor mine(0, ramm::LINGER_STAYS);
-        for (;;) { const Claim* w = won.load(std::memory_order_acquire);
-                   MEM().write(SVC, "tickets." + is.who, id, state(is, w), now_s());
-                   if (won.load(std::memory_order_acquire) == w) return; }
+        MEM().write(SVC, "ticket", id, "{\"sha\":" + Json::quote(is.sha) + ",\"exp\":" + num(is.exp) + ",\"by\":" + Json::quote(is.who) + ",\"bn\":" + std::to_string(is.n) + "}", now_s());
+    }
+    void tell_won(const Issue& is, const Claim& w) const {
+        ramm::WritingFor mine(0, ramm::LINGER_STAYS);
+        MEM().write(SVC, "won." + is.who, id, "{\"won\":" + Json::quote(w.who) + ",\"wn\":" + std::to_string(w.n) + ",\"at\":" + num(w.at) + "}", now_s());
     }
 };
 static Table<std::string, Ticket> g_tickets;
@@ -169,9 +176,9 @@ static Ticket* issue(const std::string& who, const std::string& id, const std::s
     const Claim* first = seen;                                    // what its issuer saw; else, of those that say they held it: the first made (the last on the list)
     if (!first) for (const Claim* h = t->held.load(std::memory_order_acquire); h; h = h->next) if (h->sha == is->sha && h->at <= is->exp) first = h;
     const Claim* none = nullptr;
-    if (first && t->won.compare_exchange_strong(none, first, std::memory_order_acq_rel)) g_consumed.fetch_add(1, std::memory_order_relaxed);
+    t->tell_issued(*is);
+    if (first && t->won.compare_exchange_strong(none, first, std::memory_order_acq_rel)) { g_consumed.fetch_add(1, std::memory_order_relaxed); t->tell_won(*is, *first); }
     else delete seen;                                             // a claim made here already won it: what was seen is not kept
-    t->tell(*is);
     return t;
 }
 // A claim: claimed | consumed | digest | expired | absent. t and is are the ticket and its issue as the claim found them.
@@ -191,7 +198,7 @@ static const char* claim(const std::string& who, const std::string& id, const st
     const Claim* w = t->won.load(std::memory_order_acquire);
     if (!w) {
         if (!mine) mine = new Claim{who, sha, at, n};
-        if (t->won.compare_exchange_strong(w, mine, std::memory_order_acq_rel)) { g_consumed.fetch_add(1, std::memory_order_relaxed); t->tell(*is); return "claimed"; }
+        if (t->won.compare_exchange_strong(w, mine, std::memory_order_acq_rel)) { g_consumed.fetch_add(1, std::memory_order_relaxed); t->tell_won(*is, *mine); return "claimed"; }
         if (!kept) delete mine;                                   // never seen by anyone else
     }
     return w->who == who && w->n == n ? "claimed" : "consumed";   // claimed: this call, made again
@@ -216,14 +223,14 @@ public:
     // replaced went from 0.9's 0.7 s to 10-33 s on a 100 ms link.) op=again is every issue and every won claim of one
     // SARA in one call: a line {"who"}, then a line {"ticket","sha","exp","n"} for each issue and a line
     // {"ticket","sha","at","n"} for each won claim. Its claims are held claims.
-    bool handles(const std::string& op) const override { return op == "issue" || op == "claim" || op == "again" || op == "status"; }
+    bool handles(const std::string& op) const override { return op == "issue" || op == "claim" || op == "again"; }
     bool coalesces(const std::string& op) const override { (void)op; return false; }
     bool inline_operation(const std::string& op) const override { return handles(op); }
     static bool says(const Json& b, bool issuing) {
         return b.type == Json::Obj && !b["ticket"].s.empty() && b["sha"].type == Json::Str && !b["sha"].s.empty() && is_number(b["n"]) && is_number(issuing ? b["exp"] : b["at"]);
     }
     ribbit::Reply operation(const std::string& op, const std::string& body) override {
-        const bool issuing = op == "issue", again = op == "again", status = op == "status";
+        const bool issuing = op == "issue", again = op == "again";
         // again: a line for the SARA, then a line for each issue and each won claim. Lines, not one document with
         // lists in it: the wire keeps a list out of line, in a file on this host's disk.
         std::vector<Json> lines; Json b;
@@ -237,7 +244,7 @@ public:
             }
             if (again && !lines.empty()) b = lines[0];
         } catch (const std::exception&) { return ribbit::error_reply(400, op + ": the body is not JSON"); }
-        if (b.type != Json::Obj || b["who"].s.empty() || (status && b["ticket"].s.empty()) || (!again && !status && !says(b, issuing)))
+        if (b.type != Json::Obj || b["who"].s.empty() || (!again && !says(b, issuing)))
             return ribbit::error_reply(400, op + " says \"who\", \"ticket\", \"sha\", \"n\" and " + (issuing ? "\"exp\"" : "\"at\""));
         const std::string& who = b["who"].s;
         const uint64_t session = ribbit::current_session();
@@ -259,8 +266,7 @@ public:
             return ribbit::Reply{200, "{\"ok\":true,\"issues\":" + std::to_string(mine) + ",\"claims\":" + std::to_string(kept) + "}"};
         }
         const char* outcome = nullptr;
-        if (status) { t = g_tickets.find(b["ticket"].s); is = t ? t->issue.load(std::memory_order_acquire) : nullptr; }
-        else if (issuing) t = issue(who, b["ticket"].s, b["sha"].s, b["exp"].n, uint64_t(b["n"].n), is);
+        if (issuing) t = issue(who, b["ticket"].s, b["sha"].s, b["exp"].n, uint64_t(b["n"].n), is);
         else outcome = claim(who, b["ticket"].s, b["sha"].s, b["at"].n, uint64_t(b["n"].n), is_true(b["held"]), t, is);
         return ribbit::Reply{200, std::string("{\"ok\":true,") + (outcome ? std::string("\"outcome\":\"") + outcome + "\"," : std::string())
                                   + "\"state\":" + (is ? t->state(*is, t->won.load(std::memory_order_acquire)) : std::string("null")) + "}"};

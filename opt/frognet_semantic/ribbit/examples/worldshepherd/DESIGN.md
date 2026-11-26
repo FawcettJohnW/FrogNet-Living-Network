@@ -84,25 +84,31 @@ greenfield. Write it like a single machine multithreaded lockless system."
 | the ticket: digest, expiry, issuer | the ticket | one record in `worldshepherd-ram`, found by its id | its issue is one word, set once by one compare-and-swap |
 | who won it | the ticket | one word in that record | set once by one compare-and-swap |
 | the ticket table | the RAM host | added to, never moved, never freed while the memory lives | a record is added once |
-| how the ticket stands, for everyone to read | the ticket | `(worldshepherd, tickets.<its issuer>, <ticket>)` `{"sha","exp","by","bn","won","wn","at"}` | written when made and when won; the family is one issuer's tickets, so the issuer's one held read on it fires when any of them is won |
-| I am here | the SARA | `(worldshepherd, sara, <who>)`, gone with its session | the only cell a SARA writes itself |
+| that the ticket was issued | the ticket | `(worldshepherd, ticket, <ticket>)` `{"sha","exp","by","bn"}` | written once, when it is issued; read by the ticket's name alone |
+| that the ticket was won | the ticket | `(worldshepherd, won.<its issuer>, <ticket>)` `{"won","wn","at"}` | written once, when it is won; the family is one issuer's won tickets, so the issuer's one held read on it fires for each |
 | what I issued and what I won | the SARA | in its own process | it makes those calls again in a new memory |
-| who won each ticket I issued | the issuing SARA | in its own process, with the issue; read from its held read on `(worldshepherd, tickets.<itself>)` | it says so when it makes the issue again in a new memory |
+| who won each ticket I issued | the issuing SARA | in its own process, with the issue; read from its held read on `(worldshepherd, won.<itself>)` | it says so when it makes the issue again in a new memory |
 
 The ticket's two methods are region operations of `worldshepherd-ram`, each **one call** on the caller's session:
 
     op=issue {"who","ticket","sha","exp","n"}            -> {"state": the state, or null}
     op=claim {"who","ticket","sha","at","n"[,"held":1]}  -> {"outcome": claimed|consumed|digest|expired|absent, "state"}
-    op=status {"who","ticket"}                           -> {"state": the state, or null}
 
 A claim is refused in this order: no such ticket; another digest; `at` past the expiry; a winner already. `<who>` is
 the store's name plus a random token made when it opens; `<n>` is the number of the call. A call made again (its
 session ended under it) carries the same `<n>` and is answered as before. An operation is refused unless `<who>` is
 the calling session's (`[A_SARA_WRITES_ONLY_ITS_OWN_SPACE_V1]`): the name belongs to the machine whose session first
-named it, and to that session alone while it is up. `status` is the ticket asked how it stands: one call, found by
-the ticket's id. (Through 0.11h it was a read of the cell `(worldshepherd, ticket, <ticket>)`. The cell is now in its
-issuer's family, which a SARA that did not issue the ticket does not know; a read naming the ticket and no family
-walks the service's cells in `ram_memory.hpp`, and nothing here walks.)
+named it, and to that session alone while it is up. `status` is read, not asked: the cell `(worldshepherd, ticket, <ticket>)`, then the cell
+`(worldshepherd, won.<by>, <ticket>)` in the family its issue names -- two reads of one cell each, each found by its
+three indices.
+
+**The indices** (`[EACH_FACT_ITS_OWN_CELL_V1]`; John 2026-11-26: "You are not locked into any specific tuple
+indices. If the ones you have aren't working, use others."). Build 2026-11-25i kept both facts in one cell in the
+issuer's family, `(worldshepherd, tickets.<issuer>, <ticket>)`, so the issuer's read was one family -- and then a SARA
+that did not issue a ticket could not name its cell, and `status` became a call to the host. The two facts have
+different readers, so each has its own cell: the issue under the ticket's name, which everyone knows; the win in its
+issuer's family, which is the issuer's trigger and which the issue cell names. Nothing is stored twice, each cell is
+written once, and no read names less than a family.
 
 Nothing is locked. Nothing is searched for but a ticket by its id. Nothing is freed while the memory lives, so there
 is no reclaimer in WorldShepherd and nobody is asked whether a free is safe.

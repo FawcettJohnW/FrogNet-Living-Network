@@ -1,4 +1,4 @@
-# Results -- worldshepherd-ribbit 0.11 (a ticket is one record in worldshepherd-ram 0.11 2026-11-25i; ribbit-platform 0.72; fdf-app r56), 2026-11-26
+# Results -- worldshepherd-ribbit 0.11 (a ticket is one record in worldshepherd-ram 0.11 2026-11-26j; ribbit-platform 0.73; fdf-app r56), 2026-11-26
 
 **Not done: nothing removes a ticket.** An expired or consumed ticket's record and its cell stay for the life of the
 memory; the RAM host grows with every ticket ever issued. Removing them changes what a very late claim is answered
@@ -13,7 +13,7 @@ over the same tickets; the one-session-many-threads test passes; against the aar
 the x86_64 one (`harness/run_his_tests.py`). The session library itself, on each machine type without Python
 (`make session-check`; aarch64 under emulation): 1,000 tickets, 7 sessions, 7,000 claims on 7,000 threads, each
 ticket won once, on both. The 4,000-ticket race with every call in flight at once passes against the emulated
-aarch64 RAM host (57 s; it timed out before platform 0.72 counted a call's time from when it is sent).
+aarch64 RAM host (50 s; it timed out before platform 0.72 counted a call's time from when it is sent).
 
 **The acceptance study** (`ACCEPTANCE.md`, "The study on 0.11"): PASS on the LAN and WAN links, three repetitions,
 and the 310-second case: 49 rows PASS, 2 OPEN, none FAIL; no ticket won twice or lost. A restored winner is now
@@ -26,8 +26,9 @@ after the stop with their own issues and won claims brought back; 80 claims made
 ticket one winner. `results/apphost-moves-0.11.log`.
 
 **The race across a network, in the simulator** (`simulation/worldshepherd_slow_tier.py`, lan, wan, 4g and mixed): 16
-of 16 runs pass. On the 100 ms link a claim's median is 106.3 ms on `RibbitClaimStore` and 212.2 ms on Brandon's
-`PostgresClaimStore` over the same tickets (0.9: 107.4 ms and 213.6 ms). `results/slow-tier-0.11.log`.
+of 16 runs pass. On the 100 ms link a claim's median is 106.2 ms on `RibbitClaimStore` and 106.3 ms on Brandon's
+`PostgresClaimStore` over the same tickets (0.9: 107.4 ms and 213.6 ms; build 2026-11-25i: 106.3 and 212.2). His
+store's second trip, the status query after a claim that did not take, is now answered from that claim's own answer. `results/slow-tier-0.11.log`.
 
 **The race, three versions side by side.** 4,000 tickets, 7 claimants, every call in flight at once, each party on
 its own simulated link, x86, one run each. Every ticket was won exactly once in every run.
@@ -52,10 +53,10 @@ reclaimer kept a record for every thread that ever used a session and walked the
 | 3 | 11.4 s | 5.3 s | 6,621 ms | 82 ms | 20.0 s | 7.6 s |
 | 4 | 17.2 s | 5.3 s | 12,023 ms | 69 ms | 31.4 s | 7.3 s |
 
-The table above was measured on build 2026-11-25g. On the final build (2026-11-25i, platform 0.72) the four runs
-took 5.5, 6.0, 5.7 and 5.6 s (slowest claimant) with the RAM host at 2.6 to 2.7 s of CPU a run: flat. Its worst p99
-claim was 506, 217, 193 and 185 ms; build g run again the same hour on the same machine gave 476, 231, 182 and
-183 ms, so the higher p99 is the machine that hour and not the build.
+The table above was measured on build 2026-11-25g. On the final build (2026-11-26j, platform 0.73) the four runs
+took 5.9, 6.3, 5.7 and 6.5 s (slowest claimant) with the RAM host at 2.6 to 3.0 s of CPU a run: flat. Its worst p99
+claim was 758, 238, 187 and 248 ms; build g run again on the same machine the day before, the same hour as build i,
+gave 476, 231, 182 and 183 ms against i's 506, 217, 193 and 185, so the higher p99 is the machine and not the build.
 
 **On real nodes (John's network, 2026-11-25; 7 claimants on Seattle3B, Seattle5, Seattle7, BABox, BAMacBook,
 New-York-1, New-York-2; the RAM on the x86 node at 10.188.188.1; 4,000 tickets, all at once).** These are 0.9 and
@@ -69,11 +70,17 @@ New-York-1, New-York-2; the RAM on the x86 node at 10.188.188.1; 4,000 tickets, 
 
 0.10's runs slow from one to the next for the reason in the table above; it was found from these four runs.
 
-**Storage.** A ticket is one cell however often it is claimed (0.9: one more cell per claim call). Over 20,000
-tickets, each issued and claimed by two SARAs, the RAM host grew 1.1 to 1.5 kB a ticket (build g). In the study's
-storage case, where every SARA is also sent every ticket's cell, it grew 29 kB a ticket; that is the platform's
-session code keeping a reference for each cell each session was sent, for the life of the session. A ticket's
-record and cell stay for the life of the memory.
+**Storage.** A ticket is two cells at most, that it was issued and that it was won, however often it is claimed
+(0.9: one more cell per claim call). Nothing removes them.
+
+**The RAM host's memory grows with every call, and does not come back.** Measured on this build, 2,000 tickets, the
+host's resident memory: +5.7 kB a ticket issued, +3.5 kB a ticket won, +7.0 kB a ticket when one more SARA reads its
+status (two reads); when that SARA's session is closed, nothing is given back, and the next SARA's reads add 3.2 to
+6.6 kB a ticket again. Over the four 4,000-ticket races above the host went from 261 MB to 512 MB. The same with the
+memory's reclaimer as it was before platform 0.72, so it is not that change. The cells and the ticket's record are
+about a tenth of it. A heap profile of a 300-ticket run (valgrind massif) shows the rest in the platform's host: the
+semantic wire's engine keeps what it has seen of each distinct request and answer, per session, and the six
+sessions' engines were all still held at the end, four of them closed. Not found further, not fixed.
 
 **Lines** (code lines; comments and blanks out).
 

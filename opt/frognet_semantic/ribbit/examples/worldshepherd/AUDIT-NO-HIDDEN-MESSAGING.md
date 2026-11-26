@@ -108,13 +108,16 @@ What changed is stated plainly, because one item on this audit's own list is now
   space, after it does what it needs to do. If you're going to go OO, go fully OO." and "You can combine things so
   there's only one call to the server." The ticket is an object in the memory and these are its two methods.
 - **The state is in one place and has one writer.** A ticket is one record; its issue and its winner are each one
-  word set once by compare-and-swap. No lock, no queue, no second copy. The ticket's cell
-  `(worldshepherd, tickets.<its issuer>, <id>)` is written by the ticket and read by everyone; a held read on it fires.
-- **The issuer is not told who won; it reads it.** `[THE_ISSUER_SAYS_WHO_WON_V1]`: one held read on its own tickets'
-  family. The ticket does not know or look up who reads it, nothing is acknowledged, and what the issuer saw is its
-  own to say again in a new memory.
-- **`status` is a call, and that is a request.** It asks the ticket how it stands. It is one call found by the
-  ticket's id; the alternative, a read naming the ticket and no family, walks the service's cells in the memory.
+  word set once by compare-and-swap. No lock, no queue, no second copy. Each fact has its own cell, written once by
+  the call that made it: `(worldshepherd, ticket, <id>)` when issued, `(worldshepherd, won.<issuer>, <id>)` when won.
+- **The issuer is not told who won; it reads it.** `[THE_ISSUER_SAYS_WHO_WON_V1]`: one held read on
+  `(worldshepherd, won.<itself>)`. The ticket does not know or look up who reads it, nothing is acknowledged, and what
+  the issuer saw is its own to say again in a new memory.
+- **`status` is two reads, no call.** The ticket's issue cell, then its win cell in the family the issue names.
+  (Build 2026-11-25i made it a call to the host, `op=status`; that is gone.)
+- **A refused claim's reason is not asked for.** Brandon's `PostgresClaimStore` runs a status query after a claim that
+  did not take. `ticket_sql.py` answers it from the state that claim's own answer carried, on the same thread: one
+  trip, where 0.9 through 2026-11-25i made two.
 - **No acknowledgement, no retry between parts.** A call is made once. It is made again only when its session ended
   under it, with the same number, and the ticket answers it as it did before.
 - **Nothing is walked or asked.** The table of tickets is only added to and nothing in it is freed while the memory

@@ -56,13 +56,15 @@
 #include <thread>
 #include <vector>
 #include "bagarr.hpp"
+#include "bagtext.hpp"
 #include "lf/ebr.hpp"
 #include "lf/primitives.hpp"
 
 namespace ramm {
 
 // [DECODE_ONCE_V1] a row read: its bag decoded once (arr) when it was written as fields; bag holds the text only for a
-// row written as text. text() is the bag as JSON text either way, for a reader that asks for text.
+// row written as text, in the one form a bag is stored in ([A_STORED_BAG_IS_ASCII_V1], bagtext.hpp): ASCII, compact.
+// text() is the bag as JSON text either way, for a reader that asks for text: the same bytes for the same value.
 // [FORWARD_CHANGES_V1] prev: the array this write was a difference against (its writer's previous write of the family);
 // changed: the field indices it changed. A reader's encoder that last gave its reader that very array sends only those.
 using Changed = ribbit::FwdP;
@@ -208,7 +210,8 @@ public:
     uint64_t write(const std::string& s, const std::string& v, const std::string& i, const std::string& bag, double now, ribbit::BagArrP arr,
                    ribbit::BagArrP prev = nullptr, Changed changed = nullptr) {
         ribbit::lf::ebr::Guard eg;
-        return land(row(s, v, i), true, bag, now, std::move(arr), std::move(prev), std::move(changed), t_writer, t_linger,
+        // [A_STORED_BAG_IS_ASCII_V1] a bag written as text is stored in one form, ASCII (bagtext.hpp)
+        return land(row(s, v, i), true, arr || bag.empty() ? bag : ribbit::stored_bag(bag), now, std::move(arr), std::move(prev), std::move(changed), t_writer, t_linger,
                     [](const RowVal*) { return true; });
     }
     // ---- [GONE_WITH_ITS_WRITER_V1] a session has ended: every row it wrote last is gone. Each removal takes its place in
