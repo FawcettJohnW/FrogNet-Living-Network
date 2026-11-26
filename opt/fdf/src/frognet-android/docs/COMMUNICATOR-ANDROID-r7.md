@@ -47,8 +47,8 @@ is unchanged; `tools/app-typecheck.sh` passes (256 classes against the Android 1
 
 - the room lists Home; Home's call rings; Answer brings up the call;
 - eight changes from the Channel panel during call #1 (ChaCha20, New key, chorus, Not sealed, openqasm, AES-256-GCM,
-  tcp, the memory moved to the other comms-ram): each answered by all 3 ends, each shown in the Stats, 308 to 740 ms
-  from the tap to both; the key's hash on the screen changed with the key; Home's audio still arrived at 52 packets
+  tcp, the memory moved to the other comms-ram): each answered by all 3 ends, each shown in the Stats, 367 to 750 ms
+  from the tap to both; the key's hash on the screen changed with the key; Home's audio still arrived at 50 packets
   a second afterwards;
 - Home hung up and the phone was back in the room by itself;
 - the phone called Home (call #2), made two more changes, and hung up; Home saw the offer withdrawn;

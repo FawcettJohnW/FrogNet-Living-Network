@@ -44,7 +44,7 @@ ciphers, keys, protocols, etc. from the app in real time. The perf overlay shoul
   the call screen (cipher, new key, protocol, the RAM host moved), the Stats show the call, the link and the channel,
   and a call ends when the other person leaves. Proof: the app's own activity under Robolectric
   (`communicator-test/run_tests.sh` step 5): Home calls, the phone answers, eight changes from the call each answered
-  by all 3 ends (308 to 740 ms from the tap), Home hangs up and the phone is back in the room, the phone calls again,
+  by all 3 ends (367 to 750 ms from the tap), Home hangs up and the phone is back in the room, the phone calls again,
   two more changes, hangs up.
 - Not done: no APK was built (no Android SDK here) and r7 has not run on a phone. Not run on separate machines, on
   Windows, or with a camera and sound (the desktop test's windows send a file and a drawn picture, without audio).
