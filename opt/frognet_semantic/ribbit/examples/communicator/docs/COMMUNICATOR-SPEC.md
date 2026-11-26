@@ -80,9 +80,19 @@ for this machine. **The media server matches a MediaSpeed row to a viewer by ide
 fnav's relay, 2026-10-01): its name, or fnav's name + four hex digits. Matched by address, every viewer behind one
 address (NAT, an office, a test on one machine) shared one cap -- measured: one viewer's 120 kb/s capped all three.
 
+**The channel's tuples (service `channel`, 2026-11-25; `docs/CHANNEL-DESIGN-AND-IMPLEMENTATION.md`).** All three
+implementations (C++, Python, Android) read and write exactly these.
+| var | scope | value | written by |
+|---|---|---|---|
+| setting | `<Role>` | driver, number (text), protection, step, ram_host, ram_port, check | the Role's owner: `comms-channel` or a window's Security tab |
+| at | `<Role>:<end>` | role, end, driver, number, protection, step, sealed, framed, ram, ignored, build | each process, about itself; again at least every 10 s; read no older than 25 s |
+Every process holds a read on `setting`. `ram_host`/`ram_port` say where this memory is: a process that reads another
+address than the one it is attached to attaches there and asserts its own tuples again ([THE_MEMORY_MOVES_V1]).
+
 ## The main window (mock approved by John, 2026-10-01)
 
-One window, three columns:
+One window. Since 2026-11-25 it has two tabs, Call and Security; Call is the three columns below, and Security is
+described in `docs/CHANNEL-DESIGN-AND-IMPLEMENTATION.md` section 3.11.
 - **Left, the lobby:** people in the room with their status (in a call, available, away) and a chat button; unattended
   feeds in their own group with a Watch button.
 - **Centre, the call:**

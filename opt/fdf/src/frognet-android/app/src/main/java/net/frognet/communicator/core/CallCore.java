@@ -70,6 +70,8 @@ public final class CallCore {
 
     private Plane open(String host, int port, byte kind, String tag) throws Plane.Closed {
         Plane p = Plane.connect(host, port, 8000);                // [A_HANG_IS_THE_WORST_REPORT_V1]
+        Channel ch = Channel.ofProcess();                         // [THE_CALL_IS_UNDER_THE_FRAME_V1] this end opened the connection
+        if (ch != null) p.setChannel(ch.codec(host + ":" + port + " " + (kind == Fnav.PLANE_VIDEO ? "video" : "audio")), ch.role);
         byte[] tg = tag.getBytes(StandardCharsets.US_ASCII), s = session.getBytes(StandardCharsets.UTF_8);
         byte[] pl = new byte[1 + tg.length + s.length];
         pl[0] = kind;

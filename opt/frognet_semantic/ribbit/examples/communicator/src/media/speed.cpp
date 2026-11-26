@@ -26,13 +26,17 @@ std::vector<SpeedRow> read_media_speeds(CommsClient& c, int fresh_s) {
 // [HOLD_THE_READ_V1] The media server holds a read on MediaSpeed: a viewer's cap applies the moment it is written,
 // not at the next poll. Quiet for HOLD_S: one full read, so an aged-out cap is lifted.
 SpeedPoller::SpeedPoller(media::Server& srv, const std::string& host, int port) {
-    th_ = std::thread([this, &srv, host, port] {
+    RamAt::process().start(host, port);
+    // [THE_MEMORY_MOVES_V1] the held read ends when the memory moves, and the loop attaches where it is now
+    moved_id_ = RamAt::process().when_moved([this] { moved_ = true; try { c_.session().shutdown(); } catch (const std::exception&) {} });
+    th_ = std::thread([this, &srv] {
         CommsClient& c = c_;
         bool up = false;
         int64_t after = -1;
         while (!stop_) {
             try {
-                if (!up) { c.connect(host, port); up = true; after = -1; }
+                if (moved_.exchange(false) && up) { try { c.close(); } catch (const std::exception&) {} up = false; }
+                if (!up) { const auto at = RamAt::process().at(); c.connect(at.first, at.second); up = true; after = -1; }
                 auto ts = after < 0 ? c.get(SERVICE, "MediaSpeed", 120)
                                     : c.get_all(SERVICE, 120, 15.0, 1, "MediaSpeed", after);
                 if (after >= 0 && ts.empty()) { after = -1; continue; }      // quiet: resync next pass
@@ -44,9 +48,11 @@ SpeedPoller::SpeedPoller(media::Server& srv, const std::string& host, int port) 
                 if (after < 0) after = 0;
             } catch (const std::exception& e) {
                 if (stop_) break;
+                if (moved_) continue;                              // the move ended the read
                 std::fprintf(stderr, "[media] MediaSpeed read failed: %s (caps unchanged)\n", e.what());   // a failed read is not a lifted cap
+                try { c.close(); } catch (const std::exception&) {}
                 up = false;
-                for (int i = 0; i < 10 && !stop_; ++i) std::this_thread::sleep_for(std::chrono::milliseconds(100));
+                for (int i = 0; i < 10 && !stop_ && !moved_; ++i) std::this_thread::sleep_for(std::chrono::milliseconds(100));
             }
         }
         try { c.close(); } catch (const std::exception&) {}
@@ -54,16 +60,20 @@ SpeedPoller::SpeedPoller(media::Server& srv, const std::string& host, int port) 
 }
 SpeedPoller::~SpeedPoller() {
     stop_ = true;
+    RamAt::process().forget(moved_id_);
     try { c_.session().shutdown(); } catch (const std::exception&) {}   // [A_HELD_READ_ENDS_AT_ONCE_V1]
     if (th_.joinable()) th_.join();
 }
 
 HoldPublisher::HoldPublisher(media::Server& srv, const std::string& host, int port) {
-    th_ = std::thread([this, &srv, host, port] {
+    RamAt::process().start(host, port);
+    moved_id_ = RamAt::process().when_moved([this] { moved_ = true; });     // [THE_MEMORY_MOVES_V1] its next write goes to the new address
+    th_ = std::thread([this, &srv] {
         bool up = false;
         while (!stop_) {
             try {
-                if (!up) { c_.connect(host, port); up = true; }
+                if (moved_.exchange(false) && up) { try { c_.close(); } catch (const std::exception&) {} up = false; }
+                if (!up) { const auto at = RamAt::process().at(); c_.connect(at.first, at.second); up = true; }
                 for (auto& h : srv.holds()) {
                     std::string v = "{\"session\":\"" + h.session + "\",\"viewer\":\"" + h.viewer + "\",\"unanchored\":" +
                         (h.unanchored ? "true" : "false") + ",\"key_held\":" + (h.key_held ? "true" : "false") +
@@ -76,6 +86,7 @@ HoldPublisher::HoldPublisher(media::Server& srv, const std::string& host, int po
             } catch (const std::exception& e) {
                 if (stop_) break;
                 std::fprintf(stderr, "[media] MediaHold write failed: %s (retrying)\n", e.what());
+                try { c_.close(); } catch (const std::exception&) {}
                 up = false;
             }
             for (int i = 0; i < 20 && !stop_; ++i) std::this_thread::sleep_for(std::chrono::milliseconds(100));
@@ -86,6 +97,7 @@ HoldPublisher::HoldPublisher(media::Server& srv, const std::string& host, int po
 
 HoldPublisher::~HoldPublisher() {
     stop_ = true;
+    RamAt::process().forget(moved_id_);
     if (th_.joinable()) th_.join();
 }
 

@@ -99,3 +99,19 @@ phone (`opt/fdf/src/openeoc-app/android/teamram`), which passes OpenEOC's own ap
 The roles (`databasehost.frognet`, `databasehost_control.frognet`) are not RAM hosts: each is one host's `api.php` on
 port 80, with held reads in api.php (`[ROLES_ON_API_V1]`, `AI_READ_FIRST.md` section 10a). This contract is for
 services: the region's RAM manager and the AppRams.
+
+## The protocol layer's frame as a library (2026-11-24)
+
+`include/channel_frame.hpp`, `src/channel_frame.cpp` [THE_FRAME_IS_A_LIBRARY_V1]: `core/channel_frame.py`'s frame
+(build v13: the Role's protocol word, the key computed from the Role's secret, the switch in the stream, NOT OPENED
+and AGAIN) with no socket and no thread in it, so it goes under any permanently open connection. A `Codec` is one end:
+`pack()` gives the bytes to put on the connection, `feed()` takes what arrived, `undo()` takes back a unit that did
+not go, `setting()` is told the Role's setting whenever the program's held read fires. `src/channel_frame_c.cpp` is
+the same for any language that calls C, and `python/channel_codec.py` its Python binding. Needs only libcrypto.
+
+    g++ -std=c++17 -O2 -fPIC -fvisibility=hidden -Iinclude -shared src/channel_frame.cpp src/channel_frame_c.cpp -o bin/libchannel_frame.so -lcrypto
+    python3 tests/test_channel_frame_oracle.py        # against core/channel_frame.py's Link, the nodes' own: 30 checks
+
+Its first user is the Communicator (`examples/communicator/docs/CHANNEL.md`). It has two receiving-side rules that
+`core/channel_frame.py` v13 does not, both stated at the top of the header.
+

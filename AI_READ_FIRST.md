@@ -1169,3 +1169,23 @@ or as belonging to any one application domain.
 If something in this tree contradicts this file, this file is newer. If the
 **source code** contradicts this file, the source is the better evidence of what
 the implementation does — say so rather than guessing.
+
+## The frame is also a library, and the Communicator's calls are under it (2026-11-24)
+
+`opt/frognet_semantic/ribbit/cpp/src/channel_frame.cpp` is `core/channel_frame.py`'s frame with no socket in it, in
+C++ with a C interface and a Python binding, proven byte for byte against the nodes' `Link`
+(`ribbit/cpp/tests/test_channel_frame_oracle.py`). Use it to put any permanently open connection under a Role's
+protocol and key. The Communicator's audio and video planes are its first user: read
+`opt/frognet_semantic/ribbit/examples/communicator/docs/CHANNEL.md` before touching either. Two findings about
+`core/channel_frame.py` v13 came out of that work and are not fixed there: it takes unsealed messages for a sealed
+Role from a sender that names its sequence unsealed, and it ends the connection when a receiver reads two settings
+(sealed, then not sealed) before the sender's switch to sealed arrives.
+
+**2026-11-25.** The frame is also in Java, for the phone
+(`opt/fdf/src/frognet-android/app/src/main/java/net/frognet/communicator/core/ChannelFrame.java`), proven against the
+C++ library. All three Communicators (C++, Python, Android) are under the frame, have a Security tab (cipher, key,
+protocol, Change RAM host), and follow the Communicator's memory when its owner moves it to another comms-ram: the
+memory's address is two fields of the Role's setting ([THE_MEMORY_MOVES_V1]; `src/comms/ram_at.hpp`). Read
+`opt/frognet_semantic/ribbit/examples/communicator/docs/CHANNEL-DESIGN-AND-IMPLEMENTATION.md` first; the phone's part
+is `opt/fdf/src/frognet-android/docs/COMMUNICATOR-ANDROID-r6.md`. The Android APK was not built or run for this.
+

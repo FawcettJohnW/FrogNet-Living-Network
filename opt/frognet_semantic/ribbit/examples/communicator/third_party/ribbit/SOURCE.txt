@@ -1,1 +1,5 @@
 069134a055c134dbd292c2f5857d3cf8c66c7bed Wed Sep 30 18:44:27 2026 +0000
+
+2026-11-24: cpp/include/channel_frame.hpp, cpp/src/channel_frame.cpp, cpp/src/channel_frame_c.cpp and cpp/python/channel_codec.py
+are ribbit/cpp's own, copied as they are (channel-frame-cpp-v6-20261124f). They are newer than the commit above.
+2026-11-25: cpp/src/channel_frame_c.cpp gained cf_secret and cpp/python/channel_codec.py secret_of; copied again.

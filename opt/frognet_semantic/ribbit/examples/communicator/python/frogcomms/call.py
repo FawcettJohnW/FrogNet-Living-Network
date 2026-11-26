@@ -82,6 +82,9 @@ class Call:
 
         def open_plane(kind):
             p = F.Plane(F.Plane.connect(host, port, 8.0))     # [A_HANG_IS_THE_WORST_REPORT_V1]
+            from . import channel                            # [THE_CALL_IS_UNDER_THE_FRAME_V1] this end opened the connection
+            if channel.of_process() is not None:
+                channel.of_process().under(p, "%s:%d %s" % (host, port, "video" if kind == F.PLANE_VIDEO else "audio"))
             p.send(F.pack_typed(F.KIND_PLANE, name, kind + tag + session.encode()), F.CONTROL)
             return p
         self.vplane = open_plane(F.PLANE_VIDEO)

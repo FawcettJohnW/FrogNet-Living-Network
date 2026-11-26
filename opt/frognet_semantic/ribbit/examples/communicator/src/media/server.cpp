@@ -1,6 +1,7 @@
 // Copyright (C) 2016-2026 Fawcett Innovations LLC
 // SPDX-License-Identifier: GPL-2.0-only
 #include "server.hpp"
+#include "comms/channel.hpp"
 #include <algorithm>
 #include <cmath>
 #include <arpa/inet.h>
@@ -47,6 +48,8 @@ void Server::run() {
         c->plane->set_debt_mode(true);                     // a viewer never makes a sender's thread wait
         char ip[64]; inet_ntop(AF_INET, &a.sin_addr, ip, sizeof ip);
         c->peer = std::string(ip) + ":" + std::to_string(ntohs(a.sin_port));
+        // [THE_CALL_IS_UNDER_THE_FRAME_V1] this end accepted: the far end's first unit says whether it speaks the frame
+        if (auto ch = comms::Channel::of_process()) c->plane->set_channel(ch->codec(false, c->peer), ch->role(), true);
         { std::lock_guard<std::mutex> g(mu_); conns_.push_back(c); }
         threads_.emplace_back([this, c] { pump(c); });
     }
@@ -83,6 +86,12 @@ void Server::pump(std::shared_ptr<Conn> c) {
             Typed t;
             try { t = unpack_typed(body); } catch (const FrameError&) { continue; }
             if (c->kind == 0) {                            // the first frame declares the plane
+                // A Role that is sealed is not spoken in the clear: a far end that does not speak the frame is not
+                // let into a call whose setting this server holds as sealed.
+                if (auto ch = comms::Channel::of_process(); ch && ch->sealed() && !c->plane->framed()) {
+                    c->plane->shutdown_both();
+                    throw ConnectionError("it does not speak the frame, and the setting of '" + ch->role() + "' is sealed: not let in");
+                }
                 if (t.kind == KIND_PLANE) { declare(c, t); continue; }
                 declare(c, Typed{KIND_PLANE, t.src, Bytes{PLANE_AUDIO}});   // undeclared: audio, isolated
             }

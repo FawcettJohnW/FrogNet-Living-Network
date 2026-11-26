@@ -10,6 +10,7 @@ import random, threading, time
 from dataclasses import dataclass
 
 from .memory import Client, MemoryError_
+from . import ram_at
 
 HEARTBEAT_S, PRESENCE_FRESH_S, HOLD_S = 5, 15, 15.0
 
@@ -64,8 +65,13 @@ class Room:
         self.name, self.caps = name, caps
         self.me_key = name.lstrip("*")             # comms_control: the name without the '*' of an unattended source
         self.me_id = self.me_key
+        ram_at.start(host, port)                   # where this process's memory is, unless a program said already
         self._c = Client(host, port)               # writes
+        self._cmu = threading.Lock()               # one request at a time on _c, and its replacement when the memory moves
         self._w = Client(host, port)               # the watcher's own session: its held read never delays a write
+        self._moved = False                        # the watcher's own session is to be attached again
+        self.attached = 0                          # how many times it has followed the memory
+        self._speeds = {}                          # session -> the cap this participant last set
         self._ip = self._c.my_ip()
         self._mu = threading.Lock()
         self._cv = threading.Condition(self._mu)
@@ -81,21 +87,64 @@ class Room:
         self._watch.start()
         self._beat = threading.Thread(target=self._heartbeat, daemon=True)
         self._beat.start()
+        self._moved_id = ram_at.when_moved(self.attach)
+
+    def attach(self):
+        """[THE_MEMORY_MOVES_V1] The memory is at another address (ram_at says where). This participant ends its
+        sessions, attaches there, asserts its own tuples (presence, the calls it offers and is in, its download cap)
+        and sets up its held read again."""
+        host, port = ram_at.at()
+        with self._cmu:
+            try:
+                self._c.close()                    # its own tuples at the address it leaves go with the session
+            except MemoryError_:
+                pass
+            self._c = None
+            try:
+                self._c = Client(host, port)
+                self._ip = self._c.my_ip()
+            except MemoryError_ as e:
+                print("[room] the memory moved to %s:%d and it does not answer: %s (tried again at the next write)" % (host, port, e), flush=True)
+        self._moved = True
+        self._w.shutdown()                         # the held read ends now; the watcher attaches its own session
+        try:
+            self.announce(self._status)
+            self.refresh_calls()
+            for session, bps in list(self._speeds.items()):
+                self.set_media_speed(session, bps)
+            self.attached += 1
+            print("[room] the memory moved: attached to %s:%d, presence and calls asserted there" % (host, port), flush=True)
+        except MemoryError_ as e:
+            print("[room] the memory moved to %s:%d; asserting this participant's tuples there failed: %s (the heartbeat asserts them again)"
+                  % (host, port, e), flush=True)
 
     def close(self):
         self._stop = True
+        ram_at.forget(self._moved_id)
         self._w.shutdown()                         # [A_HELD_READ_ENDS_AT_ONCE_V1] the held read ends now
         with self._cv:
             self._cv.notify_all()
         self._beat.join()
         self._watch.join()
         self._w.close()
-        self._c.close()                            # removes this participant's own (own=True) rows
+        if self._c is not None:
+            self._c.close()                        # removes this participant's own (own=True) rows
 
     # -- the copy of the region ------------------------------------------------------------------------------
     def _watcher(self):
         while not self._stop:
             try:
+                if self._moved:                    # [THE_MEMORY_MOVES_V1] this session too, then the whole copy again
+                    self._moved = False
+                    try:
+                        self._w.close()
+                        self._w = Client(*ram_at.at())
+                    except MemoryError_:
+                        self._moved = True
+                        raise
+                    with self._mu:
+                        self._last_id = -1
+                    self._absorb(self._w.get(), True)
                 with self._mu:
                     after = self._last_id
                 ts = self._w.get(wait_s=HOLD_S, min_rows=1, after=after)
@@ -108,6 +157,8 @@ class Room:
             except MemoryError_ as e:
                 if self._stop:
                     break
+                if self._moved:                    # the move ended the read: attach at once
+                    continue
                 print("[room] watch failed: %s (retrying)" % e, flush=True)   # logged, never silent
                 time.sleep(1.0)
 
@@ -125,7 +176,11 @@ class Room:
     def _write(self, var, scope, value, own):
         """[READ_YOUR_OWN_WRITES_V1] to memory AND into this participant's own copy at once (the held read's position
         is not advanced, so others' earlier writes are still delivered)."""
-        i = self._c.put(var, scope, value, own=own)
+        with self._cmu:
+            if self._c is None:                    # after a move that did not answer
+                self._c = Client(*ram_at.at())
+                self._ip = self._c.my_ip()
+            i = self._c.put(var, scope, value, own=own)
         with self._cv:
             self._rows[(var, scope)] = ({"var": var, "scope": scope, "value": value, "addr": "", "age_s": 0.0, "id": i},
                                         time.monotonic())
@@ -191,6 +246,7 @@ class Room:
 
     # -- the viewer's link (MediaSpeed) and what the media server does for it (MediaHold) -----------------------
     def set_media_speed(self, session, bps):
+        self._speeds[session] = int(bps)
         self._write("MediaSpeed", "session:%s:viewer:%s" % (session, self.me_id),
                     {"session": session, "viewer": self.me_id, "bps": int(bps), "addr": self._ip, "ts": int(time.time())},
                     own=False)

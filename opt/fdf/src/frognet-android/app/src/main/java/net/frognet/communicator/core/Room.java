@@ -43,8 +43,13 @@ public final class Room {
     public interface Logger { void log(String line); }
 
     public final String name, caps, meKey, meId;
-    private final RamSession c, w;
-    private final String ip;
+    private volatile RamSession c, w;                         // [THE_MEMORY_MOVES_V1] replaced when the memory moves
+    private volatile String ip;
+    private final Object cmu = new Object();                  // one replacement of c at a time
+    private volatile boolean moved = false;                   // the watcher's own session is to be attached again
+    private volatile long attached = 0;
+    private int movedId;
+    private final Map<String, Long> speeds = new HashMap<String, Long>();   // session -> the cap this participant last set
     private final Logger log;
     private final Object mu = new Object();
     private final Map<String, Row> rows = new HashMap<String, Row>();
@@ -74,7 +79,45 @@ public final class Room {
         beat = new Thread(new Runnable() { public void run() { heartbeat(); } }, "room-beat");
         beat.setDaemon(true); beat.start();
         log.log("[room] joined " + host + ":" + port + " as " + name + " (my address toward it: " + ip + ")");
+        movedId = RamAt.whenMoved(new Runnable() { public void run() { attach(); } });
     }
+
+    /**
+     * [THE_MEMORY_MOVES_V1] The memory is at another address (RamAt says where). This participant ends its sessions,
+     * attaches there, asserts its own tuples (presence, the calls it offers and is in, its download cap) and sets up
+     * its held read again. Called by RamAt when the address changes.
+     */
+    public void attach() {
+        String host = RamAt.host(); int port = RamAt.port();
+        synchronized (cmu) {
+            RamSession old = c;
+            try {
+                RamSession fresh = new RamSession(host, port, 8000);
+                c = fresh; ip = fresh.localAddress();
+                synchronized (mu) { owned.clear(); }           // its own tuples at the address it leaves go with that session
+            } catch (RamSession.Unreachable e) {
+                fault = e.getMessage();
+                log.log("[room] the memory moved to " + host + ":" + port + " and it does not answer: " + e.getMessage() + " -- the room must be rejoined");
+                return;
+            } finally { old.close(); }
+        }
+        moved = true;
+        w.close();                                             // the held read ends now; the watcher attaches its own session
+        try {
+            announce(status);
+            refreshCalls();
+            Map<String, Long> sp;
+            synchronized (mu) { sp = new HashMap<String, Long>(speeds); }
+            for (Map.Entry<String, Long> e : sp.entrySet()) setMediaSpeed(e.getKey(), e.getValue());
+            attached++;
+            log.log("[room] the memory moved: attached to " + host + ":" + port + ", presence and calls asserted there");
+        } catch (Exception e) {
+            log.log("[room] the memory moved to " + host + ":" + port + "; asserting this participant's tuples there failed: " + e.getMessage() + " (the heartbeat asserts them again)");
+        }
+    }
+
+    /** How many times this room has followed the memory. */
+    public long attached() { return attached; }
 
     public String myIp() { return ip; }
     public long version() { return version; }
@@ -82,6 +125,7 @@ public final class Room {
 
     public void close() {
         stop = true;
+        RamAt.forget(movedId);
         w.close();                                            // [A_HELD_READ_ENDS_AT_ONCE_V1]
         synchronized (mu) { mu.notifyAll(); }
         beat.interrupt();
@@ -142,6 +186,12 @@ public final class Room {
     private void watch() {
         while (!stop) {
             try {
+                if (moved) {                                   // [THE_MEMORY_MOVES_V1] this session too, then the whole copy again
+                    moved = false;
+                    w = new RamSession(RamAt.host(), RamAt.port(), 8000);
+                    synchronized (mu) { lastId = -1; }
+                    absorb(get(w, 0, 0, 0, "", -1), true);
+                }
                 long after;
                 synchronized (mu) { after = lastId; }
                 List<Row> ts = get(w, 0, HOLD_S, 1, "", after);
@@ -151,6 +201,7 @@ public final class Room {
                 fault = null;
             } catch (Exception e) {
                 if (stop) break;
+                if (moved) continue;                           // the move ended the read: attach at once
                 fault = e.getMessage();
                 log.log("[room] watch failed: " + e.getMessage() + " -- the session is gone; the room must be rejoined");
                 break;                                             // gone is gone: the owner sees fault() and rejoins
@@ -260,6 +311,7 @@ public final class Room {
 
     // ---- the viewer's link (MediaSpeed) and what the media server does for it (MediaHold) -----------------------
     public void setMediaSpeed(String session, long bps) throws RamSession.Unreachable, RamSession.Refused {
+        synchronized (mu) { speeds.put(session, bps); }
         write("MediaSpeed", "session:" + session + ":viewer:" + meId,
               Json.o("session", session, "viewer", meId, "bps", bps, "addr", ip, "ts", System.currentTimeMillis() / 1000L), false);
     }
@@ -326,7 +378,7 @@ public final class Room {
     /** Hanging up: this participant no longer offers or is in the session. */
     public void leaveCall(String session) throws RamSession.Unreachable, RamSession.Refused {
         boolean o, j;
-        synchronized (mu) { o = offered.remove(session) != null; j = joined.remove(session) != null; }
+        synchronized (mu) { o = offered.remove(session) != null; j = joined.remove(session) != null; speeds.remove(session); }
         if (o) writeAnnounce();
         if (j) writeJoined();
     }

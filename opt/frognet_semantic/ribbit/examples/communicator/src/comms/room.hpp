@@ -8,6 +8,7 @@
 //   MediaSpeed  session:<session>:viewer:<me_id>  {session, viewer, bps, addr, ts}     this viewer's download cap
 #pragma once
 #include "tuples.hpp"
+#include "ram_at.hpp"
 #include <atomic>
 #include <chrono>
 #include <condition_variable>
@@ -64,8 +65,19 @@ public:
     Hold my_hold(const std::string& session) const;
     bool wait_change(uint64_t seen, int timeout_ms);
     std::string status() const { std::lock_guard<std::mutex> g(mu_); return status_; }
+    // [THE_MEMORY_MOVES_V1] The memory is at another address (RamAt says where). This participant ends its sessions,
+    // attaches there, asserts its own tuples (presence, the calls it offers and is in, its download cap) and sets up
+    // its held read again. Called by RamAt when the address changes.
+    void attach();
+    uint64_t attached() const { return attached_.load(); }   // how many times it has followed the memory
 private:
     CommsClient c_;
+    std::mutex c_mu_;                                    // one request at a time on c_, and its replacement when the memory moves
+    bool c_up_ = false;
+    std::atomic<bool> moved_{false};                     // the watcher's own session is to be attached again
+    std::atomic<uint64_t> attached_{0};
+    int moved_id_ = 0;
+    std::map<std::string, long> speeds_;                 // session -> the cap this participant last set (asserted again after a move)
     CommsClient w_;                                      // the watcher's own session: its held read never delays a write
     struct Row { ribbit::Tuple t; std::chrono::steady_clock::time_point got; };
     std::map<std::string, Row> rows_;                    // (var, scope) -> newest; guarded by cache_mu_

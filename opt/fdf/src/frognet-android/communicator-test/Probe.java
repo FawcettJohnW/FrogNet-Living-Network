@@ -8,6 +8,12 @@
 //   call   RAM_PORT MEDIA_PORT ME CALLEE IVF OPUS SECONDS DUMP   offer + invite + join, send both, receive both
 //   answer RAM_PORT ME FROM IVF OPUS SECONDS DUMP    wait for an invitation from FROM, join it, send both, receive both
 //   feed   RAM_PORT MEDIA_PORT ME IVF OPUS SECONDS   an unattended feed ("*ME"), as comms-feed
+//   watchlog RAM_PORT FEED SECONDS                  watch a feed and print "S ms video audio" every 10 ms, then where the
+//                                                   memory is, how often the room followed it, the settings taken, the chat
+//   owner  RAM_PORT show | set --protocol P | --seal | --unseal | --new-key | --algorithm A | move HOST:PORT
+//                                                   the Security tab's work (core/Channel.java show, change)
+// PROBE_CHANNEL=ROLE puts the probe's planes under the frame for that Role; PROBE_SECRETS is its secrets directory.
+// With or without it the probe holds the read on the Role's setting, as the app does, so it follows the memory.
 import net.frognet.communicator.core.*;
 
 import java.io.*;
@@ -18,8 +24,19 @@ import java.util.*;
 public class Probe {
     static final String H = System.getenv("PROBE_HOST") != null ? System.getenv("PROBE_HOST") : "127.0.0.1";   // the Communicator host (on the mesh: from the pond's where cell)
 
+    static String SECRETS = System.getenv("PROBE_SECRETS") != null ? System.getenv("PROBE_SECRETS") : "/nonexistent/channel_secrets";
+
     public static void main(String[] a) throws Exception {
+        String role = System.getenv("PROBE_CHANNEL");
+        boolean framed = role != null && !role.isEmpty();
+        if (!a[0].equals("owner")) {
+            String me = a[0].equals("call") || a[0].equals("feed") ? a[3] : a[0].equals("answer") ? a[2] : "Phone";
+            RamAt.start(H, Integer.parseInt(a[1]));
+            Channel.forProgram(framed ? role : Channel.ROLE, framed, me, SECRETS, new Channel.Logger() { public void log(String l) { System.out.println(l); } });
+        }
         switch (a[0]) {
+            case "watchlog": watchlog(Integer.parseInt(a[1]), a[2], Integer.parseInt(a[3])); break;
+            case "owner": owner(Integer.parseInt(a[1]), framed ? role : Channel.ROLE, a); break;
             case "room": room(Integer.parseInt(a[1])); break;
             case "watch": watch(Integer.parseInt(a[1]), a[2], Integer.parseInt(a[3]), a[4]); break;
             case "call": call(Integer.parseInt(a[1]), Integer.parseInt(a[2]), a[3], a[4], a[5], a[6], Integer.parseInt(a[7]), a[8]); break;
@@ -156,6 +173,65 @@ public class Probe {
         c.start();
         Thread.sleep(seconds * 1000L);
         c.stop(); rx.report(); r.close();
+    }
+
+    static void watchlog(int ram, String feedName, int seconds) throws Exception {
+        Room r = new Room(H, ram, "Phone", "video,audio", LOG);
+        Room.Offer off = null;
+        long end = System.currentTimeMillis() + 5000;
+        while (off == null && System.currentTimeMillis() < end) {
+            List<String> on = r.callsOf(feedName);
+            for (Room.Offer o : r.offers()) if (on.contains(o.session)) off = o;
+            if (off == null) r.waitChange(r.version(), 500);
+        }
+        if (off == null) { System.out.println("NO-OFFER from " + feedName); r.close(); return; }
+        r.joinCall(off.session, off.mediaHost, off.mediaPort);
+        r.setMediaSpeed(off.session, 0);
+        Rx rx = new Rx("/dev/null");
+        CallCore c = new CallCore(off.mediaHost, off.mediaPort, "Phone", off.session, 24, rx);
+        c.start();
+        r.sendChat(off.session, "said by the phone before the memory moved");
+        System.out.println("WATCHING " + off.session);
+        long t0 = System.nanoTime(), until = t0 + seconds * 1_000_000_000L;
+        StringBuilder b = new StringBuilder();
+        while (System.nanoTime() < until && rx.ended == null) {
+            b.append("S ").append((System.nanoTime() - t0) / 1_000_000L).append(' ').append(c.stats.vRecv).append(' ').append(c.stats.aRecv).append('\n');
+            if (b.length() > 4000) { System.out.print(b); System.out.flush(); b.setLength(0); }
+            Thread.sleep(10);
+        }
+        System.out.print(b);
+        StringBuilder ros = new StringBuilder();
+        for (Room.Member m : r.roster()) ros.append(m.name).append(",");
+        StringBuilder chat = new StringBuilder();
+        for (Room.Line l : r.readChat(off.session)) chat.append(l.text).append("|");
+        Channel ch = Channel.watching();
+        System.out.println("END memory=" + RamAt.text() + " attached=" + r.attached() + " settings=" + ch.changes() + " held=" + ch.held().replace(' ', '_')
+                + " feed_call=" + r.callsOf(feedName).contains(off.session) + " roster=" + ros + " chat=" + chat);
+        c.stop(); rx.report(); r.close(); ch.close();
+    }
+
+    static void owner(int ram, String role, String[] a) throws Exception {
+        if (a[2].equals("show")) {
+            Channel.Now n = Channel.show(H, ram, role);
+            System.out.println("SETTING " + n.setting);
+            for (Map.Entry<String, Map<String, String>> e : n.ends.entrySet()) System.out.println("END " + e.getKey() + " " + e.getValue());
+            return;
+        }
+        Channel.Change ch = new Channel.Change();
+        for (int i = 2; i < a.length; i++) {
+            if (a[i].equals("set")) continue;
+            if (a[i].equals("--protocol")) ch.protocol = a[++i];
+            else if (a[i].equals("--algorithm")) ch.algorithm = a[++i];
+            else if (a[i].equals("--seal")) ch.seal = true;
+            else if (a[i].equals("--unseal")) ch.unseal = true;
+            else if (a[i].equals("--new-key")) ch.newKey = true;
+            else if (a[i].equals("move")) { String to = a[++i]; ch.moveHost = to.substring(0, to.lastIndexOf(':')); ch.movePort = Integer.parseInt(to.substring(to.lastIndexOf(':') + 1)); }
+        }
+        try {
+            Channel.Done d = Channel.change(H, ram, role, ch, 8.0, SECRETS);
+            for (String l : d.lines) System.out.println("LINE " + l);
+            System.out.println("DONE " + d.summary() + (d.moved ? "; chat carried " + d.chatCarried : "") + (d.checked ? "" : "; NO CHECK"));
+        } catch (IllegalArgumentException e) { System.out.println("REFUSED " + e.getMessage()); }
     }
 
     static void call(int ram, int media, String me, String callee, String ivf, String opus, int seconds, String dump) throws Exception {

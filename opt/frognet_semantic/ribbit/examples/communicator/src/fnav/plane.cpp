@@ -1,5 +1,6 @@
 // Copyright (C) 2016-2026 Fawcett Innovations LLC
 // SPDX-License-Identifier: GPL-2.0-only
+#include <cstdio>
 #include "plane.hpp"
 #include "net.hpp"
 #include <chrono>
@@ -22,9 +23,16 @@ Plane::Plane(int fd) : fd_(fd) {
     setsockopt(fd_, IPPROTO_TCP, TCP_NODELAY, reinterpret_cast<const char*>(&one), sizeof one);
     struct linger lg {0, 0};                               // [SHUTDOWN_NOT_CLOSE_V1] close never parks a thread
     setsockopt(fd_, SOL_SOCKET, SO_LINGER, reinterpret_cast<const char*>(&lg), sizeof lg);
+    wthread_ = std::thread([this] { writer(); });          // [ONE_WRITER_PER_PLANE_V1]
 }
 
-Plane::~Plane() { if (fd_ >= 0) net_close(fd_); }
+Plane::~Plane() {
+    if (codec_) codec_->when_owing(nullptr);               // the codec may outlive this plane (its Channel holds it weakly)
+    stop_ = true;
+    waker_.wake();
+    if (wthread_.joinable()) wthread_.join();
+    if (fd_ >= 0) net_close(fd_);
+}
 
 void Plane::shutdown_both() { ::shutdown(fd_, NET_SHUT_RDWR); }
 
@@ -96,8 +104,116 @@ bool Plane::pay_debt() {
     return true;
 }
 
+void Plane::set_channel(std::shared_ptr<channel_frame::Codec> codec, std::string role, bool by_first_frame) {
+    codec_ = std::move(codec); role_ = std::move(role); undecided_ = by_first_frame && codec_ != nullptr;
+    if (codec_) codec_->when_owing([this] { owed_pending_ = true; waker_.wake(); });   // a switch goes though nothing else is being sent
+}
+
+// [ONE_WRITER_PER_PLANE_V1] Any thread: hand the body to this plane's writer and take its word for what became of it.
 Sent Plane::send(const Bytes& body, SendKind kind) {
-    std::lock_guard<std::mutex> g(wlock_);
+    Job j{&body, kind};
+    std::unique_lock<std::mutex> g(hand_);
+    if (!broken_.empty()) throw ConnectionError(broken_);
+    jobs_.push_back(&j);
+    waker_.wake();
+    told_.wait(g, [&j] { return j.done; });
+    if (!j.error.empty()) throw ConnectionError(j.error);
+    return j.result;
+}
+
+// The writer: the one owner of this plane's wire. It waits to be handed a body; while it owes the far end something
+// the socket would not take (a call of the frame's, padding in debt mode) it waits for the socket too.
+void Plane::writer() {
+    bool refused = false;                                  // the socket said writable and still took nothing of what is owed
+    bool said_broken = false;
+    std::string error;
+    while (!stop_) {
+        net_pollfd p[2]{};
+        p[0].fd = decltype(p[0].fd)(waker_.fd()); p[0].events = POLLIN;
+        p[1].fd = decltype(p[1].fd)(fd_); p[1].events = POLLOUT;
+        const bool owes = error.empty() && (owed_pending_ || (debt_mode_ && !pad_.empty()));
+        net_poll(p, owes && !refused ? 2 : 1, owes && refused ? RETRY_WAIT_MS : -1);
+        waker_.drain();
+        if (stop_) break;
+        if (error.empty()) {
+            try {
+                bool went = true;
+                if (debt_mode_ && !pad_.empty()) went = pay_debt();
+                if (went && codec_ && !undecided_ && !plain_) went = write_owed();
+                refused = !went;
+            } catch (const std::exception& e) { error = e.what(); }
+        }
+        if (!error.empty() && !said_broken) {
+            // [A_BROKEN_PLANE_IS_CLOSED_V1] The writer cannot go on, so the connection is over, and both ends learn it
+            // now: this end's reader and the far end's read "closed" instead of waiting on a wire nobody writes.
+            said_broken = true;
+            { std::lock_guard<std::mutex> g(hand_); broken_ = error; }
+            std::fprintf(stderr, "[fnav] a plane's writer stops and the connection is closed: %s\n", error.c_str());
+            shutdown_both();
+        }
+        for (;;) {
+            Job* j = nullptr;
+            { std::lock_guard<std::mutex> g(hand_); if (!jobs_.empty()) { j = jobs_.front(); jobs_.pop_front(); } if (!error.empty()) broken_ = error; }
+            if (!j) break;
+            if (error.empty()) {
+                try { j->result = write_body(*j->body, j->kind); } catch (const std::exception& e) { error = e.what(); }
+                if (!error.empty() && !said_broken) {
+                    said_broken = true;
+                    std::fprintf(stderr, "[fnav] a plane's writer stops and the connection is closed: %s\n", error.c_str());
+                    shutdown_both();
+                }
+            }
+            { std::lock_guard<std::mutex> g(hand_); j->error = error; j->done = true; if (!error.empty()) broken_ = error; }
+            told_.notify_all();
+        }
+    }
+    std::lock_guard<std::mutex> g(hand_);                  // nothing handed to a writer that has stopped waits for ever
+    broken_ = error.empty() ? "the plane is closed" : error;
+    for (Job* j : jobs_) { j->error = broken_; j->done = true; }
+    jobs_.clear();
+    told_.notify_all();
+}
+
+// One body. Under the frame: what this end owes goes first, then the body as one unit; a unit that did not go on the
+// wire whole is taken back from the frame, so the far end's frame and this one stay in step whatever the plane sheds.
+Sent Plane::write_body(const Bytes& body, SendKind kind) {
+    if (!codec_ || plain_) return send_unit(body, kind);
+    if (undecided_) { stats.dropped++; return Sent::Dropped; }   // the far end has not said yet whether it speaks the frame
+    try {
+        if (!write_owed()) return Sent::Dropped;
+        Bytes unit;
+        if (!codec_->pack(role_, body, unit)) { stats.dropped++; owed_pending_ = true; return Sent::Dropped; }   // messages are being sent again
+        unit.push_back(WHOLE_UNIT);
+        const Sent r = send_unit(unit, kind);
+        if (r != Sent::Whole) codec_->undo();
+        return r;
+    } catch (const channel_frame::Gone& e) { throw ConnectionError(std::string("the frame: ") + e.what()); }
+}
+
+bool Plane::write_owed() {
+    try {
+        Bytes unit;
+        while (codec_->next(unit)) {
+            unit.push_back(WHOLE_UNIT);
+            if (send_unit(unit, SendKind::Audio) != Sent::Whole) { codec_->undo(); owed_pending_ = true; return false; }   // the writer waits for the socket
+        }
+        owed_pending_ = false;
+        return true;
+    } catch (const channel_frame::Gone& e) { throw ConnectionError(std::string("the frame: ") + e.what()); }
+}
+
+// [THE_LENGTH_IS_NEVER_PADDED_V1] What follows a part-written unit that will not be finished. When fewer than its 4
+// length bytes went, the rest of the LENGTH goes as it is and only the body is padding: padding written where the
+// length belongs gives the far end a length nobody sent, and it reads the rest of the connection as one huge unit.
+static Bytes rest_of_aborted(const Bytes& blob, size_t sent) {
+    if (sent >= 4) return abort_pad(blob.size() - sent);
+    Bytes rest(blob.begin() + long(sent), blob.begin() + 4);
+    const Bytes pad = abort_pad(blob.size() - 4);
+    rest.insert(rest.end(), pad.begin(), pad.end());
+    return rest;
+}
+
+Sent Plane::send_unit(const Bytes& body, SendKind kind) {
     if (debt_mode_ && !pad_.empty() && !pay_debt()) { stats.dropped++; return Sent::Dropped; }   // in debt: shed
     const Bytes blob = with_length(body);
     int tries = kind == SendKind::Audio ? 1 + AUDIO_RETRIES : kind == SendKind::Keyframe ? KEY_RETRIES : 1;
@@ -113,7 +229,7 @@ Sent Plane::send(const Bytes& body, SendKind kind) {
     }
     if (sent == 0) { stats.dropped++; return Sent::Dropped; }
     if (debt_mode_ && sent < blob.size()) {                // never wait: the rest is owed as padding
-        pad_ = abort_pad(blob.size() - sent); pad_off_ = 0;
+        pad_ = rest_of_aborted(blob, sent); pad_off_ = 0;
         stats.aborted_out++;
         pay_debt();
         return Sent::Aborted;
@@ -132,7 +248,7 @@ Sent Plane::send(const Bytes& body, SendKind kind) {
         return Sent::Whole;
     }
     // [ABORT_SENTINEL_V1] cannot finish: pad the rest so it ENDS with the sentinel; the stream stays framed.
-    const Bytes pad = abort_pad(blob.size() - sent);
+    const Bytes pad = rest_of_aborted(blob, sent);
     size_t off = 0; auto t1 = Clock::now();
     while (off < pad.size()) {
         if (ms_since(t1) >= FINISH_MS)
@@ -161,7 +277,30 @@ void Plane::read_exact(uint8_t* p, size_t n, bool mid_frame) {
     }
 }
 
+// One body. Under the frame a unit may hold only calls (a switch, RECEIVED): then the next unit is read.
 Recv Plane::recv(Bytes& body, int timeout_ms) {
+    for (;;) {
+        if (!ready_.empty()) { body = std::move(ready_.front()); ready_.pop_front(); return Recv::Frame; }
+        const Recv r = recv_unit(body, timeout_ms);
+        if (r != Recv::Frame || !codec_ || plain_) return r;
+        if (undecided_) {                                  // the first unit from the far end: an fnav body, or the frame
+            undecided_ = false;
+            if (!body.empty() && body[0] == KIND_PLANE) { plain_ = true; return r; }
+        }
+        // [A_WHOLE_UNIT_SAYS_SO_V1] under the frame the far end's frame must be fed exactly the units its sender did not
+        // take back. The abort sentinel alone cannot say that: a frame aborted with 1 to 3 bytes left ends in 1 to 3
+        // sentinel bytes and passes for whole. So a unit under the frame ends in one byte, 0, which no abort padding
+        // can end in; anything else was aborted.
+        if (body.empty() || body.back() != WHOLE_UNIT) { stats.aborted_in++; return Recv::Aborted; }
+        body.pop_back();
+        std::vector<channel_frame::Message> out;
+        try { codec_->feed(body.data(), body.size(), out); }
+        catch (const channel_frame::Gone& e) { throw ConnectionError(std::string("the frame: ") + e.what()); }
+        for (auto& m : out) ready_.push_back(std::move(m.data));
+    }
+}
+
+Recv Plane::recv_unit(Bytes& body, int timeout_ms) {
     if (!wait_readable(timeout_ms)) { body.clear(); return Recv::Timeout; }
     uint8_t len[4];
     try { read_exact(len, 4, false); }

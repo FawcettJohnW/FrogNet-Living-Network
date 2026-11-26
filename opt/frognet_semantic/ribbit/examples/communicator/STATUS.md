@@ -1,3 +1,22 @@
+## 2026-11-25: the Security tab; the memory moves; the phone is under the frame
+
+[THE_MEMORY_MOVES_V1] `comms-app-2026-11-25-r4`, `comms-android-2026-11-25-r6`. Every process holds the read on the
+Role's setting and reports. The setting's `ram_host`/`ram_port` say where the memory is; `comms-channel move` and a
+window's "Change RAM host" move it under a running call (room.cpp `Room::attach`, speed.cpp, ram_at.hpp; the same in
+Python and on the phone). The owner's work moved into the library (channel.cpp `channel_show`, `channel_change`).
+Both desktop windows and the phone have a Security tab. The phone has the frame in Java. Proofs:
+`tests/py/test_the_memory_moves.py`, and frognet-android's `communicator-test/run_tests.sh` steps 3 and 4.
+Not built or run: the Android APK, Windows. `docs/CHANNEL-DESIGN-AND-IMPLEMENTATION.md` is the record.
+
+## 2026-11-24: the call is under the frame; one writer per plane
+
+[THE_CALL_IS_UNDER_THE_FRAME_V1] [ONE_WRITER_PER_PLANE_V1] [THE_FRAME_IS_A_LIBRARY_V1] `docs/CHANNEL.md` is the record:
+the frame library (`ribbit/cpp/src/channel_frame.cpp`, vendored), the frame under both Communicators' planes, the
+channel and its reports, `comms-channel`, and the measurements (a real 720p call, nine switches, no interruption).
+Each plane now has one writer thread and no lock around its socket; `Plane::send` still returns what became of the
+frame. Two fnav changes that are not about the frame: [THE_LENGTH_IS_NEVER_PADDED_V1] (abort padding no longer
+overwrites a unit's length) and [A_BROKEN_PLANE_IS_CLOSED_V1] (a plane whose writer fails closes the connection and says why). Not built or run: Windows, Android. Not run: separate machines.
+
 # The C++ Communicator -- status (2026-10-01)
 
 **Re-verified 2026-10-01, clean rebuild (-Werror), every test run: all PASS.** How each is run:

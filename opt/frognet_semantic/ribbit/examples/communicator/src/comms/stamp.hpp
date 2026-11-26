@@ -20,7 +20,7 @@ extern "C" {
 namespace comms {
 
 // the participant programs' build, printed at start and shown in the window: what is running, never a guess
-constexpr const char* COMMS_APP_BUILD = "comms-app-2026-10-10-r3";   // r3: rings only while offered; leave withdraws; stamped picture
+constexpr const char* COMMS_APP_BUILD = "comms-app-2026-11-25-r4";   // r4: under the protocol layer's frame; the Security tab; the memory follows its owner
 
 inline bool stamp_enabled() { const char* e = getenv("COMMS_STAMP"); return !(e && e[0] == '0'); }
 

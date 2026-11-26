@@ -23,10 +23,12 @@ Room::Room(const std::string& host, int port, const std::string& name, const std
     me_key_ = name;                                       // comms_control: the name without the '*' of an unattended source
     while (!me_key_.empty() && me_key_[0] == '*') me_key_.erase(0, 1);
     me_id_ = me_key_;
-    c_.connect(host, port);
+    RamAt::process().start(host, port);                   // where this process's memory is, unless a program said already
+    c_.connect(host, port); c_up_ = true;
     w_.connect(host, port);
     announce();
     absorb(w_.get_all(SERVICE), true);                    // the starting copy
+    moved_id_ = RamAt::process().when_moved([this] { attach(); });
     watch_ = std::thread([this] { watch(); });
     beat_ = std::thread([this] {
         while (!stop_) {
@@ -39,8 +41,34 @@ Room::Room(const std::string& host, int port, const std::string& name, const std
     });
 }
 
+// [THE_MEMORY_MOVES_V1]
+void Room::attach() {
+    const auto at = RamAt::process().at();
+    {
+        std::lock_guard<std::mutex> g(c_mu_);
+        try { c_.close(); } catch (const std::exception&) {}      // its own tuples at the address it leaves go with the session
+        c_up_ = false;
+        try { c_.connect(at.first, at.second); c_up_ = true; }
+        catch (const std::exception& e) { std::fprintf(stderr, "[room] the memory moved to %s:%d and it does not answer: %s (tried again at the next write)\n", at.first.c_str(), at.second, e.what()); }
+    }
+    moved_ = true;
+    try { w_.session().shutdown(); } catch (const std::exception&) {}   // the held read ends now; the watcher attaches its own session
+    try {                                                 // assert what is this participant's, at the new address
+        announce(status());
+        refresh_calls();
+        std::map<std::string, long> speeds;
+        { std::lock_guard<std::mutex> g(mu_); speeds = speeds_; }
+        for (auto& s : speeds) set_media_speed(s.first, s.second);
+        attached_++;
+        std::fprintf(stderr, "[room] the memory moved: attached to %s:%d, presence and calls asserted there\n", at.first.c_str(), at.second);
+    } catch (const std::exception& e) {
+        std::fprintf(stderr, "[room] the memory moved to %s:%d; asserting this participant's tuples there failed: %s (the heartbeat asserts them again)\n", at.first.c_str(), at.second, e.what());
+    }
+}
+
 Room::~Room() {
     stop_ = true;
+    RamAt::process().forget(moved_id_);
     // [A_HELD_READ_ENDS_AT_ONCE_V1] The watcher may be parked in a held read for up to 15 s. Shutting its session's
     // sockets (shutdown only: nothing freed under the other thread) wakes it with an error now, so closing a room
     // never waits on a read. Found 2026-10-01: three rooms took 45 s to close.
@@ -65,6 +93,13 @@ void Room::watch() {
     constexpr double HOLD_S = 15.0;
     while (!stop_) {
         try {
+            if (moved_.exchange(false)) {                     // [THE_MEMORY_MOVES_V1] this session too, then the whole copy again
+                const auto at = RamAt::process().at();
+                try { w_.close(); } catch (const std::exception&) {}
+                try { w_.connect(at.first, at.second); } catch (...) { moved_ = true; throw; }
+                { std::lock_guard<std::mutex> g(cache_mu_); last_id_ = -1; }
+                absorb(w_.get_all(SERVICE), true);
+            }
             int64_t after;
             { std::lock_guard<std::mutex> g(cache_mu_); after = last_id_; }
             auto ts = w_.get_all(SERVICE, 0, HOLD_S, 1, "", after);
@@ -73,8 +108,9 @@ void Room::watch() {
             else absorb(std::move(ts), false);
         } catch (const std::exception& e) {
             if (stop_) break;                                 // the close itself ended the read
+            if (moved_) continue;                             // the move ended the read: attach at once
             std::fprintf(stderr, "[room] watch failed: %s (retrying)\n", e.what());   // logged, never silent
-            for (int i = 0; i < 10 && !stop_; ++i) std::this_thread::sleep_for(std::chrono::milliseconds(100));
+            for (int i = 0; i < 10 && !stop_ && !moved_; ++i) std::this_thread::sleep_for(std::chrono::milliseconds(100));
         }
     }
 }
@@ -98,7 +134,12 @@ void Room::absorb(std::vector<ribbit::Tuple>&& ts, bool full) {
 // to memory, not when the held read next delivers it. The held read's position is NOT advanced, so writes by others
 // that landed just before this one are still delivered; this row comes back through the held read too, harmlessly.
 void Room::write(const std::string& var, const std::string& scope, const std::string& value_json, bool own) {
-    uint64_t id = c_.put(SERVICE, var, scope, value_json, own);
+    uint64_t id;
+    {
+        std::lock_guard<std::mutex> g(c_mu_);
+        if (!c_up_) { const auto at = RamAt::process().at(); c_.connect(at.first, at.second); c_up_ = true; }   // after a move that did not answer
+        id = c_.put(SERVICE, var, scope, value_json, own);
+    }
     ribbit::Tuple t;
     t.var = var; t.scope = scope; t.id = id; t.age_s = 0;
     t.value = frogram::Json::parse(value_json);
@@ -180,6 +221,7 @@ std::vector<Line> Room::read_chat(const std::string& session) {
 }
 
 void Room::set_media_speed(const std::string& session, long bps) {
+    { std::lock_guard<std::mutex> g(mu_); speeds_[session] = bps; }
     std::string v = "{\"session\":" + jstr(session) + ",\"viewer\":" + jstr(me_id_) + ",\"bps\":" + std::to_string(bps) +
                     ",\"addr\":" + jstr(c_.my_ip()) + ",\"ts\":" + std::to_string(now_ms() / 1000) + "}";
     write("MediaSpeed", "session:" + session + ":viewer:" + me_id_, v, false);
@@ -244,7 +286,7 @@ void Room::invite(const std::string& who, const std::string& session, const std:
 // (as the Java Room's leaveCall does), so nobody is invited into a session nobody is in.
 void Room::leave_call(const std::string& session) {
     bool o, j;
-    { std::lock_guard<std::mutex> g(mu_); o = offered_.erase(session) > 0; j = joined_.erase(session) > 0; }
+    { std::lock_guard<std::mutex> g(mu_); o = offered_.erase(session) > 0; j = joined_.erase(session) > 0; speeds_.erase(session); }
     if (o) write_announce();
     if (j) write_joined();
 }

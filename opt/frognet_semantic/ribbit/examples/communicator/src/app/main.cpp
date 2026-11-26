@@ -9,8 +9,15 @@
 //             [--no-audio] [--mic N] [--speaker N] [--list-devices] [--bandwidth BPS]
 //             [--auto-join NAME] [--screenshot FILE --after SECONDS]      (unattended testing)
 //
-// Left: the lobby (people and unattended feeds). Centre: the call -- remote video with live stats, self-view,
-// controls, the two link sliders -- bandwidth (this participant's link, both directions) and jitter -- the stats strip. Right: chat with the call.
+//             [--tab security]                                            (open on the Security tab)
+//             [--security "cipher NAME;key;protocol NAME;ram HOST:PORT"]  (unattended testing: press those buttons, in order)
+//
+// Two tabs. Call -- left: the lobby (people and unattended feeds); centre: the call -- remote video with live stats, self-view,
+// controls, the two link sliders -- bandwidth (this participant's link, both directions) and jitter -- the stats strip; right: chat with the call.
+// Security -- [THE_CALL_IS_UNDER_THE_FRAME_V1] what the Role's setting is now and what every end is running, and the
+// owner's changes: the cipher, a new key, the protocol, and "Change RAM host" ([THE_MEMORY_MOVES_V1]). Each is one write
+// of the Role's setting by the library (comms/channel.cpp channel_change), as comms-channel makes it.
+#include "comms/channel.hpp"
 #include "comms/call.hpp"
 #include "comms/stamp.hpp"
 #include "fnav/bearer.hpp"
@@ -38,7 +45,11 @@ extern "C" {
 #include <QPainter>
 #include <QPushButton>
 #include <QSlider>
+#include <QTabWidget>
+#include <QGridLayout>
+#include <QPlainTextEdit>
 #include <QTimer>
+#include <thread>
 #include <QVBoxLayout>
 #include <chrono>
 #include <cmath>
@@ -368,6 +379,9 @@ struct Options {
     bool show_controls = false;                          // testing: keep the video control bar visible
     bool diagnostics = false;                            // open the diagnostics window at start
     bool audio = true;
+    std::string channel;                                 // --channel ROLE: this program's planes are under the frame, for that Role
+    std::string tab;                                     // --tab security: open on the Security tab
+    std::string security;                                // --security "...": unattended, the Security tab's buttons pressed in order
 };
 
 class Window : public QWidget {
@@ -399,7 +413,14 @@ public:
             "QLabel#tile{background:#ffffff;border:1px solid #dfe2e6;border-radius:8px;padding:6px 8px}"
             "QLabel#title{font-weight:600;font-size:14px}"
             "QLabel#muted{color:#6b7280;font-size:12px}"
-            "QLineEdit{background:#ffffff;border:1px solid #c9ced5;border-radius:8px;padding:6px}");
+            "QLineEdit{background:#ffffff;border:1px solid #c9ced5;border-radius:8px;padding:6px}"
+            "QComboBox{background:#ffffff;border:1px solid #c9ced5;border-radius:8px;padding:5px 8px}"
+            "QPlainTextEdit{background:#ffffff;border:1px solid #dfe2e6;border-radius:8px;padding:6px;font-family:monospace;font-size:12px}"
+            "QLabel#value{font-weight:600}"
+            "QLabel#result{background:#fff8e6;border:1px solid #ecd9a3;border-radius:8px;padding:8px}"
+            "QTabWidget::pane{border:0}"
+            "QTabBar::tab{background:#eceef1;border:1px solid #dfe2e6;border-bottom:0;border-top-left-radius:8px;border-top-right-radius:8px;padding:7px 22px;margin-left:6px}"
+            "QTabBar::tab:selected{background:#ffffff;font-weight:600}");
         auto* top = new QVBoxLayout(this); top->setContentsMargins(0, 0, 0, 0); top->setSpacing(0);
         auto* bar = new QFrame; bar->setObjectName("bar");
         auto* bl = new QHBoxLayout(bar); bl->setContentsMargins(14, 8, 14, 8);
@@ -473,9 +494,151 @@ public:
             room_->send_chat(session_, say_->text().toStdString()); say_->clear(); read_chat();
         });
         body->addLayout(right);
-        top->addLayout(body, 1);
+        tabs_ = new QTabWidget;
+        auto* call_tab = new QWidget; call_tab->setLayout(body);
+        tabs_->addTab(call_tab, "Call");
+        tabs_->addTab(build_security(), "Security");
+        connect(tabs_, &QTabWidget::currentChanged, [this](int i) { if (i == 1) { ends_age_ = 99; refresh_security(); } });
+        top->addWidget(tabs_, 1);
+        if (opt_.tab == "security") tabs_->setCurrentIndex(1);
         resize(1180, 720);
         update_tiles();
+    }
+
+    // ---- the Security tab -------------------------------------------------------------------------------------
+    QWidget* build_security() {
+        auto* w = new QWidget;
+        auto* row = new QHBoxLayout(w); row->setContentsMargins(18, 16, 18, 16); row->setSpacing(24);
+        auto* left = new QVBoxLayout; left->setSpacing(10);
+        auto head = [](const char* t) { auto* l = new QLabel(t); l->setObjectName("title"); return l; };
+        auto muted = [](const QString& t) { auto* l = new QLabel(t); l->setObjectName("muted"); l->setWordWrap(true); return l; };
+        left->addWidget(head("The channel now"));
+        auto* now = new QGridLayout; now->setHorizontalSpacing(14); now->setVerticalSpacing(6);
+        const char* names[] = {"Role", "Cipher", "Key", "Protocol", "RAM host", "This program"};
+        QLabel** values[] = {&s_role_, &s_cipher_, &s_key_, &s_protocol_, &s_ram_, &s_me_};
+        for (int i = 0; i < 6; ++i) {
+            now->addWidget(muted(names[i]), i, 0, Qt::AlignTop);
+            *values[i] = new QLabel; (*values[i])->setObjectName("value"); (*values[i])->setWordWrap(true);
+            (*values[i])->setTextInteractionFlags(Qt::TextSelectableByMouse);
+            now->addWidget(*values[i], i, 1);
+        }
+        now->setColumnStretch(1, 1);
+        left->addLayout(now);
+        left->addSpacing(8);
+        left->addWidget(head("Change it"));
+        left->addWidget(muted("Each change is one write of the Role's setting. It carries a check made with this machine's secret, and every "
+                              "end switches in its own stream: a call is not interrupted."));
+        auto* set = new QGridLayout; set->setHorizontalSpacing(10); set->setVerticalSpacing(8);
+        s_cipher_pick_ = new QComboBox; s_cipher_pick_->addItems({"not sealed", "aes-256-gcm", "chacha20-poly1305"});
+        auto* cipher_go = new QPushButton("Set cipher");
+        connect(cipher_go, &QPushButton::clicked, [this] {
+            ChannelChange c; const QString a = s_cipher_pick_->currentText();
+            if (a == "not sealed") c.unseal = true; else c.algorithm = a.toStdString();
+            owner_change(("cipher " + a).toStdString(), c);
+        });
+        auto* key_go = new QPushButton("New key");
+        connect(key_go, &QPushButton::clicked, [this] { ChannelChange c; c.new_key = true; owner_change("a new key", c); });
+        s_protocol_pick_ = new QComboBox; s_protocol_pick_->addItems({"tcp", "chorus", "openqasm"});
+        auto* protocol_go = new QPushButton("Set protocol");
+        connect(protocol_go, &QPushButton::clicked, [this] {
+            ChannelChange c; c.protocol = s_protocol_pick_->currentText().toStdString();
+            owner_change("protocol " + c.protocol, c);
+        });
+        s_ram_to_ = new QLineEdit; s_ram_to_->setPlaceholderText("host:port of another comms-ram that is running");
+        auto* ram_go = new QPushButton("Change RAM host");
+        connect(ram_go, &QPushButton::clicked, [this] {
+            const std::string to = s_ram_to_->text().trimmed().toStdString();
+            const auto colon = to.rfind(':');
+            if (colon == std::string::npos || colon == 0 || colon + 1 >= to.size() || to.find_first_not_of("0123456789", colon + 1) != std::string::npos) {
+                s_result_->setText("Give the new RAM host as host:port."); return;
+            }
+            ChannelChange c; c.move_host = to.substr(0, colon); c.move_port = std::stoi(to.substr(colon + 1));
+            owner_change("the memory to " + to, c);
+        });
+        set->addWidget(muted("Cipher"), 0, 0); set->addWidget(s_cipher_pick_, 0, 1); set->addWidget(cipher_go, 0, 2);
+        set->addWidget(muted("Key"), 1, 0); set->addWidget(muted("A new random number in the setting: every sender computes a new key from it."), 1, 1); set->addWidget(key_go, 1, 2);
+        set->addWidget(muted("Protocol"), 2, 0); set->addWidget(s_protocol_pick_, 2, 1); set->addWidget(protocol_go, 2, 2);
+        set->addWidget(muted("RAM host"), 3, 0); set->addWidget(s_ram_to_, 3, 1); set->addWidget(ram_go, 3, 2);
+        set->setColumnStretch(1, 1);
+        left->addLayout(set);
+        s_result_ = new QLabel("No change made from this window yet."); s_result_->setObjectName("result"); s_result_->setWordWrap(true);
+        s_result_->setTextInteractionFlags(Qt::TextSelectableByMouse);
+        left->addWidget(s_result_);
+        left->addStretch();
+        row->addLayout(left, 5);
+        auto* right = new QVBoxLayout; right->setSpacing(8);
+        right->addWidget(head("Every end and what it is running"));
+        s_ends_ = new QPlainTextEdit; s_ends_->setReadOnly(true);
+        right->addWidget(s_ends_, 1);
+        row->addLayout(right, 4);
+        s_buttons_ = {cipher_go, key_go, protocol_go, ram_go};
+        return w;
+    }
+
+    // One change by the owner, off the window's thread: the library writes the setting and waits for every end's report.
+    void owner_change(const std::string& what, const ChannelChange& c) {
+        const auto at = RamAt::process().at();
+        auto ch = Channel::watching();
+        const std::string role = ch ? ch->role() : std::string(CHANNEL_ROLE);
+        s_result_->setText(QString::fromStdString("Setting " + what + " ..."));
+        for (auto* b : s_buttons_) b->setEnabled(false);
+        std::thread([this, what, c, at, role] {
+            std::string said;
+            try {
+                const ChannelDone d = channel_change(at.first, at.second, role, c);
+                said = what + ": " + d.summary();
+                for (auto& l : d.lines) said += "\n" + l;
+                if (d.moved) said += "\n" + std::to_string(d.chat_carried) + " line(s) of chat carried there";
+                if (!d.checked) said += "\nThis machine holds no secret for the Role: the setting carries no check, and an end that holds one ignores it.";
+            } catch (const std::exception& e) { said = std::string("Not set: ") + e.what(); }
+            std::fprintf(stderr, "[security] %s\n", said.c_str());
+            QMetaObject::invokeMethod(this, [this, said] {
+                s_result_->setText(QString::fromStdString(said));
+                for (auto* b : s_buttons_) b->setEnabled(true);
+                ends_age_ = 99; refresh_security();
+            }, Qt::QueuedConnection);
+        }).detach();
+    }
+
+    void refresh_security() {
+        auto ch = Channel::watching();
+        const auto at = RamAt::process().at();
+        const std::string here = at.first + ":" + std::to_string(at.second);
+        if (!ch) { s_role_->setText("no channel"); return; }
+        const auto f = ch->fields();
+        auto get = [&f](const char* k) { auto it = f.find(k); return it == f.end() ? std::string() : it->second; };
+        const bool sealed = !get("number").empty() && get("number") != "0";
+        std::string secret;
+        try { secret = channel_secret_line(ch->role(), ch->secrets()); } catch (const std::exception&) { secret = "this machine holds no secret for the Role (" + ch->secrets() + ")"; }
+        s_role_->setText(QString::fromStdString(ch->role()));
+        s_cipher_->setText(QString::fromStdString(sealed ? get("protection") : std::string("not sealed")));
+        s_key_->setText(QString::fromStdString("computed from the secret: " + secret));
+        s_protocol_->setText(QString::fromStdString(get("driver").empty() ? std::string("tcp") : get("driver")));
+        s_ram_->setText(QString::fromStdString(here));
+        s_me_->setText(QString::fromStdString(ch->end() + (ch->framed() ? ", its planes under the frame" : ", its planes NOT under the frame (start it with --channel " + ch->role() + ")")
+                                              + (ch->ignored().empty() ? "" : "\nIt IGNORED the last setting: " + ch->ignored())));
+        if (ch->changes() != sec_changes_) {                      // a setting was taken: the pickers show it
+            sec_changes_ = ch->changes(); ends_age_ = 99;
+            s_cipher_pick_->setCurrentText(QString::fromStdString(sealed ? get("protection") : std::string("not sealed")));
+            s_protocol_pick_->setCurrentText(QString::fromStdString(get("driver").empty() ? std::string("tcp") : get("driver")));
+        }
+        if (++ends_age_ < 3 || ends_busy_) return;                // the ends: read again every 3 s, and when a setting was taken
+        ends_age_ = 0; ends_busy_ = true;
+        const std::string role = ch->role();
+        std::thread([this, at, role] {
+            std::string text;
+            try {
+                const ChannelNow n = channel_show(at.first, at.second, role);
+                for (auto& e : n.ends) {
+                    auto g = [&e](const char* k) { auto it = e.report.find(k); return it == e.report.end() ? std::string() : it->second; };
+                    text += e.end + "\n    " + g("driver") + (g("sealed") == "true" ? ", sealed with " + g("protection") : std::string(", not sealed"))
+                            + (g("framed") == "false" ? ", not under the frame" : "") + "\n    memory at " + g("ram")
+                            + (g("ignored").empty() ? "" : "\n    IGNORED: " + g("ignored")) + "\n";
+                }
+                if (n.ends.empty()) text = "(no end reports)";
+            } catch (const std::exception& e) { text = std::string("could not read the ends: ") + e.what(); }
+            QMetaObject::invokeMethod(this, [this, text] { if (s_ends_->toPlainText().toStdString() != text) s_ends_->setPlainText(QString::fromStdString(text)); ends_busy_ = false; }, Qt::QueuedConnection);
+        }).detach();
     }
 
     std::unique_ptr<Source> make_source() {
@@ -637,6 +800,7 @@ public:
     }
 
     void tick() {
+        if (tabs_->currentIndex() == 1) refresh_security();
         // lobby
         bool changed = room_->version() != seen_;               // [HOLD_THE_READ_V1] redraw only on a change
         seen_ = room_->version();
@@ -767,6 +931,19 @@ public:
             }
             if (!call_ && !pending_.session.empty()) answer();
         }
+        // unattended: the Security tab's own buttons, one at a time, each after the one before has answered
+        if (!opt_.security.empty() && ticks_ >= 3 && s_buttons_[0]->isEnabled()) {
+            const auto semi = opt_.security.find(';');
+            const std::string step = opt_.security.substr(0, semi);
+            opt_.security = semi == std::string::npos ? "" : opt_.security.substr(semi + 1);
+            const auto sp = step.find(' ');
+            const std::string what = step.substr(0, sp), arg = sp == std::string::npos ? "" : step.substr(sp + 1);
+            std::cerr << "[app] pressing: " << step << "\n";
+            if (what == "cipher") { s_cipher_pick_->setCurrentText(QString::fromStdString(arg)); s_buttons_[0]->click(); }
+            else if (what == "key") s_buttons_[1]->click();
+            else if (what == "protocol") { s_protocol_pick_->setCurrentText(QString::fromStdString(arg)); s_buttons_[2]->click(); }
+            else if (what == "ram") { s_ram_to_->setText(QString::fromStdString(arg)); s_buttons_[3]->click(); }
+        }
         if (!opt_.screenshot.empty() && ++ticks_ >= opt_.after) {
             paint_frame();
             grab().save(QString::fromStdString(opt_.screenshot));
@@ -812,6 +989,16 @@ private:
     int rx_w_ = 0, rx_h_ = 0, rx_level_ = 0, ticks_ = 0, age_redraw_ = 0;
     uint64_t seen_ = ~0ull;
     std::chrono::steady_clock::time_point t_last_ = std::chrono::steady_clock::now();
+    // the Security tab
+    QTabWidget* tabs_ = nullptr;
+    QLabel *s_role_ = nullptr, *s_cipher_ = nullptr, *s_key_ = nullptr, *s_protocol_ = nullptr, *s_ram_ = nullptr, *s_me_ = nullptr, *s_result_ = nullptr;
+    QComboBox *s_cipher_pick_ = nullptr, *s_protocol_pick_ = nullptr;
+    QLineEdit* s_ram_to_ = nullptr;
+    QPlainTextEdit* s_ends_ = nullptr;
+    std::vector<QPushButton*> s_buttons_;
+    uint64_t sec_changes_ = ~0ull;
+    int ends_age_ = 99;
+    bool ends_busy_ = false;
 };
 
 static int run_main(int argc, char** argv) {
@@ -825,16 +1012,23 @@ static int run_main(int argc, char** argv) {
         else if (k == "--no-audio") o.audio = false; else if (k == "--mic") o.mic = std::stoi(v()); else if (k == "--speaker") o.speaker = std::stoi(v());
         else if (k == "--auto-join") o.auto_join = v(); else if (k == "--screenshot") o.screenshot = v(); else if (k == "--after") o.after = std::stoi(v());
         else if (k == "--bandwidth") o.bandwidth = std::stol(v());
+        else if (k == "--channel") o.channel = v();
+        else if (k == "--tab") o.tab = v();
+        else if (k == "--security") o.security = v();
         else if (k == "--show-controls") o.show_controls = true;
         else if (k == "--diagnostics") o.diagnostics = true;
         else if (k == "--list-devices") { std::cout << "cameras:\n" << video_devices() << "audio (--mic N / --speaker N):\n" << audio_devices(); return 0; }
         else { std::cerr << "unknown option " << k << "\n"; return 2; }
     }
     if (o.ram.empty() || o.media.empty() || o.name.empty()) {
-        std::cerr << "usage: comms-app --ram HOST:PORT --media HOST:PORT --name NAME [--video FILE | --camera DEV | --synthetic WxH]\n";
+        std::cerr << "usage: comms-app --ram HOST:PORT --media HOST:PORT --name NAME [--video FILE | --camera DEV | --synthetic WxH] [--channel ROLE]\n";
         return 2;
     }
     av_log_set_level(AV_LOG_ERROR);                        // FFmpeg: errors only (5.1 logs a missing SIMD path as a warning)
+    // [THE_CALL_IS_UNDER_THE_FRAME_V1] --channel ROLE: this program's planes are under the frame; the Role's setting is
+    // read from the memory before any plane is opened
+    const auto rc = o.ram.rfind(':');
+    auto under = comms::channel_for_program(o.channel, o.name, o.ram.substr(0, rc), std::stoi(o.ram.substr(rc + 1)));
     QApplication app(argc, argv);
     Window w(o);
     w.show();

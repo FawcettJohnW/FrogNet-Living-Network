@@ -5,6 +5,11 @@
 > cleanup). No APK is built or shipped. The region it joins is any region `fdf-region-create` made: add the pond (area
 > and RAM manager) on the app's screen; its built-in first pond is John's own region. How to install a region and
 > the app: `docs/OPERATING.md` in the FrogNet repository. The dated sections below are the record of each build.
+>
+> **2026-11-25: the Communicator is r6** (`comms-android-2026-11-25-r6`): its calls are under the protocol layer's
+> frame, it has a Security tab, and it follows the Communicator's memory when its owner moves it. See
+> `COMMUNICATOR-ANDROID-r6.md`. The member (Kotlin) is unchanged. r6's core is proven on the JVM; the app was not
+> built or run on a phone.
 
 ## The one-line version
 

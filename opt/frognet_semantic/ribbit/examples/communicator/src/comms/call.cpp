@@ -2,6 +2,7 @@
 // SPDX-License-Identifier: GPL-2.0-only
 #include "comms/stamp.hpp"
 #include "call.hpp"
+#include "channel.hpp"
 #include <condition_variable>
 #include "media/transcode.hpp"
 extern "C" {
@@ -63,6 +64,8 @@ Call::Call(const std::string& host, int port, const std::string& name, const std
     for (int i = 0; i < 8; ++i) tag.push_back(uint8_t('a' + rng() % 26));       // one teardown tag, both planes
     auto open = [&](uint8_t kind) {
         auto p = std::make_unique<Plane>(Plane::connect_to(host_, port_, 8000));   // [A_HANG_IS_THE_WORST_REPORT_V1]
+        if (auto ch = Channel::of_process())               // [THE_CALL_IS_UNDER_THE_FRAME_V1] this end opened the connection
+            p->set_channel(ch->codec(true, host_ + ":" + std::to_string(port_) + (kind == PLANE_VIDEO ? " video" : " audio")), ch->role());
         Bytes decl{kind};
         decl.insert(decl.end(), tag.begin(), tag.end());
         decl.insert(decl.end(), session_.begin(), session_.end());

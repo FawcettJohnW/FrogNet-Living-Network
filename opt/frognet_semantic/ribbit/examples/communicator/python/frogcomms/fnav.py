@@ -6,6 +6,8 @@
   VIDEO = [level u32 BE: rung, high bit = keyframe][codec u8][codec packet]
   VSEG  = [frame_id u16 BE][index u16 BE][flags u8] + piece
 A frame that cannot be finished is padded so that it ENDS with DE AD BE EF ([ABORT_PAD_ENDS_WITH_THE_SENTINEL_V1])."""
+import sys
+import queue
 import errno, math, select, socket, struct, sys, threading, time
 
 KIND_AUDIO, KIND_VIDEO, KIND_BACKPRESSURE, KIND_PLANE, KIND_KEYREQ, KIND_AUDIO_BACKPRESSURE, KIND_VSEG = range(7)
@@ -161,9 +163,24 @@ def _unsent(sock):
         return None
 
 
+def channel_codec_gone():
+    """The frame library's error, when it has been loaded (a plane with no channel never loads it)."""
+    from . import channel
+    return channel.Gone
+
+
 class Plane:
     """One fnav plane: a non-blocking TCP connection carrying audio or video. Whole frames only; the room is checked
-    before the first byte; a part-written frame is finished within 250 ms or completed with abort padding."""
+    before the first byte; a part-written frame is finished within 250 ms or completed with abort padding.
+
+    [ONE_WRITER_PER_PLANE_V1] (src/fnav/plane.hpp has John's words.) One thread writes this plane's socket. send()
+    hands it the body and returns what it says became of it. There is no lock around the socket.
+
+    [THE_CALL_IS_UNDER_THE_FRAME_V1] With set_channel() every body crosses in the protocol layer's frame
+    (frogcomms/channel.py): packed by the Role's protocol, sealed under the Role's current key, a switch of either
+    travelling in the stream. A unit under the frame ends in one byte, 0 ([A_WHOLE_UNIT_SAYS_SO_V1]); a unit that did
+    not go on the wire whole is taken back from the frame."""
+    WHOLE_UNIT = b"\0"
     SNDBUF = 1 << 16 if sys.platform == "win32" else 1 << 17
     AUDIO_RETRIES, KEY_RETRIES, RETRY_WAIT, FINISH_S = 2, 3, 0.008, 0.25
 
@@ -173,7 +190,15 @@ class Plane:
         self.s.setsockopt(socket.SOL_SOCKET, socket.SO_SNDBUF, self.SNDBUF)
         self.s.setsockopt(socket.IPPROTO_TCP, socket.TCP_NODELAY, 1)
         self.s.setsockopt(socket.SOL_SOCKET, socket.SO_LINGER, struct.pack("ii", 0, 0))
-        self.wlock = threading.Lock()
+        self.codec = self.role = None
+        self._ready = []                                    # the reader's: bodies opened and not yet returned
+        self._jobs = queue.SimpleQueue()                    # what the writer is handed
+        self._wake_r, self._wake_w = socket.socketpair()    # what wakes the writer: it waits on this beside the socket
+        self._wake_r.setblocking(False); self._wake_w.setblocking(False)
+        self._owed = self._stop = False
+        self._broken = None
+        self._writer_thread = threading.Thread(target=self._writer, daemon=True, name="plane-writer")
+        self._writer_thread.start()
         self.rate = RateMeter()
         self.vseg_id = 0
         self.frames_sent = self.bytes_sent = self.dropped = self.aborted_out = 0
@@ -193,8 +218,120 @@ class Plane:
             pass
 
     def close(self):
+        self._stop = True
+        self._wake()
+        self._writer_thread.join(2.0)
         self.shutdown_both()
         self.s.close()
+        self._wake_r.close(); self._wake_w.close()
+
+    # -- the frame --------------------------------------------------------------------------------------------
+    def set_channel(self, codec, role):
+        """This plane's end of the frame (channel.Channel.codec), and the Role its bodies are for. Before the first send."""
+        self.codec, self.role = codec, role
+
+    def owes(self):
+        """The frame owes the far end something (the setting changed, or the reader read a call): the writer sends it."""
+        self._owed = True
+        self._wake()
+
+    def _wake(self):
+        try:
+            self._wake_w.send(b"\1")
+        except OSError:
+            pass                                            # full: the writer is already going to wake
+
+    # -- the writer: the one owner of this plane's wire ---------------------------------------------------------
+    def send(self, body, kind=VIDEO):
+        """Any thread: hand the body to the writer and take its word for what became of it."""
+        if self._broken:
+            raise ConnectionError_(self._broken)
+        job = [body, kind, threading.Event(), DROPPED, None]
+        self._jobs.put(job)
+        self._wake()
+        job[2].wait()
+        if job[4]:
+            raise ConnectionError_(job[4])
+        return job[3]
+
+    def _break(self, why):
+        """[A_BROKEN_PLANE_IS_CLOSED_V1] The writer cannot go on, so the connection is over and both ends learn it now:
+        this end's reader and the far end's read "closed" instead of waiting on a wire nobody writes."""
+        if not self._broken:
+            self._broken = why
+            print("[fnav] a plane's writer stops and the connection is closed: %s" % why, file=sys.stderr, flush=True)
+            self.shutdown_both()
+
+    def _writer(self):
+        refused = False
+        while not self._stop:
+            owes = self.codec is not None and self._owed and not self._broken
+            try:
+                select.select([self._wake_r], [self.s] if owes and not refused else [], [], self.RETRY_WAIT if owes and refused else None)
+                while self._wake_r.recv(64):
+                    pass
+            except (BlockingIOError, InterruptedError):
+                pass
+            except (OSError, ValueError):
+                break
+            if self._stop:
+                break
+            try:
+                if owes:
+                    refused = not self._write_owed()
+            except ConnectionError_ as e:
+                self._break(str(e))
+            while True:
+                try:
+                    job = self._jobs.get_nowait()
+                except queue.Empty:
+                    break
+                if not self._broken:
+                    try:
+                        job[3] = self._write_body(job[0], job[1])
+                    except ConnectionError_ as e:
+                        self._break(str(e))
+                job[4] = self._broken
+                job[2].set()
+        self._broken = self._broken or "the plane is closed"
+        while True:                                         # nothing handed to a writer that has stopped waits for ever
+            try:
+                job = self._jobs.get_nowait()
+            except queue.Empty:
+                break
+            job[4] = self._broken; job[2].set()
+
+    def _write_owed(self):
+        """(writer) the calls and repeats the frame owes. False: one did not go; the writer waits for the socket."""
+        try:
+            while True:
+                unit = self.codec.next()
+                if unit is None:
+                    self._owed = False
+                    return True
+                if self._send_unit(unit + self.WHOLE_UNIT, AUDIO) != WHOLE:
+                    self.codec.undo(); self._owed = True
+                    return False
+        except channel_codec_gone() as e:
+            raise ConnectionError_("the frame: %s" % e)
+
+    def _write_body(self, body, kind):
+        """(writer) one body, under the frame or not."""
+        if self.codec is None:
+            return self._send_unit(body, kind)
+        try:
+            if not self._write_owed():
+                return DROPPED
+            unit = self.codec.pack(self.role, body)
+            if unit is None:                                # messages are being sent again
+                self.dropped += 1; self._owed = True
+                return DROPPED
+            r = self._send_unit(unit + self.WHOLE_UNIT, kind)
+            if r != WHOLE:
+                self.codec.undo()
+            return r
+        except channel_codec_gone() as e:
+            raise ConnectionError_("the frame: %s" % e)
 
     def _writable(self, t):
         return bool(select.select([], [self.s], [], t)[1])
@@ -221,10 +358,11 @@ class Plane:
                 return 0
             raise ConnectionError_("send: %s" % e)
 
-    def send(self, body, kind=VIDEO):
+    def _send_unit(self, body, kind=VIDEO):
+        """(writer) what goes on the wire: one length, one unit."""
         blob = with_length(body)
         tries = 1 + self.AUDIO_RETRIES if kind == AUDIO else self.KEY_RETRIES if kind == KEYFRAME else 1
-        with self.wlock:
+        if True:
             sent = 0
             for t in range(tries):
                 if t and not self._writable(self.RETRY_WAIT):
@@ -246,7 +384,9 @@ class Plane:
                 self.frames_sent += 1; self.bytes_sent += len(blob)
                 self.rate.on_accepted(len(blob), time.time())
                 return WHOLE
-            pad, off, t1 = abort_pad(len(blob) - sent), 0, time.monotonic()   # [ABORT_SENTINEL_V1]
+            # [THE_LENGTH_IS_NEVER_PADDED_V1] with fewer than the 4 length bytes gone, the rest of the length goes as it is
+            pad = abort_pad(len(blob) - sent) if sent >= 4 else blob[sent:4] + abort_pad(len(blob) - 4)
+            off, t1 = 0, time.monotonic()                                     # [ABORT_SENTINEL_V1]
             while off < len(pad):
                 if time.monotonic() - t1 >= self.FINISH_S:
                     raise ConnectionError_("a %d byte frame: %d/%d written and the abort padding would not go either; "
@@ -294,7 +434,25 @@ class Plane:
         return bytes(buf)
 
     def recv(self, timeout_s):
-        """(state, body): FRAME, ABORTED_IN (an aborted frame, consumed), CLOSED (between frames), TIMEOUT."""
+        """(state, body): FRAME, ABORTED_IN (an aborted frame, consumed), CLOSED (between frames), TIMEOUT.
+        Under the frame a unit may hold only calls (a switch, RECEIVED): then the next unit is read."""
+        while True:
+            if self._ready:
+                return FRAME, self._ready.pop(0)
+            state, body = self._recv_unit(timeout_s)
+            if state != FRAME or self.codec is None:
+                return state, body
+            if body[-1:] != self.WHOLE_UNIT:                # [A_WHOLE_UNIT_SAYS_SO_V1] aborted, however it ends
+                self.aborted_in += 1
+                return ABORTED_IN, b""
+            try:
+                opened = self.codec.feed(body[:-1])
+            except channel_codec_gone() as e:
+                raise ConnectionError_("the frame: %s" % e)
+            self.owes()                                     # what the frame now owes (RECEIVED, NOT OPENED) is the writer's
+            self._ready += [m[4] for m in opened]
+
+    def _recv_unit(self, timeout_s):
         if not self._readable(timeout_s):
             return TIMEOUT, b""
         try:

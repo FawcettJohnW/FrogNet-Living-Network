@@ -50,5 +50,20 @@ int net_poll(net_pollfd* p, unsigned n, int ms);
 // Linux: SIOCOUTQ. Windows: -1 -- no equivalent; the socket's own "would block" decides
 // ([THE_GUARD_MUST_WORK_WHERE_THE_CLIENT_RUNS_V1]: a known gap, see STATUS.md).
 long net_unsent(int fd);
+// [ONE_WRITER_PER_PLANE_V1] What wakes a plane's writer when it is handed something: a descriptor it waits on beside
+// its socket, so its one wait covers both. POSIX: a pipe. Windows: a UDP socket on loopback connected to itself
+// (WSAPoll waits on sockets only).
+class Waker {
+public:
+    Waker();
+    ~Waker();
+    Waker(const Waker&) = delete;
+    Waker& operator=(const Waker&) = delete;
+    void wake();                                     // any thread
+    void drain();                                    // the waiting thread, once woken
+    int fd() const { return rfd_; }
+private:
+    int rfd_ = -1, wfd_ = -1;
+};
 
 }  // namespace fnav

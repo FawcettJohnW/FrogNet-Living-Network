@@ -5,18 +5,24 @@
 
   comms_app.py --ram HOST:PORT --media HOST:PORT --name NAME [--camera DEV | --video FILE | --synthetic WxH]
                [--size WxH] [--fps N] [--no-audio] [--mic N] [--speaker N] [--list-devices] [--bandwidth BPS]
-               [--auto-join NAME] [--screenshot FILE --after SECONDS] [--show-controls] [--diagnostics]"""
-import argparse, math, os, random, sys, time
+               [--auto-join NAME] [--screenshot FILE --after SECONDS] [--show-controls] [--diagnostics]
+               [--tab security] [--security "cipher NAME;key;protocol NAME;ram HOST:PORT"]
+
+Two tabs, as in comms-app. Call: the lobby, the call, the chat. Security: [THE_CALL_IS_UNDER_THE_FRAME_V1] what the
+Role's setting is now and what every end is running, and the owner's changes: the cipher, a new key, the protocol and
+"Change RAM host" ([THE_MEMORY_MOVES_V1]). Each is one write of the Role's setting (frogcomms.channel.change)."""
+import argparse, math, os, random, sys, threading, time
 from collections import deque
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
-from PySide6.QtCore import Qt, QTimer, QRect, QSize, QPointF  # noqa: E402
+from PySide6.QtCore import Qt, QTimer, QRect, QSize, QPointF, Signal  # noqa: E402
 from PySide6.QtGui import QColor, QFont, QImage, QPainter, QPen, QPolygonF  # noqa: E402
-from PySide6.QtWidgets import (QApplication, QFrame, QHBoxLayout, QLabel, QLineEdit, QListWidget, QListWidgetItem,  # noqa: E402
-                               QPushButton, QSlider, QStyle, QVBoxLayout, QWidget)
+from PySide6.QtWidgets import (QApplication, QComboBox, QFrame, QGridLayout, QHBoxLayout, QLabel, QLineEdit, QListWidget,  # noqa: E402
+                               QListWidgetItem, QPlainTextEdit, QPushButton, QSlider, QStyle, QTabWidget, QVBoxLayout, QWidget)
 from frogcomms.room import Room  # noqa: E402
 from frogcomms.call import Call  # noqa: E402
 from frogcomms.media import AvSource, SyntheticSource  # noqa: E402
 from frogcomms import fnav as F  # noqa: E402
+from frogcomms import channel, ram_at  # noqa: E402
 
 K_STEPS, K_MIN, K_MAX = 1000, 32000.0, 4000000.0     # the bandwidth slider: 0..999 continuous, 1000 = unlimited
 
@@ -279,9 +285,13 @@ class DiagWindow(QWidget):
 
 
 class Window(QWidget):
+    sec_done = Signal(str)                                  # the owner's change answered (from its own thread)
+    sec_ends = Signal(str)                                  # every end's report, read off the window's thread
+
     def __init__(self, o):
         super().__init__()
         self.o = o
+        self.sec_changes, self.ends_age, self.ends_busy, self.sec_steps = -1, 99, False, [x for x in (o.security or "").split(";") if x]
         rh, rp = o.ram.rsplit(":", 1); self.media_host, mp = o.media.rsplit(":", 1); self.media_port = int(mp)
         self.room = Room(rh, int(rp), o.name, "video,audio")
         self.call = None; self.session = ""; self.pending = None; self.answered = set()
@@ -306,7 +316,14 @@ class Window(QWidget):
             "QPushButton#answer{background:#e7f5ec;color:#16703a;border-color:#bfe3cc}"
             "QLabel#tile{background:#ffffff;border:1px solid #dfe2e6;border-radius:8px;padding:6px 8px}"
             "QLabel#title{font-weight:600;font-size:14px}QLabel#muted{color:#6b7280;font-size:12px}"
-            "QLineEdit{background:#ffffff;border:1px solid #c9ced5;border-radius:8px;padding:6px}")
+            "QLineEdit{background:#ffffff;border:1px solid #c9ced5;border-radius:8px;padding:6px}"
+            "QComboBox{background:#ffffff;border:1px solid #c9ced5;border-radius:8px;padding:5px 8px}"
+            "QPlainTextEdit{background:#ffffff;border:1px solid #dfe2e6;border-radius:8px;padding:6px;font-family:monospace;font-size:12px}"
+            "QLabel#value{font-weight:600}"
+            "QLabel#result{background:#fff8e6;border:1px solid #ecd9a3;border-radius:8px;padding:8px}"
+            "QTabWidget::pane{border:0}"
+            "QTabBar::tab{background:#eceef1;border:1px solid #dfe2e6;border-bottom:0;border-top-left-radius:8px;border-top-right-radius:8px;padding:7px 22px;margin-left:6px}"
+            "QTabBar::tab:selected{background:#ffffff;font-weight:600}")
         top = QVBoxLayout(self); top.setContentsMargins(0, 0, 0, 0); top.setSpacing(0)
         bar = QFrame(); bar.setObjectName("bar"); bl = QHBoxLayout(bar); bl.setContentsMargins(14, 8, 14, 8)
         t = QLabel("FrogNet Communicator"); t.setObjectName("title")
@@ -354,8 +371,134 @@ class Window(QWidget):
         self.chat = QListWidget(); self.chat.setMinimumWidth(220); self.chat.setWordWrap(True); right.addWidget(self.chat, 1)
         self.say = QLineEdit(); self.say.setPlaceholderText("Start a call to chat"); self.say.setEnabled(False); right.addWidget(self.say)
         self.say.returnPressed.connect(self._send_chat)
-        body.addLayout(right); top.addLayout(body, 1); self.resize(1180, 720)
+        body.addLayout(right)
+        self.tabs = QTabWidget()
+        call_tab = QWidget(); call_tab.setLayout(body)
+        self.tabs.addTab(call_tab, "Call"); self.tabs.addTab(self._build_security(), "Security")
+        self.tabs.currentChanged.connect(lambda i: i == 1 and (setattr(self, "ends_age", 99), self._refresh_security()))
+        top.addWidget(self.tabs, 1); self.resize(1180, 720)
+        if self.o.tab == "security":
+            self.tabs.setCurrentIndex(1)
         self._update_tiles()
+
+    # -- the Security tab ------------------------------------------------------------------------------------------
+    def _build_security(self):
+        w = QWidget(); row = QHBoxLayout(w); row.setContentsMargins(18, 16, 18, 16); row.setSpacing(24)
+        left = QVBoxLayout(); left.setSpacing(10)
+
+        def head(t):
+            l = QLabel(t); l.setObjectName("title"); return l
+
+        def muted(t):
+            l = QLabel(t); l.setObjectName("muted"); l.setWordWrap(True); return l
+        left.addWidget(head("The channel now"))
+        now = QGridLayout(); now.setHorizontalSpacing(14); now.setVerticalSpacing(6)
+        self.s_now = {}
+        for i, name in enumerate(("Role", "Cipher", "Key", "Protocol", "RAM host", "This program")):
+            now.addWidget(muted(name), i, 0, Qt.AlignTop)
+            v = QLabel(); v.setObjectName("value"); v.setWordWrap(True); v.setTextInteractionFlags(Qt.TextSelectableByMouse)
+            now.addWidget(v, i, 1); self.s_now[name] = v
+        now.setColumnStretch(1, 1); left.addLayout(now); left.addSpacing(8)
+        left.addWidget(head("Change it"))
+        left.addWidget(muted("Each change is one write of the Role's setting. It carries a check made with this machine's secret, and every "
+                             "end switches in its own stream: a call is not interrupted."))
+        g = QGridLayout(); g.setHorizontalSpacing(10); g.setVerticalSpacing(8)
+        self.s_cipher = QComboBox(); self.s_cipher.addItems(["not sealed", "aes-256-gcm", "chacha20-poly1305"])
+        self.s_protocol = QComboBox(); self.s_protocol.addItems(["tcp", "chorus", "openqasm"])
+        self.s_ram_to = QLineEdit(); self.s_ram_to.setPlaceholderText("host:port of another comms-ram that is running")
+        cipher_go, key_go, protocol_go, ram_go = QPushButton("Set cipher"), QPushButton("New key"), QPushButton("Set protocol"), QPushButton("Change RAM host")
+        cipher_go.clicked.connect(lambda: self._owner_change("cipher " + self.s_cipher.currentText(),
+                                                             dict(unseal=True) if self.s_cipher.currentText() == "not sealed" else dict(algorithm=self.s_cipher.currentText())))
+        key_go.clicked.connect(lambda: self._owner_change("a new key", dict(new_key=True)))
+        protocol_go.clicked.connect(lambda: self._owner_change("protocol " + self.s_protocol.currentText(), dict(protocol=self.s_protocol.currentText())))
+        ram_go.clicked.connect(self._move_ram)
+        g.addWidget(muted("Cipher"), 0, 0); g.addWidget(self.s_cipher, 0, 1); g.addWidget(cipher_go, 0, 2)
+        g.addWidget(muted("Key"), 1, 0); g.addWidget(muted("A new random number in the setting: every sender computes a new key from it."), 1, 1); g.addWidget(key_go, 1, 2)
+        g.addWidget(muted("Protocol"), 2, 0); g.addWidget(self.s_protocol, 2, 1); g.addWidget(protocol_go, 2, 2)
+        g.addWidget(muted("RAM host"), 3, 0); g.addWidget(self.s_ram_to, 3, 1); g.addWidget(ram_go, 3, 2)
+        g.setColumnStretch(1, 1); left.addLayout(g)
+        self.s_result = QLabel("No change made from this window yet."); self.s_result.setObjectName("result"); self.s_result.setWordWrap(True)
+        self.s_result.setTextInteractionFlags(Qt.TextSelectableByMouse)
+        left.addWidget(self.s_result); left.addStretch(); row.addLayout(left, 5)
+        right = QVBoxLayout(); right.setSpacing(8); right.addWidget(head("Every end and what it is running"))
+        self.s_ends = QPlainTextEdit(); self.s_ends.setReadOnly(True); right.addWidget(self.s_ends, 1); row.addLayout(right, 4)
+        self.s_buttons = [cipher_go, key_go, protocol_go, ram_go]
+        self.sec_done.connect(self._owner_done); self.sec_ends.connect(self._ends_read)
+        return w
+
+    def _move_ram(self):
+        to = self.s_ram_to.text().strip()
+        host, _, port = to.rpartition(":")
+        if not host or not port.isdigit():
+            self.s_result.setText("Give the new RAM host as host:port."); return
+        self._owner_change("the memory to " + to, dict(move_to=(host, int(port))))
+
+    def _owner_change(self, what, change):
+        """One change by the owner, off the window's thread: the write, then every end's report."""
+        host, port = ram_at.at()
+        ch = channel.watching()
+        role = ch.role if ch else channel.ROLE
+        self.s_result.setText("Setting %s ..." % what)
+        for b in self.s_buttons:
+            b.setEnabled(False)
+
+        def run():
+            try:
+                d = channel.change(host, port, role, **change)
+                said = "\n".join(["%s: %s" % (what, d["summary"])] + d["lines"] + (["%d line(s) of chat carried there" % d["chat_carried"]] if "move_to" in change else [])
+                                 + ([] if d["checked"] else ["This machine holds no secret for the Role: the setting carries no check, and an end that holds one ignores it."]))
+            except Exception as e:
+                said = "Not set: %s" % e
+            print("[security] " + said.replace("\n", " | "), flush=True)
+            self.sec_done.emit(said)
+        threading.Thread(target=run, daemon=True).start()
+
+    def _owner_done(self, said):
+        self.s_result.setText(said)
+        for b in self.s_buttons:
+            b.setEnabled(True)
+        self.ends_age = 99; self._refresh_security()
+
+    def _ends_read(self, text):
+        if self.s_ends.toPlainText() != text:
+            self.s_ends.setPlainText(text)
+        self.ends_busy = False
+
+    def _refresh_security(self):
+        ch = channel.watching()
+        if ch is None:
+            self.s_now["Role"].setText("no channel"); return
+        host, port = ram_at.at()
+        f = ch.fields
+        sealed = str(f.get("number") or "0") != "0"
+        try:
+            secret = channel.secret_line(ch.role, ch.secrets)
+        except channel.Gone:
+            secret = "this machine holds no secret for the Role (%s)" % ch.secrets
+        cipher, protocol = (f.get("protection") if sealed else "not sealed"), f.get("driver") or "tcp"
+        self.s_now["Role"].setText(ch.role); self.s_now["Cipher"].setText(cipher); self.s_now["Key"].setText("computed from the secret: " + secret)
+        self.s_now["Protocol"].setText(protocol); self.s_now["RAM host"].setText("%s:%d" % (host, port))
+        self.s_now["This program"].setText(ch.end + (", its planes under the frame" if ch.framed else ", its planes NOT under the frame (start it with --channel %s)" % ch.role)
+                                           + ("\nIt IGNORED the last setting: " + ch.ignored if ch.ignored else ""))
+        if ch.changes != self.sec_changes:                  # a setting was taken: the pickers show it
+            self.sec_changes, self.ends_age = ch.changes, 99
+            self.s_cipher.setCurrentText(cipher); self.s_protocol.setCurrentText(protocol)
+        self.ends_age += 1
+        if self.ends_age < 3 or self.ends_busy:             # the ends: read again every 3 s, and when a setting was taken
+            return
+        self.ends_age, self.ends_busy = 0, True
+        role = ch.role
+
+        def run():
+            try:
+                ends = channel.show(host, port, role)["ends"]
+                text = "".join("%s\n    %s, %s%s\n    memory at %s%s\n" % (
+                    e, r.get("driver"), "sealed with " + str(r.get("protection")) if r.get("sealed") else "not sealed", "" if r.get("framed", True) else ", not under the frame",
+                    r.get("ram"), "\n    IGNORED: " + r["ignored"] if r.get("ignored") else "") for e, r in sorted(ends.items())) or "(no end reports)"
+            except Exception as e:
+                text = "could not read the ends: %s" % e
+            self.sec_ends.emit(text)
+        threading.Thread(target=run, daemon=True).start()
 
     # -- calls ---------------------------------------------------------------------------------------------------
     def _set_gain(self, g):
@@ -469,6 +612,8 @@ class Window(QWidget):
 
     # -- the clock -----------------------------------------------------------------------------------------------
     def _tick(self):
+        if self.tabs.currentIndex() == 1:
+            self._refresh_security()
         changed = self.room.version != self.seen; self.seen = self.room.version
         try:
             ros = self.room.roster(); self.status.setText("Connected")
@@ -595,6 +740,17 @@ class Window(QWidget):
                     self.lobby.setCurrentRow(i); self.call_selected(); break
             if not self.call and self.pending:
                 self.answer()
+        if self.sec_steps and self.ticks >= 3 and self.s_buttons[0].isEnabled():   # unattended: the Security tab's own buttons, in order
+            what, _, arg = self.sec_steps.pop(0).partition(" ")
+            print("[app] pressing: %s %s" % (what, arg), flush=True)
+            if what == "cipher":
+                self.s_cipher.setCurrentText(arg); self.s_buttons[0].click()
+            elif what == "key":
+                self.s_buttons[1].click()
+            elif what == "protocol":
+                self.s_protocol.setCurrentText(arg); self.s_buttons[2].click()
+            elif what == "ram":
+                self.s_ram_to.setText(arg); self.s_buttons[3].click()
         if self.o.screenshot:
             self.ticks += 1
             if self.ticks >= self.o.after:
@@ -618,12 +774,17 @@ def main():
     a.add_argument("--bandwidth", type=int, default=0); a.add_argument("--auto-join", default="")
     a.add_argument("--screenshot", default=""); a.add_argument("--after", type=int, default=10)
     a.add_argument("--show-controls", action="store_true"); a.add_argument("--diagnostics", action="store_true")
+    a.add_argument("--channel", default="")                # ROLE: this program's planes are under the frame, for that Role
+    a.add_argument("--tab", default="")                    # security: open on the Security tab
+    a.add_argument("--security", default="")               # unattended testing: the Security tab's buttons pressed in order
     o = a.parse_args()
     if o.list_devices:
         from frogcomms.audio import devices
         print(devices()); return 0
     if not (o.ram and o.media and o.name):
         a.error("--ram, --media and --name are required")
+    rh, rp = o.ram.rsplit(":", 1)
+    channel.for_program(o.channel, o.name, rh, int(rp))     # [THE_CALL_IS_UNDER_THE_FRAME_V1] read before any plane is opened
     app = QApplication(sys.argv)
     w = Window(o); w.show()
     if o.diagnostics:

@@ -64,21 +64,21 @@ class Client:
         if self._h:
             _lib.ct_shutdown(self._h)
 
-    def put(self, var, scope, value, own=True):
+    def put(self, var, scope, value, own=True, service=SERVICE):
         err = ctypes.c_void_p()
-        r = _lib.ct_put(self._h, SERVICE.encode(), var.encode(), scope.encode(), json.dumps(value).encode(), int(own), ctypes.byref(err))
+        r = _lib.ct_put(self._h, service.encode(), var.encode(), scope.encode(), json.dumps(value).encode(), int(own), ctypes.byref(err))
         _check(err, "put %s" % var)
         return r
 
-    def get(self, fresh_s=0, wait_s=0.0, min_rows=0, var="", after=-1):
+    def get(self, fresh_s=0, wait_s=0.0, min_rows=0, var="", after=-1, service=SERVICE):
         err = ctypes.c_void_p()
-        p = _lib.ct_get(self._h, SERVICE.encode(), int(fresh_s), float(wait_s), int(min_rows), var.encode(), int(after), ctypes.byref(err))
+        p = _lib.ct_get(self._h, service.encode(), int(fresh_s), float(wait_s), int(min_rows), var.encode(), int(after), ctypes.byref(err))
         _check(err, "get %s" % (var or "*"))
         return json.loads(_take(p))
 
-    def remove(self, var, scope):
+    def remove(self, var, scope, service=SERVICE):
         err = ctypes.c_void_p()
-        r = _lib.ct_remove(self._h, SERVICE.encode(), var.encode(), scope.encode(), ctypes.byref(err))
+        r = _lib.ct_remove(self._h, service.encode(), var.encode(), scope.encode(), ctypes.byref(err))
         _check(err, "remove %s" % var)
         return r == 1
 

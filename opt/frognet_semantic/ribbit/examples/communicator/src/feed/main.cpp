@@ -11,11 +11,12 @@ extern "C" {
 // Both are re-asserted every 5 s. A failure to publish never stops the stream, and is logged every time: a feed that
 // is streaming and invisible looks exactly like one that is not running.
 //
-//   comms-feed --ram HOST:PORT --media HOST:PORT --name NAME [--video FILE | --camera DEV | --synthetic WxH]
+//   comms-feed --ram HOST:PORT --media HOST:PORT --name NAME [--video FILE | --camera DEV | --synthetic WxH] [--channel ROLE]
 //              [--size WxH] [--mic N] [--tone HZ] [--seconds N] [--bandwidth BPS] [--jitter MS]
 //   --bandwidth / --jitter: the feed's own link (demo conditions, as the window's sliders): its upload is paced to BPS
 //   and every frame it sends waits a random 0..MS.   (--mic -1: the default microphone)
 //   --video loops a file; --camera is /dev/videoN (Linux) or "video=<name>" (Windows); --mic uses a real microphone.
+#include "comms/channel.hpp"
 #include "comms/stamp.hpp"
 #include "comms/call.hpp"
 #include "comms/devices.hpp"
@@ -33,9 +34,11 @@ static int run_main(int argc, char** argv) {
     av_log_set_level(AV_LOG_ERROR);                        // FFmpeg: errors only
     std::string ram = "127.0.0.1:8800", media = "127.0.0.1:8994", name = "Feed", geo = "1280x720", video, camera; bool mic = false; int mic_dev = -1;
     double tone = 0; int seconds = 0; long bandwidth = 0; int jitter = 0;
+    std::string channel;                                   // --channel ROLE: this feed's planes are under the frame, for that Role
     for (int i = 1; i + 1 < argc; i += 2) {
         std::string k = argv[i], v = argv[i + 1];
         if (k == "--ram") ram = v; else if (k == "--media") media = v; else if (k == "--name") name = v;
+        else if (k == "--channel") channel = v;
         else if (k == "--synthetic") geo = v; else if (k == "--video") video = v; else if (k == "--camera") camera = v; else if (k == "--size") geo = v;
         else if (k == "--mic") { mic = true; mic_dev = std::stoi(v); } else if (k == "--tone") tone = std::stod(v); else if (k == "--seconds") seconds = std::stoi(v); else if (k == "--bandwidth") bandwidth = std::stol(v); else if (k == "--jitter") jitter = std::stoi(v);
     }
@@ -43,6 +46,9 @@ static int run_main(int argc, char** argv) {
     std::signal(SIGTERM, [](int) { g_stop = true; });
     auto [rh, rp] = hostport(ram);
     auto [mh, mp] = hostport(media);
+    comms::ProgramChannel under;                           // [THE_CALL_IS_UNDER_THE_FRAME_V1] read before any plane is opened
+    try { under = comms::channel_for_program(channel, name, rh, rp); }
+    catch (const std::exception& e) { std::fprintf(stderr, "comms-feed: %s\n", e.what()); return 1; }
     int w = std::stoi(geo.substr(0, geo.find('x'))), h = std::stoi(geo.substr(geo.find('x') + 1));
     std::string session;
     { std::mt19937 r(std::random_device{}()); for (int i = 0; i < 12; ++i) session += "0123456789abcdef"[r() % 16]; }

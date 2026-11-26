@@ -37,14 +37,18 @@ import android.widget.SeekBar;
 import android.widget.TextView;
 
 import net.frognet.communicator.core.CallCore;
+import net.frognet.communicator.core.Channel;
+import net.frognet.communicator.core.ChannelFrame;
 import net.frognet.communicator.core.Fnav;
 import net.frognet.communicator.core.Ladder;
 import net.frognet.communicator.core.Plane;
+import net.frognet.communicator.core.RamAt;
 import net.frognet.communicator.core.Room;
 
 import java.util.HashSet;
 import java.util.List;
 import java.util.Locale;
+import java.util.Map;
 import java.util.Set;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
@@ -101,7 +105,16 @@ public class CommunicatorActivity extends Activity {
 
     // views
     private FrameLayout root;
-    private View setupV, lobbyV, callV, diagV;
+    private View setupV, lobbyV, callV, diagV, securityV;
+    // [THE_CALL_IS_UNDER_THE_FRAME_V1] the Security tab: the Role's protocol, cipher and key, and where the memory is
+    private final ExecutorService sec = Executors.newSingleThreadExecutor();   // the owner's writes wait for every end's report
+    private String secretsDir;
+    private boolean speaksFrame = true;
+    private TextView secNowT, secDeviceT, secResultT, secEndsT;
+    private EditText ramToE;
+    private Button frameB;
+    private long secShownAt = 0, secChanges = -1;
+    private static final int PICK_SECRET = 7;
     private EditText nameE, ramE, mediaE, sayE;
     private TextView lobbyStatus, ringText, statsT, peerT, diagT, chatT, linkT, emptyT, clockT;
     private LinearLayout people, ringBar, chatPanel, statsPanel;
@@ -120,9 +133,13 @@ public class CommunicatorActivity extends Activity {
         audio = new AudioEngine(this);
         root = new FrameLayout(this);
         root.setBackgroundColor(BG);
+        java.io.File sd = new java.io.File(getFilesDir(), "channel_secrets");   // the Roles' secrets: this app's private files
+        sd.mkdirs();
+        secretsDir = sd.getPath();
+        speaksFrame = prefs.getBoolean("frame", true);
         final boolean have = readPrefs();                              // before the screens: the setup screen shows them
-        setupV = buildSetup(); lobbyV = buildLobby(); callV = buildCall(); diagV = buildDiag();
-        root.addView(setupV); root.addView(lobbyV); root.addView(callV); root.addView(diagV);
+        setupV = buildSetup(); lobbyV = buildLobby(); callV = buildCall(); diagV = buildDiag(); securityV = buildSecurity();
+        root.addView(setupV); root.addView(lobbyV); root.addView(callV); root.addView(diagV); root.addView(securityV);
         setContentView(root);
         orient = new OrientationEventListener(this) {
             public void onOrientationChanged(int o) {
@@ -146,7 +163,9 @@ public class CommunicatorActivity extends Activity {
         hangUp("the app closed");
         final Room r = room; room = null;
         if (r != null) ops.execute(new Runnable() { public void run() { r.close(); } });
+        ops.execute(new Runnable() { public void run() { Channel ch = Channel.watching(); if (ch != null) ch.close(); } });
         ops.shutdown();
+        sec.shutdown();
         super.onDestroy();
     }
 
@@ -185,6 +204,7 @@ public class CommunicatorActivity extends Activity {
         if (r == null || m == null || !r.matches(".+:\\d+") || !m.matches(".+:\\d+")) {
             Diag.log("[app] opened without the pond's Communicator (ram=" + r + " media=" + m + "): nothing to join"); return false; }
         myName = prefs.getString("name", "").isEmpty() ? (i.getStringExtra(X_NAME) != null ? i.getStringExtra(X_NAME) : Build.MODEL) : prefs.getString("name", "");
+        RamAt.start(r.substring(0, r.lastIndexOf(':')), Integer.parseInt(r.substring(r.lastIndexOf(':') + 1)));   // [THE_MEMORY_MOVES_V1] where the memory is, until its owner moves it
         ramAddr = r; mediaAddr = m; pond = String.valueOf(i.getStringExtra(X_POND)); hostedBy = String.valueOf(i.getStringExtra(X_FROM));
         readCall(i);
         int c = mediaAddr.lastIndexOf(':');
@@ -215,21 +235,27 @@ public class CommunicatorActivity extends Activity {
     }
 
     private void show(View v) {
-        for (View x : new View[]{setupV, lobbyV, callV, diagV}) x.setVisibility(x == v ? View.VISIBLE : View.GONE);
+        for (View x : new View[]{setupV, lobbyV, callV, diagV, securityV}) x.setVisibility(x == v ? View.VISIBLE : View.GONE);
         immersive(v == callV);
         if (v == callV) showChrome(); else ui.removeCallbacks(hideChrome);
         if (v == diagV) refreshDiag();
+        if (v == securityV) { secShownAt = 0; refreshSecurity(); }
     }
 
     // ---- the room: joined once, rejoined when its session is gone -------------------------------------------------
     private void join() {
-        final String name = myName, ram = ramAddr;
-        roomState = "connecting to " + ram + " ...";
+        final String name = myName;
+        roomState = "connecting to " + RamAt.text() + " ...";
         ops.execute(new Runnable() { public void run() {
-            int c = ram.lastIndexOf(':');
             while (!leaving && room == null) {
+                final String ram = RamAt.text();                   // [THE_MEMORY_MOVES_V1] wherever the memory is now
                 try {
-                    Room r = new Room(ram.substring(0, c), Integer.parseInt(ram.substring(c + 1)), name, "video,audio",
+                    // [THE_CALL_IS_UNDER_THE_FRAME_V1] the read on the Role's setting first: no plane is opened before
+                    // the app knows whether the Role is sealed, and this read is what follows the memory when it moves
+                    Channel ch = Channel.watching();
+                    if (ch == null || !ch.sender.equals(Channel.senderId(name)) || ch.framed != speaksFrame)
+                        Channel.forProgram(Channel.ROLE, speaksFrame, name, secretsDir, new Channel.Logger() { public void log(String l) { Diag.log(l); } });
+                    Room r = new Room(RamAt.host(), RamAt.port(), name, "video,audio",
                             new Room.Logger() { public void log(String l) { Diag.log(l); } });
                     room = r;
                     roomState = "in the room at " + ram;
@@ -267,6 +293,12 @@ public class CommunicatorActivity extends Activity {
 
     private void onTick() {
         rejoinIfLost();
+        if (ramAddr != null && RamAt.moves() > 0 && !RamAt.text().equals(ramAddr)) {     // [THE_MEMORY_MOVES_V1] its owner moved it
+            ramAddr = RamAt.text();
+            if (room != null) roomState = "in the room at " + ramAddr;
+            Diag.log("[app] the Communicator's memory is at " + ramAddr + " now");
+        }
+        if (securityV.getVisibility() == View.VISIBLE) refreshSecurity();
         if (camera != null) camera.setDisplayRotation(displayDeg());   // a 90 -> 270 turn is no configuration change
         Room r = room;
         lobbyStatus.setText(myName + "  ·  " + roomState);
@@ -590,6 +622,9 @@ public class CommunicatorActivity extends Activity {
         b.append("build ").append(Diag.BUILD).append('\n');
         b.append("room: ").append(roomState).append('\n');
         b.append("media server: ").append(mediaAddr).append('\n');
+        Channel ch = Channel.watching();
+        if (ch != null) b.append("channel '").append(ch.role).append("': ").append(ch.held()).append(ch.framed ? "; this phone's planes are under the frame" : "; this phone does not speak the frame")
+                .append(ch.ignored().isEmpty() ? "" : "; IGNORED a setting: " + ch.ignored()).append("; memory at ").append(RamAt.text()).append(" (").append(ChannelFrame.BUILD).append(")\n");
         CallCore c = core;
         if (c != null) {
             CallCore.Stats s = c.stats;
@@ -664,6 +699,7 @@ public class CommunicatorActivity extends Activity {
         LinearLayout.LayoutParams sp = new LinearLayout.LayoutParams(-2, dp(40)); sp.leftMargin = dp(8);
         top.addView(set, sp);
         l.addView(top);
+        l.addView(tabs(false), gap(8, 4));
         lobbyStatus = text("", 13, MUTED, false);
         l.addView(lobbyStatus, gap(4, 12));
         ringBar = new LinearLayout(this);
@@ -693,6 +729,198 @@ public class CommunicatorActivity extends Activity {
         sv.addView(inner);
         l.addView(sv, new LinearLayout.LayoutParams(-1, 0, 1));
         return l;
+    }
+
+    /** The two tabs of the room's screen: Room and Security. */
+    private View tabs(boolean security) {
+        LinearLayout t = new LinearLayout(this);
+        t.setOrientation(LinearLayout.HORIZONTAL);
+        Button room = button("Room", security ? CHIP : GREEN, security ? FG : Color.WHITE);
+        Button secb = button("Security", security ? GREEN : CHIP, security ? Color.WHITE : FG);
+        room.setOnClickListener(new View.OnClickListener() { public void onClick(View v) { show(lobbyV); } });
+        secb.setOnClickListener(new View.OnClickListener() { public void onClick(View v) { show(securityV); } });
+        t.addView(room, new LinearLayout.LayoutParams(0, dp(40), 1));
+        LinearLayout.LayoutParams p = new LinearLayout.LayoutParams(0, dp(40), 1); p.leftMargin = dp(8);
+        t.addView(secb, p);
+        return t;
+    }
+
+    private View row(String label, final String[] names, final Runnable[] acts) {
+        LinearLayout box = new LinearLayout(this);
+        box.setOrientation(LinearLayout.VERTICAL);
+        box.addView(text(label, 13, MUTED, false));
+        LinearLayout r = new LinearLayout(this);
+        r.setOrientation(LinearLayout.HORIZONTAL);
+        for (int k = 0; k < names.length; k++) {
+            Button b = button(names[k], CHIP, FG);
+            b.setAllCaps(false);
+            final Runnable act = acts[k];
+            b.setOnClickListener(new View.OnClickListener() { public void onClick(View v) { act.run(); } });
+            LinearLayout.LayoutParams p = new LinearLayout.LayoutParams(0, dp(44), 1); if (k > 0) p.leftMargin = dp(6);
+            r.addView(b, p);
+        }
+        box.addView(r, gap(4, 0));
+        return box;
+    }
+
+    private Runnable change(final String what, final String protocol, final String algorithm, final boolean unseal, final boolean newKey) {
+        return new Runnable() { public void run() {
+            Channel.Change c = new Channel.Change();
+            c.protocol = protocol; c.algorithm = algorithm; c.unseal = unseal; c.newKey = newKey;
+            ownerChange(what, c);
+        } };
+    }
+
+    /**
+     * [THE_CALL_IS_UNDER_THE_FRAME_V1] The Security tab. What the Role's setting is now, what this phone holds, and the
+     * owner's changes: the cipher, a new key, the protocol, and where the memory is. Each is one write of the Role's
+     * setting (core/Channel.java change, as comms-channel does on a desktop); it carries a check made with this
+     * phone's secret, so a phone with no secret cannot change a Role whose other machines hold one.
+     */
+    private View buildSecurity() {
+        LinearLayout l = column(dp(16));
+        l.addView(text("Security", 24, FG, true));
+        l.addView(tabs(true), gap(8, 8));
+        ScrollView sv = new ScrollView(this);
+        LinearLayout in = new LinearLayout(this);
+        in.setOrientation(LinearLayout.VERTICAL);
+        secNowT = text("", 15, FG, false);
+        secNowT.setTextIsSelectable(true);
+        in.addView(secNowT, gap(4, 8));
+        secDeviceT = text("", 13, MUTED, false);
+        in.addView(secDeviceT, gap(0, 12));
+        in.addView(row("Cipher", new String[]{"Not sealed", "AES-256-GCM", "ChaCha20-Poly1305"}, new Runnable[]{
+                change("not sealed", "", "", true, false), change("sealed with aes-256-gcm", "", "aes-256-gcm", false, false),
+                change("sealed with chacha20-poly1305", "", "chacha20-poly1305", false, false)}), gap(0, 12));
+        in.addView(row("Key", new String[]{"New key", "Import secret…"}, new Runnable[]{change("a new key", "", "", false, true),
+                new Runnable() { public void run() {
+                    android.content.Intent i = new android.content.Intent(android.content.Intent.ACTION_OPEN_DOCUMENT);
+                    i.addCategory(android.content.Intent.CATEGORY_OPENABLE); i.setType("*/*");
+                    try { startActivityForResult(i, PICK_SECRET); } catch (RuntimeException e) { toastLog("no file chooser on this device: " + e.getMessage()); }
+                } }}), gap(0, 12));
+        in.addView(row("Protocol", new String[]{"tcp", "chorus", "openqasm"}, new Runnable[]{
+                change("protocol tcp", "tcp", "", false, false), change("protocol chorus", "chorus", "", false, false), change("protocol openqasm", "openqasm", "", false, false)}), gap(0, 12));
+        in.addView(text("RAM host: another comms-ram that is running, as host:port", 13, MUTED, false));
+        ramToE = edit("", InputType.TYPE_CLASS_TEXT | InputType.TYPE_TEXT_VARIATION_URI);
+        ramToE.setHint("host:port");
+        in.addView(ramToE, gap(4, 6));
+        Button move = button("Change RAM host", AMBER, Color.BLACK);
+        move.setAllCaps(false);
+        move.setOnClickListener(new View.OnClickListener() { public void onClick(View v) {
+            String to = ramToE.getText().toString().trim();
+            if (!to.matches(".+:\\d+")) { toastLog("the new RAM host as host:port"); return; }
+            Channel.Change c = new Channel.Change();
+            c.moveHost = to.substring(0, to.lastIndexOf(':')); c.movePort = Integer.parseInt(to.substring(to.lastIndexOf(':') + 1));
+            ownerChange("the memory to " + to, c);
+        } });
+        in.addView(move, new LinearLayout.LayoutParams(-1, dp(48)));
+        frameB = button("", CHIP, FG);
+        frameB.setAllCaps(false);
+        frameB.setOnClickListener(new View.OnClickListener() { public void onClick(View v) {
+            if (core != null) { toastLog("hang up first: a call's planes are what they were opened as"); return; }
+            speaksFrame = !speaksFrame;
+            prefs.edit().putBoolean("frame", speaksFrame).apply();
+            Diag.log("[app] this phone " + (speaksFrame ? "speaks the frame from now on" : "does not speak the frame from now on"));
+            rejoinChannel();
+        } });
+        in.addView(frameB, gap(12, 8));
+        secResultT = text("", 14, AMBER, false);
+        secResultT.setTextIsSelectable(true);
+        in.addView(secResultT, gap(8, 8));
+        in.addView(text("Every end and what it is running", 13, MUTED, false));
+        secEndsT = text("", 12, FG, false);
+        secEndsT.setTypeface(Typeface.MONOSPACE);
+        secEndsT.setTextIsSelectable(true);
+        in.addView(secEndsT, gap(4, 24));
+        sv.addView(in);
+        l.addView(sv, new LinearLayout.LayoutParams(-1, 0, 1));
+        return l;
+    }
+
+    /** The app's channel again (another secret, or the frame turned on or off): the room is rejoined with it. */
+    private void rejoinChannel() {
+        final Room old = room; room = null;
+        ops.execute(new Runnable() { public void run() {
+            if (old != null) old.close();
+            Channel ch = Channel.watching();
+            if (ch != null) ch.close();
+        } });
+        join();
+        secShownAt = 0;
+    }
+
+    private void ownerChange(final String what, final Channel.Change c) {
+        if (ramAddr == null) { toastLog("no Communicator in this pond"); return; }
+        secResultT.setText("Setting " + what + " …");
+        Diag.log("[security] the owner sets " + what);
+        sec.execute(new Runnable() { public void run() {
+            String out;
+            try {
+                Channel.Done d = Channel.change(RamAt.host(), RamAt.port(), Channel.ROLE, c, 10.0, secretsDir);
+                StringBuilder b = new StringBuilder(what + ": " + d.summary());
+                for (String line : d.lines) b.append('\n').append(line);
+                if (d.moved) b.append("\n").append(d.chatCarried).append(" line(s) of chat carried there");
+                if (!d.checked) b.append("\nThis phone holds no secret: the setting carries no check, and an end that holds one ignores it");
+                out = b.toString();
+            } catch (IllegalArgumentException e) { out = "Not set: " + e.getMessage(); }
+            catch (Exception e) { out = "Not set: " + e.getMessage(); }
+            final String said = out;
+            Diag.log("[security] " + said.replace('\n', ' '));
+            ui.post(new Runnable() { public void run() { secResultT.setText(said); secShownAt = 0; refreshSecurity(); } });
+        } });
+    }
+
+    private void refreshSecurity() {
+        Channel ch = Channel.watching();
+        long now = System.currentTimeMillis();
+        if (ch == null) { secNowT.setText(ramAddr == null ? "No Communicator in this pond." : "Reading the Role's setting from " + RamAt.text() + " …"); return; }
+        Map<String, String> f = ch.fields();
+        String number = f.get("number"), cipher = number == null || number.equals("0") || number.isEmpty() ? "not sealed" : String.valueOf(f.get("protection"));
+        String secret;
+        try { secret = Channel.secretLine(Channel.ROLE, secretsDir); } catch (ChannelFrame.Gone e) { secret = "this phone holds no secret (Import secret…)"; }
+        secNowT.setText("Role " + ch.role + "\nCipher: " + cipher + "\nKey: computed from the secret — " + secret
+                + "\nProtocol: " + (f.get("driver") == null ? "tcp" : f.get("driver")) + "\nRAM host: " + RamAt.text());
+        secDeviceT.setText("This phone sends as " + ch.sender + (ch.ignored().isEmpty() ? "" : "\nIt IGNORED the last setting: " + ch.ignored())
+                + (ChannelFrame.protectionWorks("chacha20-poly1305") ? "" : "\nThis version of Android has no ChaCha20-Poly1305 (it needs Android 9)"));
+        frameB.setText(speaksFrame ? "This phone speaks the frame: tap to turn off" : "This phone does not speak the frame: tap to turn on");
+        if (now - secShownAt < 3000 && ch.changes() == secChanges) return;      // the ends: read again when a setting was taken, or every 3 s
+        secShownAt = now; secChanges = ch.changes();
+        final String role = ch.role;
+        sec.execute(new Runnable() { public void run() {
+            final StringBuilder b = new StringBuilder();
+            try {
+                Channel.Now n = Channel.show(RamAt.host(), RamAt.port(), role);
+                for (Map.Entry<String, Map<String, String>> e : n.ends.entrySet()) {
+                    Map<String, String> r = e.getValue();
+                    boolean sealed = "true".equals(r.get("sealed"));
+                    b.append(e.getKey()).append("\n    ").append(r.get("driver")).append(sealed ? ", sealed with " + r.get("protection") : ", not sealed")
+                            .append("false".equals(r.get("framed")) ? ", not under the frame" : "").append("\n    memory at ").append(r.get("ram"))
+                            .append(r.get("ignored") == null || r.get("ignored").isEmpty() ? "" : "\n    IGNORED: " + r.get("ignored")).append('\n');
+                }
+                if (n.ends.isEmpty()) b.append("(no end reports)");
+            } catch (Exception e) { b.append("could not read the ends: ").append(e.getMessage()); }
+            ui.post(new Runnable() { public void run() { secEndsT.setText(b.toString()); } });
+        } });
+    }
+
+    /** Import secret…: the chosen file's bytes become this phone's secret for every Role that has none of its own. */
+    @Override
+    protected void onActivityResult(int code, int result, android.content.Intent data) {
+        super.onActivityResult(code, result, data);
+        if (code != PICK_SECRET || result != RESULT_OK || data == null || data.getData() == null) return;
+        try {
+            java.io.InputStream in = getContentResolver().openInputStream(data.getData());
+            java.io.ByteArrayOutputStream b = new java.io.ByteArrayOutputStream();
+            byte[] buf = new byte[4096]; int n;
+            try { while ((n = in.read(buf)) > 0 && b.size() <= 65536) b.write(buf, 0, n); } finally { in.close(); }
+            if (b.size() < 32 || b.size() > 65536) { toastLog("a secret is a file of 32 bytes to 64 KiB; this one is " + b.size() + " bytes: not imported"); return; }
+            java.io.File f = new java.io.File(secretsDir, "default"), tmp = new java.io.File(secretsDir, "default.new");
+            java.io.FileOutputStream o = new java.io.FileOutputStream(tmp);
+            try { o.write(b.toByteArray()); o.getFD().sync(); } finally { o.close(); }
+            if (!tmp.renameTo(f)) { toastLog("the secret could not be written"); return; }
+            toastLog("secret imported: " + Channel.secretLine(Channel.ROLE, secretsDir) + (core != null ? " (a call in progress keeps the one it started with)" : ""));
+            if (core == null) rejoinChannel();
+        } catch (Exception e) { toastLog("the secret was not imported: " + e.getMessage()); }
     }
 
     private View buildCall() {

@@ -18,3 +18,11 @@ Self-contained: the Ribbit platform it compiles is vendored in `third_party/ribb
 | the specifications | `docs/COMMUNICATOR-SPEC.md`, `docs/FNAV-SPEC.md` |
 
 Copyright (C) 2016-2026 Fawcett Innovations LLC. GPL-2.0-only.
+
+## A call under the protocol layer's frame
+
+A call's audio and video can cross sealed under the Role's key and packed by the Role's protocol, and its owner can
+change the key, the algorithm and the protocol while the call runs, with nothing interrupted. Run the participants
+with `--channel mediahost` and use `comms-channel`. Each window has a Security tab (cipher, key, protocol, Change RAM host), and the memory can be moved to another
+comms-ram while a call runs. `docs/CHANNEL-DESIGN-AND-IMPLEMENTATION.md` is the design and the code;
+`docs/CHANNEL.md` is the short record with the commands and what was measured.

@@ -36,3 +36,11 @@ Windows: `python python\comms_app.py ...`, cameras as `--camera "video=<name>"`.
 - `test_call_interop.py BUILD`: C++ feed -> Python viewer (1280x720, all audio, the tone at 440 Hz); Python feed ->
   C++ viewer (1280x720).
 - The two windows in one call, each receiving the other at 1280x720, 23 fps (screenshots).
+
+## Under the protocol layer's frame; the Security tab (2026-11-25)
+
+`--channel mediahost` puts a program's planes under the frame (`frogcomms/channel.py`, over `libchannel_frame`, which
+the C++ build produces beside `libcomms_tuples`). The window has two tabs, Call and Security: the cipher, New key, the
+protocol and Change RAM host, each one write by `frogcomms.channel.change`. Every program follows the memory when its
+owner moves it (`frogcomms/ram_at.py`, `Room.attach`). `docs/CHANNEL-DESIGN-AND-IMPLEMENTATION.md` has all of it.
+

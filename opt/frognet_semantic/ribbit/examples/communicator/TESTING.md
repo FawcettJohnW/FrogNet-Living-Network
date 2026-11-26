@@ -93,3 +93,24 @@ stock video at 1280x720, 23.9 fps; a call between two windows, screenshots of bo
   two 720p encoders, a decoder and the media server on one core. The sender's ladder stepped itself down as designed.
 - Chat typed in the window (the room's chat is tested; the window's text box is not).
 - Windows: not built. The data plane uses Linux socket calls (SIOCOUTQ for the room check); the Windows port is next.
+
+## The call under the frame (2026-11-24)
+
+    build/test_channel                                         # planes and the media server under the frame; about 40 s
+    python3 tests/py/test_call_under_the_frame.py build        # a real call across C++ and Python, nine switches; about 60 s
+    (cd ../../cpp && g++ -std=c++17 -O2 -fPIC -fvisibility=hidden -Iinclude -shared src/channel_frame.cpp src/channel_frame_c.cpp -o bin/libchannel_frame.so -lcrypto \
+       && python3 tests/test_channel_frame_oracle.py)          # the library against core/channel_frame.py; about 60 s
+
+Each prints one PASS or FAIL line per check and `RESULT PASS`. `docs/CHANNEL.md` has what each one showed.
+
+## The memory moves; the Security tab; the phone (2026-11-25)
+
+    python3 tests/py/test_the_memory_moves.py build            # the memory moved twice under a real call; about 50 s
+    bash ../../../../fdf/src/frognet-android/communicator-test/run_tests.sh .   # the phone's core, 4 steps; about 3 minutes
+
+The Security tab's buttons, pressed by the window itself against a live call (offscreen, with a screenshot):
+
+    QT_QPA_PLATFORM=offscreen build/comms-app --ram HOST:PORT --media HOST:PORT --name John --no-audio --channel mediahost \
+        --auto-join "Chapel camera" --tab security --security "cipher chacha20-poly1305;key;protocol openqasm;ram OTHERHOST:PORT" \
+        --screenshot security.png --after 14
+    (python/comms_app.py takes the same options)

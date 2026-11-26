@@ -26,6 +26,7 @@ def main():
     a.add_argument("--size"); a.add_argument("--mic", type=int); a.add_argument("--tone", type=float, default=0)
     a.add_argument("--seconds", type=int, default=0); a.add_argument("--bandwidth", type=int, default=0)
     a.add_argument("--jitter", type=int, default=0); a.add_argument("--fps", type=int, default=24)
+    a.add_argument("--channel", default="")                # ROLE: this feed's planes are under the frame, for that Role
     o = a.parse_args()
     (rh, rp), (mh, mp) = hostport(o.ram), hostport(o.media)
     w, h = map(int, (o.size or o.synthetic).split("x"))
@@ -33,6 +34,8 @@ def main():
         else SyntheticSource(w, h)
     mic = Mic(o.mic) if o.mic is not None else ToneSource(o.tone) if o.tone else None
     session = "%012x" % random.getrandbits(48)
+    from frogcomms import channel
+    channel.for_program(o.channel, o.name, rh, rp)          # [THE_CALL_IS_UNDER_THE_FRAME_V1] read before any plane is opened
     room = None
     try:
         room = Room(rh, rp, "*" + o.name, "cam=1,mic=%d,unattended=1" % (1 if mic else 0))

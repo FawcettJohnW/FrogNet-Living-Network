@@ -19,7 +19,8 @@ public:
     ~SpeedPoller();
 private:
     CommsClient c_;
-    std::atomic<bool> stop_{false};
+    std::atomic<bool> stop_{false}, moved_{false};
+    int moved_id_ = 0;
     std::thread th_;
 };
 struct SpeedRow { std::string session, viewer, addr; long bps = 0; };
@@ -33,7 +34,8 @@ public:
     ~HoldPublisher();
 private:
     CommsClient c_;
-    std::atomic<bool> stop_{false};
+    std::atomic<bool> stop_{false}, moved_{false};
+    int moved_id_ = 0;
     std::thread th_;
 };
 

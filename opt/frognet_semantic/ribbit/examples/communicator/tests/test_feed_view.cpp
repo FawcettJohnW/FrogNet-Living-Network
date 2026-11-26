@@ -3,6 +3,7 @@
 //
 // test_feed_view RAM_PORT FEED_NAME -- requirement 1 from a viewer's seat: the unattended feed is in the lobby as
 // "*<name>", its call is offered, the viewer joins it and receives the picture.
+#include "comms/channel.hpp"
 #include "comms/call.hpp"
 #include "comms/room.hpp"
 #include <iostream>
@@ -12,6 +13,9 @@ using namespace comms;
 int main(int argc, char** argv) {
     if (argc < 3) { std::cout << "usage: test_feed_view RAM_PORT FEED_NAME\n"; return 2; }
     int ram = std::atoi(argv[1]); std::string feed = argv[2]; long fail = 0;
+    // (COMMS_CHANNEL=ROLE: this viewer's planes are under the frame, as a program run with --channel ROLE)
+    const char* role = std::getenv("COMMS_CHANNEL");
+    auto under = comms::channel_for_program(role ? role : "", "CppViewer", "127.0.0.1", ram);
     Room me("127.0.0.1", ram, "Donna");
     if (argc > 3 && std::string(argv[3]) == "offline") {   // after the feed stopped: it says so in the lobby
         for (auto& m : me.roster()) if (m.name == "*" + feed) {

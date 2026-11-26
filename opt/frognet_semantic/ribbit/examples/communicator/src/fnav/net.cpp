@@ -44,4 +44,41 @@ long net_unsent(int fd) {
 }
 #endif
 
+Waker::Waker() {
+    net_init();
+#ifdef _WIN32
+    SOCKET u = socket(AF_INET, SOCK_DGRAM, 0);
+    sockaddr_in a{}; a.sin_family = AF_INET; a.sin_addr.s_addr = htonl(INADDR_LOOPBACK); int l = sizeof a;
+    if (u == INVALID_SOCKET || bind(u, reinterpret_cast<sockaddr*>(&a), sizeof a) != 0 || getsockname(u, reinterpret_cast<sockaddr*>(&a), &l) != 0
+        || connect(u, reinterpret_cast<sockaddr*>(&a), sizeof a) != 0)
+        throw std::runtime_error("a plane's writer could not make what wakes it: " + net_strerror(net_error()));
+    rfd_ = wfd_ = int(u);
+#else
+    int p[2];
+    if (::pipe(p) != 0) throw std::runtime_error("a plane's writer could not make what wakes it: " + net_strerror(net_error()));
+    rfd_ = p[0]; wfd_ = p[1];
+#endif
+    net_set_nonblocking(rfd_); net_set_nonblocking(wfd_);
+}
+Waker::~Waker() {
+    if (rfd_ >= 0) net_close(rfd_);
+    if (wfd_ >= 0 && wfd_ != rfd_) net_close(wfd_);
+}
+void Waker::wake() {
+    const char one = 1;
+#ifdef _WIN32
+    ::send(SOCKET(wfd_), &one, 1, 0);
+#else
+    if (::write(wfd_, &one, 1) < 0) {}               // full: it is already going to wake
+#endif
+}
+void Waker::drain() {
+    char b[64];
+#ifdef _WIN32
+    while (::recv(SOCKET(rfd_), b, sizeof b, 0) > 0) {}
+#else
+    while (::read(rfd_, b, sizeof b) > 0) {}
+#endif
+}
+
 }  // namespace fnav
