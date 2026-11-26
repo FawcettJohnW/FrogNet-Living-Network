@@ -76,6 +76,10 @@ found from these four runs, fixed in platform 0.72). 0.11's do not. A fifth 0.11
 started claimants, controlled from Seattle7: PASS, slowest claimant 5.1 s, 5,444 claims a second, claim median
 255 ms. Brandon's 31 tests on both stores, the threads test and the 8-process race (`worldshepherd his-tests`) pass
 on Seattle7 and on Seattle3B, both aarch64 Raspberry Pis.
+The terminal records of these runs are kept as John pasted them: `results/real-nodes-0.11j-20261126-four-races-in-a-row.terminal.txt`,
+`results/real-nodes-0.11j-20261126-fifth-race.terminal.txt`, and, for the record, the four runs made while two nodes
+and the RAM host were still on 0.10 (`results/real-nodes-20261126-mixed-builds.terminal.txt`: every ticket won once in
+each; the two controllers on 0.11 read 0 consumed from a 0.10 host and said FAIL).
 
 **Storage.** A ticket is two cells at most, that it was issued and that it was won, however often it is claimed
 (0.9: one more cell per claim call). Nothing removes them.

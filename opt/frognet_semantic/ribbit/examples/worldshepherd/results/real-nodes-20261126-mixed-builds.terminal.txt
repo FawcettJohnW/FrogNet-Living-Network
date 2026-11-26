@@ -1,0 +1,160 @@
+root@FrogNetHost:/# /opt/frognet_semantic/ribbit/examples/worldshepherd/node/worldshepherd race --claimants 7 --tickets 4000
+10:28:42 [WS-ATTACH] issuer-3c7d8826c556: worldshepherd-ribbit 0.10 2026-11-25c [THE_TICKET_IS_AN_OBJECT_IN_THE_RAM_V1] [ONE_CALL_V1] [A_SARA_WRITES_ONLY_ITS_OWN_SPACE_V1] [A_SARA_REASSERTS_ITS_OWN_V1] [THEN_LEARN_THE_WORLD_AGAIN_V1] [THE_RAM_IS_A_SERVICE_V1] [A_MEMORY_GONE_WHILE_I_WRITE_MY_OWN_V1] [A_CALL_HAS_ONE_CELL_V1] [A_HELD_CLAIM_AGES_V1], worldshepherd's RAM at 10.188.188.1:38035 (opened); 0 of its own cell(s) written into this memory; SARAs there: 8
+[race] controller: [TICKETS_ARE_REGISTERED_AT_ONCE_V1] worldshepherd-ribbit 0.10 2026-11-25c [THE_TICKET_IS_AN_OBJECT_IN_THE_RAM_V1] [ONE_CALL_V1] [A_SARA_WRITES_ONLY_ITS_OWN_SPACE_V1] [A_SARA_REASSERTS_ITS_OWN_V1] [THEN_LEARN_THE_WORLD_AGAIN_V1] [THE_RAM_IS_A_SERVICE_V1] [A_MEMORY_GONE_WHILE_I_WRITE_MY_OWN_V1] [A_CALL_HAS_ONE_CELL_V1] [A_HELD_CLAIM_AGES_V1]; 7 claimant(s) present: FrogNetHost.BABox-729939-ba063a FrogNetHost.BAMacBook-1846998-f31a7e FrogNetHost.New-York-1-2487218-42b98e FrogNetHost.New-York-2-1441758-c3967e FrogNetHost.Seattle3B-3518810-83af97 FrogNetHost.Seattle5-521763-ce313f FrogNetHost.Seattle7-1369832-fd147c; registering 4000 ticket(s), all at once; claims all at once
+[race] controller: 500 of 4000 registered, 0.1 s
+[race] controller: 1000 of 4000 registered, 0.2 s
+[race] controller: 1500 of 4000 registered, 0.3 s
+[race] controller: 2000 of 4000 registered, 0.4 s
+[race] controller: 2500 of 4000 registered, 0.6 s
+[race] controller: 3000 of 4000 registered, 0.7 s
+[race] controller: 3500 of 4000 registered, 0.8 s
+[race] controller: 4000 of 4000 registered, 0.9 s
+[race] controller: run d59c7b15: go written; waiting for 7 result(s)
+[race] controller: result 1 of 7: FrogNetHost.BAMacBook-1846998-f31a7e: 4000 claims in 1.414 s, won 1879
+[race] controller: result 2 of 7: FrogNetHost.Seattle5-521763-ce313f: 4000 claims in 1.416 s, won 629
+[race] controller: result 3 of 7: FrogNetHost.Seattle3B-3518810-83af97: 4000 claims in 1.674 s, won 543
+[race] controller: result 4 of 7: FrogNetHost.BABox-729939-ba063a: 4000 claims in 2.379 s, won 382
+[race] controller: result 5 of 7: FrogNetHost.Seattle7-1369832-fd147c: 4000 claims in 2.366 s, won 262
+[race] controller: result 6 of 7: FrogNetHost.New-York-1-2487218-42b98e: 4000 claims in 3.344 s, won 152
+[race] controller: result 7 of 7: FrogNetHost.New-York-2-1441758-c3967e: 4000 claims in 5.246 s, won 153
+[race] controller: the store says 4000 of 4000 consumed, asked in 0.8 s
+{"label": "", "store": "memory", "run": "d59c7b15", "claimants": 7, "threads": 4000, "tickets": 4000, "claims": 28000, "won_once": 4000, "won_twice": 0, "never_won": 0, "store_says_consumed": 4000, "register_per_s": 4476.8, "claims_per_s": 5337.2, "slowest_claimant_s": 5.246, "claim_ms_p50": 306.62, "claim_ms_p99_worst": 1784.89, "builds": ["worldshepherd-ribbit 0.10 2026-11-25c [THE_TICKET_IS_AN_OBJECT_IN_THE_RAM_V1] [ONE_CALL_V1] [A_SARA_WRITES_ONLY_ITS_OWN_SPACE_V1] [A_SARA_REASSERTS_ITS_OWN_V1] [THEN_LEARN_THE_WORLD_AGAIN_V1] [THE_RAM_IS_A_SERVICE_V1] [A_MEMORY_GONE_WHILE_I_WRITE_MY_OWN_V1] [A_CALL_HAS_ONE_CELL_V1] [A_HELD_CLAIM_AGES_V1]", "worldshepherd-ribbit 0.11 2026-11-26j [A_TICKET_IS_ONE_RECORD_V1] [A_SARA_BRINGS_ITS_OWN_BACK_IN_ONE_CALL_V1] [THE_ISSUER_SAYS_WHO_WON_V1] [A_SESSION_I_OPENED_AND_DROP_IS_CLOSED_V1] [AN_ANSWER_THAT_REFUSES_IS_WAITED_ON_V1] [A_SARA_WRITES_ONLY_ITS_OWN_SPACE_V1] [A_SARA_REASSERTS_ITS_OWN_V1] [THEN_LEARN_THE_WORLD_AGAIN_V1] [THE_RAM_IS_A_SERVICE_V1] [A_MEMORY_GONE_WHILE_I_WRITE_MY_OWN_V1] [A_CALL_HAS_ONE_CELL_V1] [A_HELD_CLAIM_AGES_V1]"], "verdict": "PASS"}
+[DIAG-LZ4] size<=: tried won bytes_in bytes_saved
+[DIAG-LZ4]    128: 7992 0 779369 0
+[DIAG-LZ4]    256: 1 0 168 0
+root@FrogNetHost:/# hostname
+FrogNetHost.BAMacBook
+root@FrogNetHost:/#
+exit
+sliceadmin@FrogNetHost:~$
+logout
+Connection to 10.188.188.1 closed.
+jfawcett@DESKTOP-1UJHGLF:~$ ssh frogny@10.155.155.1
+frogny@10.155.155.1's password:
+Linux FrogNetHost.BABox 6.12.87+rpt-rpi-v8 #1 SMP PREEMPT Debian 1:6.12.87-1+rpt1~bookworm (2026-05-12) aarch64
+
+The programs included with the Debian GNU/Linux system are free software;
+the exact distribution terms for each program are described in the
+individual files in /usr/share/doc/*/copyright.
+
+Debian GNU/Linux comes with ABSOLUTELY NO WARRANTY, to the extent
+permitted by applicable law.
+Last login: Wed Nov 25 17:13:04 2026 from 10.250.250.101
+frogny@FrogNetHost:~ $ sudo su
+root@FrogNetHost:/home/frogny# /opt/frognet_semantic/ribbit/examples/worldshepherd/node/worldshepherd race --claimants 7 --tickets 4000
+10:29:18 [WS-ATTACH] issuer-c11a1f8aead7: worldshepherd-ribbit 0.11 2026-11-26j [A_TICKET_IS_ONE_RECORD_V1] [A_SARA_BRINGS_ITS_OWN_BACK_IN_ONE_CALL_V1] [THE_ISSUER_SAYS_WHO_WON_V1] [A_SESSION_I_OPENED_AND_DROP_IS_CLOSED_V1] [AN_ANSWER_THAT_REFUSES_IS_WAITED_ON_V1] [A_SARA_WRITES_ONLY_ITS_OWN_SPACE_V1] [A_SARA_REASSERTS_ITS_OWN_V1] [THEN_LEARN_THE_WORLD_AGAIN_V1] [THE_RAM_IS_A_SERVICE_V1] [A_MEMORY_GONE_WHILE_I_WRITE_MY_OWN_V1] [A_CALL_HAS_ONE_CELL_V1] [A_HELD_CLAIM_AGES_V1], worldshepherd's RAM at 10.188.188.1:38035 (opened); 0 of its own cell(s) written into this memory; SARAs there: 8
+[race] controller: [TICKETS_ARE_REGISTERED_AT_ONCE_V1] worldshepherd-ribbit 0.11 2026-11-26j [A_TICKET_IS_ONE_RECORD_V1] [A_SARA_BRINGS_ITS_OWN_BACK_IN_ONE_CALL_V1] [THE_ISSUER_SAYS_WHO_WON_V1] [A_SESSION_I_OPENED_AND_DROP_IS_CLOSED_V1] [AN_ANSWER_THAT_REFUSES_IS_WAITED_ON_V1] [A_SARA_WRITES_ONLY_ITS_OWN_SPACE_V1] [A_SARA_REASSERTS_ITS_OWN_V1] [THEN_LEARN_THE_WORLD_AGAIN_V1] [THE_RAM_IS_A_SERVICE_V1] [A_MEMORY_GONE_WHILE_I_WRITE_MY_OWN_V1] [A_CALL_HAS_ONE_CELL_V1] [A_HELD_CLAIM_AGES_V1]; 7 claimant(s) present: FrogNetHost.BABox-729939-ba063a FrogNetHost.BAMacBook-1846998-f31a7e FrogNetHost.New-York-1-2487218-42b98e FrogNetHost.New-York-2-1441758-c3967e FrogNetHost.Seattle3B-3518810-83af97 FrogNetHost.Seattle5-521763-ce313f FrogNetHost.Seattle7-1369832-fd147c; registering 4000 ticket(s), all at once; claims all at once
+[race] controller: 500 of 4000 registered, 0.4 s
+[race] controller: 1000 of 4000 registered, 0.7 s
+[race] controller: 1500 of 4000 registered, 0.9 s
+[race] controller: 2000 of 4000 registered, 1.2 s
+[race] controller: 2500 of 4000 registered, 1.4 s
+[race] controller: 3000 of 4000 registered, 1.7 s
+[race] controller: 3500 of 4000 registered, 1.9 s
+[race] controller: 4000 of 4000 registered, 2.2 s
+[race] controller: run 46b8d4fc: go written; waiting for 7 result(s)
+[race] controller: result 1 of 7: FrogNetHost.BAMacBook-1846998-f31a7e: 4000 claims in 2.035 s, won 1351
+[race] controller: result 2 of 7: FrogNetHost.Seattle5-521763-ce313f: 4000 claims in 1.710 s, won 691
+[race] controller: result 3 of 7: FrogNetHost.BABox-729939-ba063a: 4000 claims in 2.321 s, won 571
+[race] controller: result 4 of 7: FrogNetHost.Seattle7-1369832-fd147c: 4000 claims in 2.183 s, won 341
+[race] controller: result 5 of 7: FrogNetHost.Seattle3B-3518810-83af97: 4000 claims in 2.890 s, won 763
+[race] controller: result 6 of 7: FrogNetHost.New-York-1-2487218-42b98e: 4000 claims in 3.458 s, won 166
+[race] controller: result 7 of 7: FrogNetHost.New-York-2-1441758-c3967e: 4000 claims in 3.503 s, won 117
+[race] controller: the store says 0 of 4000 consumed, asked in 1.9 s
+{"label": "", "store": "memory", "run": "46b8d4fc", "claimants": 7, "threads": 4000, "tickets": 4000, "claims": 28000, "won_once": 4000, "won_twice": 0, "never_won": 0, "store_says_consumed": 0, "register_per_s": 1811.6, "claims_per_s": 7993.0, "slowest_claimant_s": 3.503, "claim_ms_p50": 300.15, "claim_ms_p99_worst": 1841.67, "builds": ["worldshepherd-ribbit 0.10 2026-11-25c [THE_TICKET_IS_AN_OBJECT_IN_THE_RAM_V1] [ONE_CALL_V1] [A_SARA_WRITES_ONLY_ITS_OWN_SPACE_V1] [A_SARA_REASSERTS_ITS_OWN_V1] [THEN_LEARN_THE_WORLD_AGAIN_V1] [THE_RAM_IS_A_SERVICE_V1] [A_MEMORY_GONE_WHILE_I_WRITE_MY_OWN_V1] [A_CALL_HAS_ONE_CELL_V1] [A_HELD_CLAIM_AGES_V1]", "worldshepherd-ribbit 0.11 2026-11-26j [A_TICKET_IS_ONE_RECORD_V1] [A_SARA_BRINGS_ITS_OWN_BACK_IN_ONE_CALL_V1] [THE_ISSUER_SAYS_WHO_WON_V1] [A_SESSION_I_OPENED_AND_DROP_IS_CLOSED_V1] [AN_ANSWER_THAT_REFUSES_IS_WAITED_ON_V1] [A_SARA_WRITES_ONLY_ITS_OWN_SPACE_V1] [A_SARA_REASSERTS_ITS_OWN_V1] [THEN_LEARN_THE_WORLD_AGAIN_V1] [THE_RAM_IS_A_SERVICE_V1] [A_MEMORY_GONE_WHILE_I_WRITE_MY_OWN_V1] [A_CALL_HAS_ONE_CELL_V1] [A_HELD_CLAIM_AGES_V1]"], "verdict": "FAIL"}
+[DIAG-LZ4] size<=: tried won bytes_in bytes_saved
+[DIAG-LZ4]    128: 7931 0 749877 0
+[DIAG-LZ4]    256: 1 0 168 0
+root@FrogNetHost:/home/frogny#
+exit
+frogny@FrogNetHost:~ $
+logout
+Connection to 10.155.155.1 closed.
+jfawcett@DESKTOP-1UJHGLF:~$ ssh -Y -X froguser@10.251.251.1
+froguser@10.251.251.1's password:
+Linux FrogNetHost.Seattle3B 6.12.87+rpt-rpi-2712 #1 SMP PREEMPT Debian 1:6.12.87-1+rpt1~bookworm (2026-05-12) aarch64
+
+The programs included with the Debian GNU/Linux system are free software;
+the exact distribution terms for each program are described in the
+individual files in /usr/share/doc/*/copyright.
+
+Debian GNU/Linux comes with ABSOLUTELY NO WARRANTY, to the extent
+permitted by applicable law.
+Last login: Wed Nov 25 13:31:36 2026 from 10.250.250.101
+froguser@FrogNetHost:~ $ /opt/frognet_semantic/ribbit/examples/worldshepherd/node/worldshepherd race --claimants 7 --tickets 4000^C
+froguser@FrogNetHost:~ $ ^C
+froguser@FrogNetHost:~ $ sudo su
+root@FrogNetHost:/home/froguser# /opt/frognet_semantic/ribbit/examples/worldshepherd/node/worldshepherd race --claimants 7 --tickets 4000
+07:29:51 [WS-ATTACH] issuer-567a07f1ef5b: worldshepherd-ribbit 0.10 2026-11-25c [THE_TICKET_IS_AN_OBJECT_IN_THE_RAM_V1] [ONE_CALL_V1] [A_SARA_WRITES_ONLY_ITS_OWN_SPACE_V1] [A_SARA_REASSERTS_ITS_OWN_V1] [THEN_LEARN_THE_WORLD_AGAIN_V1] [THE_RAM_IS_A_SERVICE_V1] [A_MEMORY_GONE_WHILE_I_WRITE_MY_OWN_V1] [A_CALL_HAS_ONE_CELL_V1] [A_HELD_CLAIM_AGES_V1], worldshepherd's RAM at 10.188.188.1:38035 (opened); 0 of its own cell(s) written into this memory; SARAs there: 8
+[race] controller: [TICKETS_ARE_REGISTERED_AT_ONCE_V1] worldshepherd-ribbit 0.10 2026-11-25c [THE_TICKET_IS_AN_OBJECT_IN_THE_RAM_V1] [ONE_CALL_V1] [A_SARA_WRITES_ONLY_ITS_OWN_SPACE_V1] [A_SARA_REASSERTS_ITS_OWN_V1] [THEN_LEARN_THE_WORLD_AGAIN_V1] [THE_RAM_IS_A_SERVICE_V1] [A_MEMORY_GONE_WHILE_I_WRITE_MY_OWN_V1] [A_CALL_HAS_ONE_CELL_V1] [A_HELD_CLAIM_AGES_V1]; 7 claimant(s) present: FrogNetHost.BABox-729939-ba063a FrogNetHost.BAMacBook-1846998-f31a7e FrogNetHost.New-York-1-2487218-42b98e FrogNetHost.New-York-2-1441758-c3967e FrogNetHost.Seattle3B-3518810-83af97 FrogNetHost.Seattle5-521763-ce313f FrogNetHost.Seattle7-1369832-fd147c; registering 4000 ticket(s), all at once; claims all at once
+[race] controller: 500 of 4000 registered, 0.6 s
+[race] controller: 1000 of 4000 registered, 0.7 s
+[race] controller: 1500 of 4000 registered, 0.8 s
+[race] controller: 2000 of 4000 registered, 1.0 s
+[race] controller: 2500 of 4000 registered, 1.2 s
+[race] controller: 3000 of 4000 registered, 1.3 s
+[race] controller: 3500 of 4000 registered, 1.5 s
+[race] controller: 4000 of 4000 registered, 1.6 s
+[race] controller: run 0e0ad4c5: go written; waiting for 7 result(s)
+[race] controller: result 1 of 7: FrogNetHost.Seattle5-521763-ce313f: 4000 claims in 1.448 s, won 688
+[race] controller: result 2 of 7: FrogNetHost.BABox-729939-ba063a: 4000 claims in 2.507 s, won 442
+[race] controller: result 3 of 7: FrogNetHost.Seattle7-1369832-fd147c: 4000 claims in 2.222 s, won 427
+[race] controller: result 4 of 7: FrogNetHost.BAMacBook-1846998-f31a7e: 4000 claims in 3.315 s, won 1162
+[race] controller: result 5 of 7: FrogNetHost.Seattle3B-3518810-83af97: 4000 claims in 3.642 s, won 978
+[race] controller: result 6 of 7: FrogNetHost.New-York-2-1441758-c3967e: 4000 claims in 3.676 s, won 128
+[race] controller: result 7 of 7: FrogNetHost.New-York-1-2487218-42b98e: 4000 claims in 3.800 s, won 175
+[race] controller: the store says 4000 of 4000 consumed, asked in 1.7 s
+{"label": "", "store": "memory", "run": "0e0ad4c5", "claimants": 7, "threads": 4000, "tickets": 4000, "claims": 28000, "won_once": 4000, "won_twice": 0, "never_won": 0, "store_says_consumed": 4000, "register_per_s": 2433.4, "claims_per_s": 7369.1, "slowest_claimant_s": 3.8, "claim_ms_p50": 374.56, "claim_ms_p99_worst": 2344.94, "builds": ["worldshepherd-ribbit 0.10 2026-11-25c [THE_TICKET_IS_AN_OBJECT_IN_THE_RAM_V1] [ONE_CALL_V1] [A_SARA_WRITES_ONLY_ITS_OWN_SPACE_V1] [A_SARA_REASSERTS_ITS_OWN_V1] [THEN_LEARN_THE_WORLD_AGAIN_V1] [THE_RAM_IS_A_SERVICE_V1] [A_MEMORY_GONE_WHILE_I_WRITE_MY_OWN_V1] [A_CALL_HAS_ONE_CELL_V1] [A_HELD_CLAIM_AGES_V1]", "worldshepherd-ribbit 0.11 2026-11-26j [A_TICKET_IS_ONE_RECORD_V1] [A_SARA_BRINGS_ITS_OWN_BACK_IN_ONE_CALL_V1] [THE_ISSUER_SAYS_WHO_WON_V1] [A_SESSION_I_OPENED_AND_DROP_IS_CLOSED_V1] [AN_ANSWER_THAT_REFUSES_IS_WAITED_ON_V1] [A_SARA_WRITES_ONLY_ITS_OWN_SPACE_V1] [A_SARA_REASSERTS_ITS_OWN_V1] [THEN_LEARN_THE_WORLD_AGAIN_V1] [THE_RAM_IS_A_SERVICE_V1] [A_MEMORY_GONE_WHILE_I_WRITE_MY_OWN_V1] [A_CALL_HAS_ONE_CELL_V1] [A_HELD_CLAIM_AGES_V1]"], "verdict": "PASS"}
+[DIAG-LZ4] size<=: tried won bytes_in bytes_saved
+[DIAG-LZ4]    128: 7552 0 737417 0
+[DIAG-LZ4]    256: 1 0 168 0
+root@FrogNetHost:/home/froguser#
+exit
+froguser@FrogNetHost:~ $
+logout
+Connection to 10.251.251.1 closed.
+jfawcett@DESKTOP-1UJHGLF:~$ ssh -Y -X froguser@10.170.170.1
+froguser@10.170.170.1's password:
+Linux FrogNetHost.Seattle7 6.12.34+rpt-rpi-v8 #1 SMP PREEMPT Debian 1:6.12.34-1+rpt1~bookworm (2025-06-26) aarch64
+
+The programs included with the Debian GNU/Linux system are free software;
+the exact distribution terms for each program are described in the
+individual files in /usr/share/doc/*/copyright.
+
+Debian GNU/Linux comes with ABSOLUTELY NO WARRANTY, to the extent
+permitted by applicable law.
+Last login: Wed Nov 25 10:14:10 2026 from 10.250.250.101
+froguser@FrogNetHost:~ $ sudo su
+root@FrogNetHost:/home/froguser# /opt/frognet_semantic/ribbit/examples/worldshepherd/node/worldshepherd race --claimants 7 --tickets 4000
+07:30:19 [WS-ATTACH] issuer-fa8426b70514: worldshepherd-ribbit 0.11 2026-11-26j [A_TICKET_IS_ONE_RECORD_V1] [A_SARA_BRINGS_ITS_OWN_BACK_IN_ONE_CALL_V1] [THE_ISSUER_SAYS_WHO_WON_V1] [A_SESSION_I_OPENED_AND_DROP_IS_CLOSED_V1] [AN_ANSWER_THAT_REFUSES_IS_WAITED_ON_V1] [A_SARA_WRITES_ONLY_ITS_OWN_SPACE_V1] [A_SARA_REASSERTS_ITS_OWN_V1] [THEN_LEARN_THE_WORLD_AGAIN_V1] [THE_RAM_IS_A_SERVICE_V1] [A_MEMORY_GONE_WHILE_I_WRITE_MY_OWN_V1] [A_CALL_HAS_ONE_CELL_V1] [A_HELD_CLAIM_AGES_V1], worldshepherd's RAM at 10.188.188.1:38035 (opened); 0 of its own cell(s) written into this memory; SARAs there: 8
+[race] controller: [TICKETS_ARE_REGISTERED_AT_ONCE_V1] worldshepherd-ribbit 0.11 2026-11-26j [A_TICKET_IS_ONE_RECORD_V1] [A_SARA_BRINGS_ITS_OWN_BACK_IN_ONE_CALL_V1] [THE_ISSUER_SAYS_WHO_WON_V1] [A_SESSION_I_OPENED_AND_DROP_IS_CLOSED_V1] [AN_ANSWER_THAT_REFUSES_IS_WAITED_ON_V1] [A_SARA_WRITES_ONLY_ITS_OWN_SPACE_V1] [A_SARA_REASSERTS_ITS_OWN_V1] [THEN_LEARN_THE_WORLD_AGAIN_V1] [THE_RAM_IS_A_SERVICE_V1] [A_MEMORY_GONE_WHILE_I_WRITE_MY_OWN_V1] [A_CALL_HAS_ONE_CELL_V1] [A_HELD_CLAIM_AGES_V1]; 7 claimant(s) present: FrogNetHost.BABox-729939-ba063a FrogNetHost.BAMacBook-1846998-f31a7e FrogNetHost.New-York-1-2487218-42b98e FrogNetHost.New-York-2-1441758-c3967e FrogNetHost.Seattle3B-3518810-83af97 FrogNetHost.Seattle5-521763-ce313f FrogNetHost.Seattle7-1369832-fd147c; registering 4000 ticket(s), all at once; claims all at once
+[race] controller: 500 of 4000 registered, 0.7 s
+[race] controller: 1000 of 4000 registered, 0.9 s
+[race] controller: 1500 of 4000 registered, 1.1 s
+[race] controller: 2000 of 4000 registered, 1.4 s
+[race] controller: 2500 of 4000 registered, 1.6 s
+[race] controller: 3000 of 4000 registered, 1.8 s
+[race] controller: 3500 of 4000 registered, 2.0 s
+[race] controller: 4000 of 4000 registered, 2.2 s
+[race] controller: run 3803978a: go written; waiting for 7 result(s)
+[race] controller: result 1 of 7: FrogNetHost.Seattle5-521763-ce313f: 4000 claims in 1.490 s, won 923
+[race] controller: result 2 of 7: FrogNetHost.BABox-729939-ba063a: 4000 claims in 2.256 s, won 475
+[race] controller: result 3 of 7: FrogNetHost.Seattle7-1369832-fd147c: 4000 claims in 2.136 s, won 366
+[race] controller: result 4 of 7: FrogNetHost.New-York-1-2487218-42b98e: 4000 claims in 3.465 s, won 175
+[race] controller: result 5 of 7: FrogNetHost.BAMacBook-1846998-f31a7e: 4000 claims in 4.478 s, won 1370
+[race] controller: result 6 of 7: FrogNetHost.New-York-2-1441758-c3967e: 4000 claims in 4.147 s, won 6
+[race] controller: result 7 of 7: FrogNetHost.Seattle3B-3518810-83af97: 4000 claims in 4.782 s, won 685
+[race] controller: the store says 0 of 4000 consumed, asked in 1.8 s
+{"label": "", "store": "memory", "run": "3803978a", "claimants": 7, "threads": 4000, "tickets": 4000, "claims": 28000, "won_once": 4000, "won_twice": 0, "never_won": 0, "store_says_consumed": 0, "register_per_s": 1789.2, "claims_per_s": 5855.1, "slowest_claimant_s": 4.782, "claim_ms_p50": 409.64, "claim_ms_p99_worst": 3700.93, "builds": ["worldshepherd-ribbit 0.10 2026-11-25c [THE_TICKET_IS_AN_OBJECT_IN_THE_RAM_V1] [ONE_CALL_V1] [A_SARA_WRITES_ONLY_ITS_OWN_SPACE_V1] [A_SARA_REASSERTS_ITS_OWN_V1] [THEN_LEARN_THE_WORLD_AGAIN_V1] [THE_RAM_IS_A_SERVICE_V1] [A_MEMORY_GONE_WHILE_I_WRITE_MY_OWN_V1] [A_CALL_HAS_ONE_CELL_V1] [A_HELD_CLAIM_AGES_V1]", "worldshepherd-ribbit 0.11 2026-11-26j [A_TICKET_IS_ONE_RECORD_V1] [A_SARA_BRINGS_ITS_OWN_BACK_IN_ONE_CALL_V1] [THE_ISSUER_SAYS_WHO_WON_V1] [A_SESSION_I_OPENED_AND_DROP_IS_CLOSED_V1] [AN_ANSWER_THAT_REFUSES_IS_WAITED_ON_V1] [A_SARA_WRITES_ONLY_ITS_OWN_SPACE_V1] [A_SARA_REASSERTS_ITS_OWN_V1] [THEN_LEARN_THE_WORLD_AGAIN_V1] [THE_RAM_IS_A_SERVICE_V1] [A_MEMORY_GONE_WHILE_I_WRITE_MY_OWN_V1] [A_CALL_HAS_ONE_CELL_V1] [A_HELD_CLAIM_AGES_V1]"], "verdict": "FAIL"}
+[DIAG-LZ4] size<=: tried won bytes_in bytes_saved
+[DIAG-LZ4]    128: 7541 0 713941 0
+[DIAG-LZ4]    256: 1 0 168 0
+root@FrogNetHost:/home/froguser# /opt/frognet_semantic/ribbit/examples/worldshepherd/node/worldshepherd his-tests
+PASS  1 his connector tests, WS_STORE=memory: on_the_memory: 4 RibbitClaimStore store(s) made on the memory at 127.0.0.1:46087 | 31 passed in 0.47s
+PASS  2 his connector tests, WS_STORE=sql: on_the_memory: 4 PostgresClaimStore store(s) made on the memory at 127.0.0.1:46087 | 31 passed in 0.49s
+PASS  3 one session, many threads: 2 passed in 4.66s
+PASS  4 the race, memory: 8 processes, 400 tickets: won once 400, twice 0, never 0; 1794.8 claims/s, claim median 21.14 ms
+PASS  4 the race, sql: 8 processes, 400 tickets: won once 400, twice 0, never 0; 1931.4 claims/s, claim median 23.83 ms
+logs in /tmp/ws-his-tests-9zp1rvg4
+RESULT PASS
+root@FrogNetHost:/home/froguser#
