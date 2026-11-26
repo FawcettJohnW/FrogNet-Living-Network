@@ -56,7 +56,12 @@ PostgreSQL (`PostgresClaimStore`). Every SARA sends the store its operations and
 use of the state becomes a message to it and a wait for its reply. The state is then only as available as that one
 process and each operation costs at least one round trip to wherever it is.
 
-**On memory.** A ticket is its cells: family `(worldshepherd, ticket.<ticket_id>)`. The issuing SARA writes one cell,
+**On memory, since 0.11.** A ticket is one record in WorldShepherd's RAM host, found by its id. Its issue is one word
+and its winner is one word, each set once by one compare-and-swap. Registering is one call (`op=issue`), claiming is
+one call (`op=claim`), and the ticket writes how it stands in one cell, `(worldshepherd, tickets.<its issuer>, <ticket_id>)`, which
+its issuer's held read and the page read; `status` is one call to the ticket (`op=status`). "Consumed" is the winner's word being set. `DESIGN.md`, "A ticket is one record", has the table.
+
+**On memory, 0.7 to 0.9 (what the rest of this section and section 2 describe).** A ticket was its cells: family `(worldshepherd, ticket.<ticket_id>)`. The issuing SARA writes one cell,
 `issue.<who>.<n>`, holding the digest and the expiry. Each claiming SARA writes one cell, `claim.<who>.<n>`, holding
 the digest it was given and its `now`. `<who>` is that SARA's own name, so no two SARAs can ever write the same cell.
 There is no record anywhere that says "consumed".
@@ -157,8 +162,8 @@ memory goes away (the serving machine stops, or its RAM manager dies) that read 
 machine, whose memory is empty. Then each SARA does four things, in this order:
 
 1. It finds the RAM where it is served now.
-2. It writes its own truth into it: its issues and its won claims. A won claim says `won`, so it stands whichever of
-   the two arrives first.
+2. It brings its own truth back in one call (`op=again`, since 0.11): its issues and its won claims. A won claim is a
+   held claim, so the ticket takes it whichever of the issue and the claim arrives first.
 3. It learns the world again: it holds a read on the family of SARAs until every SARA that was in the old memory is
    in the new one. Each wrote its own truth before announcing itself, so their tickets and won claims are there. A
    SARA that never arrives is waited for no longer than a ticket can live (`MAX_TTL_SECONDS`, 300 s), after which
@@ -180,7 +185,8 @@ afterwards.
 
 **In the memory model.** A status call is a request for something the caller could simply read.
 
-**On memory.** `status` is a read of the ticket's family. `sara_ui.py` replaces `/ui` with a page that is one held
+**On memory.** Through 0.9 `status` was a read of the ticket's family; on 0.11 it is one call to the ticket, which
+is found by its id (the ticket's cell is in its issuer's family, and a SARA that did not issue it does not know that name). `sara_ui.py` replaces `/ui` with a page that is one held
 read of the memory: where the RAM is served, the SARAs in it, and every ticket as it stands, the same in every SARA's
 browser because they all read the same cells. It changes when a cell is written and asks nothing on a timer: in
 Chrome, a claim written while the page was open appeared on it with no reload, and the page had made two requests in

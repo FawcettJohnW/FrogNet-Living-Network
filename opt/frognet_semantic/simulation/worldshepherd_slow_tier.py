@@ -122,7 +122,8 @@ def one_race(store, links, tickets, threads, sara, dsn, out, label, limit_s):
     """one RAM manager, one relay pair per SARA, N claimants, one controller. Returns the controller's result plus
     what the links carried."""
     env = dict(os.environ, KARTRAM_LIB=os.path.join(EXAMPLE, "lib"),
-               PYTHONPATH=os.pathsep.join([os.path.join(EXAMPLE, "harness"), EXAMPLE, os.path.join(EXAMPLE, "lib"), sara]))
+               PYTHONPATH=os.pathsep.join([os.path.join(EXAMPLE, "harness"), EXAMPLE, os.path.join(EXAMPLE, "lib"), sara]
+                                          + [x for x in [os.environ.get("PYTHONPATH")] if x]))   # the caller's own, kept: where SARA's packages are
     race = os.path.join(EXAMPLE, "harness", "race.py")
     port = free_port()
     ram_log = open(os.path.join(out, f"fdf-ram-{label}-{store}.log"), "w")

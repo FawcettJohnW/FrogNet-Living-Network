@@ -139,7 +139,7 @@ def run(n, *a):
     p = subprocess.run([sys.executable, fa] + list(a), env=env_of(n), capture_output=True, text=True, stdin=subprocess.DEVNULL, timeout=120)
     return p.returncode, (p.stdout + p.stderr).strip()
 def serve(n):
-    members[n] = subprocess.Popen([sys.executable, fa, "serve"], env=env_of(n), stdout=open(T + "/%s/app.log" % n, "a"), stderr=subprocess.STDOUT)
+    members[n] = subprocess.Popen([sys.executable, fa, "serve", "worldshepherd"], env=env_of(n), stdout=open(T + "/%s/app.log" % n, "a"), stderr=subprocess.STDOUT)
 def stop(n):
     p = members.pop(n); p.terminate(); p.wait()
 def live(rm, v, pre=""):

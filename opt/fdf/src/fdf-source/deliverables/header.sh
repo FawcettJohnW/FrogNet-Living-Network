@@ -91,12 +91,17 @@ fi
 /opt/fdf/bin/fdf-wg-impl --record || { echo "fdf-install: no usable WireGuard implementation (above)"; exit 1; }
 # [ONE_FILE_UPDATE_V1] the units this bundle ships, enabled; the DisasterComm pages' Apache conf enabled
 systemctl daemon-reload
-systemctl enable fdf-app.service frognet-host.service >/dev/null 2>&1
+systemctl enable frognet-host.service >/dev/null 2>&1   # the apps: each its own service, fdf-app@APP.service, enabled by fdf-app ([EACH_APP_ITS_OWN_SERVICE_V1])
 if [ -z "$INV" ]; then
   systemctl restart frognet-tunnel-daemon-v3
   for u in fdf-facts.service fdf-client.service fdf-app.service frognet-host.service fdf-addin-dc.service; do
     [ -e /etc/systemd/system/$u ] && { systemctl restart $u && echo "== $u restarted" || echo "fdf-install: $u did not restart: journalctl -u $u"; }
   done
+  # [EACH_APP_ITS_OWN_SERVICE_V1] fdf-app.service, above, is there only on a machine from before fdf-app r56: started on
+  # this build it gives each installed app its own service, removes itself and ends. Every app's own service runs this
+  # build from here on:
+  for u in $(systemctl list-units --all --plain --no-legend 'fdf-app@*.service' 2>/dev/null | awk '{print $1}'); do
+    systemctl restart "$u" && echo "== $u restarted" || echo "fdf-install: $u did not restart: journalctl -u $u"; done
   echo "== updated: $(sed -n 's/^build=//p' /opt/fdf/BUILD); fdf-app $(sed -n 's/^BUILD_TAG = "\(.*\)"/\1/p' /opt/fdf/bin/fdf-app); door $(sed -n "s/^const DOOR_BUILD = '\(.*\)';/\1/p" /opt/fdf/www/dc/ram.php 2>/dev/null)"
   echo "== to undo: sudo bash $BK.restore"
   exit 0

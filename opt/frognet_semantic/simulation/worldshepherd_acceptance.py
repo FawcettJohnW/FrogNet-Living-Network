@@ -45,11 +45,15 @@ The cases (each ticket id is used once; K tickets a case, R repetitions of each 
   split:claimant-in-flight    a claimant's link goes down with its claims in flight, and comes back
   split:winner+restart        the winner's link goes down, the others see it leave, and then the memory is
                               replaced; it returns 3 s after
-  access:*                    negative controls on the real API from another address and another session: a claim
-                              written in another SARA's name; "won" with another digest, past expiry, on a consumed
-                              ticket; a write with no session; a malformed cell
-  access:restored-winner      a member writes a consistent "won" of its own into a NEW memory before the winner
-                              returns. The host cannot know it is false (worldshepherd_ram.cpp); reported OPEN
+  access:*                    negative controls on the real API from another address and another session: the
+                              ticket's operations called in another SARA's name; a claim of another digest, past
+                              expiry, or on a consumed ticket; an issue of a ticket already issued; the ticket's own
+                              cell written from the network; a call with no session; a malformed call. Each passes
+                              when the ticket stands afterwards exactly as it did before
+  access:restored-winner(*)   in a NEW memory, before the winner returns, a member says it held the ticket before.
+                              issuer-saw: the issuer saw the win on its held read and says so when it issues
+                              the ticket again -- must PASS. issuer-did-not-see: its link was down while the
+                              ticket was won; nobody left can say, reported OPEN
   storage                     cells and the RAM host's memory per ticket and per claim, and what a replaced memory holds
   long (310 s; --skip-long)   two memories for the contract's whole MAX_TTL_SECONDS: the issuer is absent from one;
                               a writer's link is down past the ticket's life and its held claim arrives after
@@ -83,7 +87,7 @@ _HERE = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, _HERE)
 import slowlink as SL                         # noqa: E402
 
-BUILD = "worldshepherd-acceptance 2026-11-25a [WS_ACCEPTANCE_V1]"
+BUILD = "worldshepherd-acceptance 2026-11-25d [WS_ACCEPTANCE_V1] for worldshepherd-ribbit 0.11"
 EXAMPLE = os.path.normpath(os.path.join(_HERE, "..", "ribbit", "examples", "worldshepherd"))
 FDF_PY = os.path.normpath(os.path.join(_HERE, "..", "..", "fdf", "src", "fdf-source", "fdf", "lib", "python"))
 os.environ.setdefault("FDF_PY", FDF_PY)
@@ -120,13 +124,15 @@ class Study:
         import ribbit
         self.ribbit, self.link, self.out = ribbit, link, out
         self.tag = link + tag                                   # in every log's name: a second study of a link keeps the first's logs
-        self.env = dict(os.environ, PYTHONPATH=os.pathsep.join([os.path.join(EXAMPLE, "harness"), EXAMPLE, os.path.join(EXAMPLE, "lib"), FDF_PY, sara]))
+        os.makedirs(os.path.join(out, "blob_cache"), exist_ok=True)   # where the wire keeps a large body; a node has /opt/frognet_semantic/blob_cache
+        self.env = dict(os.environ, FROGNET_BLOB_ROOT=os.path.join(out, "blob_cache"), PYTHONPATH=os.pathsep.join([os.path.join(EXAMPLE, "harness"), EXAMPLE, os.path.join(EXAMPLE, "lib"), FDF_PY, sara]
+                                                                    + [p for p in os.environ.get("PYTHONPATH", "").split(os.pathsep) if p]))   # the caller's own, kept: where SARA's packages are
         self.ls = {"A": listening("127.0.0.1"), "B": listening("127.0.0.1")}       # the sockets that outlive their RAM hosts
         self.at = {k: ("127.0.0.1", s.getsockname()[1]) for k, s in self.ls.items()}
         self.rams, self.starts = {}, 0
         self.start_ram("A")
         tl = listening("127.0.0.1"); self.test_at = tl.getsockname()                # the study's own memory: never stopped
-        self.test_ram = subprocess.Popen([RAM, "--listen", "%s:%d" % self.test_at, "--api", API], env=dict(os.environ, RIBBIT_LISTEN_FD=str(tl.fileno())),
+        self.test_ram = subprocess.Popen([RAM, "--listen", "%s:%d" % self.test_at, "--api", API], env=dict(self.env, RIBBIT_LISTEN_FD=str(tl.fileno())),
                                          pass_fds=(tl.fileno(),), stdout=subprocess.DEVNULL, stderr=open(os.path.join(out, "test-ram-%s.log" % self.tag), "w"))
         self.ctl = ribbit.Memory(self.test_at[0], self.test_at[1], API)
         self.last, self.n, self.done = 0, 0, {}                  # done: answers read before they were waited for
@@ -152,7 +158,7 @@ class Study:
         self.starts += 1
         log = open(os.path.join(self.out, "worldshepherd-ram-%s-%s.log" % (k, self.tag)), "a")
         ls = self.ls[k]
-        self.rams[k] = subprocess.Popen([RAM, "--listen", "%s:%d" % self.at[k], "--api", API], env=dict(os.environ, RIBBIT_LISTEN_FD=str(ls.fileno())),
+        self.rams[k] = subprocess.Popen([RAM, "--listen", "%s:%d" % self.at[k], "--api", API], env=dict(self.env, RIBBIT_LISTEN_FD=str(ls.fileno())),
                                         pass_fds=(ls.fileno(),), stdout=log, stderr=subprocess.STDOUT)
 
     def replace(self, k="A"):
@@ -402,61 +408,93 @@ def access(st, rp):
             return str(e).split("HTTP 403: ", 1)[-1][:150]
     def there(family, instance):
         return any(c["variable"] == family and c["instance"] == instance for c in st.cells())
+    def stands(ticket):                                                       # the ticket's own cell: who issued it, who won it
+        for c in st.cells():
+            if c["variable"].startswith("tickets.") and c["instance"] == ticket:
+                return (c["bag"]["sha"], c["bag"]["by"], c["bag"]["won"])
     def control(case, refused_why, present, more=""):
         ok = bool(refused_why) and not present
         rp.row(link, case, "PASS" if ok else "FAIL", {}, ("refused: " + refused_why if refused_why else "ACCEPTED") + ("; the cell is in the memory" if present else "") + more)
+    def called(case, m, op, ticket, **body):
+        """one of the ticket's operations, tried by someone it must not serve: PASS when the ticket stands as it did"""
+        was = stands(ticket)
+        try:
+            r = m.call("POST", API + "?op=" + op, json.dumps(dict(body, ticket=ticket)))
+            said = "answered " + str(r.get("outcome") or ("ok" if r.get("ok") else r.get("error", r)))[:140]
+            took = r.get("outcome") == "claimed" or (op == "issue" and (r.get("state") or {}).get("by") == body.get("who"))
+        except ribbit.RibbitError as e:
+            said, took = "refused: " + str(e).split(": ", 2)[-1][:150], False
+        now_ = stands(ticket)
+        rp.row(link, case, "PASS" if (now_ == was and not took) else "FAIL", {}, "%s; the ticket stands as it did" % said if now_ == was else "%s; THE TICKET CHANGED: %r -> %r" % (said, was, now_))
 
     session = lambda relay: ribbit.Memory(relay.where.rsplit(":", 1)[0], int(relay.where.rsplit(":", 1)[1]), API)
     o = session(other)
     imp = "impostor-0001"
-    # a claim written in another SARA's name, saying won, from another machine: answered write, then posted write
-    inst = "claim.%s.9001" % victim
-    control("access:other-name(landed)", landed(o, "ticket." + X[2], inst, {"sha": sha_of(X[2]), "at": now, "won": 1}), there("ticket." + X[2], inst))
-    inst = "claim.%s.9002" % victim; before = o.refused()
-    o.write(SVC, "ticket." + X[2], inst, {"sha": sha_of(X[2]), "at": now, "won": 1})
-    try: o.read(SVC, "sara")                                                 # the session's next answer carries what was refused
-    except ribbit.RibbitError: pass
-    time.sleep(0.2)
-    control("access:other-name(posted)", "the posted write was refused (%d on the session)" % (o.refused() - before) if o.refused() > before else "", there("ticket." + X[2], inst))
-    # its own name, saying won, inconsistent with the ticket
-    control("access:won-other-digest", landed(o, "ticket." + X[3], "claim.%s.1" % imp, {"sha": "00" * 32, "at": now, "won": 1}), there("ticket." + X[3], "claim.%s.1" % imp))
-    control("access:won-past-expiry", landed(o, "ticket." + X[3], "claim.%s.2" % imp, {"sha": sha_of(X[3]), "at": now + 10 ** 6, "won": 1}), there("ticket." + X[3], "claim.%s.2" % imp))
-    control("access:won-on-consumed", landed(o, "ticket." + X[1], "claim.%s.3" % imp, {"sha": sha_of(X[1]), "at": now, "won": 1}), there("ticket." + X[1], "claim.%s.3" % imp))
-    control("access:malformed-claim", landed(o, "ticket." + X[4], "claim.%s.4" % imp, {"sha": sha_of(X[4])}), there("ticket." + X[4], "claim.%s.4" % imp))
+    # in another SARA's name, from another machine: the ticket's operation, and the one cell a SARA writes
+    called("access:other-name(claim)", o, "claim", X[2], who=victim, sha=sha_of(X[2]), at=now, n=9001)
+    called("access:other-name(held-claim)", o, "claim", X[2], who=victim, sha=sha_of(X[2]), at=now, n=9002, held=1)
+    control("access:other-name(here)", landed(o, "sara", victim, {"x": 1}), False)
+    # the ticket's own cell, and any other cell in the service, written from the network
+    control("access:ticket-cell", landed(o, "tickets." + st.who["issuer"], X[2], {"sha": sha_of(X[2]), "exp": now + 250, "by": imp, "bn": 1, "won": imp, "wn": 1, "at": now}), stands(X[2])[2] == imp)
     control("access:not-a-family", landed(o, "junk", "x", {"a": 1}), there("junk", "x"))
+    # in its own name: a claim the ticket does not take
+    called("access:claim-other-digest", o, "claim", X[3], who=imp, sha="00" * 32, at=now, n=1)
+    called("access:claim-past-expiry", o, "claim", X[3], who=imp, sha=sha_of(X[3]), at=now + 10 ** 6, n=2)
+    called("access:claim-on-consumed", o, "claim", X[1], who=imp, sha=sha_of(X[1]), at=now, n=3)
+    called("access:held-claim-on-consumed", o, "claim", X[1], who=imp, sha=sha_of(X[1]), at=now, n=4, held=1)
+    called("access:malformed-claim", o, "claim", X[4], who=imp, sha=sha_of(X[4]), n=5)
+    called("access:issue-of-an-issued-ticket", o, "issue", X[4], who=imp, sha="11" * 32, exp=now + 10 ** 6, n=6)
     # the same machine as a, another session, while a's is up
     s2 = session(same)
-    inst = "claim.%s.9003" % victim
-    control("access:other-session", landed(s2, "ticket." + X[2], inst, {"sha": sha_of(X[2]), "at": now, "won": 1}), there("ticket." + X[2], inst))
+    called("access:other-session", s2, "claim", X[2], who=victim, sha=sha_of(X[2]), at=now, n=9003)
     # no session at all: plain HTTP
-    inst = "claim.%s.9004" % victim; why = ""
+    was, why = stands(X[2]), ""
     try:
-        urllib.request.urlopen(urllib.request.Request("http://%s:%d%s?op=write" % (host, port, API), method="POST", headers={"Content-Type": "application/json"},
-                               data=json.dumps({"service": SVC, "variable": "ticket." + X[2], "instance": inst, "bag": {"sha": sha_of(X[2]), "at": now, "won": 1}}).encode()), timeout=5).read()
+        urllib.request.urlopen(urllib.request.Request("http://%s:%d%s?op=claim" % (host, port, API), method="POST", headers={"Content-Type": "application/json"},
+                               data=json.dumps({"who": victim, "ticket": X[2], "sha": sha_of(X[2]), "at": now, "n": 9004}).encode()), timeout=5).read()
     except urllib.error.HTTPError as e:
         why = "HTTP %d: %s" % (e.code, e.read().decode("utf-8", "replace")[:120])
-    control("access:no-session", why, there("ticket." + X[2], inst))
+    control("access:no-session", why, stands(X[2]) != was)
     # and the tickets the controls aimed at are still claimable, once each, by the SARAs
     rows = st.answers(st.claims(X[2:5], who=["b", "c"]))
     m = measure(rows, X[2:5]); rp.row(link, "access:tickets-after", verdict_of(m), m)
 
-    # restored-winner provenance: a NEW memory; a member writes a consistent "won" of its own before the winner is back
-    P = ["%s-prov-%d" % (link, k) for k in range(4)]
-    st.issue(P); first = st.answers(st.claims(P, who=["a"]))
-    st.relays["a"].cut(waiting=True)
-    st.replace(); time.sleep(0.5 + 4 * SL.profile(link).latency_ms / 1000.0)   # the issuer has written its tickets again
+    # restored-winner provenance: a NEW memory; a member says it held the ticket before the winner is back.
+    # [THE_ISSUER_SAYS_WHO_WON_V1] seen: the issuer saw the win on its held read before the memory was replaced.
+    # unseen: the issuer's link was down while the ticket was won, so it cannot say -- the case that stays open.
+    lat = SL.profile(link).latency_ms / 1000.0
     o2 = session(other)
-    false_won = [P[k] for k in range(len(P)) if not landed(o2, "ticket." + P[k], "claim.%s.%d" % (imp, 50 + k), {"sha": sha_of(P[k]), "at": time.time(), "won": 1})]
-    st.relays["a"].restore(); time.sleep(1.0 + 6 * SL.profile(link).latency_ms / 1000.0)
-    winners = {}
-    for c in st.cells():
-        if c["variable"].startswith("ticket.") and c["instance"].startswith("claim.") and c["bag"].get("won"):
-            winners.setdefault(c["variable"][7:], []).append(c["instance"])
-    stolen = [t for t in P if any(i.startswith("claim." + imp) for i in winners.get(t, []))]
-    rp.row(link, "access:restored-winner", "OPEN" if stolen else "PASS", {"tickets": len(P)},
-           "a member's consistent false won, written into a new memory before the winner returned, was taken for %d of %d tickets; the true winner's "
-           "claim was then %s. The host cannot tell: proof is evidence from before (worldshepherd_ram.cpp)"
-           % (len(stolen), len(P), "refused" if stolen else "kept"))
+    for seen in (True, False):
+        P = ["%s-prov-%s-%d" % (link, "seen" if seen else "unseen", k) for k in range(4)]
+        st.issue(P)
+        if not seen: st.relays["issuer"].cut(waiting=True)
+        first = st.answers(st.claims(P, who=["a"]))
+        if seen: time.sleep(0.5 + 6 * lat)                                    # the ticket's write has reached the issuer's held read
+        st.relays["a"].cut(waiting=True)
+        st.replace()
+        if not seen: st.relays["issuer"].restore()
+        time.sleep(1.0 + 6 * lat)                                             # the issuer has written its tickets again
+        o2.close(); o2 = session(other)
+        took = []
+        for k in range(len(P)):                                               # a member, in its own name, says it held each ticket before
+            try:
+                r = o2.call("POST", API + "?op=claim", json.dumps({"who": imp, "ticket": P[k], "sha": sha_of(P[k]), "at": time.time(), "n": (50 if seen else 60) + k, "held": 1}))
+            except ribbit.RibbitError as e:
+                r = {"outcome": "refused: " + str(e)[-80:]}
+            if r.get("outcome") == "claimed": took.append(P[k])
+        st.relays["a"].restore(); time.sleep(1.0 + 6 * lat)
+        won_by = {t: (stands(t) or ("", "", "nobody: the ticket is not in the new memory"))[2] for t in P}
+        stolen = [t for t in P if won_by[t] == imp]; kept = [t for t in P if won_by[t] == victim]
+        if seen:
+            verdict = "PASS" if (len(kept) == len(P) and not took) else "FAIL"
+            what = "the issuer had seen each ticket won before the memory was replaced, and said so when it issued them again"
+        else:
+            verdict = "OPEN" if stolen else ("PASS" if len(kept) == len(P) else "FAIL")
+            what = "the issuer's link was down while the tickets were won, so it could not say who won. The ticket cannot tell: proof is evidence from before"
+        rp.row(link, "access:restored-winner(%s)" % ("issuer-saw" if seen else "issuer-did-not-see"), verdict, {"tickets": len(P)},
+               "a member that said it held a ticket, in a new memory before the winner returned, was answered claimed for %d of %d tickets; afterwards %d stand won "
+               "by it and %d by the true winner%s. %s" % (len(took), len(P), len(stolen), len(kept),
+               "" if len(stolen) + len(kept) == len(P) else "; the rest: %s" % sorted(set(won_by.values()) - {imp, victim}), what))
     for m_ in (o, o2, s2):
         try: m_.close()
         except Exception: pass
@@ -467,18 +505,19 @@ def storage(st, rp, n=200):
     """in a study of its own: SARAs that have issued and won nothing before, so what is counted is these tickets"""
     link = st.link
     T = ["%s-sto-%04d" % (link, k) for k in range(n)]
-    tick = lambda: [c for c in st.cells() if c["variable"].startswith("ticket.")]
+    tick = lambda: [c for c in st.cells() if c["variable"].startswith("tickets.")]
     time.sleep(0.5); r0 = st.rss_kb(); st.issue(T, life=250.0); time.sleep(0.5); c1 = len(tick()); r1 = st.rss_kb()
     st.answers(st.claims(T), limit=600); time.sleep(0.5); c2 = len(tick()); r2 = st.rss_kb()
     st.answers(st.claims(T), limit=600); time.sleep(0.5); c3 = len(tick()); r3 = st.rss_kb()
     st.replace(); time.sleep(2.0 + 10 * SL.profile(link).latency_ms / 1000.0); c4 = len(tick())
-    per_claim = (c3 - c2) / float(3 * n)
-    rp.row(link, "storage", "FINDING" if per_claim > 0.5 else "PASS",
+    per_claim = (c3 - c1) / float(6 * n)
+    rp.row(link, "storage", "FINDING" if per_claim > 0.01 or c1 != n else "PASS",
            {"tickets": n, "cells_after_issue": c1, "cells_after_one_round": c2, "cells_after_two_rounds": c3, "cells_in_replaced_memory": c4,
-            "ram_host_rss_kb": [r0, r1, r2, r3], "ram_host_kb_per_ticket": round((r3 - r0) / float(n), 1), "cells_per_claim_call": round(per_claim, 2), "bytes_per_claim_cell": round(1024.0 * (r3 - r1) / max(1, c3 - c1))},
-           "%d tickets' cells: %d after issue, %d after 3 SARAs claimed each, %d after they claimed again (%.2f a claim call); the RAM host grew %d kB over those %d "
-           "claim cells (about %d bytes each; %.0f kB a ticket with its 7 cells); nothing removes a ticket's cells while its memory lives. A replaced memory held %d (each issue and each won claim, written again)"
-           % (n, c1, c2, c3, per_claim, r3 - r1, c3 - c1, round(1024.0 * (r3 - r1) / max(1, c3 - c1)), (r3 - r0) / float(n), c4))
+            "ram_host_rss_kb": [r0, r1, r2, r3], "ram_host_kb_per_ticket": round((r3 - r0) / float(n), 1), "cells_per_claim_call": round(per_claim, 3)},
+           "%d tickets: %d cell(s) after issue, %d after 3 SARAs claimed each, %d after they claimed again (%.3f a claim call: a ticket is one cell however often "
+           "it is claimed); the RAM host grew %d kB over the %d tickets and their %d claim calls (%.1f kB a ticket); a ticket's record and its cell stay while its "
+           "memory lives. A replaced memory held %d (each ticket its issuer made again)"
+           % (n, c1, c2, c3, per_claim, r3 - r0, n, 6 * n, (r3 - r0) / float(n), c4))
 
 
 def long_case(st, rp, life=300.0, extra=10.0):

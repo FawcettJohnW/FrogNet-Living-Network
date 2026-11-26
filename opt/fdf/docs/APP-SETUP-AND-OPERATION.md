@@ -75,7 +75,7 @@ every member holds a read on that family already).
 - **Not found**: the app's first install. The arguments (`fdf-app config`'s) if given; otherwise the questions: the
   teams (each with its own RAM), the other roles, each role's category and whether a client may take it with no login,
   users (password asked twice, kept as a verifier), login required, relocate or fail, and the app's administrator.
-- Either way it restarts `fdf-app.service`, which writes the configuration into the SystemRam and serves what the
+- Either way it restarts the app's own service, `fdf-app@APP.service` (r56; before, the one `fdf-app.service`), which writes the configuration into the SystemRam and serves what the
   app's selection gives it. Gate: `rinab/tools/test_fdf_app.py` 16.
 
 What the install sets, step by step:
@@ -264,6 +264,20 @@ work like this -- EOC is just the example. For a media service, the requirements
   machine's election writes its own `/etc/hosts` at its own moment, so a program elsewhere can read the new AppHost
   before that machine's `fdf-ram` listens; it holds a read on this family (which also ends when `/etc/hosts` is
   written) and connects when the RAM is said to be there. First user: `ribbit/examples/worldshepherd`.
+- **Built** ([EACH_APP_ITS_OWN_SERVICE_V1], fdf-app r56, 2026-11-25; John: "Separate them. They should never have been
+  the same."): each app installed on a machine has its own service, `fdf-app@APP.service` (`fdf-app serve APP`). It
+  reads that app's configuration only, announces and withdraws that app's tuples only, serves that app's AppRams only,
+  and is restarted, stopped or updated without any other app's RAM being touched. `fdf-app config` and `fdf-app
+  install` write the unit (`/etc/systemd/system/fdf-app@.service`; its text is fdf-app's) when it is not there, and
+  enable and restart the app's. Until r56 one `fdf-app.service` served every app on the machine: restarting it for
+  one app replaced every app's RAM there, and it withdrew any capability tuple of the machine that it did not itself
+  offer, so no second service could stand beside it. **A machine from before r56** still has that unit: the first
+  time it starts on r56 (`fdf-app serve` with no app) it gives each installed app its own service, removes its own
+  unit and ends. That happens once; the RAMs the machine was serving are served again by their own services, empty,
+  and their programs write into them again. `fdf-join`, `fdf-leave` and the installer (`deliverables/header.sh`) no
+  longer write or ship `fdf-app.service`. Gate: `rinab/tools/test_fdf_app.py` check 14 (a second app's service on a
+  machine starts, stops and starts again; the first app's RAM processes and capability tuples are unchanged; with a
+  service allowed to touch another app's tuples the check fails).
 - **Built** ([THE_APPS_OWN_RAM_HOST_V1], fdf-app r55, 2026-11-25): an app's RAM may be served by the app's own RAM
   host in place of `fdf-ram`: `fdf-app config APP RAM[,RAM] --host RAM=PROGRAM`. Who may write a cell is the app's
   rule and the app's RAM host enforces it; every RAM host is derived from the platform's and is not bound by the
@@ -518,7 +532,7 @@ was said on the radio, and stays in the log.
   (HMAC under the admin key) and written into databasehost-control, and this machine's copy in
   `/opt/fdf/apps/<app>.json` (the admin key is kept only there). `fdf-app install APP` on every further machine reads
   that tuple and adopts it as it is; with no `databasehost_control.frognet` named it installs nothing.
-- **`fdf-app serve`** (unit `fdf-app.service`) runs on every installed machine (`[APP_SERVICES_V1]`, fdf-app r13):
+- **`fdf-app serve APP`** (unit `fdf-app@APP.service`, one for each app since r56) runs on every installed machine (`[APP_SERVICES_V1]`, fdf-app r13):
   - it holds a read on the configuration tuples in databasehost-control and adopts a newer seq whose mac is the admin
     key's, answering in the SystemRam, `(fdf-app, applied, <app>.<guid>)`; a Team's own tuple,
     `(fdf-app, config, <app>.<team>)`, written by its lead through the door, is adopted when it is that Team's lead's;

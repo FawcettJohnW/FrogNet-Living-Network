@@ -283,7 +283,15 @@ static inline void futex_wake_all(std::atomic<uint32_t>& w) {
     syscall(SYS_futex, reinterpret_cast<uint32_t*>(&w), FUTEX_WAKE_PRIVATE, INT_MAX, nullptr, nullptr, 0);
 #endif
 }
-struct Session::Pending { std::atomic<uint32_t> done{0}; fnwp::Answer answer; std::string err;   // [CLIENT_LOCKLESS_V1]
+// [A_CALLS_TIME_IS_COUNTED_FROM_WHEN_IT_IS_SENT_V1] (WorldShepherd's race on John's nodes, 2026-11-25: 4,000 claims
+// queued at once on one session; the node furthest from the RAM answered "no reply within the timeout" for the claims
+// that had waited longest, with the far end alive and answering the session's earlier claims the whole time.) "No
+// reply within the timeout" is about the far end being silent. A call's limit is counted from when the sender takes
+// it from the queue to send it, or from the last frame this session received from the far end, whichever is later:
+// a far end that is working through what this session sent it is not silent, and a call it has not reached yet is
+// not late. A far end that says nothing at all for the limit ends every call waiting on it, as before.
+static double mono_s() { return std::chrono::duration<double>(std::chrono::steady_clock::now().time_since_epoch()).count(); }
+struct Session::Pending { std::atomic<uint32_t> done{0}; std::atomic<double> sent{0}; fnwp::Answer answer; std::string err;   // [CLIENT_LOCKLESS_V1]
                           Session::Done cb;                                       // [NOBODY_WAITS_V1] instead of a waiter
                           // [NOBODY_WAITS_V1] [CLIENT_COALESCE_LOCKLESS_V1] async callers that joined this request in flight:
                           // a lock-free stack, sealed when the answer is handed out (a join after that is its own request)
@@ -301,6 +309,7 @@ struct Session::Impl {
     struct Job { std::string method, path, body; std::shared_ptr<Pending> waiter; fnwp::ClientEngine::Out resend; bool is_resend = false; int redo = 0;
                  uint64_t ticket = 0; bool in_turn = false;      // [WIRE_ORDER_TURNS_V1] a resend made in its call's turn
                  std::string hframe; std::shared_ptr<std::function<void(std::string, std::string)>> hdone;   // the memory's own frame, as built
+                 std::shared_ptr<Pending> timed;                 // [A_CALLS_TIME_IS_COUNTED_FROM_WHEN_IT_IS_SENT_V1] whose limit starts when this is sent
                  bool mw = false, stream = false, noreply = false; std::string ws, wv, wi, wbag;    // a non-waiting write: its coordinates and bag; stream: [FOLLOW_STREAM_V1]
                  uint8_t hop = 0; };                              // the op a frame's answer must carry
     // [WIRE_ORDER_TURNS_V1] per templated instance: tickets stamped (arrival order) and applied; replies held for their turn
@@ -352,6 +361,7 @@ struct Session::Impl {
     cellwire::Encoder cellenc;                           // [CELL_WRITE_V1] any thread's: each keeps its own references
     std::atomic<uint64_t> c_rows_wire{0}, c_rows_whole{0};   // the rows' bytes as they arrived, and made whole
     std::atomic<uint32_t> queued{0};                     // jobs not yet taken by the sender (QUEUE_MAX)
+    std::atomic<double> heard{0};                        // [A_CALLS_TIME_IS_COUNTED_FROM_WHEN_IT_IS_SENT_V1] when the far end last sent a frame
     std::atomic<bool> stop{false};
     void enqueue(Job&& j, bool resend) {
         JobNode* n = new JobNode; n->j = std::move(j);
@@ -540,6 +550,7 @@ void Session::send_loop() {
                 d_->sender_sleeping.store(0, std::memory_order_seq_cst);
             }
             j = std::move(n->j); delete n;
+            if (Pending* w = j.waiter ? j.waiter.get() : j.timed.get()) { double none = 0; w->sent.compare_exchange_strong(none, mono_s(), std::memory_order_acq_rel); }
             if (!resend && d_->queued.fetch_sub(1, std::memory_order_acq_rel) == Impl::QUEUE_MAX / 2 + 1) futex_wake_all(d_->queued);
         }
         if (j.mw) {                                      // [EVERY_WRITE_ON_THE_SEMANTIC_WIRE_V1] the cell's own request, through the engine
@@ -681,6 +692,7 @@ void Session::read_loop(int fd, bool data) {
     try {
         for (;;) {
             std::string f = recv_frame(fd);
+            d_->heard.store(mono_s(), std::memory_order_release);
             if (data) {                                  // a segment of a payload; it lands when its last segment does
                 d_->c_data_bytes.fetch_add(f.size() + 4);
                 auto done = d_->reasm.feed(f);
@@ -802,6 +814,18 @@ void log_writes_to(std::vector<std::pair<std::string, uint64_t>>* sink) { tl_wlo
 std::vector<std::pair<std::string, uint64_t>>* current_write_log() { return tl_wlog; }
 uint64_t calls_this_thread() { return tl_calls; }
 static thread_local std::string* tl_text_out = nullptr;   // [CALL_TEXT_V1] set by call_text around call()
+// [A_CALLS_TIME_IS_COUNTED_FROM_WHEN_IT_IS_SENT_V1] wait for p's answer: timeout_s from when it was sent or the far
+// end was last heard. While it is still in this session's own queue it is not late; a session that dies answers
+// everything queued on it.
+template <class P> static void await_reply(P& p, const std::atomic<double>& heard, double timeout_s) {
+    if (timeout_s > 1e9) timeout_s = 1e9;
+    while (!p.done.load(std::memory_order_acquire)) {
+        const double sent = p.sent.load(std::memory_order_acquire);
+        const double left = sent == 0 ? timeout_s : std::max(sent, heard.load(std::memory_order_acquire)) + timeout_s - mono_s();
+        if (left <= 0) throw Unreachable("no reply within the timeout");
+        futex_wait_for(p.done, 0, left);
+    }
+}
 std::string Session::call_text(const std::string& method, const std::string& path, const std::string& body, double timeout_s) {
     std::string out; tl_text_out = &out;
     try { call(method, path, body, timeout_s); } catch (...) { tl_text_out = nullptr; throw; }
@@ -836,12 +860,7 @@ Json Session::call(const std::string& method, const std::string& path, const std
         if (d_->stop.load()) { Impl::finish(p, nullptr, "session shut down"); throw Unreachable("session shut down"); }
         Impl::Job j; j.method = method; j.path = path; j.body = body; j.waiter = p; d_->enqueue(std::move(j), false);
     }
-    {   const auto deadline = std::chrono::steady_clock::now() + std::chrono::duration<double>(timeout_s > 1e9 ? 1e9 : timeout_s);
-        while (!p->done.load(std::memory_order_acquire)) {
-            const double left = std::chrono::duration<double>(deadline - std::chrono::steady_clock::now()).count();
-            if (left <= 0) throw Unreachable("no reply within the timeout");
-            futex_wait_for(p->done, 0, left);
-        } }
+    await_reply(*p, d_->heard, timeout_s);
     if (!p->err.empty()) throw Unreachable(p->err);
     if (tl_text_out) { if (p->answer.status >= 400) throw Refused("HTTP " + std::to_string(p->answer.status) + ": " + p->answer.body);
                        *tl_text_out = p->answer.body; return Json(); }   // [CALL_TEXT_V1]
@@ -929,15 +948,10 @@ std::string Session::call_frame(std::string frame, double timeout_s, std::shared
             fnwp::Answer a; a.status = 200; a.body = std::move(body);
             p->rows = tl_rows;                            // before done: every reader it releases reads them
             Impl::finish(p, &a, err); });
-        j.hop = op;
+        j.hop = op; j.timed = p;
         d_->enqueue(std::move(j), false);
     }
-    const auto deadline = std::chrono::steady_clock::now() + std::chrono::duration<double>(timeout_s);
-    while (!p->done.load(std::memory_order_acquire)) {
-        const double left = std::chrono::duration<double>(deadline - std::chrono::steady_clock::now()).count();
-        if (left <= 0) throw Unreachable("no reply within the timeout");
-        futex_wait_for(p->done, 0, left);
-    }
+    await_reply(*p, d_->heard, timeout_s);
     if (!p->err.empty()) throw Unreachable(p->err);
     if (rows_out) *rows_out = p->rows;                // the group shares the one decoded answer
     return p->answer.body;

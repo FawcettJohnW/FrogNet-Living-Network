@@ -151,8 +151,8 @@ fa = os.path.join(F, "bin", "fdf-app")
 def run(n, *a):
     p = subprocess.run([sys.executable, fa] + list(a), env=env_of(n), capture_output=True, text=True, stdin=subprocess.DEVNULL, timeout=120)
     return p.returncode, (p.stdout + p.stderr).strip()
-def serve(n):
-    members[n] = subprocess.Popen([sys.executable, fa, "serve"], env=env_of(n), stdout=open(T + "/%s/app.log" % n, "a"), stderr=subprocess.STDOUT)
+def serve(n, app="openeoc", key=None):
+    members[key or n] = subprocess.Popen([sys.executable, fa, "serve", app], env=env_of(n), stdout=open(T + "/%s/app.log" % n, "a"), stderr=subprocess.STDOUT)   # [EACH_APP_ITS_OWN_SERVICE_V1] the service of one app
 def stop(n):
     p = members.pop(n); p.terminate(); p.wait()
 def live(rm, v, pre=""):
@@ -288,6 +288,24 @@ try:
                        capture_output=True, text=True, stdin=subprocess.DEVNULL)
     check(p.returncode != 0 and not os.listdir(T + "/e/apps") and "databasehost-control" in p.stdout,
           "13 install with no databasehost-control named: nothing installed (%s)" % p.stdout.strip().splitlines()[-1:])
+
+    # [EACH_APP_ITS_OWN_SERVICE_V1] a second app on machine a, under its own service: it starts, stops and starts again,
+    # and nothing of openeoc's on that machine changes -- not its RAMs' processes, not its tuples
+    def of(app, v): return {c["instance"]: c["bag"] for c in live(sysr(), v, app + ".")}
+    serving0, can0 = of("openeoc", "serving"), of("openeoc", "can")
+    rc, out = run("a", "config", "second", "general", "--admin", "boss:adm-2026")
+    serve("a", "second", key="a/second")
+    up, _ = wait_for(lambda: of("second", "serving") or None, 15)
+    mine = {k: v for k, v in of("second", "can").items() if k.endswith(".guid-a")}
+    stop("a/second")
+    gone, _ = wait_for(lambda: (not of("second", "serving") and not [k for k in of("second", "can") if k.endswith(".guid-a")]) or None, 15)
+    serve("a", "second", key="a/second")
+    again, _ = wait_for(lambda: of("second", "serving") or None, 15)
+    serving1, can1 = of("openeoc", "serving"), of("openeoc", "can")
+    check(rc == 0 and bool(up) and bool(mine) and bool(gone) and bool(again) and serving0 and serving1 == serving0 and can1 == can0,
+          "14 each app its own service: a second app on a started (%s), stopped (its own tuples withdrawn: %s) and started again; openeoc's %d "
+          "RAM(s) on that machine kept their processes (%s) and its %d capability tuples were not touched"
+          % (sorted((up or {}).values(), key=str)[:1], bool(gone), len(serving0), sorted(b.get("pid") for b in serving1.values()) == sorted(b.get("pid") for b in serving0.values()), len(can0)))
 finally:
     for p in list(members.values()) + procs:
         if p.poll() is None: p.terminate()

@@ -62,18 +62,31 @@ Where things are [APP_SERVICES_V1]:
         (the arguments, or the questions). None named at all (no databasehost_control.frognet): nothing installed.
   fdf-app where APP RAM
         host:port of APP's AppRam RAM now: its AppHost (/etc/hosts) and its port (the configuration tuple), or nothing
-  fdf-app serve
-        on each installed machine: hold this machine's capability tuple for every AppRam it offers in the SystemRam;
+  fdf-app serve APP
+        [EACH_APP_ITS_OWN_SERVICE_V1] (John, 2026-11-25: "Separate them. They should never have been the same.") APP's
+        own service on this machine, fdf-app@APP.service, and nothing of any other app's: it reads APP's configuration
+        only, announces and withdraws APP's tuples only, serves APP's AppRams only, and is restarted without any
+        other app's RAM being touched. `fdf-app config` and `fdf-app install` write the unit (fdf-app@.service) when
+        it is not there, and enable and restart APP's.
+        Until r56 one fdf-app.service served every app on the machine: restarting it for one app replaced every
+        app's RAM there, and it withdrew any capability tuple of this machine that it did not itself offer, so a
+        second service could not stand beside it.
+        For APP: hold this machine's capability tuple for every AppRam it offers in the SystemRam;
         hold a read on the configuration tuples and adopt a newer one (its mac checked against the admin key), answering
         in (fdf-app, applied); serve each AppRam whose AppHost /etc/hosts names this machine, on its port.
         [SERVING_SAID_V1] It says what it serves in the SystemRam, (fdf-app, serving, <app>.<ram>.<guid>) = {at: host:port, pid}:
         a program on another machine that finds nothing listening at the AppHost's address holds a read on that.
+  fdf-app serve
+        the unit from before r56 (fdf-app.service) starting on this build: it separates the apps installed here --
+        each gets its own fdf-app@APP.service, enabled and started -- disables itself and ends. It serves nothing.
+        This happens once on a machine, the first time the old unit starts after the update; the RAMs this machine
+        was serving are served again by their own services, with empty memories that their programs write into again.
 
 Environment: FDF_HOSTS (/etc/hosts), RINA_CONTROL_RAM / RINA_SYSTEM_RAM (an api.php's address, for a test), FDF_FACTS, FDF_APPS (/opt/fdf/apps), FDF_VAR (/opt/fdf/var), FDF_BIN (/opt/fdf/bin).
 """
 import hashlib, hmac, json, os, queue, random, signal, socket, subprocess, sys, threading, time
 
-BUILD_TAG = "fdf-app-2026-11-25-r55"   # [ROLES_ON_API_V1][CAPABILITY_ANNOUNCED_V1][APP_RENAMED_V1][SERVING_SAID_V1][THE_APPS_OWN_RAM_HOST_V1]
+BUILD_TAG = "fdf-app-2026-11-25-r56"   # [ROLES_ON_API_V1][CAPABILITY_ANNOUNCED_V1][APP_RENAMED_V1][SERVING_SAID_V1][THE_APPS_OWN_RAM_HOST_V1][EACH_APP_ITS_OWN_SERVICE_V1]
 LIB = os.environ.get("FDF_PY") or os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "lib", "python")
 sys.path.insert(0, LIB)
 import fdfram  # noqa: E402
@@ -243,6 +256,80 @@ def pick_port(used):
             return p
 
 
+ONLY = None       # [EACH_APP_ITS_OWN_SERVICE_V1] the one app `fdf-app serve APP` is the service of
+
+
+def served():
+    """{app: this machine's copy of its configuration} for the one app this service is"""
+    c = installed().get(ONLY)
+    return {ONLY: c} if c else {}
+
+
+def of_this_service(instance, me):
+    """is the tuple <app>.<ram>.<guid> this service's own: its app, this machine"""
+    return instance.endswith("." + me) and instance.split(".", 1)[0] == ONLY
+
+
+UNIT = "/etc/systemd/system/fdf-app@.service"
+UNIT_TEXT = """# [EACH_APP_ITS_OWN_SERVICE_V1] one app installed on this machine (/opt/fdf/apps/%i.json), and only that app:
+# adopts its one configuration tuple, announces this machine's capability tuples for it in the SystemRam
+# [CAPABILITY_ANNOUNCED_V1], serves its AppRams when /etc/hosts names this machine for them. Each app has its own
+# instance of this unit (fdf-app@APP.service): one is restarted, stopped or updated without another being touched.
+# Written by fdf-app (config, install) when it is not there. This text is fdf-app's (UNIT_TEXT).
+[Unit]
+Description=FD&F app %i: announce this machine's capability for it, serve its AppRams when it is their AppHost
+After=network-online.target fdf-client.service
+
+[Service]
+Environment=FDF_FACTS=/opt/fdf/var/facts.json
+ExecStart=/usr/bin/python3 /opt/fdf/bin/fdf-app serve %i
+Restart=always
+RestartSec=2
+
+[Install]
+WantedBy=multi-user.target
+"""
+
+
+def systemctl(*a):
+    return subprocess.run(["systemctl"] + list(a), capture_output=True, text=True)
+
+
+def unit_written():
+    """fdf-app@.service is there and is this build's text (written, and systemd told, when it is not)"""
+    try:
+        if open(UNIT).read() == UNIT_TEXT:
+            return
+    except OSError:
+        pass
+    with open(UNIT + ".tmp", "w") as f:
+        f.write(UNIT_TEXT)
+    os.replace(UNIT + ".tmp", UNIT)
+    systemctl("daemon-reload")
+    print("fdf-app: %s written (each app its own service)" % UNIT)
+
+
+def separate():
+    """[EACH_APP_ITS_OWN_SERVICE_V1] the unit from before r56 has started on this build: every app installed here gets its
+    own service; that unit is disabled and stopped (which ends this process)."""
+    apps = sorted(installed())
+    log("build %s started by the unit from before r56 (fdf-app.service), which served every app at once. Separating: %s"
+        % (BUILD_TAG, ", ".join("fdf-app@%s.service" % a for a in apps) or "no app is installed here"))
+    unit_written()
+    for a in apps:
+        r = systemctl("enable", "--now", "fdf-app@%s.service" % a)
+        log("fdf-app@%s.service %s" % (a, "enabled and started" if r.returncode == 0 else "NOT started (systemctl %d: %s)" % (r.returncode, r.stderr.strip()[:200])))
+    log("fdf-app.service disabled, its unit removed, and stopped: it serves nothing from here on")
+    systemctl("disable", "fdf-app.service")
+    try:
+        os.remove("/etc/systemd/system/fdf-app.service")
+    except OSError:
+        pass
+    systemctl("daemon-reload")
+    systemctl("--no-block", "stop", "fdf-app.service")
+    return 0
+
+
 def installed():
     """{app: this machine's copy of its configuration} for every app installed here"""
     out = {}
@@ -397,7 +484,7 @@ class Server:
         seq, the Admin's (its mac), adopted into this machine's copy; this machine's answer in the SystemRam"""
         rm, changed = ctl_ram(), False
         cells = {c.get("instance", ""): c["bag"] for c in rm.read(SVC, "config") if not c.get("gone") and isinstance(c.get("bag"), dict) and c["bag"]}
-        for a, mine in installed().items():
+        for a, mine in served().items():
             bag = cells.get(a)
             if bag:
                 seq = int(bag.get("seq") or 0)
@@ -448,13 +535,13 @@ class Server:
             return
         cap = {k: v for k, v in (self.f.get("capability") or {}).items() if isinstance(v, (int, float, str, bool))}
         want = {}
-        for a, c in installed().items():
+        for a, c in served().items():
             for r in c.get("rams") or []:
                 if c.get("serve") and r not in c["serve"]:
                     continue
                 want["%s.%s.%s" % (a, r, self.me)] = dict(cap, guid=self.me, addr=self.addr, member=self.f.get("name") or "", serve=[r])
         try:
-            have = {c["instance"]: c for c in rm.read(SVC, "can") if c["instance"].endswith("." + self.me)}
+            have = {c["instance"]: c for c in rm.read(SVC, "can") if of_this_service(c["instance"], self.me)}   # another app's are its own service's
             for inst, bag in want.items():
                 if (have.get(inst) or {}).get("bag") != bag:
                     rm.write(SVC, "can", inst, bag)
@@ -478,7 +565,7 @@ class Server:
         want = {"%s.%s.%s" % (a, r, self.me): {"at": "%s:%d" % (self.addr, port), "guid": self.me, "pid": proc.pid}
                 for (a, r), (proc, port) in self.procs.items() if proc.poll() is None}
         try:
-            have = {c["instance"]: c for c in rm.read(SVC, "serving") if c["instance"].endswith("." + self.me)}
+            have = {c["instance"]: c for c in rm.read(SVC, "serving") if of_this_service(c["instance"], self.me)}
             for inst, bag in want.items():
                 if (have.get(inst) or {}).get("bag") != bag:
                     rm.write(SVC, "serving", inst, bag)
@@ -557,7 +644,7 @@ class Server:
 
     def serve(self, why):
         want = {}
-        for a, c in installed().items():
+        for a, c in served().items():
             for r in c.get("rams") or []:
                 port = (c.get("ports") or {}).get(r)
                 if port and self.addr and host_of(host_name(a, r)) == self.addr:
@@ -614,8 +701,8 @@ class Server:
             w.read()
 
     def run(self):
-        log("build %s; machine %s at %s; apps here: %s; databasehost-control %s, the SystemRam %s"
-            % (BUILD_TAG, self.me, self.addr, ", ".join(installed()) or "none", _quiet(lambda: fdfram.control_ram().host), _quiet(lambda: fdfram.system_ram().host)))
+        log("build %s; the service of the app %s%s; machine %s at %s; databasehost-control %s, the SystemRam %s"
+            % (BUILD_TAG, ONLY, "" if served() else " (NOT installed on this machine: nothing to serve until it is)", self.me, self.addr, _quiet(lambda: fdfram.control_ram().host), _quiet(lambda: fdfram.system_ram().host)))
         threading.Thread(target=self.watch_hosts, daemon=True).start()
         threading.Thread(target=self.watch_config, daemon=True).start()
         threading.Thread(target=self.watch_capability, daemon=True).start()
@@ -633,7 +720,7 @@ class Server:
         if rm:
             try:
                 for c in rm.read(SVC, "can") + rm.read(SVC, "serving"):
-                    if c["instance"].endswith("." + self.me):
+                    if of_this_service(c["instance"], self.me):
                         rm.remove(c)
             except fdfram.RamError as e:
                 log("the capability tuples not withdrawn at stop (%s)" % e)
@@ -742,11 +829,18 @@ def _questions(app, c):
 
 
 
-def restart_service():
-    r = subprocess.run((os.environ.get("FDF_APP_RESTART") or "systemctl restart fdf-app").split())
-    print("fdf-app: fdf-app.service %s" % ("restarted: it announces this machine's capability in the SystemRam and serves what the election gives it"
-                                         if r.returncode == 0 else "did NOT restart (systemctl %d): journalctl -u fdf-app" % r.returncode))
-    return 0 if r.returncode == 0 else 1
+def restart_service(app):
+    """[EACH_APP_ITS_OWN_SERVICE_V1] APP's own service, enabled and restarted; no other app's is touched"""
+    unit = "fdf-app@%s.service" % app
+    if os.environ.get("FDF_APP_RESTART"):               # a test names its own command; APP is its last argument
+        rc = subprocess.run(os.environ["FDF_APP_RESTART"].split() + [app]).returncode
+    else:
+        unit_written()
+        systemctl("enable", unit)
+        rc = systemctl("restart", unit).returncode
+    print("fdf-app: %s %s" % (unit, "restarted: it announces this machine's capability for %s in the SystemRam and serves what the election gives it" % app
+                              if rc == 0 else "did NOT restart (systemctl %d): journalctl -u %s" % (rc, unit)))
+    return 0 if rc == 0 else 1
 
 
 def first_install(app, c, rm, old=None):
@@ -804,7 +898,9 @@ def rename(old, new, given, prog="fdf-app"):
     copy.update(app=new, admin={"user": who, "salt": admin_salt(new, who).hex(), "n": ADMIN_N, "key": k.hex(), "check": admin_check(k)})
     save_installed(new, copy)                         # a copy with no signed tuple: install writes NEW's tuple from it, or adopts NEW's
     src, dst = os.path.join(APPS, old + ".json"), os.path.join(VAR, "retired-%s.json" % old)
-    os.makedirs(VAR, exist_ok=True); os.replace(src, dst)  # out of FDF_APPS before the restart: the service never serves both
+    os.makedirs(VAR, exist_ok=True); os.replace(src, dst)  # out of FDF_APPS: OLD's service has nothing to serve
+    if not os.environ.get("FDF_APP_RESTART"):              # [EACH_APP_ITS_OWN_SERVICE_V1] and OLD's own service is no more
+        systemctl("disable", "--now", "fdf-app@%s.service" % old)
     rc = install([prog, "install", new, "--admin", given])
     if installed().get(new, {}).get("signed"):
         print("fdf-app: %s is %s on this machine; %s's copy is %s" % (old, new, old, dst)); return rc
@@ -841,7 +937,7 @@ def install(argv):
             print("fdf-app: %s: this machine's configuration from before r47 becomes the app's one configuration tuple" % app)
             c = {k: mine0[k] for k in ("rams", "partition", "login", "roles", "categories", "users", "join", "admin", "select", "serve", "places", "hosts") if k in mine0}
             c["app"] = app
-            return first_install(app, c, rm, mine0) or restart_service()   # its ports kept
+            return first_install(app, c, rm, mine0) or restart_service(app)   # its ports kept
         pub = bag.get("admin") or {}
         if given_admin and pub.get("user"):          # [ADMIN_REKEY_V1] the admin's key replaces the one kept here
             a = _admin_for(app, pub, given_admin)
@@ -853,12 +949,12 @@ def install(argv):
             print("fdf-app: the configuration in databasehost-control %s: nothing changed" % why); return 2
         save_installed(app, adopted(app, mine0, cfg, bag))
         print("fdf-app: %s: the one configuration tuple (seq %s) adopted with this machine's admin key" % (app, bag.get("seq")))
-        return restart_service()
+        return restart_service(app)
     if bag is None:
         if rest and not rest[0].startswith("--"):
             print("fdf-app: %s: its first install, from the arguments" % app)
             rc = main([argv[0], "config", app] + rest)
-            return rc or restart_service()
+            return rc or restart_service(app)
         if not tty:
             print("fdf-app: %s: its first install, and no terminal to ask in: give the arguments (fdf-app config's)" % app); return 2
         print("fdf-app: %s is not set up anywhere on this network yet: this is its first install." % app)
@@ -868,7 +964,7 @@ def install(argv):
         c.update({"app": app, "admin": {"user": user, "salt": admin_salt(app, user).hex(), "n": ADMIN_N, "key": k.hex(), "check": admin_check(k)},
                   "select": {}})
         rc = first_install(app, c, rm)
-        return rc or restart_service()
+        return rc or restart_service(app)
     cfg0 = parse_text(bag.get("config")) or {}
     print("fdf-app: %s is set up on this network (its configuration, seq %s, in databasehost-control %s):" % (app, bag.get("seq"), rm.hostport))
     _show(app, dict(cfg0, admin=bag.get("admin") or {}))    # the admin is the tuple's (its salt and check value), not the text's
@@ -892,7 +988,7 @@ def install(argv):
     save_installed(app, adopted(app, mine, cfg, bag))
     print("fdf-app: %s installed on this machine (%s); its RAMs %s" % (app, os.path.join(APPS, app + ".json"),
           ", ".join("%s on port %d" % (r, cfg["ports"][r]) for r in cfg["rams"])))
-    return restart_service()
+    return restart_service(app)
 
 
 def main(argv):
@@ -972,7 +1068,13 @@ def main(argv):
         return rename(argv[2], argv[3], argv[5], argv[0])
     if len(argv) == 4 and argv[1] == "where":
         print(where(argv[2], argv[3])); return 0
-    if len(argv) == 2 and argv[1] == "serve":
+    if len(argv) == 2 and argv[1] == "serve":      # the unit from before r56: it separates the apps and ends
+        return separate()
+    if len(argv) == 3 and argv[1] == "serve":
+        global ONLY
+        ONLY = argv[2]
+        if not ONLY or not all(ch.isalnum() or ch in "_-" for ch in ONLY):
+            print("fdf-app: serve APP: letters, digits, _ and -"); return 2
         s = Server()
         signal.signal(signal.SIGTERM, s.shutdown)
         signal.signal(signal.SIGINT, s.shutdown)

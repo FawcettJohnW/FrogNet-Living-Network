@@ -50,7 +50,7 @@ class _Cursor:
         if sql == stock.CLAIM_SQL:
             now, ticket_id, sha, _now_again = params
             claim, ticket = self._cells.claim_as_it_stands(ticket_id, sha, now)
-            self._row = (float(ticket.issue["bag"]["exp"]), claim.consumed_at) if claim.ok else None
+            self._row = (float(ticket["exp"]), claim.consumed_at) if claim.ok else None
             self.rowcount = 1 if claim.ok else 0
             return
         if sql == stock.STATUS_SQL:

@@ -1,4 +1,97 @@
-# Results -- worldshepherd-ribbit 0.9, its RAM served by the app's own RAM host (worldshepherd-ram 0.9, fdf-app r55), 2026-11-25
+# Results -- worldshepherd-ribbit 0.11 (a ticket is one record in worldshepherd-ram 0.11 2026-11-25i; ribbit-platform 0.72; fdf-app r56), 2026-11-26
+
+**Not done: nothing removes a ticket.** An expired or consumed ticket's record and its cell stay for the life of the
+memory; the RAM host grows with every ticket ever issued. Removing them changes what a very late claim is answered
+("not registered" where SARA's stores answer "expired" or "consumed"; his stores never delete a row), so it is not built.
+
+
+## 0.11: a ticket is one record, a claim is one call
+What it is: `DESIGN.md`, "A ticket is one record". Everything below this section is earlier versions, kept as measured.
+
+**The contract.** Brandon's 31 connector tests pass on `RibbitClaimStore` and on his unmodified `PostgresClaimStore`
+over the same tickets; the one-session-many-threads test passes; against the aarch64 RAM host under emulation and
+the x86_64 one (`harness/run_his_tests.py`). The session library itself, on each machine type without Python
+(`make session-check`; aarch64 under emulation): 1,000 tickets, 7 sessions, 7,000 claims on 7,000 threads, each
+ticket won once, on both. The 4,000-ticket race with every call in flight at once passes against the emulated
+aarch64 RAM host (57 s; it timed out before platform 0.72 counted a call's time from when it is sent).
+
+**The acceptance study** (`ACCEPTANCE.md`, "The study on 0.11"): PASS on the LAN and WAN links, three repetitions,
+and the 310-second case: 49 rows PASS, 2 OPEN, none FAIL; no ticket won twice or lost. A restored winner is now
+kept when its issuer saw the win (`[THE_ISSUER_SAYS_WHO_WON_V1]`, PASS on both links); it is OPEN when the issuer
+did not see it.
+
+**The RAM as a service, and its machine stopping** (`harness/test_the_apphost_moves.py`, as root, fdf-app r56): 6 of 6
+pass. The serving machine stops, the RAM is elected onto another, and all three SARAs are on the new memory 4.8 s
+after the stop with their own issues and won claims brought back; 80 claims made across the move: 80 answered, each
+ticket one winner. `results/apphost-moves-0.11.log`.
+
+**The race across a network, in the simulator** (`simulation/worldshepherd_slow_tier.py`, lan, wan, 4g and mixed): 16
+of 16 runs pass. On the 100 ms link a claim's median is 106.3 ms on `RibbitClaimStore` and 212.2 ms on Brandon's
+`PostgresClaimStore` over the same tickets (0.9: 107.4 ms and 213.6 ms). `results/slow-tier-0.11.log`.
+
+**The race, three versions side by side.** 4,000 tickets, 7 claimants, every call in flight at once, each party on
+its own simulated link, x86, one run each. Every ticket was won exactly once in every run.
+
+| | 0.9 | 0.10 | 0.11 |
+|---|---|---|---|
+| slowest claimant's 4,000 claims, LAN link | 9.1 s | 6.4 s | 5.3 s |
+| slowest claimant's 4,000 claims, 100 ms link | 10.5 s | 7.1 s | 5.4 s |
+| RAM host CPU, LAN link | 4.6 s | 3.2 s | 2.7 s |
+| all nine processes' CPU, LAN link | 25.6 s | 19.4 s | 14.9 s |
+| calls a claim makes | a write and a read | one | one |
+| cells a ticket has after 7 SARAs claimed it | 8 | 2 and 3 bookkeeping cells | 1 |
+
+**Four races in a row against one RAM host, the same claimants** (4,000 tickets each). Before: the session library's
+reclaimer kept a record for every thread that ever used a session and walked them all per call. After:
+`[NOBODY_IS_ASKED_V1]`, `cpp/include/ebr.hpp`.
+
+| run | slowest claimant, before | after | worst p99 claim, before | after | the 7 claimants' CPU, before | after |
+|---|---|---|---|---|---|---|
+| 1 | 5.8 s | 5.1 s | 808 ms | 73 ms | 10.1 s | 8.4 s |
+| 2 | 8.8 s | 5.7 s | 4,419 ms | 88 ms | 14.9 s | 8.0 s |
+| 3 | 11.4 s | 5.3 s | 6,621 ms | 82 ms | 20.0 s | 7.6 s |
+| 4 | 17.2 s | 5.3 s | 12,023 ms | 69 ms | 31.4 s | 7.3 s |
+
+The table above was measured on build 2026-11-25g. On the final build (2026-11-25i, platform 0.72) the four runs
+took 5.5, 6.0, 5.7 and 5.6 s (slowest claimant) with the RAM host at 2.6 to 2.7 s of CPU a run: flat. Its worst p99
+claim was 506, 217, 193 and 185 ms; build g run again the same hour on the same machine gave 476, 231, 182 and
+183 ms, so the higher p99 is the machine that hour and not the build.
+
+**On real nodes (John's network, 2026-11-25; 7 claimants on Seattle3B, Seattle5, Seattle7, BABox, BAMacBook,
+New-York-1, New-York-2; the RAM on the x86 node at 10.188.188.1; 4,000 tickets, all at once).** These are 0.9 and
+0.10; 0.11 has not been run on the nodes.
+
+| | 0.9, three runs | 0.10, four runs in a row |
+|---|---|---|
+| verdict | PASS, each ticket won once | PASS, each ticket won once |
+| slowest claimant | 13.6 s, 13.5 s, 18.0 s | 3.8 s, 7.6 s, 12.1 s, 16.9 s |
+| claims a second | 2,055, 2,070, 1,554 | 7,315, 3,670, 2,310, 1,655 |
+
+0.10's runs slow from one to the next for the reason in the table above; it was found from these four runs.
+
+**Storage.** A ticket is one cell however often it is claimed (0.9: one more cell per claim call). Over 20,000
+tickets, each issued and claimed by two SARAs, the RAM host grew 1.1 to 1.5 kB a ticket (build g). In the study's
+storage case, where every SARA is also sent every ticket's cell, it grew 29 kB a ticket; that is the platform's
+session code keeping a reference for each cell each session was sent, for the life of the session. A ticket's
+record and cell stay for the life of the memory.
+
+**Lines** (code lines; comments and blanks out).
+
+| | store | RAM host |
+|---|---|---|
+| 0.9 | 237 | 104 |
+| 0.10 | 205 | 167 |
+| 0.11 | 224 | 180 |
+
+**aarch64.** His 31 tests on both stores, the threads test, the 400-ticket race and the acceptance study (LAN link,
+once) pass against the aarch64 RAM host under emulation. The aarch64 session library is built and has not been
+loaded anywhere but John's Pis, which ran 0.9's and 0.10's.
+
+**Not done on 0.11.** Not run on real nodes. The emulated aarch64 RAM host
+answers about 680 claims a second, so 4,000 tickets claimed by 7 at once (28,000 calls) overrun the session
+library's 15 s call limit there; 1,000 tickets pass. That limit is counted from when a call is queued, not sent.
+The RAM host's own reclaimer (`cpp/src/lf_ebr.cpp`) still reads a fixed array of thread slots. The other examples
+that use the session library were not rebuilt or rerun against the new `ebr.hpp`.
 
 ## 0.9: the app's RAM host and the acceptance study
 `ACCEPTANCE.md` has the study: every case, both links, and what it found. What else was run on 0.9, all on `worldshepherd-ram`:

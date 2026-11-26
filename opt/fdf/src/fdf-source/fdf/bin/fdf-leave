@@ -17,6 +17,10 @@ for u in fdf-app fdf-term-serve fdf-client fdf-facts; do
         echo "removed $u.service"
     fi
 done
+# [EACH_APP_ITS_OWN_SERVICE_V1] every app's own service (fdf-app@APP.service) and their unit
+for u in $(systemctl list-units --all --plain --no-legend 'fdf-app@*.service' 2>/dev/null | awk '{print $1}'); do
+    systemctl disable --now "$u" && echo "stopped $u"; done
+rm -f /etc/systemd/system/fdf-app@.service
 # [PONDS_V1] every pond's session (fdf-client@<area>), the pond list and the forward word go too
 for u in $(systemctl list-units --all --plain --no-legend 'fdf-client@*.service' 2>/dev/null | awk '{print $1}'); do
     systemctl disable --now "$u" && echo "stopped $u"; done

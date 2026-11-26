@@ -65,7 +65,6 @@ FROGNET_FILES=(
   opt/frognet_semantic/internet_tunnels_v3/tests/__init__.py
   opt/frognet_semantic/internet_tunnels_v3/tests/graph_apply_oracle.py
   opt/frognet_semantic/internet_tunnels_v3/wg.py
-  etc/systemd/system/fdf-app.service
   etc/systemd/system/frognet-host.service
   usr/local/bin/frognet-merge-watcher.sh
   usr/local/bin/frognet_setup_helper.bash

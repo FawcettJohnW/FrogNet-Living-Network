@@ -4,27 +4,30 @@ Brandon Ray Davis's SARA (`github.com/Bdavis1390/Sara_pro`) has one part meant t
 connector read-ticket ledger, where a ticket issued by one SARA must be claimed exactly once by one host. This
 directory is that ledger on FrogNet's shared memory. WorldShepherd's RAM is a FrogNet app service: the app
 `worldshepherd`, its one RAM `general`, served on the machine the network elects by the app's own RAM host,
-`worldshepherd-ram`. That is the platform's RAM host with WorldShepherd's rules about who may write a cell and what
-it may say (since 0.9; before, the general `fdf-ram` served it and had no such rules). It runs no ticket operation:
-a ticket is still its cells.
+`worldshepherd-ram`. That is the platform's RAM host with WorldShepherd's tickets in it (since 0.11): a ticket is one
+record there, issued and won by one compare-and-swap each, and a SARA issues or claims in one call (`DESIGN.md`, "A
+ticket is one record"). 0.9, where a ticket was cells that every reader derived, is what `WHAT-CHANGED-FROM-SARA.md`
+sections 1 and 2 and the older sections of `RESULTS.md` and `ACCEPTANCE.md` describe; each says so where it does.
 
 Read `WHAT-CHANGED-FROM-SARA.md` first (each difference from SARA's stores and why), then `DESIGN.md`, then
 `ACCEPTANCE.md` (the acceptance study of 2026-11-25: what was injected, what was measured, what it found), then `RESULTS.md`.
 
 | file | |
 |---|---|
-| `ribbit_claim_store.py` | `RibbitClaimStore`, a `SharedClaimStore`: a ticket is its cells; a SARA writes its own and reads. When the memory moves it finds it, writes its own again, learns which SARAs are there, and proceeds |
-| `worldshepherd_ram.cpp` | `worldshepherd-ram`, the app's RAM host: a SARA writes only its own cells; a cell says what its kind says; a claim that says won is consistent with its ticket |
-| `ticket_sql.py` | Brandon's `PostgresClaimStore`, unmodified, with no PostgreSQL: its four SQL calls done as those cells |
+| `ribbit_claim_store.py` | `RibbitClaimStore`, a `SharedClaimStore`: register, claim and status are one call each to the ticket; it holds one read on the tickets it issued and says who won them when it makes them again in a new memory. When the memory moves it finds it, brings its own issues and won claims back in one call, learns which SARAs are there, and proceeds |
+| `worldshepherd_ram.cpp` | `worldshepherd-ram`, the app's RAM host: the tickets, each one record; the operations `issue`, `claim` and `again`; a name belongs to the session that first used it |
+| `ticket_sql.py` | Brandon's `PostgresClaimStore`, unmodified, with no PostgreSQL: its four SQL calls done on the same tickets |
 | `sara_ui.py` | SARA's browser page `/ui` for the memory: the tickets as they stand, as one held read |
 | `harness/run_his_tests.py` | one command: Brandon's own tests, unmodified, on the memory with both stores, then the race between processes |
 | `harness/test_the_apphost_moves.py` | the service: configured, elected, served; the serving machine stops and then its `worldshepherd-ram` is killed, with claims in flight |
 | `harness/on_the_memory.py` | the pytest plugin `run_his_tests.py` uses (`WS_STORE=sql` for his Postgres store on the memory) |
 | `harness/test_one_session_many_threads.py` | 16 threads of one process on one session, 300 tickets |
+| `harness/session_check.cpp` | the session library (`libkartram.so`) driven from C++, so it is checked on a machine type with no Python here: `make session-check` runs it for aarch64 under emulation, then x86_64 |
 | `harness/race.py` | many SARAs on many machines claiming the same tickets at once, coordinated through the memory |
 | `../../../simulation/worldshepherd_acceptance.py`, `harness/acceptance_sara.py` | the acceptance study: the memory replaced, links split, two memories, the access controls, storage; every SARA its own process on its own link (`ACCEPTANCE.md`) |
 | `../../../simulation/worldshepherd_slow_tier.py` | the simulator tier: the race with every SARA on its own shaped link, against the Postgres store |
-| `Makefile` | `make`: `bin/worldshepherd-ram`, `lib/libkartram.so` (the session library) and `lib/ribbit.py`. Incremental |
+| `Makefile` | `make`: `bin/worldshepherd-ram`, `lib/libkartram.so` (the session library) and `lib/ribbit.py`. `make node`: both static for the nodes, aarch64 then x86_64. `make tarballs`: one tarball a machine type. Incremental |
+| `node/` | for the nodes: `NODE.md` (install and run), `worldshepherd` (the one command), `package.sh`, `glibc_shim.cpp` (the library loads on glibc 2.35 and later) |
 | `WHAT-CHANGED-FROM-SARA.md`, `DESIGN.md`, `AUDIT-NO-HIDDEN-MESSAGING.md`, `study-ticket-claims.md`, `WORLDSHEPHERD-SUITE-MAP.md`, `QUESTION-3.md`, `RESULTS.md`, `VERSION` | the conversion's records |
 
 ## Build
@@ -75,6 +78,8 @@ From `opt/frognet_semantic`:
 
     python3 simulation/worldshepherd_acceptance.py --sara $SARA --link lan --skip-long
 
+(SARA's Python packages, fastapi and pytest, must be importable: the study keeps the caller's `PYTHONPATH`.)
+
 `ACCEPTANCE.md` says what each line is and has the measured tables.
 
 ## Test 4: the race across a network, in the simulator (about 1 minute; 4 minutes with all deployments)
@@ -98,6 +103,10 @@ is written. On a node leave `WS_RAM` unset.
 
 ## On FrogNet nodes
 
+`node/NODE.md` is the procedure, with one tarball a machine type (`make tarballs` builds them, aarch64 first:
+static `worldshepherd-ram`, the session library, fdf-app r56, this directory, and SARA's package from `SARA=DIR`).
+A node needs no compiler. The commands below are what the tarball's `node/worldshepherd` runs.
+
 On one node, once (the port is chosen and kept in the app's configuration tuple):
 
     fdf-app config worldshepherd general --host general=worldshepherd-ram --admin USER:PASSWORD
@@ -108,7 +117,8 @@ On every other node that may serve the RAM:
 
 `bin/worldshepherd-ram` must be in `/opt/fdf/bin` on every node that may serve the RAM; a node elected without it
 serves nothing and says so in its `fdf-app` log (it is not served by `fdf-ram` instead).
-`fdf-app.service` on each node serves it when that node is elected. A SARA on any node:
+The app's own service on each node, `fdf-app@worldshepherd.service`, serves it when that node is elected; no other
+app's service is involved ([EACH_APP_ITS_OWN_SERVICE_V1], fdf-app r56). A SARA on any node:
 
     store = RibbitClaimStore()                                              # the memory model
     store = PostgresClaimStore(ticket_sql.connection_factory())             # SARA's own store, unmodified, on it

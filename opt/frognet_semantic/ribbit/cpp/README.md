@@ -14,6 +14,39 @@ What every vendor's executable and client library is built from.
 | `tools/tuple_write.cpp` | `tuple-write`: cells written and read from a script, one JSON line at a time |
 | `tests/` | the platform's tests; the oracle the C++ wire is compared with is FrogNet's live Python engine, `opt/frognet_semantic` |
 
+## 0.72 (2026-11-25): nobody is asked; a call's time is counted from when it is sent
+Found by WorldShepherd's race on John's nodes and in the simulator (`examples/worldshepherd/RESULTS.md`).
+
+- **`[NOBODY_IS_ASKED_V1]`, both reclaimers.** `include/ebr.hpp` (a session's, and the host's request coalescing) kept a
+  record for every thread that ever took a guard, freed only with the Ebr, and walked them all twice per finished
+  call: a session used by 4,000 new threads a run got slower every run. `include/lf/ebr.hpp` and `src/lf_ebr.cpp`
+  (the memory's) kept a record per thread in a fixed array and read every record to move the epoch, and each thread
+  handed its retired lists on when it ended. In both, a thread now counts itself into the epoch it enters and out
+  when it leaves: one count and one retired list per epoch (three, used in turn), no record of a thread, nothing
+  walked, nothing handed on. `tests/ebr_stress.cpp` (8,000 threads, each new) and `tests/lf_ebr_bench.cpp` pass under
+  AddressSanitizer and ThreadSanitizer.
+  Measured for the memory's reclaimer, 2-core x86: a guard alone costs 4.2 ns before and 17.2 ns after on one
+  thread, 9 to 10 ns before and 52 to 95 ns after on 2 to 8 threads (every guard now writes one shared word).
+  Through a whole system it does not show on this machine: Redis on the memory, one front, `redis-benchmark -c 50`:
+  SET 50.1k to 51.9k/s before, 50.0k to 54.8k/s after; GET 49.6k to 51.5k/s before, 48.7k to 62.2k/s after;
+  WorldShepherd's 4,000-ticket race: RAM host CPU 2.7 s before, 2.8 s after. **Not measured: a host with many cores
+  and many sessions at once, where one shared word per epoch is the cost of having no walk.**
+- **`[A_CALLS_TIME_IS_COUNTED_FROM_WHEN_IT_IS_SENT_V1]`, `src/frogram.cpp`.** "No reply within the timeout" was counted
+  from when a call was queued. It is counted from when the sender takes the call to send it, or from the last frame
+  the session received, whichever is later: a far end working through what the session sent it is not silent. A far
+  end that says nothing for the limit ends every call waiting on it, as before. 28,000 claims at once against a RAM
+  host that answers 680 a second (aarch64 under emulation) failed before and pass now.
+- Qualified with: `STAGES="build memory lockfree capabilities" bash qualify.sh` (PASS); Redis's concurrency audit, 39 of
+  39 families; `rinab/tools/test_fdf_app.py`, 14 of 14, on rebuilt static binaries; `memory-order-check.sh` and
+  `daf-check.sh` PASS; the chat and communicator examples' session tests PASS.
+- **Failing before this change and still failing, on this machine** (the same with the four changed files as
+  committed in bc7221b, and at b938ac9): `qualify.sh` stages `fnwp` and `ramrows`. A read answered through the
+  engines is not byte-equal to `api()`'s own when a bag holds non-ASCII text: a bag written through a request the
+  server rebuilt from a template is stored ASCII-escaped (`\u00e9`), one written by a full request is stored as sent
+  (`é`), and the answer rebuilder writes raw UTF-8 for both. 427 to 617 of 2,000 answers differ per seed; they are
+  equal as JSON. Not changed here: which form a stored bag takes is the platform's ruling to make.
+  `examples/lispers.net/tools/qualify.sh` stage `handler` also fails here before and after (4 checks before, 1 after).
+
 ## Qualification
 
 ```

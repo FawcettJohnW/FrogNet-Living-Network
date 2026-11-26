@@ -34,6 +34,9 @@ from ribbit_claim_store import API
 S = "ws.race"
 
 
+threading.stack_size(256 * 1024)   # every ticket has its own call in flight; a call's thread needs little
+
+
 def open_memory(hostport):
     host, port = hostport.rsplit(":", 1)
     return ribbit.Memory(host, int(port), API)
@@ -133,15 +136,39 @@ def controller(a):
     store = make_store(a.store, a.ram, "issuer")
     if a.store == "postgres": store.initialize()
     tickets = ticket_ids(run, a.tickets)
+    print("[race] controller: [TICKETS_ARE_REGISTERED_AT_ONCE_V1] %s; %d claimant(s) present: %s; registering %d ticket(s), all at once; claims %s at once"
+          % (BUILD, len(cans), " ".join(sorted(cans)), len(tickets), a.threads or "all"), flush=True)
     t0 = time.perf_counter()
-    for t in tickets:
-        store.register(ticket_id=t, ticket_sha256=hashlib.sha256(t.encode()).hexdigest(), expires_at=now + 300)
+    # [TICKETS_ARE_REGISTERED_AT_ONCE_V1] (2026-11-25: 4,000 tickets, one register() after another, each waiting for
+    # its own read: the run's first minutes were the issuer's round trips.) A register is one cell of the issuer's own
+    # and a read of it; no register waits on another. So every one is made at once, on the issuer's one session,
+    # and so is every claim of a SARA unless --threads N says N at a time.
+    failed, done, lock = [], [0], threading.Lock()
+    def register_these(mine):
+        try:
+            for t in mine:
+                store.register(ticket_id=t, ticket_sha256=hashlib.sha256(t.encode()).hexdigest(), expires_at=now + 300)
+                with lock:
+                    done[0] += 1
+                    if done[0] % 500 == 0 or done[0] == len(tickets):
+                        print("[race] controller: %d of %d registered, %.1f s" % (done[0], len(tickets), time.perf_counter() - t0), flush=True)
+        except Exception as e:
+            failed.append(e); raise
+    n = len(tickets)
+    workers = [threading.Thread(target=register_these, args=(tickets[k::n],)) for k in range(n)]
+    for w in workers: w.start()
+    for w in workers: w.join()
+    if failed:
+        raise RuntimeError("race: %d registering thread(s) failed; the first: %r" % (len(failed), failed[0]))
     reg_s = time.perf_counter() - t0
-    memory.write(S, "go", run, {"run": run, "store": a.store, "tickets": len(tickets), "now": now + 1, "threads": a.threads})
+    memory.write(S, "go", run, {"run": run, "store": a.store, "tickets": len(tickets), "now": now + 1, "threads": a.threads or len(tickets)})
+    print("[race] controller: run %s: go written; waiting for %d result(s)" % (run, len(cans)), flush=True)
     results, last = {}, 0
     while len(results) < len(cans):
         for c in held(memory, "result." + run, last):
             last = max(last, c["id"]); results[c["instance"]] = c["bag"]
+            print("[race] controller: result %d of %d: %s: %d claims in %.3f s, won %d"
+                  % (len(results), len(cans), c["instance"], c["bag"]["claims"], c["bag"]["s"], c["bag"]["won"]), flush=True)
     wins = {}
     for c in memory.read(S, "won." + run):                  # read after every result: each claimant wrote its wins first
         t, who = c["instance"].split("|", 1); wins.setdefault(t, []).append(who)
@@ -149,10 +176,17 @@ def controller(a):
     if said != sum(len(w) for w in wins.values()):
         raise RuntimeError("race: the claimants say %d wins and the memory holds %d win cells" % (said, sum(len(w) for w in wins.values())))
     never = [t for t in tickets if t not in wins]; twice = {t: w for t, w in wins.items() if len(w) > 1}
-    consumed = sum(1 for t in tickets if store.status(t).get("consumed"))
+    says, asked = [], time.perf_counter()                    # every ticket's status asked at once, as it was registered
+    def ask(t):
+        if store.status(t).get("consumed"): says.append(t)
+    askers = [threading.Thread(target=ask, args=(t,)) for t in tickets]
+    for w in askers: w.start()
+    for w in askers: w.join()
+    consumed = len(says)
+    print("[race] controller: the store says %d of %d consumed, asked in %.1f s" % (consumed, len(tickets), time.perf_counter() - asked), flush=True)
     total = sum(r["claims"] for r in results.values()); slowest = max(r["s"] for r in results.values())
     ok = not never and not twice and consumed == len(tickets)
-    out = {"label": a.label, "store": a.store, "run": run, "claimants": len(results), "threads": a.threads, "tickets": len(tickets),
+    out = {"label": a.label, "store": a.store, "run": run, "claimants": len(results), "threads": a.threads or len(tickets), "tickets": len(tickets),
            "claims": total, "won_once": len(tickets) - len(never) - len(twice), "won_twice": len(twice),
            "never_won": len(never), "store_says_consumed": consumed, "register_per_s": round(len(tickets) / reg_s, 1),
            "claims_per_s": round(total / slowest, 1), "slowest_claimant_s": round(slowest, 3),
@@ -166,6 +200,6 @@ if __name__ == "__main__":
     p = argparse.ArgumentParser(); p.add_argument("role", choices=["claimant", "controller"]); p.add_argument("ram")
     p.add_argument("--name", default="sara"); p.add_argument("--claimants", type=int, default=2)
     p.add_argument("--tickets", type=int, default=200); p.add_argument("--store", default="memory")
-    p.add_argument("--label", default=""); p.add_argument("--store-ram", default=""); p.add_argument("--threads", type=int, default=1); p.add_argument("--end", action="store_true")
+    p.add_argument("--label", default=""); p.add_argument("--store-ram", default=""); p.add_argument("--threads", type=int, default=0, help="claims a SARA makes at once; 0: all of them"); p.add_argument("--end", action="store_true")
     a = p.parse_args()
     sys.exit(claimant(a) if a.role == "claimant" else controller(a))

@@ -674,6 +674,13 @@ team_bravo: both the Team RAM host), even on one machine, differ by port. The po
 and 65535 when the service is created, kept in its configuration tuple, and used by every later instance wherever it
 runs; a port change updates the tuple and restarts the service.
 
+**Each app is its own service on a machine** (`[EACH_APP_ITS_OWN_SERVICE_V1]`, fdf-app r56; John, 2026-11-25: "Separate
+them. They should never have been the same."). `fdf-app@APP.service` runs `fdf-app serve APP`: that app's
+configuration, tuples and AppRams and no other's. Installing, restarting or updating one app never touches another
+app's RAM. There is no `fdf-app.service`; a machine that still has one from before r56 separates its apps the first
+time that unit starts. Do not write code that acts for "every app installed here" inside a service, and do not
+restart one app's service on behalf of another (`opt/fdf/docs/APP-SETUP-AND-OPERATION.md`).
+
 **Who may write a cell in an app's RAM is the app's rule, and the app's RAM host enforces it** (John, 2026-11-25:
 "That is an app problem and the ram host for the app should enforce it. Remember that every ram server is derived
 from the system, but they are not bound by it. This is all by design."). The platform's memory does not check who

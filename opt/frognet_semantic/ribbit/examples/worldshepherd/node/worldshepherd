@@ -1,0 +1,82 @@
+#!/bin/bash
+# Copyright (C) 2016-2026 Fawcett Innovations LLC
+# SPDX-License-Identifier: GPL-2.0-only
+#
+# worldshepherd -- WorldShepherd on a FrogNet node: everything a node does with it, from where the tarball put it.
+# [WORLDSHEPHERD_ON_A_NODE_V1]   NODE.md, beside this file, is the order to run these in.
+#
+#   worldshepherd setup                    once on each node, as root: each app its own service (fdf-app r56: asked
+#                                          first on a node whose apps share one service). Needs no Internet.
+#   worldshepherd config USER:PASSWORD     once, on ONE node: the app and its RAM, served by worldshepherd-ram
+#   worldshepherd install USER:PASSWORD    on every other node that may serve the RAM
+#   worldshepherd where                    HOST:PORT the RAM is served at now
+#   worldshepherd status                   this node: its builds, its service, where the RAM is, what its log last said
+#   worldshepherd claimant [--name NAME]   this node takes part in the race (it holds a read; leave it running)
+#   worldshepherd race --claimants N [--tickets 400] [--store memory|sql]     on one node: run the race; one JSON line
+#   worldshepherd end                      tell every claimant to stop
+#   worldshepherd his-tests                SARA's own 31 tests and the race, on this node alone (no network)
+#   worldshepherd python ARGS...           python3 with a SARA's paths set: RibbitClaimStore() finds the RAM by itself
+set -eu
+H=$(cd "$(dirname "$(readlink -f "$0")")/.." && pwd)            # .../ribbit/examples/worldshepherd
+ROOT=$(cd "$H/../../../../.." && pwd)                           # / on a node
+FDF=$ROOT/opt/fdf
+export KARTRAM_LIB=$H/lib FDF_PY=$FDF/lib/python FROGNET_CORE=$ROOT/opt/frognet_semantic/core
+# [A_NODE_HAS_NO_INTERNET_V1] what SARA's code imports (fastapi, pydantic, pytest ...) is in the tarball, pydeps/, pure
+# Python, and is on this command's path only. Nothing is installed on the node and nothing is fetched.
+export PYTHONPATH=$H/pydeps:$H/harness:$H:$H/lib:$H/Sara_pro
+export WS_RAM_HOST=$FDF/bin/worldshepherd-ram
+APP=worldshepherd; RAMNAME=general
+app() { python3 "$FDF/bin/fdf-app" "$@"; }
+where() { app where $APP $RAMNAME; }
+need_ram() { W=$(where); [ -n "$W" ] || { echo "worldshepherd: the RAM is served nowhere yet: no node is elected for it (worldshepherd status says what this node knows)" >&2; exit 1; }; }
+ask() { printf '%s [y/N] ' "$1"; read -r a; [ "$a" = y ] || [ "$a" = Y ]; }
+case "${1:-}" in
+setup)
+    [ "$(id -u)" = 0 ] || { echo "worldshepherd setup: run as root" >&2; exit 1; }
+    echo "== $(cat "$H/VERSION" | cut -d' ' -f1-2); $("$WS_RAM_HOST" --version 2>&1 | cut -d' ' -f2-4); $(sed -n 's/^BUILD_TAG = "\(.*\)".*/\1/p' "$FDF/bin/fdf-app"); $(uname -m)"
+    python3 -c "import sys, fastapi, pydantic, pytest, worldshepherd_sara.connector_ticket_shared, ribbit; print('== python %d.%d; fastapi %s, pydantic %s, pytest %s from the tarball; SARA and the session library load' % (sys.version_info[0], sys.version_info[1], fastapi.__version__, pydantic.VERSION, pytest.__version__))" \
+        || { echo "worldshepherd setup: this node's python3 cannot load what the tarball carries (above). Nothing was changed."; exit 1; }
+    if [ -e /etc/systemd/system/fdf-app.service ]; then
+        echo "The apps on this node are served by ONE service, fdf-app.service. From fdf-app r56 each app has its own"
+        echo "(fdf-app@APP.service), so one is installed, restarted or updated without another being touched."
+        echo "Separating them restarts that one service once. The RAMs this node is serving at this moment are replaced"
+        echo "with empty ones, and their programs write their own data into them again. Apps installed here:"
+        ls "$FDF/apps" 2>/dev/null | sed -n 's/\.json$//p' | sed 's/^/    /'
+        if ask "Separate them now?"; then
+            systemctl restart fdf-app.service || true
+            sleep 2; systemctl list-units --all --plain --no-legend 'fdf-app@*.service' | awk '{print "    " $1, $3, $4}'
+        else echo "worldshepherd setup: not separated. WorldShepherd is not installed on this node until they are."; exit 1; fi
+    fi
+    # [AN_UPDATED_NODE_RUNS_WHAT_IT_WAS_GIVEN_V1] a RAM host started before this tarball was unpacked is the build before
+    stale=""; for exe in /proc/[0-9]*/exe; do
+        case "$(readlink "$exe" 2>/dev/null || true)" in */worldshepherd-ram" (deleted)") pid=${exe#/proc/}; stale="$stale ${pid%/exe}" ;; esac; done
+    if [ -n "$stale" ]; then
+        echo "This node is serving WorldShepherd's RAM with the build it had before this tarball (pid$stale)."
+        echo "Restarting fdf-app@$APP.service starts this build. Its RAM is replaced with an empty one, and each SARA"
+        echo "writes its own tickets and wins into it again."
+        if ask "Restart it now?"; then
+            systemctl restart "fdf-app@$APP.service"; sleep 3
+            echo "the RAM is served at: $(where || true); its log begins: $(grep -m1 -a 'worldshepherd-ram 0' "$FDF/var/app-$APP-$RAMNAME.log" 2>/dev/null | cut -c1-120 || true)"
+        else echo "worldshepherd setup: not restarted. This node keeps serving the build before until its service restarts."; fi
+        echo "setup done."
+    elif systemctl is-enabled --quiet "fdf-app@$APP.service" 2>/dev/null; then echo "setup done. WorldShepherd is already installed on this node."
+    else echo "setup done. Next: worldshepherd config USER:PASSWORD on one node, worldshepherd install USER:PASSWORD on the others."; fi ;;
+config)  [ -n "${2:-}" ] || { echo "worldshepherd config USER:PASSWORD" >&2; exit 2; }
+    app config $APP $RAMNAME --host $RAMNAME=worldshepherd-ram --admin "$2" ;;
+install) [ -n "${2:-}" ] || { echo "worldshepherd install USER:PASSWORD" >&2; exit 2; }
+    app install $APP --admin "$2" ;;
+where)   where ;;
+status)
+    echo "== $(cat "$H/VERSION" | cut -d' ' -f1-2); $("$WS_RAM_HOST" --version 2>&1 | cut -d' ' -f2-4); $(sed -n 's/^BUILD_TAG = "\(.*\)".*/\1/p' "$FDF/bin/fdf-app"); $(uname -m)"
+    cat "$H/node/BUILD" 2>/dev/null || true
+    echo "the RAM is served at: $(where || true)"
+    systemctl --no-pager --lines=0 status fdf-app@$APP.service 2>&1 | sed -n '1,4p'
+    journalctl --no-pager -n 8 -u fdf-app@$APP.service 2>/dev/null | cut -c1-220
+    tail -n 5 "$FDF/var/app-$APP-$RAMNAME.log" 2>/dev/null | cut -c1-220 || true ;;
+claimant) shift; need_ram; exec python3 "$H/harness/race.py" claimant "$W" "$@" ;;
+race)     shift; need_ram; exec python3 "$H/harness/race.py" controller "$W" "$@" ;;
+end)      need_ram; exec python3 "$H/harness/race.py" controller "$W" --end ;;
+his-tests) exec python3 "$H/harness/run_his_tests.py" --sara "$H/Sara_pro" ;;
+python)   shift; exec python3 "$@" ;;
+*) sed -n '5,19p' "$0" | sed 's/^# \{0,1\}//'; exit 2 ;;
+esac

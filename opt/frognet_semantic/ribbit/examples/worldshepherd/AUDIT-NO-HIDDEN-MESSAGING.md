@@ -98,3 +98,30 @@ winner rule reversed (fails, 400 of 400), and `harness/test_the_memory_is_anothe
   session ended, and the read is how the SARA learns whether its one cell is already there.
 - `_learn_the_saras` waits by a held read, for each SARA until that SARA's own deadline. There is no timer loop.
 - The study's SARAs are told what to do and answer through cells in a second memory, by held reads.
+
+## 0.11, audited the same way
+What changed is stated plainly, because one item on this audit's own list is now there by John's ruling.
+
+- **A register and a claim are each a call whose answer the SARA waits for.** `op=issue` and `op=claim` are operations
+  of `worldshepherd-ram`, run in the memory itself; the SARA makes the call and answers its client from the reply.
+  On 0.9 a SARA posted its own cell and read the family. John, 2026-11-25: "The ticket should be writing into its own
+  space, after it does what it needs to do. If you're going to go OO, go fully OO." and "You can combine things so
+  there's only one call to the server." The ticket is an object in the memory and these are its two methods.
+- **The state is in one place and has one writer.** A ticket is one record; its issue and its winner are each one
+  word set once by compare-and-swap. No lock, no queue, no second copy. The ticket's cell
+  `(worldshepherd, tickets.<its issuer>, <id>)` is written by the ticket and read by everyone; a held read on it fires.
+- **The issuer is not told who won; it reads it.** `[THE_ISSUER_SAYS_WHO_WON_V1]`: one held read on its own tickets'
+  family. The ticket does not know or look up who reads it, nothing is acknowledged, and what the issuer saw is its
+  own to say again in a new memory.
+- **`status` is a call, and that is a request.** It asks the ticket how it stands. It is one call found by the
+  ticket's id; the alternative, a read naming the ticket and no family, walks the service's cells in the memory.
+- **No acknowledgement, no retry between parts.** A call is made once. It is made again only when its session ended
+  under it, with the same number, and the ticket answers it as it did before.
+- **Nothing is walked or asked.** The table of tickets is only added to and nothing in it is freed while the memory
+  lives, so WorldShepherd has no reclaimer. Who owns a name is one word read per call. The session library's
+  reclaimer no longer keeps a record per thread (`cpp/include/ebr.hpp`, `[NOBODY_IS_ASKED_V1]`).
+- **Still walked, outside WorldShepherd:** the RAM host's own reclaimer, `cpp/src/lf_ebr.cpp`, reads a fixed array of
+  thread slots when it tries to move its epoch.
+- A SARA brings its own back to a new memory in one call (`op=again`), not one call per ticket.
+- `_learn_the_saras` and the study's SARAs are as audited for 0.9.
+

@@ -2,3 +2,6 @@ build/
 bin/
 lib/
 __pycache__/
+dist/
+node/aarch64/
+node/x86_64/

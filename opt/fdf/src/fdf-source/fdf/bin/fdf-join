@@ -63,42 +63,17 @@ RestartSec=5
 [Install]
 WantedBy=multi-user.target
 UNIT
-cat > /etc/systemd/system/fdf-app.service <<UNIT
-# [APP_SERVICES_V1] the apps installed on this machine (/opt/fdf/apps/<app>.json): adopts each app's one configuration
-# tuple, holds this machine's capability tuples in the SystemRam, serves the AppRams /etc/hosts names this machine for.
-# Shipped with the node bundle (an update carries it); fdf-join writes the same unit.
-[Unit]
-Description=FD&F apps: hold this machine's capability, serve the AppRams it is the AppHost of
-After=network-online.target
-
-[Service]
-Environment=FDF_FACTS=/opt/fdf/var/facts.json
-ExecStart=/usr/bin/python3 /opt/fdf/bin/fdf-app serve
-Restart=always
-RestartSec=2
-
-[Install]
-WantedBy=multi-user.target
-UNIT
-[Unit]
-Description=FD&F apps: serve the app RAMs this member is chosen for, and say where each is
-After=fdf-client.service
-Wants=fdf-client.service
-
-[Service]
-Environment=FDF_FACTS=/opt/fdf/var/facts.json
-ExecStart=/usr/bin/python3 /opt/fdf/bin/fdf-app serve
-Restart=always
-RestartSec=2
-
-[Install]
-WantedBy=multi-user.target
-UNIT
+# [EACH_APP_ITS_OWN_SERVICE_V1] (fdf-app r56) there is no unit here for the apps: each app installed on this machine has
+# its own service, fdf-app@APP.service, written and enabled by `fdf-app install APP` / `fdf-app config APP`.
 systemctl daemon-reload
-systemctl enable fdf-facts.service fdf-client.service fdf-app.service
+systemctl enable fdf-facts.service fdf-client.service
 T1=$(date +%s.%N); systemctl restart fdf-facts.service
 # [EVENTS_NOT_TIMERS_V1] fdf-facts writing this machine's facts is the event the client starts on (at most 10 s)
 python3 /opt/fdf/lib/python/fdf_watch.py written /opt/fdf/var/facts.json "$T1" 10 || echo "fdf-join: fdf-facts has not written /opt/fdf/var/facts.json in 10 s: journalctl -u fdf-facts" >&2
-systemctl restart fdf-client.service fdf-app.service
-echo "joined: RINA_RAM=$WHERE written to /opt/fdf/var/join.env; fdf-facts.service, fdf-client.service and fdf-app.service started"
+systemctl restart fdf-client.service
+# each app's own service, on the session that was just started ([EACH_APP_ITS_OWN_SERVICE_V1]); a unit from before r56
+# (fdf-app.service) separates its apps into their own services when it starts, and ends
+if [ -e /etc/systemd/system/fdf-app.service ]; then systemctl restart fdf-app.service
+else for u in $(systemctl list-units --all --plain --no-legend 'fdf-app@*.service' 2>/dev/null | awk '{print $1}'); do systemctl restart "$u" && echo "restarted $u"; done; fi
+echo "joined: RINA_RAM=$WHERE written to /opt/fdf/var/join.env; fdf-facts.service and fdf-client.service started, and each installed app's own service (fdf-app@APP.service) restarted"
 echo "check:  systemctl status fdf-client   |   journalctl -u fdf-client -f   |   /opt/fdf/bin/fdf-ls"

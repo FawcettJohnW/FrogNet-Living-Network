@@ -27,7 +27,7 @@ from fastapi import APIRouter, FastAPI
 from fastapi.responses import HTMLResponse
 
 import ribbit
-from ribbit_claim_store import APP, BUILD, SERVICE, RibbitClaimStore, Ticket
+from ribbit_claim_store import APP, BUILD, SERVICE, RibbitClaimStore
 
 UI_BUILD = "sara-ui 0.8 [THE_PAGE_IS_A_HELD_READ_V1]"
 
@@ -45,21 +45,15 @@ def as_it_stands(store, after=-1, memory_id=""):
         return memory, cells, top
     memory, cells, top = store._in_the_memory(read)
     now = time.time()
-    families = {}
-    for c in cells:
-        if c["variable"].startswith("ticket."):
-            families.setdefault(c["variable"][7:], []).append(c)
     tickets = []
-    for ticket_id, family in families.items():
-        t = Ticket(family)
-        if t.issue is None:
-            tickets.append({"id": ticket_id, "stands": "not registered", "issuer": "", "ends_in": None, "by": "", "claims": len(t.ids)})
+    for c in cells:                                            # a ticket is its own state, as the ticket wrote it
+        if not (c["variable"].startswith("tickets.") and c["bag"]):
             continue
-        exp = float(t.issue["bag"]["exp"])
-        stands = "consumed" if t.winner else ("expired" if now > exp else "issued")
-        tickets.append({"id": ticket_id, "stands": stands, "issuer": t.issue["instance"].split(".")[1],
-                        "ends_in": round(exp - now), "by": t.winner["instance"].split(".")[1] if t.winner else "",
-                        "claims": sum(1 for i in t.ids if i.startswith("claim."))})
+        ticket_id, t = c["instance"], c["bag"]
+        exp = float(t["exp"])
+        stands = "consumed" if t["won"] else ("expired" if now > exp else "issued")
+        tickets.append({"id": ticket_id, "stands": stands, "issuer": t["by"].rsplit("-", 1)[0], "ends_in": round(exp - now),
+                        "by": t["won"].rsplit("-", 1)[0], "claims": 1 if t["won"] else 0})
     tickets.sort(key=lambda t: (t["stands"] != "issued", t["ends_in"] is None, -(t["ends_in"] or 0)))
     return {"build": BUILD, "ui": UI_BUILD, "me": store.who, "app": APP, "at": memory.where.split("/")[0],
             "memory": "%s#%d" % (memory.where, id(memory)), "top": top,
@@ -89,7 +83,7 @@ th{color:#8a97b5;font-weight:600} .n{font-size:1.5rem;font-weight:700} .row{disp
 <div><div class="n" id="n-expired">-</div><div class="dim">expired unclaimed</div></div></div>
 <div class="scroll"><table><thead><tr><th>Ticket</th><th>Stands</th><th>Issued by</th><th>Consumed by</th><th>Ends in</th><th>Claims</th></tr></thead>
 <tbody id="tickets"></tbody></table></div>
-<p class="dim">A ticket is its cells in the memory. Every SARA derives how it stands from the same cells; this page is one held read of them.</p></div>
+<p class="dim">A ticket is one record in the memory and writes how it stands in one cell. This page is one held read of those cells.</p></div>
 <div class="card"><strong>Authority separation</strong><p>CRE1AWS approves high-impact releases. SSPADAWANZZ operates the local service.</p></div>
 <div class="card"><strong>Security boundary</strong><p>Tokens are never stored in this page. Ticket digests are not shown. This page writes nothing. PRIME SENTINEL private signing keys are not stored by SARA.</p></div>
 <p class="dim" id="build"></p>

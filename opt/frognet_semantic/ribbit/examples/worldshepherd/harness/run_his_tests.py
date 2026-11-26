@@ -39,7 +39,8 @@ where = "127.0.0.1:%d" % port
 SRC = os.path.normpath(os.path.join(HERE, "..", "..", "..", "..", "fdf", "src", "fdf-source", "fdf", "lib", "python"))
 if not os.environ.get("FDF_PY") and os.path.isdir(SRC):     # in a checkout the fdf library is in its source tree; on a node, /opt/fdf/lib/python
     os.environ["FDF_PY"] = SRC
-env = dict(os.environ, WS_RAM=where, PYTHONPATH=os.pathsep.join([os.path.join(HERE, "harness"), HERE, os.path.join(HERE, "lib"), A.sara]))
+env = dict(os.environ, WS_RAM=where, PYTHONPATH=os.pathsep.join(   # the caller's path is kept, after these: on a node it names the packages the tarball carries
+    [os.path.join(HERE, "harness"), HERE, os.path.join(HERE, "lib"), A.sara] + [x for x in [os.environ.get("PYTHONPATH")] if x]))
 bad = 0
 def line(ok, what):
     global bad; bad += 0 if ok else 1

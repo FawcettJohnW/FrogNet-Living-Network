@@ -6,6 +6,139 @@ absent or a writer is late, with the measurements he named; and the access-contr
 the real RAM API. It is one program, `opt/frognet_semantic/simulation/worldshepherd_acceptance.py`. This file says
 what it runs, what it measured on 2026-11-25, what it found, and what was changed because of it.
 
+## The study on 0.11 (2026-11-26)
+**This section is the current result. Everything after it, from "What is pinned" on, is the study as it was run on
+0.9: its method, cases and injections are unchanged and still read true; its numbers, its access controls and its
+storage finding are 0.9's.**
+
+Pinned: FrogNet `bc7221b+uncommitted` on `worldshepherd-ribbit-20261124`; SARA `52b3764c`; `worldshepherd-ram worldshepherd-ram 0.11 2026-11-25i`; platform `ribbit-platform 0.72`; `fdf-app-2026-11-25-r56`; study `worldshepherd-acceptance 2026-11-25d`. Three repetitions
+of each injection on each link; the 310-second case once, on the LAN link. Rows: `results/acceptance-0.11i-20261126.jsonl`.
+
+From `opt/frognet_semantic`, with SARA's Python packages importable:
+
+    python3 simulation/worldshepherd_acceptance.py --sara $SARA --link lan wan-100ms --skip-long --reps 3
+    python3 simulation/worldshepherd_acceptance.py --sara $SARA --link lan --only long
+
+**Result: PASS on both links: 49 rows PASS, 2 OPEN, 0 FAIL. No ticket was won twice and none was lost in any case.
+The one control left OPEN is a restored winner whose issuer did not see the win.**
+
+**Not done: nothing removes a ticket.** An expired or consumed ticket's record and its cell stay for the life of the
+memory; the RAM host grows with every ticket ever issued. Removing them changes what a very late claim is answered
+("not registered" where SARA's stores answer "expired" or "consumed"; his stores never delete a row), so it is not built.
+
+### LAN (0.5 ms each way)
+| case | tickets | claims | duplicate wins | lost tickets | claim p50 / p99 ms | recovery p50 / max ms | 0.9 recovery p50 / max ms |
+|---|---|---|---|---|---|---|---|
+| baseline | 240 | 720 | 0 | 0 | 2.4 / 12.0 | none injected | none injected |
+| restart:before-claims | 720 | 2160 | 0 | 0 | 2.4 / 43.4 | 74.6 / 84.3 | 171.5 / 293.5 |
+| restart:claims-in-flight | 720 | 2160 | 0 | 0 | 2.5 / 79.9 | 77.4 / 109.7 | 250.3 / 451.0 |
+| restart:reassertion | 720 | 3240 | 0 | 0 | 2.5 / 126.8 | 180.2 / 215.0 | 595.6 / 650.4 |
+| restart:completion | 720 | 4320 | 0 | 0 | 2.5 / 8.9 | 199.6 / 202.8 | 612.6 / 787.2 |
+| split:issuer | 720 | 2160 | 0 | 0 | 2.2 / 9.0 | 13.0 / 15.9 | 20.1 / 26.6 |
+| split:claimant-in-flight | 720 | 2160 | 0 | 0 | 2.1 / 9.3 | 2.5 / 2040.4 | 5.2 / 2405.0 |
+| split:winner+restart | 720 | 2160 | 0 | 0 | 2.0 / 3037.3 | 3065.5 / 3095.4 | 3210.5 / 3252.3 |
+
+### WAN (50 ms each way)
+| case | tickets | claims | duplicate wins | lost tickets | claim p50 / p99 ms | recovery p50 / max ms | 0.9 recovery p50 / max ms |
+|---|---|---|---|---|---|---|---|
+| baseline | 24 | 72 | 0 | 0 | 107.4 / 111.4 | none injected | none injected |
+| restart:before-claims | 72 | 216 | 0 | 0 | 107.4 / 651.8 | 653.0 / 669.9 | 670.3 / 678.9 |
+| restart:claims-in-flight | 72 | 216 | 0 | 0 | 108.0 / 797.6 | 660.2 / 665.8 | 679.2 / 696.9 |
+| restart:reassertion | 72 | 324 | 0 | 0 | 107.6 / 645.6 | 813.9 / 817.9 | 852.8 / 902.2 |
+| restart:completion | 72 | 432 | 0 | 0 | 107.6 / 655.4 | 667.7 / 687.8 | 709.8 / 721.3 |
+| split:issuer | 72 | 216 | 0 | 0 | 107.2 / 111.2 | 111.6 / 116.6 | 114.5 / 118.1 |
+| split:claimant-in-flight | 72 | 216 | 0 | 0 | 107.4 / 2564.3 | 95.9 / 2547.6 | 98.1 / 2581.5 |
+| split:winner+restart | 72 | 216 | 0 | 0 | 107.6 / 3545.2 | 3557.5 / 3558.0 | 3567.3 / 3579.3 |
+
+Recovery is the time from the injection to the first answer after it. On 0.11 a SARA brings its issues and its won
+claims back to a new memory in one call (`op=again`). The first build of 0.11 made one call per ticket, one after
+another, and this study measured its recovery at 10 to 33 s on the WAN link; that is why `op=again` exists.
+
+### The long case (LAN)
+Two memories for 310 s: the issuer on one side, claimants on both, and one claimant's link down for longer than a
+ticket can live (300 s). PASS: no ticket won twice, none lost. Side B (issuer absent) answered {'ticket not registered in this ledger': 12} after holding 0 to
+300 s; d's claims, held 310 s past the ticket's life, were answered ['ticket expired', 'ticket expired'].
+
+### The access controls (LAN; the WAN link gave the same verdicts)
+On 0.11 a SARA writes one cell itself, `(worldshepherd, sara, <who>)`; everything about a ticket goes through the
+ticket's operations, and the ticket writes how it stands in `(worldshepherd, tickets.<its issuer>, <ticket>)`. Each
+control passes when the ticket stands afterwards exactly as it did before.
+
+| control | result | what happened |
+|---|---|---|
+| access:other-name(claim) | PASS | refused: a-b61cd48b0299 is the SARA at 127.0.1.11; this is from 127.0.1.99; the ticket stands as it did |
+| access:other-name(held-claim) | PASS | refused: a-b61cd48b0299 is the SARA at 127.0.1.11; this is from 127.0.1.99; the ticket stands as it did |
+| access:other-name(here) | PASS | refused: a-b61cd48b0299 is the SARA at 127.0.1.11; this is from 127.0.1.99 |
+| access:ticket-cell | PASS | refused: (worldshepherd, tickets.issuer-75bf3ce64536) is written by the ticket; a SARA writes (worldshepherd, sara, <who>) and calls issue and claim |
+| access:not-a-family | PASS | refused: (worldshepherd, junk) is written by the ticket; a SARA writes (worldshepherd, sara, <who>) and calls issue and claim |
+| access:claim-other-digest | PASS | answered digest; the ticket stands as it did |
+| access:claim-past-expiry | PASS | answered expired; the ticket stands as it did |
+| access:claim-on-consumed | PASS | answered consumed; the ticket stands as it did |
+| access:held-claim-on-consumed | PASS | answered consumed; the ticket stands as it did |
+| access:malformed-claim | PASS | refused: claim says "who", "ticket", "sha", "n" and "at"; the ticket stands as it did |
+| access:issue-of-an-issued-ticket | PASS | answered ok; the ticket stands as it did |
+| access:other-session | PASS | refused: a-b61cd48b0299 is session 5's, which is up; this is on session 25; the ticket stands as it did |
+| access:no-session | PASS | refused: HTTP 403: {"ok":false,"error":"a WorldShepherd call is made on a session; this one has none"} |
+| access:tickets-after | PASS |  |
+| access:restored-winner(issuer-saw) | PASS | a member that said it held a ticket, in a new memory before the winner returned, was answered claimed for 0 of 4 tickets; afterwards 0 stand won by it and 4 by the true winner. the issuer had seen each ticket won before the memory was replaced, and said so when it issued them again |
+| access:restored-winner(issuer-did-not-see) | OPEN | a member that said it held a ticket, in a new memory before the winner returned, was answered claimed for 4 of 4 tickets; afterwards 4 stand won by it and 0 by the true winner. the issuer's link was down while the tickets were won, so it could not say who won. The ticket cannot tell: proof is evidence from before |
+
+### The provenance of a restored winner
+In a new memory a ticket exists again when its issuer makes it again. `[THE_ISSUER_SAYS_WHO_WON_V1]`: the issuer holds
+one read on its own tickets' family, sees each of them won, and says who won when it makes the ticket again. A ticket
+made again that way comes back consumed by its winner, and a member that says it held it is answered consumed
+(`access:restored-winner(issuer-saw)`, PASS on both links).
+
+**Open:** a ticket won while its issuer could not see it (the issuer's link down, or the memory replaced before the
+ticket's write reached the issuer's read, about one trip of the link). The issuer makes it again as issued and not
+won, and the first valid claim takes it (`access:restored-winner(issuer-did-not-see)`: 4 of 4 taken on both links).
+Nobody left in the new memory can say who won. Closing it needs evidence the winner carries from before; SARA's read
+receipts are sealed with an unkeyed SHA-256 and are not signed, so that is WorldShepherd's to add.
+
+### Storage
+| | 0.9 | 0.11 |
+|---|---|---|
+| cells for 200 tickets after issue | 200 | 200 |
+| after 3 SARAs claimed each | 800 | 200 |
+| after they claimed each again | 1400 | 200 |
+| cells a claim call adds | 1.0 | 0.0 |
+| in a replaced memory | 400 | 200 |
+
+On 0.9 every claim call added a cell and the finding was that nothing bounded them. On 0.11 a ticket is one cell
+however often it is claimed. In this case (200 tickets, 1,200 claim calls, each ticket's status read by every SARA)
+the RAM host grew 29.4 kB a ticket on the LAN link and 29.1 on the WAN link; most of that is the wire's reference for
+each cell a session has been sent, kept by the platform's session code for the life of that session, not the ticket.
+**Still true: a ticket's record and its cell stay for the life of the memory; nothing removes an expired ticket.**
+
+### What this study found in 0.11, and what was changed
+1. **Recovery of 10 to 33 s on the WAN link** (0.9: 0.7 to 0.9 s). A SARA made each of its issues and won claims again
+   as its own call, one after another. Now one call, `op=again`.
+2. **A SARA locked out of its own name.** When bringing its own back failed, the store opened a new session without
+   closing the one it had just opened; the host saw the name as that session's, "which is up", and refused every
+   later session. It tried 290 times in 10 s. The store now closes a session it gives up on.
+3. **The study itself replaced the caller's `PYTHONPATH`**, so it could not find SARA's packages. It keeps it now.
+4. **Bringing a SARA's own back wrote to the RAM host's disk, and failed where it could not.** The first `op=again`
+   carried its issues and claims as JSON lists; the wire keeps a list out of line, as a file under
+   `/opt/frognet_semantic/blob_cache`. Where that directory could not be made the call failed every time. It now
+   carries one line per issue and claim, and nothing goes to disk (`harness/test_the_apphost_moves.py` passes with
+   no such directory).
+5. **A SARA that was refused by a live RAM host tried again at once, without end**, until Python ran out of stack.
+   It now holds a read on the SARAs present and tries when that family changes.
+6. **A restored winner could be taken by any member** (OPEN on 0.9 and on the first 0.11). The issuer now says who
+   won. What is left open is above.
+
+### aarch64
+The study was also run on the LAN link, three repetitions, against the aarch64 RAM host under emulation (the SARAs'
+session library x86_64): 24 PASS and the same one OPEN (access:restored-winner(issuer-did-not-see)). Rows:
+`results/acceptance-0.11i-aarch64-emulated-20261126.jsonl`. The aarch64 session library is checked without Python by
+`make session-check` (1,000 tickets, 7 sessions, 7,000 claims on 7,000 threads, under emulation: PASS).
+
+### What was not run
+The study has not been run on real nodes, and never with the aarch64 session library under Python (there is no
+aarch64 Python here). The WAN link's long case was not run on 0.11.
+
+# The study as run on 0.9
+
 ## What is pinned
 
 | | |

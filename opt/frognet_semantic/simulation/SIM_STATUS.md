@@ -1,6 +1,15 @@
 # Simulator status (last full run 2026-11-15)
 
-## WorldShepherd acceptance study, 2026-11-25 (`worldshepherd_acceptance.py`, not in the gate)
+## WorldShepherd acceptance study, 2026-11-26 (`worldshepherd_acceptance.py`, not in the gate)
+**On worldshepherd-ribbit 0.11 2026-11-25i with ribbit-platform 0.72 (a ticket is one record in `worldshepherd-ram`;
+the issuer says who won; study build 2026-11-25d, run 2026-11-26):** PASS on lan and wan-100ms, 3 repetitions, and
+the 310 s case on lan: 49 rows PASS, 2 OPEN, none FAIL; no ticket won twice, none lost. The restored-winner control
+is now two: PASS when the issuer saw the win, OPEN when its link was down while the ticket was won. Also PASS on lan,
+3 repetitions, against the aarch64 RAM host under emulation (24 PASS, the same one OPEN). Rows:
+`ribbit/examples/worldshepherd/results/acceptance-0.11i-20261126.jsonl`. The study needs SARA's
+Python packages on the caller's `PYTHONPATH`, and sets `FROGNET_BLOB_ROOT` to its own output directory.
+What follows is the 0.9 run of the same day:
+
 PASS on lan and wan-100ms, 5 repetitions of each injection, with the 310 s case: no ticket won twice, none lost, no
 call raised. One case is reported OPEN (the provenance of a restored winner) and one FINDING (storage is not bounded
 within a memory's life). The tables and what the study found are in `ribbit/examples/worldshepherd/ACCEPTANCE.md`;

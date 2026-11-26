@@ -1,32 +1,25 @@
 # Copyright (C) 2016-2026 Fawcett Innovations LLC
 # SPDX-License-Identifier: GPL-2.0-only
 #
-# ribbit_claim_store.py -- WorldShepherd SARA's shared ticket-claim store, as memory. [A_TICKET_IS_ITS_CELLS_V1]
+# ribbit_claim_store.py -- WorldShepherd SARA's shared ticket-claim store, as memory. [A_TICKET_IS_ONE_RECORD_V1]
 #
 # It is a SharedClaimStore (worldshepherd_sara/connector_ticket_shared.py): register / claim / status, the contract
-# Brandon's PostgresClaimStore and ThreadSafeSharedClaimStore implement. Nothing here asks anything of anyone. A SARA
-# writes its own cell and reads the ticket's cells; what is true of the ticket is what those cells say, and every
-# reader derives the same thing from them. The RAM manager runs no operation of WorldShepherd's and keeps no file.
+# Brandon's PostgresClaimStore and ThreadSafeSharedClaimStore implement.
 #
-#   one family per ticket: service "worldshepherd", variable "ticket.<ticket_id>"
-#     instance "issue.<who>.<n>"   {"sha": <ticket sha256>, "exp": <expires_at>}       written by the issuing SARA
-#     instance "claim.<who>.<n>"   {"sha": <the sha256 the claimant holds>, "at": <the claimant's now>}   by a claimant
-#                                  with "won": 1 when its writer writes it again as the claim that consumed the ticket
+# A ticket is one record in WorldShepherd's RAM host (worldshepherd_ram.cpp), which says how it works. Its two
+# methods are that host's operations, run in the memory itself; each is one call:
+#   register   op=issue {"who","ticket","sha","exp","n"} -> {"state"}. The state names my issue ("by", "bn"), or it
+#              is another's ticket: a duplicate.
+#   claim      op=claim {"who","ticket","sha","at","n"[,"held":1]} -> {"outcome", "state"}. The outcome: claimed,
+#              consumed, digest, expired or absent.
+#   status     op=status {"who","ticket"} -> {"state"}.
+# The ticket writes how it stands in (worldshepherd, tickets.<its issuer>, <ticket>). The issuer holds a read on its
+# own family, sees each of its tickets won, and says so when it makes them again in a new memory
+# ([THE_ISSUER_SAYS_WHO_WON_V1]).
+# The only cell this SARA writes itself is (worldshepherd, sara, <who>): it is here; it goes with its session.
 #
-#   the ticket   the issue with the lowest id (a later issue of the same ticket_id is a duplicate; its writer is told)
-#   the winner   the claim that says "won", if there is one. Otherwise, of the claims written after the ticket that
-#                name its sha with an "at" not past its "exp", the one with the lowest id.
-#   consumed     there is a winner.  consumed_at: its "at".
-#
-# The id is the memory's write order in the family: the one place every write to the ticket passes. Nothing is
-# locked, compared-and-set, retried or acknowledged, and nobody writes a cell that is not its own: <who> is this
-# store's name plus a random token made when it opens, <n> its own count.
-#
-# [I_READ_UNTIL_MY_OWN_CELL_IS_THERE_V1] A write is posted and not answered. To know how the ticket stands with its
-# own cell in it, a SARA reads the family; if its cell is not in what it read, it holds a read past the last id it
-# saw, and the write that answers that read is its own or one after which it holds again. When its cell is there,
-# every cell written before it is there too, so what it derives cannot change. (The session may answer a read with
-# an identical read already in flight, which can predate the post: that read simply does not hold the cell yet.)
+# <who> is this store's name plus a random token made when it opens; <n> is the number of the call. A call that is
+# made again -- its session ended under it -- carries the same <n>, and the ticket answers it as it answered before.
 #
 # [THE_RAM_IS_A_SERVICE_V1] WorldShepherd's memory is an app's RAM like any other on FrogNet: the app "worldshepherd",
 # its one RAM "general" (fdf-app config worldshepherd general --host general=worldshepherd-ram). fdf-app serves it with
@@ -37,13 +30,13 @@
 #
 # [A_SARA_REASSERTS_ITS_OWN_V1] The operating rule (opt/fdf/docs/APP-SETUP-AND-OPERATION.md): find the current RAM,
 # reassert your own truth, then learn the world again. A SARA owns two kinds of truth and keeps both for as long as
-# it runs: the tickets it issued, and the claims it won. It holds one read, on the SARAs' family (worldshepherd, sara, *):
+# it runs: the tickets it issued, and the claims it won (its own space, as it stands). It holds one read, on the SARAs' family (worldshepherd, sara, *):
 # each SARA's own cell there says it is here and goes with its session. When that read ends the
 # memory it was reading is gone (its AppHost moved, or its RAM host ended). Then this SARA's one attaching thread
 #     finds the RAM where it is now -- and when nothing answers there yet, holds a read on what fdf-app says it
 #       serves (fdf-app, serving, worldshepherd.general.*) in the SystemRam, which also ends when /etc/hosts is written,
-#     writes its issues and its won claims into that memory (each won claim saying "won", so it stands whichever
-#       of the issue and the claim arrives first; a claim that lost is not its writer's truth and is not written),
+#     writes its issues and its won claims into that memory (each won claim saying "held", so the ticket takes it
+#       whichever of the issue and the claim arrives first; a claim that lost was withdrawn and is not written),
 #     writes its own cell in the SARAs' family after them, and holds a read on that family until every SARA that was
 #       in the memory before is in this one ([THEN_LEARN_THE_WORLD_AGAIN_V1]): each has written its own truth first,
 #     holds its read again,
@@ -56,6 +49,7 @@
 #
 # A failure raises (ribbit.RibbitError names the RAM manager, the call and the cause). There is no second way to claim.
 import itertools
+import json
 import os
 import secrets
 import sys
@@ -72,29 +66,10 @@ import ribbit
 from worldshepherd_sara.connector_ticket_lifecycle import MAX_TTL_SECONDS, TicketClaim
 from worldshepherd_sara.connector_ticket_shared import SharedClaimRecord
 
-BUILD = "worldshepherd-ribbit 0.9 2026-11-25a [A_TICKET_IS_ITS_CELLS_V1] [I_READ_UNTIL_MY_OWN_CELL_IS_THERE_V1] [A_SARA_REASSERTS_ITS_OWN_V1] [THEN_LEARN_THE_WORLD_AGAIN_V1] [THE_RAM_IS_A_SERVICE_V1] [WON_IS_CONSISTENT_WITH_THE_TICKET_V1] [A_MEMORY_GONE_WHILE_I_WRITE_MY_OWN_V1] [A_CALL_HAS_ONE_CELL_V1] [A_HELD_CLAIM_AGES_V1]"
+BUILD = "worldshepherd-ribbit 0.11 2026-11-25i [A_TICKET_IS_ONE_RECORD_V1] [A_SARA_BRINGS_ITS_OWN_BACK_IN_ONE_CALL_V1] [THE_ISSUER_SAYS_WHO_WON_V1] [A_SESSION_I_OPENED_AND_DROP_IS_CLOSED_V1] [AN_ANSWER_THAT_REFUSES_IS_WAITED_ON_V1] [A_SARA_WRITES_ONLY_ITS_OWN_SPACE_V1] [A_SARA_REASSERTS_ITS_OWN_V1] [THEN_LEARN_THE_WORLD_AGAIN_V1] [THE_RAM_IS_A_SERVICE_V1] [A_MEMORY_GONE_WHILE_I_WRITE_MY_OWN_V1] [A_CALL_HAS_ONE_CELL_V1] [A_HELD_CLAIM_AGES_V1]"
 APP, RAM = "worldshepherd", "general"
 API = fdfram.API
 SERVICE = "worldshepherd"
-
-
-class Ticket:
-    """how a ticket stands, derived from its family's cells"""
-    __slots__ = ("issue", "winner", "ids")
-
-    def __init__(self, cells):
-        cells = [c for c in cells if c["bag"]]                 # a cell with no bag is gone
-        self.ids = {c["instance"]: c["id"] for c in cells}
-        issues = [c for c in cells if c["instance"].startswith("issue.")]
-        claims = [c for c in cells if c["instance"].startswith("claim.")]
-        self.issue = min(issues, key=lambda c: c["id"]) if issues else None
-        if self.issue is not None:                             # [WON_IS_CONSISTENT_WITH_THE_TICKET_V1] a claim of another digest, or
-            claims = [c for c in claims if c["bag"].get("sha") == self.issue["bag"]["sha"]    # made past the ticket's expiry, consumed
-                      and float(c["bag"].get("at", "inf")) <= float(self.issue["bag"]["exp"])]   # nothing, whatever it says
-        won = [c for c in claims if c["bag"].get("won")]       # "won" stands for the write order only: the order of another memory
-        if self.issue is not None and not won:
-            won = [c for c in claims if c["id"] > self.issue["id"]]
-        self.winner = min(won, key=lambda c: c["id"]) if won else None
 
 
 class NoRamManager(Exception):
@@ -108,7 +83,8 @@ class RibbitClaimStore:
         self.fixed = where
         self.who = "%s-%s" % (name, secrets.token_hex(6))     # this participant's own space in every family
         self._n = itertools.count(1)                          # its own cells' numbers; shared with nobody
-        self._mine = {}                                       # the truth this SARA owns: (ticket_id, instance) -> bag
+        self._mine = {}                                       # the truth this SARA owns: ("issue" | "claim", ticket_id) -> the call that wrote it
+        self._watching = threading.Lock()                     # taken once: this SARA holds a read on its own tickets
         self._saras = set()                                   # the SARAs in the memory this one is on; the attaching thread's
         self._left = {}                                       # a SARA that left it, and when (this clock): [A_SARA_THAT_LEFT_IS_WAITED_FOR_V1]
         self.memory = None
@@ -116,8 +92,8 @@ class RibbitClaimStore:
         threading.Thread(target=self._hold_the_saras, daemon=True, name="worldshepherd-attach-" + self.who).start()
 
     # ---- the session, and this SARA's own truth in whatever memory answers ------------------------------------
-    def _attach(self, why, lost_at):
-        """find the RAM, write my own truth into it, and only then let this SARA's calls use it"""
+    def _attach_once(self, why, lost_at):
+        """one try: (the memory, where, my own, the SARAs there, those absent, why) -- the memory None when it is to be tried again"""
         seen, tried = None, None
         while True:
             if not self.fixed:                                # held: what fdf-app says is served, and /etc/hosts written
@@ -145,8 +121,14 @@ class RibbitClaimStore:
         memory.replaced = threading.Event()                   # set when this SARA is on the memory after this one
         mine = list(self._mine.items())
         try:
-            for (ticket_id, instance), bag in mine:
-                memory.write(SERVICE, "ticket." + ticket_id, instance, bag)
+            if mine:                                          # [A_SARA_BRINGS_ITS_OWN_BACK_IN_ONE_CALL_V1] all of it, in one call:
+                # a line for this SARA, then a line for each issue and each won claim (issues first). Lines, not one
+                # JSON document with lists in it: the wire keeps a list out of line, in a file on the RAM host's disk.
+                r = memory.call("POST", memory.api + "?op=again", "\n".join(
+                    [json.dumps({"who": self.who})] + [json.dumps(b) for (op, _), b in mine if op == "issue"]
+                    + [json.dumps(b) for (op, _), b in mine if op == "claim"]))
+                if not r.get("ok"):
+                    raise RuntimeError("%s refused this SARA's own issues and claims: %s" % (memory.where, r.get("error", r)))
             memory.write(SERVICE, "sara", self.who, {"build": BUILD, "own": len(mine)}, own=True)   # after them, on the same session: where
             #                                                   this cell is, this SARA's own cells are. It goes with the session.
             there, absent = self._learn_the_saras(memory, lost_at)
@@ -156,7 +138,31 @@ class RibbitClaimStore:
             # of that attempt stands; it is done again, whole, in the memory that answers next.
             print(time.strftime("%H:%M:%S ") + "[WS-ATTACH] %s: the memory at %s went while this SARA was writing its own truth into it (%s); done again in the next one"
                   % (self.who, where, str(e).split(": ", 1)[-1]), file=sys.stderr, flush=True)
-            return self._attach("%s; and the memory after it went during the writing" % why, lost_at)
+            # [A_SESSION_I_OPENED_AND_DROP_IS_CLOSED_V1] (the acceptance study on 0.11, 2026-11-25: this session was left open,
+            # so the host went on seeing this SARA's name as that session's, "which is up", and refused every session
+            # this SARA opened after it: it tried 290 times in 10 s and never got in.)
+            # [AN_ANSWER_THAT_REFUSES_IS_WAITED_ON_V1] (the app-host test on 0.11, 2026-11-25: a RAM host that answered every
+            # try with the same error was tried again at once, without end, until Python ran out of stack.) A memory
+            # that is gone is tried again at once: what is there next is another memory. A memory that ANSWERED and
+            # refused is still there, so this SARA holds a read on the SARAs present until that family changes -- the
+            # session its name belongs to going is such a change -- and tries then.
+            if "HTTP " in str(e) or "ERROR" in str(e):
+                try:
+                    last = max([c["id"] for c in memory.read(SERVICE, "sara")] or [0])
+                    memory.read(SERVICE, "sara", "", after=last, wait_s=ribbit.HOLD_S)
+                except ribbit.RibbitError:
+                    pass
+            try: memory.close()
+            except Exception: pass
+            return None, where, mine, None, None, "%s; and the memory after it went during the writing" % why
+        return memory, where, mine, there, absent, why
+
+    def _attach(self, why, lost_at):
+        """find the RAM, write my own truth into it, and only then let this SARA's calls use it"""
+        while True:
+            memory, where, mine, there, absent, why = self._attach_once(why, lost_at)
+            if memory is not None:
+                break
         self._refused = memory.refused()
         was, self.memory = self.memory, memory                # one store, replaced whole, by this thread only
         print(time.strftime("%H:%M:%S ") + "[WS-ATTACH] %s: %s, %s's RAM at %s (%s); %d of its own cell(s) written into this memory; SARAs there: %d%s"
@@ -246,80 +252,82 @@ class RibbitClaimStore:
             return True
 
     # ---- a ticket -------------------------------------------------------------------------------------------
-    def _write_mine(self, ticket_id, mine, bag):
-        """A call's one cell, written in whatever memory the call ends in: `mine` is named once, by the call.
-        [A_CALL_HAS_ONE_CELL_V1] (the acceptance study, split:claimant-in-flight, 2026-11-25: 17 of 2,880 tickets were
-        consumed by a claim whose own SARA was told "ticket already consumed".) When the session ends under a call, the
-        call is made again; its cell may already be in the memory -- the post arrived, the read did not. So a call that
-        is made again reads first and writes only when its cell is not there: its cell keeps the place in the write
-        order it had, and the SARA learns what that place decided. A second cell would be a second claim.
-        bag: the cell's bag, or a function giving it for a call that has been held `held` seconds (claim_as_it_stands).
-        Returns (the ticket as read with this cell in it, how long the call was held: 0.0 when it was made once)."""
-        made, began = [], time.monotonic()
-        def call(memory):
-            family = "ticket." + ticket_id
-            made.append(1)
-            held = time.monotonic() - began if len(made) > 1 else 0.0
-            if len(made) == 1 or mine not in {c["instance"] for c in memory.read(SERVICE, family) if c["bag"]}:
-                memory.write(SERVICE, family, mine, bag(held) if callable(bag) else bag)
-            return self._with_mine(memory, ticket_id, mine), held
-        return self._in_the_memory(call)
-
-    def _with_mine(self, memory, ticket_id, mine):
-        """the ticket's cells, read until my own cell `mine` is among them"""
-        family = "ticket." + ticket_id
-        cells = {c["instance"]: c for c in memory.read(SERVICE, family)}
-        while mine not in cells:
-            if memory.refused() != self._refused:             # a posted write the RAM manager would not take
-                raise RuntimeError("%s refused a write of this session (%d so far): %s of ticket %s is not in the memory"
-                                   % (memory.where, memory.refused(), mine, ticket_id))
-            top = max([c["id"] for c in cells.values()] + [0])
-            for c in memory.read(SERVICE, family, after=top, wait_s=ribbit.HOLD_S):
-                cells[c["instance"]] = c
-        return Ticket(cells.values())
+    @staticmethod
+    def _ticket(memory, op, body):
+        """one of the ticket's two operations, in the memory itself: {"state": ...} and, for a claim, {"outcome": ...}"""
+        r = memory.call("POST", memory.api + "?op=" + op, json.dumps(body))
+        if not r.get("ok"):
+            raise RuntimeError("%s refused %s of %s: %s" % (memory.where, op, body.get("ticket", "this SARA's own"), r.get("error", r)))
+        return r
 
     def register(self, *, ticket_id, ticket_sha256, expires_at):
-        bag = {"sha": ticket_sha256, "exp": float(expires_at)}
-
-        mine = "issue.%s.%d" % (self.who, next(self._n))
-        t, _held = self._write_mine(ticket_id, mine, bag)
-        if t.issue["instance"] != mine:
+        mine = ("issue", ticket_id)
+        if mine in self._mine:
             raise ValueError("duplicate ticket_id")
-        self._mine[(ticket_id, mine)] = bag                   # a ticket I issued: mine to write again
+        body = {"who": self.who, "ticket": ticket_id, "sha": ticket_sha256, "exp": float(expires_at), "n": next(self._n)}
+        state = self._in_the_memory(lambda memory: self._ticket(memory, "issue", body))["state"]
+        if state is None or state["by"] != self.who or state["bn"] != body["n"]:
+            raise ValueError("duplicate ticket_id")
+        self._mine[mine] = body                               # a ticket I issued: mine to write again
+        if self._watching.acquire(False):                     # [THE_ISSUER_SAYS_WHO_WON_V1] from its first ticket on
+            threading.Thread(target=self._see_my_tickets_won, daemon=True, name="worldshepherd-issuer-" + self.who).start()
+
+    def _see_my_tickets_won(self):
+        """[THE_ISSUER_SAYS_WHO_WON_V1] One held read on this SARA's own tickets, (worldshepherd, tickets.<who>): the ticket
+        writes there when it is won. What is seen is kept with the issue, and said when the issue is made again in a
+        new memory -- so a ticket this SARA saw won comes back consumed by its winner, whoever claims to have held it."""
+        seen_in, last = None, 0
+        while True:
+            def read(memory):
+                return memory, memory.read(SERVICE, "tickets." + self.who, "", after=(last if memory is seen_in else 0), wait_s=ribbit.HOLD_S)
+            try:
+                memory, cells = self._in_the_memory(read)
+            except (ribbit.RibbitError, NoRamManager) as e:
+                print(time.strftime("%H:%M:%S ") + "[WS-ISSUER] %s: the read held on its own tickets ended (%s); what it saw won so far is kept" % (self.who, e),
+                      file=sys.stderr, flush=True)
+                return
+            if memory is not seen_in:
+                seen_in, last = memory, 0
+            for c in cells:
+                last = max(last, c["id"])
+                mine, state = ("issue", c["instance"]), c["bag"]
+                if state and state.get("won") and mine in self._mine and "won" not in self._mine[mine]:
+                    self._mine[mine] = dict(self._mine[mine], won=state["won"], wn=state["wn"], at=state["at"])
 
     def claim_as_it_stands(self, ticket_id, ticket_sha256, now):
-        """(TicketClaim, the Ticket as read with this claim in it)"""
-        mine = "claim.%s.%d" % (self.who, next(self._n))
+        """(TicketClaim, the ticket's state as it answered this claim)"""
+        n, made, began = next(self._n), [], time.monotonic()
         # [A_HELD_CLAIM_AGES_V1] (the acceptance study, long:two-memories, 2026-11-25: a claim held 310 s by a link that
         # was down was answered "claimed" 10 s after its ticket expired.) `now` is the caller's clock when it called. A
-        # call that is made again -- its session ended under it -- has been held, and is that much older: what it writes
-        # then says so, and it is answered by the time it is answered at. A call made once is `now`, exactly.
-        t, held = self._write_mine(ticket_id, mine, lambda held: {"sha": ticket_sha256, "at": float(now) + held})
-        now = float(now) + held
-        if t.issue is None or (t.ids[mine] < t.issue["id"] and not (t.winner and t.winner["bag"].get("won"))):
-            return TicketClaim(False, ticket_id, "ticket not registered in this ledger"), t   # no ticket when I claimed
-        if t.issue["bag"]["sha"] != ticket_sha256:
-            return TicketClaim(False, ticket_id, "ticket digest does not match registered ticket"), t
-        if float(now) > float(t.issue["bag"]["exp"]):
-            return TicketClaim(False, ticket_id, "ticket expired"), t
-        if t.winner is None or t.winner["instance"] != mine:
-            return TicketClaim(False, ticket_id, "ticket already consumed"), t
-        self._mine[(ticket_id, mine)] = {"sha": ticket_sha256, "at": float(now), "won": 1}   # a claim I won: mine to write again
-        return TicketClaim(True, ticket_id, "ticket claimed for one-time host execution", float(now)), t
+        # call that is made again -- its session ended under it -- has been held, and is that much older: what it says
+        # then says so. A call made once is `now`, exactly.
+        def call(memory):
+            made.append(1)
+            body = {"who": self.who, "ticket": ticket_id, "sha": ticket_sha256, "n": n,
+                    "at": float(now) + (time.monotonic() - began if len(made) > 1 else 0.0)}
+            return self._ticket(memory, "claim", body), body
+        r, body = self._in_the_memory(call)
+        state, outcome = r["state"], r["outcome"]
+        if outcome == "claimed":
+            self._mine[("claim", ticket_id)] = dict(body, at=float(state["at"]), held=1)   # a claim I won: mine to write again
+            return TicketClaim(True, ticket_id, "ticket claimed for one-time host execution", float(state["at"])), state
+        return TicketClaim(False, ticket_id, {"absent": "ticket not registered in this ledger",
+                                              "digest": "ticket digest does not match registered ticket",
+                                              "expired": "ticket expired", "consumed": "ticket already consumed"}[outcome]), state
 
     def claim(self, *, ticket_id, ticket_sha256, now):
         return self.claim_as_it_stands(ticket_id, ticket_sha256, now)[0]
 
     def status(self, ticket_id):
-        t = Ticket(self._in_the_memory(lambda memory: memory.read(SERVICE, "ticket." + ticket_id)))
-        if t.issue is None:
+        state = self._in_the_memory(lambda memory: self._ticket(memory, "status", {"who": self.who, "ticket": ticket_id}))["state"]
+        if state is None:
             return {"known": False, "ticket_id": ticket_id}
-        return {"known": True, "ticket_id": ticket_id, "ticket_sha256": t.issue["bag"]["sha"],
-                "expires_at": float(t.issue["bag"]["exp"]), "consumed": t.winner is not None,
-                "consumed_at": None if t.winner is None else float(t.winner["bag"]["at"])}
+        return {"known": True, "ticket_id": ticket_id, "ticket_sha256": state["sha"],
+                "expires_at": float(state["exp"]), "consumed": bool(state["won"]),
+                "consumed_at": float(state["at"]) if state["won"] else None}
 
     def record(self, ticket_id):
-        """the ticket as the SharedClaimRecord the contract names: derived from the cells, kept nowhere"""
+        """the ticket as the SharedClaimRecord the contract names: read from the ticket, kept nowhere"""
         s = self.status(ticket_id)
         if not s["known"]:
             raise KeyError(ticket_id)

@@ -161,7 +161,7 @@ for i, name in enumerate(("A", "B"), start=1):
     else:
         subprocess.run([os.path.join(FDF, "bin", "fdf-app"), "install", "openeoc"], env=dict(member_env(name), FDF_APP_RESTART="true"), check=True, stdout=subprocess.DEVNULL, stdin=subprocess.DEVNULL)
     session(name)
-    procs.append(subprocess.Popen([os.path.join(FDF, "bin", "fdf-app"), "serve"], env=member_env(name),
+    procs.append(subprocess.Popen([os.path.join(FDF, "bin", "fdf-app"), "serve", "openeoc"], env=member_env(name),
                                   stdout=open(R + "/app.log", "w"), stderr=subprocess.STDOUT))
     post309[name] = post309_start(name)
     shutil.copytree(HERE, R + "/www/openeoc", ignore=shutil.ignore_patterns("*.py", "*.mjs", "__pycache__"))
