@@ -24,6 +24,8 @@ from frogcomms.media import AvSource, SyntheticSource  # noqa: E402
 from frogcomms import fnav as F  # noqa: E402
 from frogcomms import channel, ram_at  # noqa: E402
 
+# r5: the switches beside the picture, the overlay shows the channel, a call ends when the other leaves, --script
+APP_BUILD = "comms-app-py-2026-11-26-r5"
 K_STEPS, K_MIN, K_MAX = 1000, 32000.0, 4000000.0     # the bandwidth slider: 0..999 continuous, 1000 = unlimited
 
 
@@ -142,7 +144,7 @@ class VideoView(QWidget):
             g.drawText(self.rect(), Qt.AlignCenter, "Not in a call" if not self.who else "Waiting for %s's picture" % self.who)
         if self.overlay:
             f = QFont("Monospace"); f.setStyleHint(QFont.Monospace); f.setPointSize(9); g.setFont(f)
-            tr = g.fontMetrics().boundingRect(QRect(0, 0, 400, 200), Qt.AlignLeft, self.overlay).adjusted(-8, -6, 8, 6)
+            tr = g.fontMetrics().boundingRect(QRect(0, 0, 900, 600), Qt.AlignLeft, self.overlay).adjusted(-8, -6, 8, 6)
             tr.moveTo(10, 10)
             g.setPen(Qt.NoPen); g.setBrush(QColor(0, 0, 0, 150)); g.drawRoundedRect(tr, 6, 6)
             g.setPen(QColor(225, 230, 235)); g.drawText(tr.adjusted(8, 6, -8, -6), Qt.AlignLeft, self.overlay)
@@ -296,6 +298,11 @@ class Window(QWidget):
         self.room = Room(rh, int(rp), o.name, "video,audio")
         self.call = None; self.session = ""; self.pending = None; self.answered = set()
         self.gain = 1.0; self.seen = -1; self.age_redraw = 0; self.ticks = 0
+        # the owner's changes beside the picture; the script and what it measures between two of its steps
+        self.shown_changes, self.changing, self.other_on, self.calls_made, self.with_ = -1, False, False, 0, ""
+        self.steps = [x.strip() for x in (o.script or "").split(";") if x.strip()]
+        self.step, self.step_begun, self.step_at = 0, False, None
+        self.got_picture, self.prev_picture, self.pictures, self.mark_pictures, self.gap_max_ms, self.mark_at = False, 0.0, 0, 0, 0.0, time.monotonic()
         self.last_seq = self.self_seq = 0; self.rx = (0, 0, 0)
         self.prev = {}; self.t_last = time.monotonic()
         self.hist = deque(); self.t_start = time.monotonic(); self.d_prev = None; self.d_last = time.monotonic()
@@ -306,7 +313,7 @@ class Window(QWidget):
         self.sampler = QTimer(self); self.sampler.timeout.connect(self._sample); self.sampler.start(500)
 
     def _build(self):
-        self.setWindowTitle("FrogNet Communicator")
+        self.setWindowTitle("FrogNet Communicator  ·  " + APP_BUILD)
         self.setStyleSheet(
             "QWidget{background:#f6f7f9;color:#1d2024;font-size:13px}QFrame#bar{background:#ffffff;border-bottom:1px solid #dfe2e6}"
             "QListWidget{background:#ffffff;border:1px solid #dfe2e6;border-radius:8px;padding:4px}"
@@ -366,7 +373,27 @@ class Window(QWidget):
         tiles = QHBoxLayout(); self.tiles = []
         for _ in range(4):
             l = QLabel(); l.setObjectName("tile"); tiles.addWidget(l, 1); self.tiles.append(l)
-        self.mid.addLayout(tiles); body.addLayout(self.mid, 1)
+        self.mid.addLayout(tiles)
+        # [SWITCH_IT_FROM_THE_CALL_V1] (John 2026-11-26: "While it is running I want to be able to switch ciphers, keys,
+        # protocols, etc. from the app in real time.") The owner's changes beside the picture: the same one write the
+        # Security tab makes, by the same code. A pick takes effect as it is picked.
+        sw = QHBoxLayout(); sw.setSpacing(8)
+        def small(t):
+            l = QLabel(t); l.setObjectName("muted"); return l
+        self.c_cipher = QComboBox(); self.c_cipher.addItems(["not sealed", "aes-256-gcm", "chacha20-poly1305"])
+        self.c_cipher.textActivated.connect(self._set_cipher)
+        self.c_key = QPushButton("New key"); self.c_key.clicked.connect(self._new_key)
+        self.c_protocol = QComboBox(); self.c_protocol.addItems(["tcp", "chorus", "openqasm"])
+        self.c_protocol.textActivated.connect(self._set_protocol)
+        self.c_ram_to = QLineEdit(); self.c_ram_to.setPlaceholderText("RAM host:port"); self.c_ram_to.setMinimumWidth(150); self.c_ram_to.setMaximumWidth(190)
+        self.c_ram_go = QPushButton("Move"); self.c_ram_go.clicked.connect(lambda: self._move_ram(self.c_ram_to.text()))
+        self.c_ram_to.returnPressed.connect(lambda: self._move_ram(self.c_ram_to.text()))
+        for w in (small("Cipher"), self.c_cipher, self.c_key, small("Protocol"), self.c_protocol, small("Memory"), self.c_ram_to, self.c_ram_go):
+            sw.addWidget(w)
+        sw.addStretch(); self.mid.addLayout(sw)
+        self.c_result = QLabel("Cipher, key, protocol and where the memory is can be changed here while a call runs.")
+        self.c_result.setObjectName("muted"); self.c_result.setWordWrap(True); self.mid.addWidget(self.c_result)
+        body.addLayout(self.mid, 1)
         right = QVBoxLayout(); self.chat_title = QLabel("Chat"); self.chat_title.setObjectName("muted"); right.addWidget(self.chat_title)
         self.chat = QListWidget(); self.chat.setMinimumWidth(220); self.chat.setWordWrap(True); right.addWidget(self.chat, 1)
         self.say = QLineEdit(); self.say.setPlaceholderText("Start a call to chat"); self.say.setEnabled(False); right.addWidget(self.say)
@@ -407,11 +434,10 @@ class Window(QWidget):
         self.s_protocol = QComboBox(); self.s_protocol.addItems(["tcp", "chorus", "openqasm"])
         self.s_ram_to = QLineEdit(); self.s_ram_to.setPlaceholderText("host:port of another comms-ram that is running")
         cipher_go, key_go, protocol_go, ram_go = QPushButton("Set cipher"), QPushButton("New key"), QPushButton("Set protocol"), QPushButton("Change RAM host")
-        cipher_go.clicked.connect(lambda: self._owner_change("cipher " + self.s_cipher.currentText(),
-                                                             dict(unseal=True) if self.s_cipher.currentText() == "not sealed" else dict(algorithm=self.s_cipher.currentText())))
-        key_go.clicked.connect(lambda: self._owner_change("a new key", dict(new_key=True)))
-        protocol_go.clicked.connect(lambda: self._owner_change("protocol " + self.s_protocol.currentText(), dict(protocol=self.s_protocol.currentText())))
-        ram_go.clicked.connect(self._move_ram)
+        cipher_go.clicked.connect(lambda: self._set_cipher(self.s_cipher.currentText()))
+        key_go.clicked.connect(self._new_key)
+        protocol_go.clicked.connect(lambda: self._set_protocol(self.s_protocol.currentText()))
+        ram_go.clicked.connect(lambda: self._move_ram(self.s_ram_to.text()))
         g.addWidget(muted("Cipher"), 0, 0); g.addWidget(self.s_cipher, 0, 1); g.addWidget(cipher_go, 0, 2)
         g.addWidget(muted("Key"), 1, 0); g.addWidget(muted("A new random number in the setting: every sender computes a new key from it."), 1, 1); g.addWidget(key_go, 1, 2)
         g.addWidget(muted("Protocol"), 2, 0); g.addWidget(self.s_protocol, 2, 1); g.addWidget(protocol_go, 2, 2)
@@ -426,20 +452,65 @@ class Window(QWidget):
         self.sec_done.connect(self._owner_done); self.sec_ends.connect(self._ends_read)
         return w
 
-    def _move_ram(self):
-        to = self.s_ram_to.text().strip()
+    def _said_both(self, t):
+        self.s_result.setText(t); self.c_result.setText(t.replace("\n", "  ·  "))
+
+    def _set_cipher(self, a):
+        self._owner_change("cipher " + a, dict(unseal=True) if a == "not sealed" else dict(algorithm=a))
+
+    def _new_key(self):
+        self._owner_change("a new key", dict(new_key=True))
+
+    def _set_protocol(self, p):
+        self._owner_change("protocol " + p, dict(protocol=p))
+
+    def _move_ram(self, text):
+        to = text.strip()
         host, _, port = to.rpartition(":")
         if not host or not port.isdigit():
-            self.s_result.setText("Give the new RAM host as host:port."); return
+            self._said_both("Give the new RAM host as host:port."); return
         self._owner_change("the memory to " + to, dict(move_to=(host, int(port))))
+
+    def _show_setting(self):
+        """every picker shows the setting this program holds, whoever changed it and from where"""
+        ch = channel.watching()
+        if ch is None or ch.changes == self.shown_changes:
+            return
+        self.shown_changes = ch.changes
+        f = ch.fields
+        sealed = str(f.get("number", "0")) not in ("", "0")
+        for b in (self.c_cipher, self.s_cipher):
+            b.setCurrentText(f.get("protection", "") if sealed else "not sealed")
+        for b in (self.c_protocol, self.s_protocol):
+            b.setCurrentText(f.get("driver") or "tcp")
+
+    def _channel_lines(self):
+        """[THE_OVERLAY_SHOWS_THE_CHANNEL_V1] the channel's lines of the overlay"""
+        ch = channel.watching()
+        if ch is None:
+            return "channel: none (start with --channel ROLE)"
+        f = ch.fields
+        sealed = str(f.get("number", "0")) not in ("", "0")
+        host, port = ram_at.at()
+        n = ch.totals(); c = n["calls"]
+        t = ("channel %s%s\nprotocol %s · cipher %s%s\nmemory %s:%d\nunder the frame %d kB out · %d kB in\n"
+             "switch calls sent: protocol %d · key/cipher %d · received: protocol %d · key/cipher %d\nsent again %d · not opened %d"
+             % (ch.role, "" if ch.framed else " (planes NOT under the frame)", f.get("driver") or "tcp", f.get("protection", "") if sealed else "not sealed",
+                " · key %s" % ch.key_tag if sealed else "", host, port, n["sent"] // 1000, n["received"] // 1000,
+                c["protocol"][0], c["encryption"][0], c["protocol"][1], c["encryption"][1], n["sent_again"], n["not_opened"]))
+        what, at, age = ch.last_change()
+        if what:
+            t += "\nlast: %s\n      at %s (%s ago) · %d change(s) taken" % (what, at, "%.0f s" % age if age < 90 else "%.0f min" % (age / 60), ch.changes)
+        return t
 
     def _owner_change(self, what, change):
         """One change by the owner, off the window's thread: the write, then every end's report."""
         host, port = ram_at.at()
         ch = channel.watching()
         role = ch.role if ch else channel.ROLE
-        self.s_result.setText("Setting %s ..." % what)
-        for b in self.s_buttons:
+        self._said_both("Setting %s ..." % what)
+        self.changing = True
+        for b in self.s_buttons + [self.c_cipher, self.c_key, self.c_protocol, self.c_ram_go]:
             b.setEnabled(False)
 
         def run():
@@ -454,9 +525,10 @@ class Window(QWidget):
         threading.Thread(target=run, daemon=True).start()
 
     def _owner_done(self, said):
-        self.s_result.setText(said)
-        for b in self.s_buttons:
+        self._said_both(said)
+        for b in self.s_buttons + [self.c_cipher, self.c_key, self.c_protocol, self.c_ram_go]:
             b.setEnabled(True)
+        self.changing = False
         self.ends_age = 99; self._refresh_security()
 
     def _ends_read(self, text):
@@ -518,6 +590,7 @@ class Window(QWidget):
     def start_call(self, session, host, port, with_):
         self.hang_up()
         self.session, self.with_ = session, with_
+        self.calls_made += 1; self.other_on = False; self.got_picture = False; self._mark()
         self.last_picture = time.monotonic()
         mic = spk = None
         if self.o.audio:
@@ -564,7 +637,7 @@ class Window(QWidget):
 
     def answer(self):
         if self.pending:
-            p = self.pending
+            p, self.pending = self.pending, None                 # answered once: it is not what rings next
             self.start_call(p.session, p.media_host, p.media_port, p.offered_by)
 
     def hang_up(self):
@@ -572,7 +645,10 @@ class Window(QWidget):
             self.toggle_fullscreen()
         if not self.call:
             return
-        self.call.stop(); self.call = None; self.session = ""
+        self.call.stop(); self.call = None
+        try: self.room.leave_call(self.session)
+        except Exception as e: print("[room] after the call: %s" % e, flush=True)
+        self.session = ""; self.with_ = ""
         self.room.announce("online")
         self.hang_b.setEnabled(False); self.say.setEnabled(False); self.say.setPlaceholderText("Start a call to chat")
         self.chat.clear(); self.chat_title.setText("Chat")
@@ -614,6 +690,7 @@ class Window(QWidget):
     def _tick(self):
         if self.tabs.currentIndex() == 1:
             self._refresh_security()
+        self._show_setting()
         changed = self.room.version != self.seen; self.seen = self.room.version
         try:
             ros = self.room.roster(); self.status.setText("Connected")
@@ -622,13 +699,28 @@ class Window(QWidget):
         self.age_redraw += 1
         if changed or self.age_redraw >= 5:
             self.age_redraw = 0; self._redraw_lobby(ros)
-        if not self.call:
-            for o in self.room.invitations():
-                if o.session not in self.answered:
-                    self.pending = o; self.answered.add(o.session)
-                    self.answer_b.setText("Answer " + o.offered_by); self.answer_b.show()
+        if not self.call:                                   # [RINGS_ONLY_WHILE_OFFERED_V1] as the C++ window: Answer shows only while it rings
+            rg = self.room.ringing()
+            if self.pending and not any(o.session == self.pending.session for o in rg):
+                print("[app] %s is no longer calling (session %s)" % (self.pending.offered_by, self.pending.session), flush=True)
+                self.pending = None; self.answer_b.hide()
+            if not self.pending:
+                for o in rg:
+                    if o.session not in self.answered:
+                        self.pending = o; self.answered.add(o.session)
+                        print("[app] %s is calling (session %s)" % (o.offered_by, o.session), flush=True)
+                        self.answer_b.setText("Answer " + o.offered_by); self.answer_b.show()
+                        break
         if self.call and changed:
             self._read_chat()
+        # [THE_CALL_ENDS_WHEN_THE_OTHER_LEAVES_V1] a call with one other person ends here when that person leaves it
+        if self.call and self.with_ and not self.with_.startswith("*"):
+            if self.session in self.room.calls_of(self.with_):
+                self.other_on = True
+            elif self.other_on:
+                who = self.with_
+                print("[app] %s left the call (session %s): this end hangs up" % (who, self.session), flush=True)
+                self.hang_up(); self.status.setText(who + " hung up")
         self._update_tiles(); self._auto_test()
 
     def _redraw_lobby(self, ros):
@@ -657,7 +749,11 @@ class Window(QWidget):
             p = self.call.latest(src)
             if p and p.seq != self.last_seq:
                 self.last_seq = p.seq; self.view.remote = to_image(p.frame); self.rx = (p.w, p.h, p.level)
-                self.last_picture = time.monotonic(); self.view.no_video = ""
+                now = time.monotonic()
+                if self.got_picture:
+                    self.gap_max_ms = max(self.gap_max_ms, (now - self.prev_picture) * 1000)
+                self.got_picture, self.prev_picture = True, now; self.pictures += 1
+                self.last_picture = now; self.view.no_video = ""
         me = self.call.self_view()
         if me and me.seq != self.self_seq:
             self.self_seq = me.seq; self.view.self_img = to_image(me.frame)
@@ -690,8 +786,17 @@ class Window(QWidget):
         self.tiles[2].setText("Sending\nL%d · %dx%d" % (s.rung, s.send_w, s.send_h) if s.send_w else "Sending\nL%d · audio only" % s.rung)
         self.tiles[3].setText("Audio\n%.0f blocks/s%s" % (abps, " · %d shed" % ashed if ashed else ""))
         w, h, lvl = self.rx
-        self.view.overlay = ("L%d · %dx%d · %.1f fps\nvideo %.0f kb/s\naudio %.0f blocks/s\nshed %d · keyreq %d"
-                             % (lvl, w, h, fps, down, abps, shed, s.keyreqs)) if w else ""
+        cap = self.call.throttle_bps
+        hd = self.room.my_hold(self.session)
+        served = "--" if not hd.present else "audio only" if hd.audio_only else "pass-through" if hd.passthrough else "transcoded to %dx%d" % (hd.w, hd.h)
+        recv = "receiving L%d · %dx%d · %.1f fps · %.0f kb/s" % (lvl, w, h, fps, down) if w else "receiving no picture · %.0f kb/s" % down
+        send = ("sending   L%d · %dx%d · %.0f kb/s (ceiling L%d)" % (s.rung, s.send_w, s.send_h, up, s.ceiling) if s.send_w
+                else "sending   L%d · audio only · %.0f kb/s" % (s.rung, up))
+        t = time.time()
+        self.view.overlay = ("here %s.%03d\nwith %s · call #%d\n%s\n%s\naudio %.0f blocks/s · shed video %d audio %d · keyreq %d\nlink %s · jitter %d ms · server %s\n%s"
+                             % (time.strftime("%H:%M:%S", time.localtime(t)), int(t % 1 * 1000), self.with_, self.calls_made, recv, send, abps, shed, ashed, s.keyreqs,
+                                "unlimited" if cap == 0 else "%.2f Mb/s" % (cap / 1e6) if cap >= 1000000 else "%d kb/s" % (cap // 1000),
+                                self.jit.value(), served, self._channel_lines()))
         self.view.self_note = "you · %.0f kb/s up" % up
 
     def _sample(self):                                      # half a second: one sample; no call = a gap
@@ -732,7 +837,72 @@ class Window(QWidget):
                 "%.2f s (%d steps)" % (s.up_lag_ms / 1000 / upn, upn) if upn else "--"))
         self.diag.update()
 
+    def _mark(self):
+        self.mark_at, self.mark_pictures, self.gap_max_ms = time.monotonic(), self.pictures, 0.0
+
+    def _run_script(self):
+        """[THE_WHOLE_USE_AS_A_SCRIPT_V1] --script "step;step;...", as the C++ window's run_script: wait-for NAME, call NAME,
+        answer, stay N, hang, wait-idle, cipher X, key, protocol X, ram HOST:PORT, bandwidth KBPS, jitter MS, shot FILE,
+        quit. Each step says the pictures received since the step before and the longest time between two."""
+        if self.step >= len(self.steps):
+            return
+        st = self.steps[self.step]; what, _, arg = st.partition(" ")
+        now = time.monotonic()
+        def in_room(n):
+            return next((i for i in range(self.lobby.count()) if (self.lobby.item(i).data(Qt.UserRole) or "") == n), -1)
+        note = ""
+        if not self.step_begun:
+            begun = True
+            if what == "call":
+                i = in_room(arg)
+                if i < 0 or self.call: begun = False
+                else: self.lobby.setCurrentRow(i); self.call_selected()
+            elif what == "answer":
+                if not self.pending or self.call: begun = False
+                else: self.answer()
+            elif what == "hang": self.hang_up()
+            elif what in ("cipher", "key", "protocol", "ram"):
+                if self.changing: begun = False
+                elif what == "cipher": self.c_cipher.setCurrentText(arg); self._set_cipher(arg)
+                elif what == "key": self._new_key()
+                elif what == "protocol": self.c_protocol.setCurrentText(arg); self._set_protocol(arg)
+                else: self.c_ram_to.setText(arg); self._move_ram(arg)
+            elif what == "bandwidth": self.bw.setValue(pos_of(int(arg) * 1000) if int(arg) > 0 else K_STEPS); self.apply_bw(self.bw.value())
+            elif what == "jitter": self.jit.setValue(int(arg))
+            elif what == "shot": self._paint_frame(); self.view.update(); self.grab().save(arg)
+            if self.step_at is None: self.step_at = now
+            if begun:
+                self.step_begun = True; print("[script] step %d of %d: %s" % (self.step + 1, len(self.steps), st), flush=True)
+        took = now - self.step_at
+        done = False
+        if self.step_begun:
+            if what == "wait-for": done = in_room(arg) >= 0
+            elif what in ("call", "answer"):
+                done = bool(self.call) and self.got_picture
+                if done: note = "first picture %d ms after the step began" % (took * 1000)
+            elif what == "stay": done = took >= float(arg)
+            elif what == "wait-idle": done = not self.call
+            elif what in ("cipher", "key", "protocol", "ram"):
+                done = not self.changing
+                if done: note = self.c_result.text()
+            elif what == "quit":
+                print("[script] finished: every step done", flush=True); self.hang_up(); self.step = len(self.steps); QApplication.exit(0); return
+            else: done = True
+        if done:
+            print("[script] done %d: %s (%d ms)%s%s" % (self.step + 1, st, took * 1000,
+                  "; pictures since the step before: %d in %d ms, longest between two %d ms" % (self.pictures - self.mark_pictures, (now - self.mark_at) * 1000, self.gap_max_ms)
+                  if self.call or self.pictures != self.mark_pictures else "", "; " + note if note else ""), flush=True)
+            self._mark(); self.step += 1; self.step_begun = False; self.step_at = None
+        elif took > 45 and what != "stay":
+            print("[script] FAILED at step %d: '%s' was not done in 45 s (%s)" % (self.step + 1, st,
+                  "in a call, %s" % ("pictures arriving" if self.got_picture else "no picture yet") if self.call else "in no call"), flush=True)
+            self.hang_up(); self.step = len(self.steps); QApplication.exit(3)
+
     def _auto_test(self):                                   # unattended testing: join a named participant, screenshot
+        if self.o.auto_answer and not self.call and self.pending:
+            self.answer()
+        if self.steps:
+            self._run_script()
         if self.o.auto_join and not self.call:
             for i in range(self.lobby.count()):
                 n = self.lobby.item(i).data(Qt.UserRole) or ""
@@ -776,6 +946,8 @@ def main():
     a.add_argument("--show-controls", action="store_true"); a.add_argument("--diagnostics", action="store_true")
     a.add_argument("--channel", default="")                # ROLE: this program's planes are under the frame, for that Role
     a.add_argument("--tab", default="")                    # security: open on the Security tab
+    a.add_argument("--script", default="")                 # unattended: the whole use of the window, step by step (_run_script)
+    a.add_argument("--auto-answer", action="store_true")   # a call that rings is answered
     a.add_argument("--security", default="")               # unattended testing: the Security tab's buttons pressed in order
     o = a.parse_args()
     if o.list_devices:

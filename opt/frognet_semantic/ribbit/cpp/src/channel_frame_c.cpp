@@ -144,6 +144,15 @@ CF_API char* cf_secret(const char* role, const char* secrets, char** err) {
         return text(std::string("own=") + (s.own ? "1" : "0") + "\nstep=" + std::to_string(s.step) + "\nfingerprint=" + secret_fingerprint(s.value) + "\n");
     } catch (const std::exception& e) { if (err) *err = text(e.what()); return nullptr; }
 }
+// 8 characters of a hash of the key a sender sends under, for a screen: the Role, the sender's ID, the setting's
+// number and step. The key itself is never returned. Fails (err) when the machine holds no secret for the Role.
+CF_API char* cf_key_tag(const char* role, const char* sender, unsigned long long number, long step, const char* secrets, char** err) {
+    try {
+        std::string r(role ? role : ""); for (auto& ch : r) if (ch >= 'A' && ch <= 'Z') ch = char(ch + 32);
+        const Secret s = secret_at(r, step, secrets && *secrets ? secrets : DEFAULT_SECRETS);
+        return text(secret_fingerprint(key_for(s.value, sender ? sender : "", r, number)));
+    } catch (const std::exception& e) { if (err) *err = text(e.what()); return nullptr; }
+}
 // The check a setting for this Role must carry, made with this machine's secret for it at the setting's step.
 CF_API char* cf_check_of(const char* role, const char* fields, const char* secrets, char** err) {
     try {

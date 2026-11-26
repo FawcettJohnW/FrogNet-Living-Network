@@ -70,6 +70,10 @@ class Channel:
         self.role, self.sender, self.secrets, self.framed = role, sender, secrets, framed
         self.held, self.changes, self.ignored, self.fields = None, 0, "", {}
         self.end = "%s.%d" % (sender, os.getpid())
+        # [THE_OVERLAY_SHOWS_THE_CHANNEL_V1] for a screen: a tag of the key this end sends under, the last change taken
+        self.key_tag, self.changed_what, self.changed_at, self._changed_when = "", "", "", 0.0
+        self._gone = None                                  # the counts of planes that have closed, as last seen
+        self._seen = {}                                    # id(plane) -> (a weak reference to it, its counts as last asked)
         self._planes = weakref.WeakSet()
         self._mu = threading.Lock()                        # this process's copy of the setting and its list of planes
         if framed:
@@ -97,7 +101,25 @@ class Channel:
             if not took["taken"]:
                 _say("a setting of %r is IGNORED: %s. This process keeps %s" % (self.role, took["why"], _text(self.held)))
                 return
-            self.held = {k: took[k] for k in ("driver", "number", "protection", "step")}
+            now = {k: took[k] for k in ("driver", "number", "protection", "step")}
+            cipher = lambda h: h["protection"] if h["number"] else "not sealed"
+            if self.held is None:
+                what = ["first setting: %s, %s" % (now["driver"], cipher(now))]
+            else:
+                what = []
+                if self.held["driver"] != now["driver"]: what.append("protocol %s -> %s" % (self.held["driver"], now["driver"]))
+                if cipher(self.held) != cipher(now): what.append("cipher %s -> %s" % (cipher(self.held), cipher(now)))
+                elif self.held["number"] != now["number"]: what.append("new key")
+                if value.get("ram_host") and (value.get("ram_host"), value.get("ram_port")) != (self.fields.get("ram_host"), self.fields.get("ram_port")):
+                    what.append("memory -> %s:%s" % (value.get("ram_host"), value.get("ram_port")))
+            t = time.time()
+            self.changed_what, self._changed_when = ", ".join(what) or "setting written again", time.monotonic()
+            self.changed_at = time.strftime("%H:%M:%S", time.localtime(t)) + ".%03d" % int(t % 1 * 1000)
+            self.key_tag = ""
+            if now["number"]:
+                try: self.key_tag = _C.key_tag(self.role, self.sender, now["number"], now["step"], self.secrets)
+                except Exception: self.key_tag = "no secret"
+            self.held = now
             self.fields = {k: v for k, v in value.items() if k != "ts"}
             self.changes += 1
             _say("the setting of %r is now %s%s" % (self.role, _text(self.held), " (secret %s)" % took["fingerprint"] if took["fingerprint"]
@@ -110,6 +132,32 @@ class Channel:
         # session ends its own and attaches there.
         if to[0] and to[1] > 0 and ram_at.move(*to):
             _say("the memory of %r is at %s:%d now: this process follows it" % (self.role, to[0], to[1]))
+
+    def last_change(self):
+        """(what changed, the wall clock then, seconds since); ("", "", -1) before the first setting"""
+        return (self.changed_what, self.changed_at, time.monotonic() - self._changed_when if self.changed_what else -1)
+
+    def totals(self):
+        """What this process's planes have done under the frame, summed over every plane it has had (the screen asks
+        every second; a plane that has closed keeps what it had done when this was last asked)."""
+        def add(t, c):
+            for k in ("sent", "received", "not_opened", "sent_again"): t[k] += c[k]
+            for k, v in c["calls"].items():
+                t["calls"][k][0] += v[0]; t["calls"][k][1] += v[1]
+        zero = lambda: {"sent": 0, "received": 0, "not_opened": 0, "sent_again": 0,
+                        "calls": {k: [0, 0] for k in ("protocol", "encryption", "not opened", "again", "received")}}
+        with self._mu:
+            if self._gone is None: self._gone = zero()
+            live = {}
+            for plane in list(self._planes):
+                try: live[id(plane)] = (weakref.ref(plane), plane.codec.counts())
+                except Exception: pass
+            for k, (ref, counts) in self._seen.items():
+                if k not in live or ref() is None: add(self._gone, counts)
+            self._seen = live
+            t = zero(); add(t, self._gone)
+            for _, counts in live.values(): add(t, counts)
+            return t
 
     def report(self):
         """This process's report: the setting it is running, or the one it ignored and why. No key, no secret."""

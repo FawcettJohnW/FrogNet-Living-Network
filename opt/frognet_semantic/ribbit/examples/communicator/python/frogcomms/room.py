@@ -306,6 +306,22 @@ class Room:
             self._joined[session] = (host, int(port))
         self._write_joined()
 
+    def leave_call(self, session):
+        """[LEAVE_WITHDRAWS_THE_OFFER_V1] (the C++ Room's leave_call, r3) on hang-up the session leaves what this
+        participant offers and what it says it is on, and both rows are written without it. Without this the other
+        end never saw this one leave, and a call it had offered rang on."""
+        with self._mu:
+            o = self._offered.pop(session, None) is not None
+            j = self._joined.pop(session, None) is not None
+            if hasattr(self, "_speeds"): self._speeds.pop(session, None)
+        if o: self._write_announce()
+        if j: self._write_joined()
+
+    def ringing(self):
+        """[RINGS_ONLY_WHILE_OFFERED_V1] an invitation rings only while its caller still offers that session"""
+        offered = {o.session for o in self.offers()}
+        return [o for o in self.invitations() if o.session in offered]
+
     def invite(self, who, session, host, port):
         self._write("CallsInvitations", "user:" + who,
                     {"user": who, "calls": self._calls({session: (host, int(port))}, self.name)}, own=False)

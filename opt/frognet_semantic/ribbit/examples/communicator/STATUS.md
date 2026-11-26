@@ -31,9 +31,18 @@ ciphers, keys, protocols, etc. from the app in real time. The perf overlay shoul
   (median 5 ms after the write, longest 60 ms); the other window answered all three calls and ended each by itself;
   longest time between two pictures across any change 85 ms (the window paints every 40 ms). The earlier tests
   (test_ring, test_room, test_channel, test_call, test_call_audio, test_the_memory_moves.py) pass unchanged.
-- Not done: the Python window and the phone do not have the row under the picture, the larger overlay or the script
-  yet (they keep their Security tabs); the phone's one-line fix is not compiled (no Android SDK here). Not run on
-  separate machines, on Windows, or with a camera and sound.
+- **The Python window has all of it too** (`comms-app-py-2026-11-26-r5`): the row under the picture, the overlay, the
+  call ending when the other leaves, `--script` and `--auto-answer`. The frame library's C binding gained
+  `cf_key_tag` (8 characters of a hash of a sender's key, for a screen) in the tree's copy and the vendored one.
+  Bringing it level found that the Python room never had the C++ room's r3 rules: it now has `leave_call`
+  ([LEAVE_WITHDRAWS_THE_OFFER_V1]) and `ringing` ([RINGS_ONLY_WHILE_OFFERED_V1]), and the window uses them. Before,
+  a Python caller that hung up was still "on" the call for the other end, and its next call was not answered.
+- Proof, three ways (`test_the_whole_cycle.py build N OUT JOHN,DONNA`): C++ calling C++, 3 calls, 27 of 27 changes;
+  C++ calling Python, 2 calls, 18 of 18, longest time between two pictures 120 ms; Python calling C++, 2 calls, 18 of
+  18, longest 90 ms. The phone's core on the JVM (`communicator-test/run_tests.sh`, steps 1 to 4) passes with its fix.
+- Not done: the phone's screens do not have the row under the picture or the larger overlay (it keeps its Security
+  tab); no APK was built (no Android SDK here). Not run on separate machines, on Windows, or with a camera and
+  sound (the test's windows send a file and a drawn picture, without audio).
 
 ## 2026-11-25: the Security tab; the memory moves; the phone is under the frame
 

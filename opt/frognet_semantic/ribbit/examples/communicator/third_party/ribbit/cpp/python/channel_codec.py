@@ -56,6 +56,7 @@ _L.cf_counts.argtypes = [_p, ctypes.POINTER(ctypes.c_ulonglong * 14)]
 _L.cf_take_setting.restype = _p; _L.cf_take_setting.argtypes = [_c, _c, _c, _e]
 _L.cf_check_of.restype = _p; _L.cf_check_of.argtypes = [_c, _c, _c, _e]
 _L.cf_secret.restype = _p; _L.cf_secret.argtypes = [_c, _c, _e]
+_L.cf_key_tag.restype = _p; _L.cf_key_tag.argtypes = [_c, _c, ctypes.c_ulonglong, ctypes.c_long, _c, _e]
 BUILD = _L.cf_build().decode()
 
 
@@ -89,6 +90,15 @@ def secret_of(role, secrets=""):
         _raise(err)
     got = dict(line.split("=", 1) for line in _text(p).splitlines())
     return {"own": got["own"] == "1", "step": int(got["step"]), "fingerprint": got["fingerprint"]}
+
+
+def key_tag(role, sender, number, step, secrets=""):
+    """8 characters of a hash of the key `sender` sends under for this setting, for a screen. Never the key."""
+    err = ctypes.c_void_p()
+    p = _L.cf_key_tag(role.encode(), sender.encode(), int(number), int(step), secrets.encode(), ctypes.byref(err))
+    if not p:
+        _raise(err)
+    return _text(p)
 
 
 def take_setting(role, value, secrets=""):

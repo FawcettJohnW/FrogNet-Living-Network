@@ -1,15 +1,15 @@
 #!/usr/bin/env python3
 # Copyright (C) 2016-2026 Fawcett Innovations LLC
 # SPDX-License-Identifier: GPL-2.0-only
-"""test_the_whole_cycle.py BUILD_DIR [CALLS] [OUT_DIR] -- [THE_WHOLE_USE_AS_A_SCRIPT_V1] the Communicator used as a person
+"""test_the_whole_cycle.py BUILD_DIR [CALLS] [OUT_DIR] [JOHN,DONNA] -- [THE_WHOLE_USE_AS_A_SCRIPT_V1] the Communicator used as a person
 uses it, twice over and again, with every switch made from the window while the call runs.
 
   (John 2026-11-26: "I need to be able to see who is there, to call them, to answer the call, stay in the call, and
   hang up, then do it all over again. While it is running I want to be able to switch ciphers, keys, protocols, etc.
   from the app in real time. The perf overlay should show all.")
 
-  Two comms-ram (A and B), one comms-media, and two windows (comms-app, offscreen), John and Donna, both under the
-  frame. John's window runs a script; Donna's answers what rings. In each of CALLS calls (default 3):
+  Two comms-ram (A and B), one comms-media, and two windows (offscreen), John and Donna, both under the frame.
+  JOHN,DONNA say which window each is: cpp (comms-app) or py (python/comms_app.py); default cpp,cpp. John's window runs a script; Donna's answers what rings. In each of CALLS calls (default 3):
 
     John sees Donna in the room, calls her; Donna's window answers; each sees the other's picture
     while the call runs John's window changes, one after another: the cipher (aes-256-gcm, chacha20-poly1305), the
@@ -28,9 +28,12 @@ B = os.path.abspath(sys.argv[1]); ROOT = os.path.join(os.path.dirname(os.path.ab
 CALLS = int(sys.argv[2]) if len(sys.argv) > 2 else 3
 T = tempfile.mkdtemp(prefix="comms-cycle-")
 OUT = os.path.abspath(sys.argv[3]) if len(sys.argv) > 3 else T
+KIND = dict(zip(("john", "donna"), (sys.argv[4] if len(sys.argv) > 4 else "cpp,cpp").split(",")))
+def window(who):
+    return [os.path.join(B, "comms-app")] if KIND[who] == "cpp" else [sys.executable, "-u", os.path.join(ROOT, "python", "comms_app.py")]
 os.makedirs(OUT, exist_ok=True)
 SECRETS = os.path.join(T, "secrets"); os.mkdir(SECRETS); open(os.path.join(SECRETS, "default"), "wb").write(os.urandom(48))
-env = dict(os.environ, FROGNET_CHANNEL_SECRETS=SECRETS, FROGNET_GUID_FILE=os.path.join(T, "no-fnid"), QT_QPA_PLATFORM="offscreen")
+env = dict(os.environ, FROGCOMMS_LIB=B, FROGNET_CHANNEL_SECRETS=SECRETS, FROGNET_GUID_FILE=os.path.join(T, "no-fnid"), QT_QPA_PLATFORM="offscreen")
 A, RB, MEDIA, ROLE = 21600, 21601, 21620, "mediahost"
 GAP_MS = 1500                                              # the longest time between two pictures allowed across a change
 procs, logs = [], {}
@@ -52,7 +55,7 @@ try:
     time.sleep(1)
     video = os.path.join(ROOT, "media", "stock-720p.mp4")
     common = ["--ram", "127.0.0.1:%d" % A, "--media", "127.0.0.1:%d" % MEDIA, "--no-audio", "--channel", ROLE]
-    donna = start("donna", [os.path.join(B, "comms-app")] + common + ["--name", "Donna", "--synthetic", "640x360", "--auto-answer"])
+    donna = start("donna", window("donna") + common + ["--name", "Donna", "--synthetic", "640x360", "--auto-answer"])
     steps, at = ["wait-for Donna"], A
     for k in range(1, CALLS + 1):
         to = RB if at == A else A
@@ -66,7 +69,7 @@ try:
         at = to
     steps += ["quit"]
     t0 = time.time()
-    john = start("john", [os.path.join(B, "comms-app")] + common + ["--name", "John", "--video", video, "--script", ";".join(steps)])
+    john = start("john", window("john") + common + ["--name", "John", "--video", video, "--script", ";".join(steps)])
     limit = 60 + CALLS * 75
     while john.poll() is None and time.time() - t0 < limit: time.sleep(1)
     if john.poll() is None: john.kill()
@@ -74,7 +77,7 @@ try:
     jl, dl = open(logs["john"]).read(), open(logs["donna"]).read()
 
     check(john.returncode == 0 and "[script] finished: every step done" in jl,
-          "John's window did every step of its script (%d steps, %d calls, %.0f s)%s" % (len(steps), CALLS, time.time() - t0,
+          "John's window (%s; Donna's is %s) did every step of its script (%d steps, %d calls, %.0f s)%s" % (KIND["john"], KIND["donna"], len(steps), CALLS, time.time() - t0,
           "" if john.returncode == 0 else ": exit %s; %s" % (john.returncode, (re.findall(r"\[script\] FAILED.*", jl) or ["no FAILED line"])[0])))
     done = re.findall(r"\[script\] done (\d+): (.*?) \((\d+) ms\)(?:; pictures since the step before: (\d+) in (\d+) ms, longest between two (\d+) ms)?(?:; (.*))?", jl)
     calls = [d for d in done if d[1].startswith("call ")]
