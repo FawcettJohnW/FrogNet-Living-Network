@@ -40,9 +40,14 @@ ciphers, keys, protocols, etc. from the app in real time. The perf overlay shoul
 - Proof, three ways (`test_the_whole_cycle.py build N OUT JOHN,DONNA`): C++ calling C++, 3 calls, 27 of 27 changes;
   C++ calling Python, 2 calls, 18 of 18, longest time between two pictures 120 ms; Python calling C++, 2 calls, 18 of
   18, longest 90 ms. The phone's core on the JVM (`communicator-test/run_tests.sh`, steps 1 to 4) passes with its fix.
-- Not done: the phone's screens do not have the row under the picture or the larger overlay (it keeps its Security
-  tab); no APK was built (no Android SDK here). Not run on separate machines, on Windows, or with a camera and
-  sound (the test's windows send a file and a drawn picture, without audio).
+- The phone (`comms-android-2026-11-26-r7`, frognet-android `docs/COMMUNICATOR-ANDROID-r7.md`): a **Channel** panel on
+  the call screen (cipher, new key, protocol, the RAM host moved), the Stats show the call, the link and the channel,
+  and a call ends when the other person leaves. Proof: the app's own activity under Robolectric
+  (`communicator-test/run_tests.sh` step 5): Home calls, the phone answers, eight changes from the call each answered
+  by all 3 ends (308 to 740 ms from the tap), Home hangs up and the phone is back in the room, the phone calls again,
+  two more changes, hangs up.
+- Not done: no APK was built (no Android SDK here) and r7 has not run on a phone. Not run on separate machines, on
+  Windows, or with a camera and sound (the desktop test's windows send a file and a drawn picture, without audio).
 
 ## 2026-11-25: the Security tab; the memory moves; the phone is under the frame
 

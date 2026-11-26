@@ -6,6 +6,11 @@
 > and RAM manager) on the app's screen; its built-in first pond is John's own region. How to install a region and
 > the app: `docs/OPERATING.md` in the FrogNet repository. The dated sections below are the record of each build.
 >
+> **2026-11-26: the Communicator is r7** (`comms-android-2026-11-26-r7`): cipher, key, protocol and the RAM host are
+> switched from the call (the Channel panel), the Stats show the channel, and a call ends when the other person
+> leaves. See `COMMUNICATOR-ANDROID-r7.md`. The app's activity runs under Robolectric (`communicator-test/run_tests.sh`
+> step 5); no APK was built here.
+>
 > **2026-11-25: the Communicator is r6** (`comms-android-2026-11-25-r6`): its calls are under the protocol layer's
 > frame, it has a Security tab, and it follows the Communicator's memory when its owner moves it. See
 > `COMMUNICATOR-ANDROID-r6.md`. The member (Kotlin) is unchanged. r6's core is proven on the JVM; the app was not

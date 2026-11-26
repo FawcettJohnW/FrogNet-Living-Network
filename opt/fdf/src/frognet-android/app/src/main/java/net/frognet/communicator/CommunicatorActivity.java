@@ -114,6 +114,13 @@ public class CommunicatorActivity extends Activity {
     private EditText ramToE;
     private Button frameB;
     private long secShownAt = 0, secChanges = -1;
+    // [SWITCHED_FROM_THE_CALL_V1] the Channel panel of the call screen: the same owner's changes as the Security tab,
+    // made while the call runs; the Stats panel over the picture shows each one take effect
+    private ScrollView channelPanel;
+    private TextView chanNowT, chanResultT;
+    private EditText chanRamE;
+    private int callsMade = 0;                       // calls this screen has been in since it opened
+    private boolean otherOn = false;                 // the other person has been seen in this call
     private static final int PICK_SECRET = 7;
     private EditText nameE, ramE, mediaE, sayE;
     private TextView lobbyStatus, ringText, statsT, peerT, diagT, chatT, linkT, emptyT, clockT;
@@ -187,6 +194,7 @@ public class CommunicatorActivity extends Activity {
     public void onBackPressed() {
         if (diagV.getVisibility() == View.VISIBLE) { show(core != null ? callV : lobbyV); return; }
         if (chatPanel != null && chatPanel.getVisibility() == View.VISIBLE) { chatPanel.setVisibility(View.GONE); return; }
+        if (channelPanel != null && channelPanel.getVisibility() == View.VISIBLE) { channelPanel.setVisibility(View.GONE); return; }
         if (setupV.getVisibility() == View.VISIBLE && room != null) { show(lobbyV); return; }
         super.onBackPressed();
     }
@@ -335,7 +343,15 @@ public class CommunicatorActivity extends Activity {
         }
         if (core != null) {
             if (changed) drawChat(r);
+            // [THE_CALL_ENDS_WHEN_THE_OTHER_LEAVES_V1] a call with one other person ends here when that person leaves it
+            if (!with.isEmpty() && !with.startsWith("*")) {
+                if (r.callsOf(with).contains(session)) otherOn = true;
+                else if (otherOn) { String who = with; Diag.log("[app] " + who + " left the call (session " + session + "): this end hangs up"); hangUp(who + " hung up"); }
+            }
+        }
+        if (core != null) {
             drawStats(r);
+            if (channelPanel.getVisibility() == View.VISIBLE) chanNowT.setText(channelNow());
         }
         if (diagV.getVisibility() == View.VISIBLE) refreshDiag();
     }
@@ -406,6 +422,7 @@ public class CommunicatorActivity extends Activity {
         final Room r = room;
         if (r == null) return;
         session = s; with = who;
+        otherOn = false; callsMade++;
         answered.add(s);
         peerT.setText(who + "  ·  connecting ...");
         chatT.setText(""); chatCount = -1;
@@ -604,15 +621,56 @@ public class CommunicatorActivity extends Activity {
         Room.Hold h = r.myHold(session);
         String in = rv != null && rv.picW > 0 ? rv.picW + "x" + rv.picH : "no picture yet";
         String out = s.sendW > 0 ? "L" + s.rung + " " + s.sendW + "x" + s.sendH : (camera == null ? "camera off" : s.rung < 5 && s.sendW == 0 && s.vSent > 0 ? "audio only" : "starting");
+        // [THE_OVERLAY_SHOWS_THE_CHANNEL_V1] the call, the link and the channel, as the desktop's overlay shows them
         statsT.setText(String.format(Locale.ROOT,
-                "receiving  %s  %.1f fps  %d kb/s%s\nsending    %s  %.1f fps  %d kb/s%s\naudio      in %.0f/s  out %.0f/s%s\nlink       %s",
-                in, rate[1], (long) (rate[2] * 8 / 1000), h.present ? (h.passthrough ? "  (as sent)" : h.w > 0 ? "  (server made " + h.w + "x" + h.h + ")" : "") : "",
-                out, rate[0], (long) (rate[5] * 8 / 1000), rate[6] > 0 ? String.format(Locale.ROOT, "  shed %.0f/s", rate[6]) : "",
+                "with %s  call #%d  %s\nreceiving  %s  %.1f fps  %d kb/s%s\nsending    %s  %.1f fps  %d kb/s (ceiling L%d)\naudio      in %.0f/s  out %.0f/s%s\nshed       video %.0f/s  audio %.0f/s  key requests %d\nlink       %s\n%s",
+                with, callsMade, fmtTime(now - callStartMs),
+                in, rate[1], (long) (rate[2] * 8 / 1000), h.present ? (h.audioOnly ? "  (server: audio only)" : h.passthrough ? "  (as sent)" : h.w > 0 ? "  (server made " + h.w + "x" + h.h + ")" : "") : "",
+                out, rate[0], (long) (rate[5] * 8 / 1000), s.ceiling,
                 rate[4], rate[3], audio.micState.equals("on") ? (audio.muted() ? "  (muted)" : "") : "  (mic: " + audio.micState + ")",
-                linkBps == 0 ? "unlimited" : (linkBps / 1000) + " kb/s"));
+                rate[6], rate[7], s.keyreqs,
+                linkBps == 0 ? "unlimited" : linkBps >= 1000000 ? String.format(Locale.ROOT, "%.2f Mb/s", linkBps / 1e6) : (linkBps / 1000) + " kb/s",
+                channelLines()));
         long quiet = now - lastMediaMs;
         peerT.setText(with + (quiet > 10000 ? String.format(Locale.ROOT, "  ·  nothing from the call for %d s", quiet / 1000)
                 : "  ·  " + fmtTime(now - callStartMs)));
+    }
+
+    /** The channel's lines of the overlay: protocol, cipher, 8 characters of a hash of the key, where the memory is,
+     *  what this phone's planes have done under the frame, and the last change with how long ago. */
+    private String channelLines() {
+        Channel ch = Channel.watching();
+        if (ch == null) return "channel    none";
+        Map<String, String> f = ch.fields();
+        String number = f.get("number");
+        boolean sealed = !(number == null || number.isEmpty() || number.equals("0"));
+        ChannelFrame.Counts n = ch.totals();
+        StringBuilder b = new StringBuilder();
+        b.append("channel    ").append(ch.role).append(ch.framed ? "" : " (planes NOT under the frame)")
+                .append("\nprotocol   ").append(f.get("driver") == null ? "tcp" : f.get("driver"))
+                .append("\ncipher     ").append(sealed ? f.get("protection") + "  key " + ch.keyTag() : "not sealed")
+                .append("\nmemory     ").append(RamAt.text())
+                .append(String.format(Locale.ROOT, "\nframed     %d kB out  %d kB in", n.sent / 1000, n.received / 1000))
+                .append(String.format(Locale.ROOT, "\nswitches   sent: protocol %d  key/cipher %d\n           received: protocol %d  key/cipher %d", n.protocol[0], n.encryption[0], n.protocol[1], n.encryption[1]))
+                .append(String.format(Locale.ROOT, "\nsent again %d  not opened %d", n.sentAgain, n.notOpened));
+        String[] lc = ch.lastChange();
+        if (!lc[0].isEmpty()) {
+            long age = Long.parseLong(lc[2]);
+            b.append("\nlast       ").append(lc[0]).append("\n           at ").append(lc[1]).append(" (").append(age < 90 ? age + " s" : (age / 60) + " min").append(" ago)  ")
+                    .append(ch.changes()).append(" taken");
+        }
+        if (!ch.ignored().isEmpty()) b.append("\nIGNORED    ").append(ch.ignored());
+        return b.toString();
+    }
+
+    /** The Channel panel's first line: what the Role's setting is now. */
+    private String channelNow() {
+        Channel ch = Channel.watching();
+        if (ch == null) return "No channel";
+        Map<String, String> f = ch.fields();
+        String number = f.get("number");
+        boolean sealed = !(number == null || number.isEmpty() || number.equals("0"));
+        return "Now: " + (f.get("driver") == null ? "tcp" : f.get("driver")) + "  ·  " + (sealed ? f.get("protection") + "  ·  key " + ch.keyTag() : "not sealed") + "  ·  memory " + RamAt.text();
     }
 
     private static String fmtTime(long ms) { long s = ms / 1000; return String.format(Locale.ROOT, "%d:%02d", s / 60, s % 60); }
@@ -851,7 +909,7 @@ public class CommunicatorActivity extends Activity {
 
     private void ownerChange(final String what, final Channel.Change c) {
         if (ramAddr == null) { toastLog("no Communicator in this pond"); return; }
-        secResultT.setText("Setting " + what + " …");
+        secResultT.setText("Setting " + what + " …"); chanResultT.setText("Setting " + what + " …");
         Diag.log("[security] the owner sets " + what);
         sec.execute(new Runnable() { public void run() {
             String out;
@@ -866,7 +924,11 @@ public class CommunicatorActivity extends Activity {
             catch (Exception e) { out = "Not set: " + e.getMessage(); }
             final String said = out;
             Diag.log("[security] " + said.replace('\n', ' '));
-            ui.post(new Runnable() { public void run() { secResultT.setText(said); secShownAt = 0; refreshSecurity(); } });
+            ui.post(new Runnable() { public void run() {
+                secResultT.setText(said); chanResultT.setText(said); chanNowT.setText(channelNow());
+                secShownAt = 0;
+                if (securityV.getVisibility() == View.VISIBLE) refreshSecurity();
+            } });
         } });
     }
 
@@ -1013,11 +1075,17 @@ public class CommunicatorActivity extends Activity {
         statsPanel.setOrientation(LinearLayout.VERTICAL);
         statsPanel.setPadding(dp(12), dp(10), dp(12), dp(10));
         statsPanel.setBackground(round(0xB0000000, 10));
-        statsT = text("", 12, 0xFFD8F0E0, false);
+        statsT = text("", 11, 0xFFD8F0E0, false);
         statsT.setTypeface(Typeface.MONOSPACE);
         statsPanel.addView(statsT);
         linkT = text("Link: unlimited", 12, 0xFFD8F0E0, false);
-        statsPanel.addView(linkT, gap(8, 0));
+        LinearLayout linkRow = new LinearLayout(this);
+        linkRow.setGravity(Gravity.CENTER_VERTICAL);
+        linkRow.addView(linkT, new LinearLayout.LayoutParams(0, -2, 1));
+        Button diag = button("Log", CHIP, FG);
+        diag.setOnClickListener(new View.OnClickListener() { public void onClick(View v) { show(diagV); } });
+        linkRow.addView(diag, new LinearLayout.LayoutParams(-2, dp(34)));
+        statsPanel.addView(linkRow, gap(6, 0));
         linkS = new SeekBar(this);
         linkS.setMax(K_STEPS);
         linkS.setProgress(K_STEPS);
@@ -1027,9 +1095,6 @@ public class CommunicatorActivity extends Activity {
             public void onStopTrackingTouch(SeekBar s) { }
         });
         statsPanel.addView(linkS, new LinearLayout.LayoutParams(-1, dp(32)));
-        Button diag = button("Log", CHIP, FG);
-        diag.setOnClickListener(new View.OnClickListener() { public void onClick(View v) { show(diagV); } });
-        statsPanel.addView(diag, new LinearLayout.LayoutParams(-2, dp(36)));
         FrameLayout.LayoutParams stp = new FrameLayout.LayoutParams(-1, -2, Gravity.TOP);
         stp.topMargin = dp(52); stp.leftMargin = dp(12); stp.rightMargin = dp(12);
         statsPanel.setVisibility(View.GONE);
@@ -1059,12 +1124,54 @@ public class CommunicatorActivity extends Activity {
         chatPanel.addView(say, gap(8, 0));
         chatPanel.setVisibility(View.GONE);
         FrameLayout.LayoutParams cp = new FrameLayout.LayoutParams(-1, -2, Gravity.BOTTOM);
-        cp.bottomMargin = dp(84); cp.leftMargin = dp(12); cp.rightMargin = dp(12);
+        cp.bottomMargin = dp(140); cp.leftMargin = dp(12); cp.rightMargin = dp(12);
         f.addView(chatPanel, cp);
-        // controls
+        // [SWITCHED_FROM_THE_CALL_V1] the Channel panel: cipher, key, protocol and where the memory is, changed while the call runs
+        channelPanel = new ScrollView(this);
+        channelPanel.setBackground(round(0xE0121A16, 14));
+        LinearLayout chn = new LinearLayout(this);
+        chn.setOrientation(LinearLayout.VERTICAL);
+        chn.setPadding(dp(12), dp(10), dp(12), dp(10));
+        chanNowT = text("", 13, FG, false);
+        chn.addView(chanNowT);
+        chn.addView(row("Cipher", new String[]{"Not sealed", "AES-256-GCM", "ChaCha20"}, new Runnable[]{
+                change("not sealed", "", "", true, false), change("sealed with aes-256-gcm", "", "aes-256-gcm", false, false),
+                change("sealed with chacha20-poly1305", "", "chacha20-poly1305", false, false)}), gap(8, 0));
+        chn.addView(row("Protocol", new String[]{"tcp", "chorus", "openqasm"}, new Runnable[]{
+                change("protocol tcp", "tcp", "", false, false), change("protocol chorus", "chorus", "", false, false), change("protocol openqasm", "openqasm", "", false, false)}), gap(8, 0));
+        chn.addView(text("Key, and the RAM host (another comms-ram that is running)", 13, MUTED, false), gap(8, 0));
+        LinearLayout kr = new LinearLayout(this);
+        kr.setGravity(Gravity.CENTER_VERTICAL);
+        Button newKey = button("New key", CHIP, FG);
+        final Runnable nk = change("a new key", "", "", false, true);
+        newKey.setOnClickListener(new View.OnClickListener() { public void onClick(View v) { nk.run(); } });
+        kr.addView(newKey, new LinearLayout.LayoutParams(-2, dp(44)));
+        chanRamE = edit("", InputType.TYPE_CLASS_TEXT | InputType.TYPE_TEXT_VARIATION_URI);
+        chanRamE.setHint("host:port");
+        LinearLayout.LayoutParams rep = new LinearLayout.LayoutParams(0, -2, 1); rep.leftMargin = dp(8);
+        kr.addView(chanRamE, rep);
+        Button moveB = button("Move", AMBER, Color.BLACK);
+        moveB.setOnClickListener(new View.OnClickListener() { public void onClick(View v) {
+            String to = chanRamE.getText().toString().trim();
+            if (!to.matches(".+:\\d+")) { toastLog("the new RAM host as host:port"); return; }
+            Channel.Change c = new Channel.Change();
+            c.moveHost = to.substring(0, to.lastIndexOf(':')); c.movePort = Integer.parseInt(to.substring(to.lastIndexOf(':') + 1));
+            ownerChange("the memory to " + to, c);
+        } });
+        LinearLayout.LayoutParams mvp = new LinearLayout.LayoutParams(-2, dp(44)); mvp.leftMargin = dp(8);
+        kr.addView(moveB, mvp);
+        chn.addView(kr, gap(4, 0));
+        chanResultT = text("", 13, AMBER, false);
+        chn.addView(chanResultT, gap(8, 0));
+        channelPanel.addView(chn);
+        channelPanel.setVisibility(View.GONE);
+        FrameLayout.LayoutParams chp = new FrameLayout.LayoutParams(-1, -2, Gravity.BOTTOM);
+        chp.bottomMargin = dp(140); chp.leftMargin = dp(12); chp.rightMargin = dp(12);
+        f.addView(channelPanel, chp);
+        // controls: two rows -- what to look at, then the call itself
         LinearLayout bar = new LinearLayout(this);
         callBar = bar;
-        bar.setGravity(Gravity.CENTER);
+        bar.setOrientation(LinearLayout.VERTICAL);
         bar.setPadding(dp(8), dp(20), dp(8), dp(20));
         bar.setBackground(new android.graphics.drawable.GradientDrawable(android.graphics.drawable.GradientDrawable.Orientation.BOTTOM_TOP,
                 new int[]{0x99000000, 0x00000000}));
@@ -1081,6 +1188,13 @@ public class CommunicatorActivity extends Activity {
         spkB = ctl("Earpiece", new View.OnClickListener() { public void onClick(View v) { audio.setSpeaker(!audio.speaker()); updateButtons(); } });
         Button chat = ctl("Chat", new View.OnClickListener() { public void onClick(View v) {
             chatPanel.setVisibility(chatPanel.getVisibility() == View.VISIBLE ? View.GONE : View.VISIBLE);
+            if (chatPanel.getVisibility() == View.VISIBLE) channelPanel.setVisibility(View.GONE);      // they share the place
+            showChrome();
+        } });
+        Button chan = ctl("Channel", new View.OnClickListener() { public void onClick(View v) {
+            boolean open = channelPanel.getVisibility() != View.VISIBLE;
+            channelPanel.setVisibility(open ? View.VISIBLE : View.GONE);
+            if (open) { chatPanel.setVisibility(View.GONE); statsPanel.setVisibility(View.VISIBLE); chanNowT.setText(channelNow()); }   // a change is watched in the Stats
             showChrome();
         } });
         Button stats = ctl("Stats", new View.OnClickListener() { public void onClick(View v) {
@@ -1089,11 +1203,18 @@ public class CommunicatorActivity extends Activity {
         } });
         Button end = button("End", RED, Color.WHITE);
         end.setOnClickListener(new View.OnClickListener() { public void onClick(View v) { hangUp(null); } });
-        for (Button b : new Button[]{micB, camB, spkB, chat, stats}) {
-            LinearLayout.LayoutParams bp = new LinearLayout.LayoutParams(0, dp(48), 1); bp.rightMargin = dp(6);
-            bar.addView(b, bp);
+        LinearLayout look = new LinearLayout(this), doing = new LinearLayout(this);
+        Button[] lookB = {chat, stats, chan}, doingB = {micB, camB, spkB, end};
+        for (int k = 0; k < lookB.length; k++) {
+            LinearLayout.LayoutParams bp = new LinearLayout.LayoutParams(0, dp(48), 1); if (k > 0) bp.leftMargin = dp(6);
+            look.addView(lookB[k], bp);
         }
-        bar.addView(end, new LinearLayout.LayoutParams(0, dp(48), 1));
+        for (int k = 0; k < doingB.length; k++) {
+            LinearLayout.LayoutParams bp = new LinearLayout.LayoutParams(0, dp(48), 1); if (k > 0) bp.leftMargin = dp(6);
+            doing.addView(doingB[k], bp);
+        }
+        bar.addView(look, new LinearLayout.LayoutParams(-1, -2));
+        bar.addView(doing, gap(8, 0));
         f.addView(bar, new FrameLayout.LayoutParams(-1, -2, Gravity.BOTTOM));
         return f;
     }
@@ -1104,7 +1225,7 @@ public class CommunicatorActivity extends Activity {
     private int selfCorner;
     private final Runnable hideChrome = new Runnable() { public void run() {
         RemoteVideo rv = remote;
-        boolean busy = chatPanel.getVisibility() == View.VISIBLE || statsPanel.getVisibility() == View.VISIBLE;
+        boolean busy = chatPanel.getVisibility() == View.VISIBLE || statsPanel.getVisibility() == View.VISIBLE || channelPanel.getVisibility() == View.VISIBLE;
         if (busy || rv == null || rv.picW == 0) { ui.postDelayed(this, 4000); return; }   // nothing to look at yet: keep them
         fadeChrome(false);
     } };
@@ -1129,7 +1250,7 @@ public class CommunicatorActivity extends Activity {
     private void toggleChrome() {
         if (callBar.getVisibility() == View.VISIBLE && callBar.getAlpha() > 0.5f) {
             ui.removeCallbacks(hideChrome);
-            chatPanel.setVisibility(View.GONE); statsPanel.setVisibility(View.GONE);
+            chatPanel.setVisibility(View.GONE); statsPanel.setVisibility(View.GONE); channelPanel.setVisibility(View.GONE);
             fadeChrome(false);
         } else showChrome();
     }

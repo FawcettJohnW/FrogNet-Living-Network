@@ -1,0 +1,29 @@
+PASS  the phone sees who is there: the room lists Home
+PASS  Home's call rings on the phone
+PASS  the phone answers: the call screen is up
+PASS  the Stats show call #1 with Home, sealed with aes-256-gcm, and the key's hash
+PASS  'ChaCha20' during the call: "sealed with chacha20-poly1305: 3 end(s) there: 3 running it", the Stats show "cipher chacha20-poly1305 key " (367 ms from the tap)
+PASS  'New key' during the call: "a new key: 3 end(s) there: 3 running it", the Stats show "last new key" (747 ms from the tap)
+PASS  the key's hash on the screen changes with the key: 4e01b408 -> c46b04d6 -> d991c41e
+PASS  'chorus' during the call: "protocol chorus: 3 end(s) there: 3 running it", the Stats show "protocol chorus" (533 ms from the tap)
+PASS  'Not sealed' during the call: "not sealed: 3 end(s) there: 3 running it", the Stats show "cipher not sealed" (490 ms from the tap)
+PASS  'openqasm' during the call: "protocol openqasm: 3 end(s) there: 3 running it", the Stats show "protocol openqasm" (726 ms from the tap)
+PASS  'AES-256-GCM' during the call: "sealed with aes-256-gcm: 3 end(s) there: 3 running it", the Stats show "cipher aes-256-gcm key " (567 ms from the tap)
+PASS  'tcp' during the call: "protocol tcp: 3 end(s) there: 3 running it", the Stats show "protocol tcp" (750 ms from the tap)
+PASS  'Move' during the call: "the memory to 127.0.0.1:24501: 3 end(s) there: 3 attached there", the Stats show "memory 127.0.0.1:24501" (652 ms from the tap)
+PASS  after the eight changes Home's audio still arrives at about 50 packets a second: 50
+[robo] retries in call #1: sent again 9532  not opened 2
+PASS  the Stats count the switch calls this phone's planes sent: protocol 6, key/cipher 8
+PASS  Home hangs up: the phone's call ends by itself and it is back in the room
+PASS  again: the phone calls Home and the call screen is up
+PASS  the Stats show call #2 with Home
+PASS  'ChaCha20' during the call: "sealed with chacha20-poly1305: 3 end(s) there: 3 running it", the Stats show "cipher chacha20-poly1305 key " (740 ms from the tap)
+PASS  'New key' during the call: "a new key: 3 end(s) there: 3 running it", the Stats show "last new key" (517 ms from the tap)
+PASS  in call #2, after two more changes, Home's audio arrives at about 50 packets a second: 52
+PASS  the phone hangs up: back in the room
+ROBO PASS run=1 failed=0
+PASS  the app's activity ran the whole cycle under Robolectric
+PASS  Home took every setting the phone wrote (1 at the start + 8 in call 1 + 2 in call 2): 12
+PASS  Home was rung by the phone's call and saw the phone hang up
+PASS  Home received the phone's audio under the frame in both calls: 105745 and 74405 packets (113808 kB in all; 1083 frame(s) did not open at first and were sent again)
+RESULT PASS the phone's activity: who is there, answer, eight changes from the call, the other end hangs up, call again, two more changes, hang up: 0 fail

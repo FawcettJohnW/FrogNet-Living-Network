@@ -44,6 +44,12 @@ public final class Channel {
     private Map<String, String> fields = new TreeMap<String, String>();
     private String ignored = "";
     private volatile long changes = 0;
+    // [THE_OVERLAY_SHOWS_THE_CHANNEL_V1] what the call's overlay shows of the channel: the last change and when, 8
+    // characters of a hash of the key this app sends under (never the key), and what its planes have done
+    private String changedWhat = "", changedAt = "", keyTag = "";
+    private long changedNs = 0;
+    private final ChannelFrame.Counts gone = new ChannelFrame.Counts();        // of the planes that have closed
+    private Map<WeakReference<ChannelFrame.Codec>, ChannelFrame.Counts> seen = new java.util.IdentityHashMap<WeakReference<ChannelFrame.Codec>, ChannelFrame.Counts>();
     private final List<WeakReference<ChannelFrame.Codec>> codecs = new ArrayList<WeakReference<ChannelFrame.Codec>>();
     private static volatile Channel process, watching;
 
@@ -126,6 +132,26 @@ public final class Channel {
             catch (ChannelFrame.Gone e) { ignored = e.getMessage(); say("a setting of '" + role + "' is IGNORED: " + ignored); return; }
             if (!t.taken) { ignored = t.why; say("a setting of '" + role + "' is IGNORED: " + t.why + ". This app keeps " + text(held)); return; }
             ignored = "";
+            String hNow = f.get("ram_host"), pNow = f.get("ram_port");
+            List<String> what = new ArrayList<String>();
+            if (held == null) what.add("first setting: " + t.setting.driver + ", " + cipherOf(t.setting));
+            else {
+                if (!held.driver.equals(t.setting.driver)) what.add("protocol " + held.driver + " -> " + t.setting.driver);
+                if (!cipherOf(held).equals(cipherOf(t.setting))) what.add("cipher " + cipherOf(held) + " -> " + cipherOf(t.setting));
+                else if (held.number != t.setting.number) what.add("new key");
+                if (hNow != null && !hNow.isEmpty() && !(hNow.equals(fields.get("ram_host")) && String.valueOf(pNow).equals(String.valueOf(fields.get("ram_port")))))
+                    what.add("memory -> " + hNow + ":" + pNow);
+            }
+            StringBuilder wb = new StringBuilder();
+            for (String x : what) wb.append(wb.length() > 0 ? ", " : "").append(x);
+            changedWhat = wb.length() > 0 ? wb.toString() : "setting written again";
+            changedNs = System.nanoTime();
+            changedAt = new java.text.SimpleDateFormat("HH:mm:ss.SSS", java.util.Locale.ROOT).format(new java.util.Date());
+            keyTag = "";
+            if (t.setting.number != 0) {
+                try { keyTag = ChannelFrame.secretFingerprint(ChannelFrame.keyFor(ChannelFrame.secretAt(ChannelFrame.lower(role), t.setting.step, secrets).value, sender, ChannelFrame.lower(role), t.setting.number)); }
+                catch (ChannelFrame.Gone e) { keyTag = "no secret"; }
+            }
             held = t.setting;
             fields = new TreeMap<String, String>(f); fields.remove("ts");
             changes++;
@@ -146,6 +172,39 @@ public final class Channel {
     public String ignored() { synchronized (mu) { return ignored; } }
     public Map<String, String> fields() { synchronized (mu) { return new TreeMap<String, String>(fields); } }
     public boolean readOnce() { return readOnce; }
+
+    private static String cipherOf(ChannelFrame.Setting h) { return h.number != 0 ? h.protection : "not sealed"; }
+
+    /** 8 characters of a hash of the key this app sends under now ("" when not sealed, "no secret" without one). */
+    public String keyTag() { synchronized (mu) { return keyTag; } }
+
+    /** {what changed, the wall clock then, seconds since}; what is "" before the first setting. */
+    public String[] lastChange() {
+        synchronized (mu) { return new String[]{changedWhat, changedAt, changedWhat.isEmpty() ? "-1" : String.valueOf((System.nanoTime() - changedNs) / 1000000000L)}; }
+    }
+
+    private static void add(ChannelFrame.Counts t, ChannelFrame.Counts c) {
+        t.sent += c.sent; t.received += c.received; t.notOpened += c.notOpened; t.sentAgain += c.sentAgain;
+        for (int i = 0; i < 2; i++) {
+            t.protocol[i] += c.protocol[i]; t.encryption[i] += c.encryption[i]; t.notOpenedCalls[i] += c.notOpenedCalls[i];
+            t.again[i] += c.again[i]; t.receivedCalls[i] += c.receivedCalls[i];
+        }
+    }
+
+    /** What this app's planes have done under the frame, summed over every plane it has had (a plane that has closed
+     *  keeps what it had done when this was last asked; the screen asks twice a second). */
+    public ChannelFrame.Counts totals() {
+        synchronized (mu) {
+            Map<WeakReference<ChannelFrame.Codec>, ChannelFrame.Counts> live = new java.util.IdentityHashMap<WeakReference<ChannelFrame.Codec>, ChannelFrame.Counts>();
+            for (WeakReference<ChannelFrame.Codec> w : codecs) { ChannelFrame.Codec cd = w.get(); if (cd != null) live.put(w, cd.counts()); }
+            for (Map.Entry<WeakReference<ChannelFrame.Codec>, ChannelFrame.Counts> e : seen.entrySet()) if (!live.containsKey(e.getKey())) add(gone, e.getValue());
+            seen = live;
+            ChannelFrame.Counts t = new ChannelFrame.Counts();
+            add(t, gone);
+            for (ChannelFrame.Counts c : live.values()) add(t, c);
+            return t;
+        }
+    }
 
     /** This app's report: the setting it is running, or the one it ignored and why. No key, no secret. */
     Map<String, Object> report() {

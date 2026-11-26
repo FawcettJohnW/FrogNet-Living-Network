@@ -106,7 +106,7 @@ Each prints one PASS or FAIL line per check and `RESULT PASS`. `docs/CHANNEL.md`
 ## The memory moves; the Security tab; the phone (2026-11-25)
 
     python3 tests/py/test_the_memory_moves.py build            # the memory moved twice under a real call; about 50 s
-    bash ../../../../fdf/src/frognet-android/communicator-test/run_tests.sh .   # the phone's core, 4 steps; about 3 minutes
+    bash ../../../../fdf/src/frognet-android/communicator-test/run_tests.sh .   # the phone: its core (steps 1 to 4) and its own activity through the whole cycle (step 5, Robolectric); about 6 minutes
 
 The Security tab's buttons, pressed by the window itself against a live call (offscreen, with a screenshot):
 

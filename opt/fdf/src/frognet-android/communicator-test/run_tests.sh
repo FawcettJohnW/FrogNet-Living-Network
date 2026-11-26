@@ -9,7 +9,8 @@
 #   2 core      the Java protocol core against comms-ram + comms-media + the C++ and Python Communicators
 #   3 frame     the phone's frame (core/ChannelFrame.java) against the C++ library (ribbit/cpp), both directions
 #   4 secure    the Java core in a sealed call: nine switches by its owner code, the memory moved, wrong secret, no frame
-#   5 app       the app's MainActivity under Robolectric (the framework's own code) against the same, both call ways
+#   5 app       the app's CommunicatorActivity under Robolectric (the framework's own code): who is there, answer, eight
+#               changes from the call's Channel panel, the other end hangs up, call again, two more changes, hang up
 set -euo pipefail
 cd "$(dirname "$0")/.."
 C=$(cd "$1" && pwd); B=$C/build
@@ -42,6 +43,13 @@ echo "== 3 frame";    CHANNEL_FRAME_LIB="$B" python3 $TD/test_android_frame.py "
 echo "== 4 secure";   python3 $TD/test_android_secure.py "$B" "$C" build/jvm build/testmedia | tee $OUT/test_android_secure.log | grep -E "FAIL|RESULT"
 
 echo "== 5 app (Robolectric)"
-# the app's own classes come from an Android build (tools/make_apk.sh, with the SDK); the phone's Activity under
-# Robolectric is run by rinab/kart/android/test/phone-test.sh (the kart app, which carries this Communicator)
-echo "SKIP 5 the app flow: needs the app's classes from an Android SDK build (tools/make_apk.sh); see phone-test.sh"
+# [SWITCHED_FROM_THE_CALL_V1] the app's own CommunicatorActivity on the Android framework's code, with no Android SDK:
+# its Java compiled against Robolectric's android-all (robo/setup.sh fetches that once into $R), then the whole cycle
+# against comms-ram, comms-media and the Python Communicator. tools/make_apk.sh (with the SDK) builds the APK.
+bash $TD/robo/setup.sh "$R" 2>&1 | grep -v "JAVA_\|^WARNING" || true
+rm -rf build/appcls build/robocls; mkdir -p build/appcls build/robocls
+L=$(ls "$R"/lib/*.jar | tr '\n' ':')
+javac -Xlint:-options -nowarn -cp "$R/android-all-13.jar" -d build/appcls $(find app/src/main/java/net/frognet/communicator -name '*.java') 2>&1 | grep -v "^Note:" || true
+javac -nowarn -cp "$L$R/android-all-13.jar:build/appcls" -d build/robocls $TD/robo/AppCycleTest.java 2>&1 | grep -v "^Note:" || true
+python3 $TD/test_app_cycle.py "$B" "$C" "${L}build/appcls:build/robocls:$R/android-all-13.jar" "$R/deps" > $OUT/test_app_cycle.log 2>&1 || true
+grep -E "^FAIL|^RESULT" $OUT/test_app_cycle.log
