@@ -81,7 +81,15 @@ def claimant(a):
     last = max([c["id"] for c in memory.read(S, "go")] + [0])
     stores = {}
     while True:
-        for go in sorted(held(memory, "go", last), key=lambda c: c["id"]):
+        try:
+            gos = held(memory, "go", last)
+        except ribbit.RibbitError as gone:
+            # [A_CLAIMANT_SAYS_ITS_RAM_IS_GONE_V1] (John's nodes, 2026-11-26: the RAM host was restarted, the claimants that were
+            # running ended in a traceback or were taken to be there still, and the controller waited for them in silence.)
+            print("[race] claimant %s: the RAM at %s is gone (%s). It announced itself in that RAM and is in no other: this claimant ends. Start it again."
+                  % (who, a.ram, str(gone).split(": ", 1)[-1]), flush=True)
+            return 1
+        for go in sorted(gos, key=lambda c: c["id"]):
             last = max(last, go["id"]); g = go["bag"]
             if g.get("end"):
                 print("[race] claimant %s: told to end" % who, flush=True); memory.close(); return
@@ -126,12 +134,25 @@ def controller(a):
     for c in memory.read(S, "can"):
         last = max(last, c["id"])
         if c["bag"]: cans[c["instance"]] = c["bag"]
+    # [THE_CONTROLLER_SAYS_WHO_IT_WAITS_FOR_V1] it holds a read until that many claimants are in this RAM, and says so
+    said = lambda: print("[race] controller: %s; RAM at %s; %d of %d claimant(s) present%s%s" % (BUILD.split(" [")[0], a.ram, len(cans), a.claimants,
+                         ": " + " ".join(sorted(cans)) if cans else "", "" if len(cans) >= a.claimants else
+                         "; holding a read for %d more (a claimant started before this RAM was started is not in it: start it again)" % (a.claimants - len(cans))), flush=True)
+    said()
     while len(cans) < a.claimants:
         for c in held(memory, "can", last):
             last = max(last, c["id"])
             if c["bag"]: cans[c["instance"]] = c["bag"]
             else: cans.pop(c["instance"], None)
+        said()
     builds = sorted({b.get("build") for b in cans.values()})
+    try: host = str(memory.call("GET", API + "?op=version", "").get("version")).split(" [")[0]
+    except ribbit.RibbitError as e: host = "it did not say (%s)" % str(e).split(": ", 1)[-1]
+    same = lambda b: str(b).split(" [")[0].split(" ", 1)[-1]   # "0.11 2026-11-26j" of "worldshepherd-ribbit 0.11 2026-11-26j [...]"
+    if a.store != "postgres" and (builds != [BUILD] or same(host) != same(BUILD)):   # one build everywhere: a mix answers each other wrongly
+        print("[race] controller: NOT RUN: the RAM host, the claimants and this controller are not all one build.\n  the RAM host at %s: %s\n  this controller: %s\n%s"
+              % (a.ram, host, BUILD.split(" [")[0], "\n".join("  %s: %s" % (w, str(cans[w].get("build")).split(" [")[0]) for w in sorted(cans))), flush=True)
+        return 2
     run = secrets.token_hex(4); now = time.time()
     store = make_store(a.store, a.ram, "issuer")
     if a.store == "postgres": store.initialize()
