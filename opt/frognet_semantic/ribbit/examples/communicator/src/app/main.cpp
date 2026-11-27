@@ -19,6 +19,7 @@
 // of the Role's setting by the library (comms/channel.cpp channel_change), as comms-channel makes it.
 #include "comms/channel.hpp"
 #include "comms/secret_qr.hpp"
+#include "frogqr_qt.hpp"
 #include "comms/call.hpp"
 #include "comms/stamp.hpp"
 #include "fnav/bearer.hpp"
@@ -638,14 +639,7 @@ public:
         SecretQr q;
         try { q = secret_qr(role, channel_secrets_dir()); }
         catch (const std::exception& e) { said_both(QString::fromStdString(std::string("No QR code: ") + e.what())); return; }
-        const int quiet = 4, px = std::max(4, 440 / (q.size + 2 * quiet)), side = (q.size + 2 * quiet) * px;
-        QImage img(side, side, QImage::Format_RGB32);
-        img.fill(Qt::white);
-        {
-            QPainter p(&img);
-            for (int y = 0; y < q.size; ++y) for (int x = 0; x < q.size; ++x)
-                if (q.dark[size_t(y) * size_t(q.size) + size_t(x)]) p.fillRect((x + quiet) * px, (y + quiet) * px, px, px, Qt::black);
-        }
+        const QImage img = frogqr::image(q.dark, q.size, std::max(6, 520 / (q.size + 8)));   // [FROG_QR_V1] a FrogNet QR code: a frog
         QDialog d(this);
         d.setWindowTitle("The secret, for the phone to scan");
         auto* v = new QVBoxLayout(&d); v->setSpacing(12); v->setContentsMargins(20, 20, 20, 20);
@@ -655,7 +649,7 @@ public:
                                                        + ", hash " + q.hash + (q.step > 0 ? ", at step " + std::to_string(q.step) : std::string())));
         what->setObjectName("value"); what->setAlignment(Qt::AlignCenter);
         v->addWidget(what);
-        auto* how = new QLabel("On the phone: Security, then Scan secret. The phone then shows the same hash.\n"
+        auto* how = new QLabel("A FrogNet QR code. On the phone: Security, then Scan secret. The phone then shows the same hash.\n"
                                "Whoever photographs this code holds the secret. It closes by itself in 60 seconds.");
         how->setObjectName("muted"); how->setAlignment(Qt::AlignCenter); how->setWordWrap(true);
         v->addWidget(how);

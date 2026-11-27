@@ -188,8 +188,6 @@ target_link_libraries(room_probe comms)
 # the owner's command for a Role's channel setting, and the test of a call under the frame
 add_executable(comms-channel tools/comms_channel.cpp)
 target_link_libraries(comms-channel comms)
-add_executable(test_secret_qr tests/test_secret_qr.cpp)
-target_link_libraries(test_secret_qr comms)
 if(NOT WIN32)
   add_executable(test_channel tests/test_channel.cpp)
   target_link_libraries(test_channel media_server)

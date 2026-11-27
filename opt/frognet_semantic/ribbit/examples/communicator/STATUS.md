@@ -1,25 +1,26 @@
-## 2026-11-27 (later): the secret by QR code; reset for a demonstration (comms-app r7, Android r8)
+## 2026-11-27 (later): the secret by FrogNet QR code; reset for a demonstration (comms-app r8, Android r9)
 
 John: "Import secret kinda sucks. Let's have the Windows app display a QR code for the Android to import from. Either
 the QR code or a file." ... "I also need a way to reset both the Android and Windows machines so I can do a demo" ...
 "The QR code should be a FrogNet QR code".
 
 - **Security tab, "Show the secret as a QR code..."** (`src/comms/secret_qr.cpp`, [A_SECRET_IS_SHOWN_TO_BE_SCANNED_V1]):
-  this machine's secret for the Role as a QR code in a dialog, with its hash; it closes itself after 60 s. The code
-  holds a FrogNet line, as an invitation and a join line are: `fdfsec1.<base64url of {"v":1,"name","step","secret"}>`.
-  Never printed or logged. The generator is Project Nayuki's (MIT), unmodified, in `third_party/qrcodegen`.
+  this machine's secret for the Role as a FrogNet QR code in a dialog, with its hash; it closes itself after 60 s.
+  r8: it is the frog ([FROG_QR_V1], `src/app/frogqr_qt.hpp`: OpenEOC's `frogqr.js` ported to Qt: lily pads, eyes, the
+  logo's frog in the middle, error correction H), and it holds a short FrogNet line, `fdfsec1 NAME STEP SECRET`.
+  Never printed or logged. The module generator is Project Nayuki's (MIT), unmodified, in `third_party/qrcodegen`.
 - **The phone (r8), Security tab:** **Scan secret...** (the back camera, `SecretScanActivity`, ZXing core from Maven
   Central) keeps what it reads as that machine keeps it (the default, or a Role's own at its step) and says its hash;
   **Import file...** is what Import secret was; **Reset this phone** erases its secrets and clears the Communicator's
   settings ([THE_PHONE_IS_RESET_V1]).
 - **Security tab, "Reset the channel (tcp, not sealed)"** ([THE_CHANNEL_IS_RESET_V1]): two writes, the second when the
   first has been answered. The machine's secret stays.
-- Proof (frognet-android `communicator-test/run_tests.sh` step 6, and step 5 for the reset): the desktop's code for a
-  default secret and for a Role's own at step 7, and a picture of the dialog itself, are read by the phone's reader
-  out of a camera frame; the phone then says the hash the desktop says. `--security "qr FILE;reset"` presses both
+- Proof (frognet-android `communicator-test/run_tests.sh` step 6, and step 5 for the reset): the window's dialog for a
+  default secret and for a Role's own at step 7 is pictured and read by the phone's reader, as shown and out of a
+  camera frame (dimmer, noise, a quarter turn); the phone then says the hash the desktop says. `--security "qr FILE;reset"` presses both
   buttons unattended.
 - Not done: the phone's scanner has not run on a phone (the camera and its preview are not something Robolectric
-  has); r7 has not been built with MSVC (it compiles with MinGW-w64).
+  has); r8 has not been built with MSVC (it compiles with MinGW-w64).
 
 ## 2026-11-27: first run on Windows and on the phone; r6
 

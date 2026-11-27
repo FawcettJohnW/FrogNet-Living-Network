@@ -28,10 +28,10 @@ SecretQr secret_qr(const std::string& role, const std::string& dir) {
         if (!(std::isalnum(static_cast<unsigned char>(c)) || c == '_' || c == '-' || c == '.')) throw std::runtime_error("the Role's name '" + q.name + "' cannot be put in a QR code");
     q.step = s.step;
     q.hash = channel_frame::secret_fingerprint(s.value);
-    // a FrogNet line, as fdfinv1. and fdfjoin1. are: a word, a version, a dot, base64url of compact JSON, no padding
-    const std::string json = "{\"v\":1,\"name\":\"" + q.name + "\",\"step\":" + std::to_string(s.step) + ",\"secret\":\"" + base64url(s.value) + "\"}";
-    q.text = "fdfsec1." + base64url(channel_frame::Bytes(json.begin(), json.end()));
-    const qrcodegen::QrCode code = qrcodegen::QrCode::encodeText(q.text.c_str(), qrcodegen::QrCode::Ecc::MEDIUM);
+    // [FROG_QR_V1] a FrogNet line, short, as the enrollment line is (fdfenroll1 URL APP USER): plain text, parts apart
+    // by a space, because a frog code reads best when it is small. It is made at error correction H: the frog sits on it.
+    q.text = "fdfsec1 " + q.name + " " + std::to_string(s.step) + " " + base64url(s.value);
+    const qrcodegen::QrCode code = qrcodegen::QrCode::encodeText(q.text.c_str(), qrcodegen::QrCode::Ecc::HIGH);
     q.size = code.getSize();
     q.dark.resize(size_t(q.size) * size_t(q.size));
     for (int y = 0; y < q.size; ++y) for (int x = 0; x < q.size; ++x) q.dark[size_t(y) * size_t(q.size) + size_t(x)] = code.getModule(x, y);
