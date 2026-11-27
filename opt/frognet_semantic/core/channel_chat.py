@@ -28,6 +28,15 @@ How it works (the way anything on this system does): a line is a tuple a client 
 (chat, line, <its address>); each client holds a read on that family there and is woken by the other's write.
 Nothing is polled and neither client connects to the other. What a line says crosses sealed whenever the Role is.
 (A held read's fire names the tuple that changed, not what it holds, and is not sealed.)
+
+[A_CONVERSATION_HAS_A_NAME_V1] (v3, 26 Nov 2026; simulation/roles_exercise_tier.py --step chat-again). The client
+that starts names the conversation (a random word) and writes that into its own line tuple before it says anything.
+The other says it is here FOR the conversations it sees named, and says so again whenever a new one is named; an
+answer carries the name of the conversation of the line it answers. The starter takes only lines that carry its own
+conversation's name. Before v3 the starter treated whatever was in the memory at its first successful read as old,
+and the other said it was here once: when the starter's first read failed (the memory's name is in the hosts file a
+moment before its node answers for it) the other's one "is here" was already there when the read succeeded, was
+taken as old, and both waited for ever. That is what John saw each time he ran it again.
 """
 import argparse
 import contextlib
@@ -42,7 +51,7 @@ import time
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
-BUILD = "channel-chat-v2-20261126a"
+BUILD = "channel-chat-v3-20261126b"
 APP = "protocolchat"
 
 
@@ -153,22 +162,32 @@ def main(argv=None) -> int:
         mine = "%s.%s" % (me, os.getpid())
         print("   %-8s  %-12s  %-34s  %-9s  %s" % ("time", "who", "said", "round trip", "the Role's traffic now"))
 
-        state = {"n": 0, "sent_at": {}, "heard": {}, "answered": 0}
+        talk = os.urandom(4).hex() if a.start else ""        # [A_CONVERSATION_HAS_A_NAME_V1] the starter names it
+        state = {"n": 0, "sent_at": {}, "heard": {}, "answered": 0, "here_for": set(), "older": set()}
         typed = queue.Queue()
         got_one = threading.Event()
 
-        def say(text, re=0):
-            state["n"] += 1
+        def say(text, re=0, of="", here_for=None, opening=False):
+            """One line: this client's tuple, written again. of: the conversation it belongs to (the starter's own;
+            for an answer, the one of the line answered). here_for: the conversations an "is here" is said for.
+            opening: the starter's tuple before its first line, number 0, which names the conversation."""
+            if not opening:
+                state["n"] += 1
             n = state["n"]
-            state["sent_at"][n] = time.time()
+            if not opening:
+                state["sent_at"][n] = time.time()
             try:
-                made_cell = ram.write("chat", "line", mine, {"n": n, "from": node_name(me), "text": text, "re": re})
+                made_cell = ram.write("chat", "line", mine, {"n": n, "from": node_name(me), "text": text, "re": re, "talk": of or talk, "start": bool(a.start),
+                                                             "here_for": sorted(here_for or []), "build": BUILD})
                 if not any(c == made_cell for _h, c in made):
                     made.append((memory, made_cell))
             except Exception as e:
                 print("   %s  %-12s  %-34s  %-9s  %s" % (time.strftime("%H:%M:%S"), node_name(me), "NOT SAID: %s" % str(e), "", how()), flush=True)
+                if not opening:
+                    state["sent_at"].pop(n, None)
+                    state["n"] -= 1
                 return 0
-            return n
+            return n or 1
 
         def next_text(n):
             try:
@@ -180,13 +199,22 @@ def main(argv=None) -> int:
             """The held read on the conversation: woken by the other client's write."""
             def news(got):
                 fresh = False
+                named = set()                         # the conversations named in the memory now, by the clients that started them
                 for r in got:
                     name = str(r.get("SensorName") or "")
                     d = r.get("data") or {}
                     who = name[len("line."):]
                     if not name.startswith("line.") or who == mine or not isinstance(d, dict):
                         continue
+                    if d.get("start") and d.get("talk"):
+                        named.add(str(d["talk"]))
                     n = int(d.get("n") or 0)
+                    if "talk" not in d and who not in state["older"] and n > state["heard"].get(who, 0):
+                        state["older"].add(who)       # said once: a client from before v3 names no conversation
+                        print("   %s  (%s runs a channel_chat from before %s: its lines name no conversation and are not taken. Both nodes need this build)"
+                              % (time.strftime("%H:%M:%S"), str(d.get("from") or who), BUILD), flush=True)
+                    if a.start and (str(d.get("talk") or "") != talk and talk not in (d.get("here_for") or [])):
+                        continue                      # of another conversation: a client that ended and left its tuple
                     if n <= state["heard"].get(who, 0):
                         continue
                     state["heard"][who] = n
@@ -197,15 +225,21 @@ def main(argv=None) -> int:
                         rt = "%.0f ms" % ((time.time() - t) * 1000)
                         state["answered"] += 1
                     print("   %s  %-12s  %-34s  %-9s  %s" % (time.strftime("%H:%M:%S"), str(d.get("from") or who)[:12], str(d.get("text") or "")[:34], rt, how()), flush=True)
-                    if not a.start and not int(d.get("re") or 0) and not str(d.get("text") or "").endswith(" is here"):
-                        say(next_text(state["n"] + 1), re=n)       # the answer, at once
+                    if not a.start and d.get("start") and not int(d.get("re") or 0):
+                        say(next_text(state["n"] + 1), re=n, of=str(d.get("talk") or ""))       # the answer, at once
                     else:
                         got_one.set()
+                # the client that answers says it is here for each conversation named, and again when a new one is
+                # named or when saying so failed: the starter writes its tuple again every 10 s while it waits, and
+                # that write is the event this read wakes on
+                if not a.start and named - state["here_for"]:
+                    if say("%s is here" % node_name(me), here_for=named | state["here_for"]):
+                        state["here_for"] |= named
                 return fresh
             first = True
             while not stop.is_set():
                 try:
-                    if first:                         # what is there when this client starts is not news
+                    if first and not a.start:         # what is there when the answering client starts is not answered
                         for r in H.holder().wait_until("chat", memory, lambda got: True, name_like="line.%", wait_s=5):
                             who = str(r.get("SensorName") or "")[len("line."):]
                             state["heard"][who] = int(((r.get("data") or {}).get("n")) or 0)
@@ -233,11 +267,11 @@ def main(argv=None) -> int:
         if not a.no_keys and sys.stdin.isatty():
             threading.Thread(target=keyboard, daemon=True, name="chat-keys").start()
 
-        if not a.start:
-            say("%s is here" % node_name(me))            # the client that started waits for this
         if a.start:
             waited = time.time()
+            say("%s started the conversation" % node_name(me), opening=True)   # names it; the other says it is here for it
             while not got_one.wait(10) and not stop.is_set():
+                say("%s started the conversation" % node_name(me), opening=True)
                 print("   ... %.0f s: waiting for the other client. On another node: channel_chat.py" % (time.time() - waited), flush=True)
             while not stop.is_set():
                 got_one.clear()

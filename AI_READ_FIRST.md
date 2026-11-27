@@ -894,6 +894,10 @@ switched, the design as built, and in its section 11.3 what is built and what is
   `roles_exercise_tier.py --step chat`. `core/channel_test.py` part L also moves a memory between nodes (key h) and
   cycles tcp, chorus, openqasm (key p). All of the test's and the chat's memories on one node share that node's one
   store: give each its own value name.
+  v3 (2026-11-26, [A_CONVERSATION_HAS_A_NAME_V1]): the starter names the conversation and the other says it is here
+  FOR that name, again whenever a new one is named, so the chat can be ended and started again in either order. A
+  request in the first moment after a memory is elected can be refused (the proxy's 400 "Missing/invalid Host
+  header"); a caller says so and tries again. `simulation/roles_exercise_tier.py --step chat-again` is the test.
 - **Rules the full test taught, do not undo them.** (1) `[THE_NEWEST_CELL_IS_THE_SETTING_V1]`: a tuple is one cell
   per writing machine, and the store returns cells in no promised order; anything that reads "the" setting must go
   through `channel_setting.oldest_first` and let the last stand, and `channel_setting.write` removes the cells it

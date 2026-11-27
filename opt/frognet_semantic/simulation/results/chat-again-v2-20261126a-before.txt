@@ -1,0 +1,28 @@
+  [PASS] every site's daemon and proxy are up, told 'auto,databasehost_control.frognet chorus'
+  [PASS] every site's daemon is listening on chorus as well as TCP ({'Seattle5': True, 'Seattle3B': True, 'New-York-1': True})
+  [PASS] Seattle5 wrote its capability tuples into the SystemRam, offering warning, general ({'wrote': 2})
+  [PASS] Seattle3B wrote its capability tuples into the SystemRam, offering assessment, compute, instructor ({'wrote': 3})
+  [PASS] New-York-1 wrote its capability tuples into the SystemRam, offering command, units ({'wrote': 2})
+  [PASS] the application's configuration tuple is in the ControlRam: one application, 'exercise', with 7 memories ({'wrote': True})
+  [PASS] the application election, run on each machine, elected the seven Roles' memories, the same on every machine: warningHost.exercise on Seattle5, exerciseHost.frognet on Seattle5, assessmentHost.exercise on Seattle3B, computeHost.exercise on Seattle3B, i
+  [PASS] every site's hosts file names the seven memories where the site table puts them: warningHost.exercise on Seattle5, exerciseHost.frognet on Seattle5, assessmentHost.exercise on Seattle3B, computeHost.exercise on Seattle3B, instructorHost.exercise on Se
+  [PASS] units has a setting, chorus and not sealed, before the clients start
+  [PASS] run 1 (the client that starts was started first, the other 1.0 s later): the client that started heard 8 answers
+  [PASS] run 1: the client that answers ended by itself when the memory was given back
+  [FAIL] run 2 (the client that answers was started first, the other 3.0 s later): the client that started heard 0 answers
+  [FAIL] run 2: the client that answers ended by itself when the memory was given back
+   run 3 starts  |    16:00:29  (the read held on the conversation ended: hold chat at unitsHost.protocolchat (10.251.251.1): HTTP 503 Service Unavailable; the reply said: Node environment unreadable: /etc/hosts: read OK but contains no host entries - no name 
+  [PASS] run 3 (the client that starts was started first, the other 4.0 s later): the client that started heard 8 answers
+  [PASS] run 3: the client that answers ended by itself when the memory was given back
+  [FAIL] run 4 (the client that answers was started first, the other 0.2 s later): the client that started heard 0 answers
+  [FAIL] run 4: the client that answers ended by itself when the memory was given back
+   run 5 starts  |    16:02:17  (the read held on the conversation ended: hold chat at unitsHost.protocolchat (10.250.250.1): HTTP 400 Bad Request; the reply said: Missing/invalid Host header; held again)
+  [FAIL] run 5 (the client that answers was started first, the other 0.2 s later): the client that started heard 0 answers
+  [PASS] run 5: the client that answers ended by itself when the memory was given back
+  [FAIL] run 6 (the client that answers was started first, the other 0.2 s later): the client that started heard 0 answers
+  [FAIL] run 6: the client that answers ended by itself when the memory was given back
+  [FAIL] run 7 (the client that answers was started first, the other 0.2 s later): the client that started heard 0 answers
+  [FAIL] run 7: the client that answers ended by itself when the memory was given back
+  [FAIL] run 8 (the client that answers was started first, the other 0.2 s later): the client that started heard 0 answers
+  [PASS] run 8: the client that answers ended by itself when the memory was given back
+RESULT FAIL

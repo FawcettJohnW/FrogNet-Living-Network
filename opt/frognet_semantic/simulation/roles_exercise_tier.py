@@ -410,6 +410,59 @@ def step_chat(a, check):
     return machines
 
 
+def step_chat_again(a, check):
+    """[THE_CONVERSATION_IS_STARTED_AGAIN_V1] John, 26 Nov 2026: "Why can't I re-run the tests?" core/channel_chat.py
+    run the way he runs it, more than once on the same machines: the client that starts is ended (as his Ctrl-C ends
+    it), the client that answers ends by itself when the memory is given back, and both are started again -- the
+    answering one before the starting one, and after it."""
+    net, machines, by, tmp = sites_up(a, check)
+    start_electors(machines)
+    c = by[SITES["C"]]
+    rest = [m for m in machines if m is not c]
+    other, third = rest[0], rest[1]
+    rc0, out0 = admin(c, "set", "units", "--protocol", "chorus")
+    check(rc0 == 0, "units has a setting, chorus and not sealed, before the clients start")
+
+    def client(m, name, *words):
+        said_in = os.path.join(m.dir, "channel_chat.%s.out" % name)
+        r = on(m, "import contextlib\nfrom core import channel_chat as X\n"
+                  "with open(%r, 'w', buffering=1) as f, contextlib.redirect_stdout(f):\n    rc = X.main(%r)\n"
+                  "print('@@ ' + json.dumps({'rc': rc}))" % (said_in, list(words)), wait_s=120)
+        return r.get("rc"), (open(said_in).read() if os.path.exists(said_in) else "") or r.get("error") or ""
+    # the last four are the case that hung before channel-chat v3: the answering client already waiting when the
+    # memory is asked for, on the node the memory goes to, so its "is here" is there before the starter's first read
+    for k, (first, gap, mem) in enumerate((("starts", 1.0, third), ("answers", 3.0, other), ("starts", 4.0, third), ("answers", 0.2, other),
+                                           ("answers", 0.2, other), ("answers", 0.2, other), ("answers", 0.2, third), ("answers", 0.2, other)), 1):
+        got = {}
+        ta = threading.Thread(target=lambda: got.update(answers=client(other, "answers%d" % k, "--no-keys")), daemon=True)
+        ts = threading.Thread(target=lambda: got.update(starts=client(c, "starts%d" % k, "--start", "--memory-on", mem.ip, "--every", "0.3",
+                                                                      "--count", "8", "--no-keys")), daemon=True)
+        (ts if first == "starts" else ta).start()
+        time.sleep(gap)
+        (ta if first == "starts" else ts).start()
+        ts.join(45)
+        ta.join(30)
+        rc_s, said_s = got.get("starts") or (None, "(the client that starts did not end in 45 s)")
+        rc_a, said_a = got.get("answers") or (None, "(the client that answers did not end)")
+        if rc_s is None:                              # it hung: what it had printed, and it is ended as Ctrl-C ends it
+            f = os.path.join(c.dir, "channel_chat.starts%d.out" % k)
+            said_s += "\n" + (open(f).read() if os.path.exists(f) else "")
+            on(c, "import os, signal, subprocess\nfor p in subprocess.run(['pgrep', '-f', 'channel_chat'], capture_output=True, text=True).stdout.split():\n"
+                  "    if int(p) != os.getpid():\n        os.kill(int(p), signal.SIGINT)\nprint('@@ {}')", wait_s=20)
+            time.sleep(3)
+        print("\n".join("   run %d starts  | %s" % (k, l) for l in said_s.splitlines() if " ms " not in l))
+        print("\n".join("   run %d answers | %s" % (k, l) for l in said_a.splitlines()[:5]))
+        lines = [l for l in said_s.splitlines() if " ms " in l]
+        # (a first read or a first write refused while the memory's name is new to the node's proxy is said and tried
+        # again: that is the case this step is for. Nothing may go unsaid or unanswered once the other is here.)
+        talked = said_s.split(" is here", 1)[-1] if " is here" in said_s else ""
+        check(rc_s == 0 and len(lines) >= 8 and "no answer" not in said_s and "NOT SAID" not in talked and "... 30 s" not in said_s,
+              "run %d (the client that %s was started first, the other %.1f s later): the client that started heard %d answers"
+              % (k, "starts" if first == "starts" else "answers", gap, len(lines)))
+        check(rc_a == 0 and "has been given back" in said_a, "run %d: the client that answers ended by itself when the memory was given back" % k)
+    return machines
+
+
 def step_test(a, check):
     """core/channel_test.py, the full test John runs on his real network, run here between machines from Units' site:
     a memory for the Role on each other machine, traffic to them throughout, the settings, the refusals, the keys of
@@ -1032,7 +1085,7 @@ def step_runs(a, check):
 
 def main():
     ap = argparse.ArgumentParser()
-    ap.add_argument("--step", default="memories", choices=["memories", "pages", "admin", "admin-restart", "holds", "fires", "test", "chat"])
+    ap.add_argument("--step", default="memories", choices=["memories", "pages", "admin", "admin-restart", "holds", "fires", "test", "chat", "chat-again"])
     ap.add_argument("--run", default="", choices=["", "1", "2", "3", "4", "all"], help="the design's four runs: 1 TCP, 2 Chorus, 3 OpenQASM, 4 mixed with changes")
     ap.add_argument("--steps", type=int, default=0, help="run this many of the scenario's 60 steps (the changes of run 4 fall at the same fractions)")
     ap.add_argument("--out", default="", help="write <out>.run<N>.record.json and <out>.report.json")
@@ -1057,7 +1110,7 @@ def main():
         print("RESULT FAIL: this tier needs " + "; ".join(need)); return 1
     machines = []
     try:
-        machines = step_runs(a, check) if a.run else {"memories": step_memories, "pages": step_pages, "admin": step_admin, "admin-restart": step_admin_restart, "holds": step_holds, "fires": step_fires, "test": step_test, "chat": step_chat}[a.step](a, check)
+        machines = step_runs(a, check) if a.run else {"memories": step_memories, "pages": step_pages, "admin": step_admin, "admin-restart": step_admin_restart, "holds": step_holds, "fires": step_fires, "test": step_test, "chat": step_chat, "chat-again": step_chat_again}[a.step](a, check)
     finally:
         if machines and not a.keep:
             W.tear_down(machines)

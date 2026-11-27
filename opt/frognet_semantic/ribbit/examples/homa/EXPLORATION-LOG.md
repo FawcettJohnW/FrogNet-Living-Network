@@ -3284,22 +3284,42 @@ what the 400 of 25 Nov was: a node that has not yet elected the memory answers "
 higher is not caught by `set`. `frognet_held` still reports a hold's HTTP error without the body, and
 `channel_chat.py` still cuts an error at 60 characters, which is why the chat showed a bare 403.
 
-### 26 Nov 2026, 15:06 PST (from John's paste): a bare "HTTP Error 400" on the chat's held read; a refused hold now says who refused it
+### 26 Nov 2026, 15:06 PST (from John's paste): the chat could not be run a second time; channel_chat v3
 
-**What John saw.** `channel_chat.py --start` on Seattle3B, hours after an earlier run that worked (Seattle7 answering,
-chorus, not sealed) and was ended with Ctrl-C. The memory `unitsHost.protocolchat` was asked for on New-York-2 and
-was in the hosts file at once. The read held on the conversation ended twice, at 15:06:23 and 15:06:25, with
-"HTTP Error 400: Bad Request"; no third line followed, so the hold made at about 15:06:27 was taken. Then
-"waiting for the other client" at 10 s and 20 s, and Ctrl-C.
+**What John saw.** `channel_chat.py --start` on Seattle3B after an earlier run that worked and was ended with
+Ctrl-C. The memory `unitsHost.protocolchat` was asked for on New-York-2. The read held on the conversation ended
+twice, 2 s apart, with "HTTP Error 400: Bad Request", then "waiting for the other client" for ever, with the other
+client running on Seattle7. "Why can't I re-run the tests? This is the same problem I saw before."
 
-**What is and is not established.** Which process answered 400, and why, is NOT established: `frognet_held.hold`
-dropped the reply's body, the item left "not done" on 25 Nov. Nothing from a second node is in the paste. A client
-started without `--start` ends when the memory is given back (channel_chat.py `hear`), so the earlier run's client
-on Seattle7 ended at the first Ctrl-C and has to be started again for a second run.
+**What it was** (reproduced: `simulation/roles_exercise_tier.py --step chat-again`, new; before and after in
+`simulation/results/chat-again-*.txt`). Two things, the second of which is the fault.
+1. For a moment after an application memory is elected, a request to its name is refused on the asking node: its
+   own proxy answers 400 "Missing/invalid Host header" (proxy_main.py: the name has no address for it yet), or a
+   daemon answers 502/503 "/etc/hosts: read OK but contains no host entries". The chat waits for the name in the
+   hosts FILE and asks at once, so its first read or write can land in that moment. It is said and tried again.
+2. channel_chat v2's start was not safe against that. The client that starts treated whatever was in the memory at
+   its first SUCCESSFUL read as old, and the other client said "is here" once. When the first read was refused, the
+   other's "is here" was already there when the read succeeded, was taken as old, and both waited for ever. In the
+   simulator, with the answering client already running when the memory is asked for: v2 hung 6 runs of 6.
 
-**What changed.** `core/frognet_held.py` (`frognet_held 20261126-held3`, [A_REFUSED_HOLD_SAYS_WHO_REFUSED_IT_V1]): a
-hold answered with an HTTP error raises with the reply's body and the address the name was at.
-`core/channel_chat.py` (`channel-chat-v2-20261126a`) prints the error whole. The held-read oracles pass (9 and 6).
+**Wrong on the way.** I told John twice that the other client had to be started again, from a paste that could not
+show whether it had been. He had started it. The simulator's chat step started both clients once, 1 s apart, the
+starter first, and so never met the case; the question to ask of a test is whether it runs the thing the way its
+user does, more than once.
+
+**What changed.** `core/channel_chat.py` v3 (`channel-chat-v3-20261126b`, [A_CONVERSATION_HAS_A_NAME_V1]): the
+starter names the conversation in its own tuple before it says anything, and writes that again every 10 s while it
+waits; the other says it is here for each conversation named, again when a new one is named or when saying so
+failed; an answer carries the name of the conversation it answers; the starter takes only its own conversation's
+lines, so tuples left by clients that ended are not taken either. A v2 client on the other node is named on the
+screen. `core/frognet_held.py` (`frognet_held 20261126-held3`, [A_REFUSED_HOLD_SAYS_WHO_REFUSED_IT_V1]): a refused
+hold raises with the reply's body and the address the name was at. `--step chat-again` (eight runs on the same
+machines, both orders, the memory on either other machine) is in `run_all.py`: v3 8 of 8, with the 400 and the 502
+met and passed over; `--step chat` (44 answers under seal, chorus, new key, openqasm) passes; the held-read
+oracles pass (9 and 6).
+
+**Not done.** Nothing in the proxy or the daemon changed: a request in the first moment after a memory is elected
+is still refused there and has to be tried again by whoever makes it. Not run on hardware.
 
 ## 4. The interventions: what was said, why it was noticed, what had not been considered
 

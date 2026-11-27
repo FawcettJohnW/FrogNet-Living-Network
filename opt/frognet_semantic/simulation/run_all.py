@@ -603,6 +603,9 @@ def main():
     # chorus this passed; told auto every other machine stayed deaf until its hold's own bound (found 23 Nov 2026)
     results.append(_run_proc("a setting written after a node's daemon and proxy restart, machines told only auto (roles_exercise_tier --step admin-restart --told auto)",
                              ["simulation/roles_exercise_tier.py", "--step", "admin-restart", "--told", "auto"], retry=False))
+    # [THE_CONVERSATION_IS_STARTED_AGAIN_V1] core/channel_chat.py run eight times on the same machines, in both orders
+    results.append(_run_proc("the chat between machines, started again and again as John runs it (roles_exercise_tier --step chat-again)",
+                             ["simulation/roles_exercise_tier.py", "--step", "chat-again"], retry=False))
     results.append(_run_proc("the four runs of the Roles exercise, machines told only auto (roles_exercise_tier --run all --told auto)",
                              ["simulation/roles_exercise_tier.py", "--run", "all", "--told", "auto"], retry=False))
     results.append(_run_proc("transport factory self-test (sim+loopback+netem, 12)",
