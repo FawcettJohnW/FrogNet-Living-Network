@@ -18,7 +18,7 @@ configure<SourceSetContainer> { named("main") {
     (this as ExtensionAware).extensions.getByName<org.gradle.api.file.SourceDirectorySet>("kotlin").srcDirs("$A/member/src/main/kotlin", "$A/app/src/main/kotlin") } }
 configure<JavaPluginExtension> { sourceCompatibility = JavaVersion.VERSION_17; targetCompatibility = JavaVersion.VERSION_17 }
 tasks.withType<org.jetbrains.kotlin.gradle.tasks.KotlinCompile>().configureEach { compilerOptions { jvmTarget.set(org.jetbrains.kotlin.gradle.dsl.JvmTarget.JVM_17) } }
-dependencies { "compileOnly"("org.robolectric:android-all:14-robolectric-10818077"); "compileOnly"(files("libs/wg-tunnel.jar")) }
+dependencies { "compileOnly"("org.robolectric:android-all:14-robolectric-10818077"); "compileOnly"(files("libs/wg-tunnel.jar")); "compileOnly"("com.google.zxing:core:3.5.3") }
 EOG
 (cd "$W" && gradle -q compileKotlin compileJava 2>&1 | grep -v '^w:\|JAVA_TOOL\|^Note:') || true
 N=$(find "$W/build/classes" -name '*.class' -newer "$W/build.gradle.kts" 2>/dev/null | wc -l)

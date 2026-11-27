@@ -6,6 +6,10 @@
 > and RAM manager) on the app's screen; its built-in first pond is John's own region. How to install a region and
 > the app: `docs/OPERATING.md` in the FrogNet repository. The dated sections below are the record of each build.
 >
+> **2026-11-27: the Communicator is r8** (`comms-android-2026-11-27-r8`): Scan secret (a FrogNet QR code, `fdfsec1.`,
+> shown by a machine that holds the secret), Import file, Reset this phone. See `COMMUNICATOR-ANDROID-r8.md`. The app
+> now depends on `com.google.zxing:core:3.5.3`.
+>
 > **2026-11-26: the Communicator is r7** (`comms-android-2026-11-26-r7`): cipher, key, protocol and the RAM host are
 > switched from the call (the Channel panel), the Stats show the channel, and a call ends when the other person
 > leaves. See `COMMUNICATOR-ANDROID-r7.md`. The app's activity runs under Robolectric (`communicator-test/run_tests.sh`

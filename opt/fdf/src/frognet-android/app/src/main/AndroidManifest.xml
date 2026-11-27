@@ -49,6 +49,10 @@
             android:configChanges="orientation|screenSize|screenLayout|keyboardHidden|smallestScreenSize">
             <intent-filter><action android:name="net.frognet.communicator.CALL" /><category android:name="android.intent.category.DEFAULT" /></intent-filter>
         </activity>
+        <!-- [A_SECRET_IS_SHOWN_TO_BE_SCANNED_V1] the camera reads a Role's secret from the QR code a machine that holds it
+             shows. Not exported: only the Communicator's Security tab opens it. Upright only -->
+        <activity android:name="net.frognet.communicator.SecretScanActivity" android:exported="false"
+            android:label="Scan secret" android:screenOrientation="portrait" android:theme="@android:style/Theme.Material.NoActionBar" />
         <!-- [BRIDGE_V1] the one TUN: fdf-tun (libfdftun.so) carries the forward pond and every reached pond on it -->
         <service android:name=".BridgeVpn" android:exported="false" android:permission="android.permission.BIND_VPN_SERVICE">
             <intent-filter><action android:name="android.net.VpnService" /></intent-filter>

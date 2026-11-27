@@ -9,11 +9,12 @@
 # source (github.com/android/android-test, tag axt_2024_05_30) with the stand-ins in axstub/. Needs mvn, git, JDK 17+.
 set -euo pipefail
 HERE=$(cd "$(dirname "$0")" && pwd); D=$(mkdir -p "$1" && cd "$1" && pwd)
-[ -s "$D/lib/androidx-test.jar" ] && [ -s "$D/android-all-13.jar" ] && exit 0
+[ -s "$D/lib/androidx-test.jar" ] && [ -s "$D/android-all-13.jar" ] && [ -s "$D/lib/core-3.5.3.jar" ] && exit 0
 mkdir -p "$D/lib" "$D/deps"
 (cd "$HERE" && mvn -B -q dependency:copy-dependencies -DoutputDirectory="$D/lib")
 for a in 13-robolectric-9030017-i6 14-robolectric-10818077-i6; do
     (cd "$D" && mvn -B -q dependency:copy -Dartifact=org.robolectric:android-all-instrumented:$a -DoutputDirectory="$D/deps"); done
+(cd "$D" && mvn -B -q dependency:copy -Dartifact=com.google.zxing:core:3.5.3 -DoutputDirectory="$D/lib")   # the app's QR reader (QrRead.java)
 for x in org.robolectric:android-all:13-robolectric-9030017 com.google.errorprone:error_prone_annotations:2.11.0; do
     (cd "$D" && mvn -B -q dependency:copy -Dartifact=$x -DoutputDirectory="$D/compile"); done
 W=$(mktemp -d)

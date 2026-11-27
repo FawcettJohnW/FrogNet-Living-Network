@@ -24,4 +24,5 @@ android {
 dependencies {
     implementation(project(":member"))
     implementation("com.wireguard.android:tunnel:1.0.20250531")
+    implementation("com.google.zxing:core:3.5.3")       // [A_SECRET_IS_SHOWN_TO_BE_SCANNED_V1] reads a QR code out of a camera picture (Maven Central, pure Java)
 }

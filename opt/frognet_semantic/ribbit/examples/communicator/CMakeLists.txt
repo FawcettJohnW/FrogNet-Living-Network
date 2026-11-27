@@ -115,7 +115,8 @@ if(NOT WIN32)                                           # server side / server t
 endif()
 add_executable(test_bearer tests/test_bearer.cpp)
 target_link_libraries(test_bearer fnav)
-add_library(comms STATIC src/comms/call.cpp src/comms/audio.cpp src/comms/room.cpp src/comms/devices.cpp src/comms/channel.cpp)
+add_library(comms STATIC src/comms/call.cpp src/comms/audio.cpp src/comms/room.cpp src/comms/devices.cpp src/comms/channel.cpp
+            src/comms/secret_qr.cpp third_party/qrcodegen/qrcodegen.cpp)   # [A_SECRET_IS_SHOWN_TO_BE_SCANNED_V1]
 target_link_libraries(comms media ribbit dep_opus dep_av dep_pa)
 if(NOT WIN32)                                           # server side / server tests: Linux
   add_executable(test_call tests/test_call.cpp)
@@ -187,6 +188,8 @@ target_link_libraries(room_probe comms)
 # the owner's command for a Role's channel setting, and the test of a call under the frame
 add_executable(comms-channel tools/comms_channel.cpp)
 target_link_libraries(comms-channel comms)
+add_executable(test_secret_qr tests/test_secret_qr.cpp)
+target_link_libraries(test_secret_qr comms)
 if(NOT WIN32)
   add_executable(test_channel tests/test_channel.cpp)
   target_link_libraries(test_channel media_server)

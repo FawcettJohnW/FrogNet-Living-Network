@@ -168,6 +168,15 @@ public class AppCycleTest {
         press(a, "End");
         run(2000);
         check(screen(a).contains("In the room"), "the phone hangs up: back in the room");
+        // [THE_PHONE_IS_RESET_V1] the Security tab's Reset this phone: its secret is gone and it says so
+        check(press(a, "Security") && waitFor(a, "the network's default, hash ", 10000), "the Security tab shows this phone's secret by its hash");
+        press(a, "Reset this phone");
+        run(500);
+        android.app.AlertDialog dlg = org.robolectric.shadows.ShadowAlertDialog.getLatestAlertDialog();
+        check(dlg != null && dlg.isShowing(), "Reset this phone asks first");
+        if (dlg != null) dlg.getButton(android.content.DialogInterface.BUTTON_POSITIVE).performClick();
+        check(waitFor(a, "this phone holds no secret", 10000) && new File(sd, "default").exists() == false && screen(a).contains("This phone speaks the frame"),
+              "after the reset the phone holds no secret (its file is gone) and speaks the frame");
         say("---- the app's own log ----");
         for (String l : Diag.lines()) say(l);
         c.pause().stop().destroy();

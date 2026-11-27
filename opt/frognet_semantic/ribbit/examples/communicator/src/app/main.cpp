@@ -18,6 +18,7 @@
 // owner's changes: the cipher, a new key, the protocol, and "Change RAM host" ([THE_MEMORY_MOVES_V1]). Each is one write
 // of the Role's setting by the library (comms/channel.cpp channel_change), as comms-channel makes it.
 #include "comms/channel.hpp"
+#include "comms/secret_qr.hpp"
 #include "comms/call.hpp"
 #include "comms/stamp.hpp"
 #include "fnav/bearer.hpp"
@@ -36,6 +37,7 @@ extern "C" {
 #include <QMouseEvent>
 #include <QKeyEvent>
 #include <QComboBox>
+#include <QDialog>
 #include <QFrame>
 #include <QHBoxLayout>
 #include <QImage>
@@ -577,7 +579,16 @@ public:
         s_ends_ = new QPlainTextEdit; s_ends_->setReadOnly(true);
         right->addWidget(s_ends_, 1);
         row->addLayout(right, 4);
-        s_buttons_ = {cipher_go, key_go, protocol_go, ram_go};
+        // [A_SECRET_IS_SHOWN_TO_BE_SCANNED_V1] this machine's secret for the Role, on its own screen, for a phone's camera;
+        // [THE_CHANNEL_IS_RESET_V1] and the Role's setting put back to where a demonstration starts
+        auto* more = new QHBoxLayout; more->setSpacing(10);
+        auto* qr_go = new QPushButton("Show the secret as a QR code...");
+        connect(qr_go, &QPushButton::clicked, [this] { show_secret_qr(); });
+        auto* reset_go = new QPushButton("Reset the channel (tcp, not sealed)");
+        connect(reset_go, &QPushButton::clicked, [this] { reset_channel(); });
+        more->addWidget(qr_go); more->addWidget(reset_go); more->addStretch();
+        left->insertLayout(left->count() - 1, more);
+        s_buttons_ = {cipher_go, key_go, protocol_go, ram_go, reset_go};
         return w;
     }
 
@@ -606,8 +617,57 @@ public:
                 for (QWidget* b : std::initializer_list<QWidget*>{c_cipher_, c_key_, c_protocol_, c_ram_go_}) b->setEnabled(true);
                 changing_ = false;
                 ends_age_ = 99; refresh_security();
+                if (after_change_) { auto next = std::move(after_change_); after_change_ = nullptr; next(); }   // the second write of a reset
             }, Qt::QueuedConnection);
         }).detach();
+    }
+
+    // [THE_CHANNEL_IS_RESET_V1] (John, 27 Nov 2026: "a way to reset ... so I can do a demo") The Role's setting back to
+    // where a demonstration starts: tcp, then not sealed. Two writes, one after the other has been answered: a
+    // protocol and an encryption are never switched in one write. This machine's secret stays: it is what the phone scans.
+    void reset_channel() {
+        if (changing_) return;
+        after_change_ = [this] { set_cipher("not sealed"); };
+        set_protocol("tcp");
+    }
+    // [A_SECRET_IS_SHOWN_TO_BE_SCANNED_V1] The secret this machine uses for the Role as a QR code, on this screen only:
+    // not printed, not logged, not written anywhere. It closes itself after a minute.
+    void show_secret_qr() {
+        auto ch = Channel::watching();
+        const std::string role = ch ? ch->role() : std::string(CHANNEL_ROLE);
+        SecretQr q;
+        try { q = secret_qr(role, channel_secrets_dir()); }
+        catch (const std::exception& e) { said_both(QString::fromStdString(std::string("No QR code: ") + e.what())); return; }
+        const int quiet = 4, px = std::max(4, 440 / (q.size + 2 * quiet)), side = (q.size + 2 * quiet) * px;
+        QImage img(side, side, QImage::Format_RGB32);
+        img.fill(Qt::white);
+        {
+            QPainter p(&img);
+            for (int y = 0; y < q.size; ++y) for (int x = 0; x < q.size; ++x)
+                if (q.dark[size_t(y) * size_t(q.size) + size_t(x)]) p.fillRect((x + quiet) * px, (y + quiet) * px, px, px, Qt::black);
+        }
+        QDialog d(this);
+        d.setWindowTitle("The secret, for the phone to scan");
+        auto* v = new QVBoxLayout(&d); v->setSpacing(12); v->setContentsMargins(20, 20, 20, 20);
+        auto* pic = new QLabel; pic->setPixmap(QPixmap::fromImage(img)); pic->setAlignment(Qt::AlignCenter);
+        v->addWidget(pic);
+        auto* what = new QLabel(QString::fromStdString((q.name == "default" ? std::string("The network's default secret") : "The secret of '" + q.name + "'")
+                                                       + ", hash " + q.hash + (q.step > 0 ? ", at step " + std::to_string(q.step) : std::string())));
+        what->setObjectName("value"); what->setAlignment(Qt::AlignCenter);
+        v->addWidget(what);
+        auto* how = new QLabel("On the phone: Security, then Scan secret. The phone then shows the same hash.\n"
+                               "Whoever photographs this code holds the secret. It closes by itself in 60 seconds.");
+        how->setObjectName("muted"); how->setAlignment(Qt::AlignCenter); how->setWordWrap(true);
+        v->addWidget(how);
+        auto* close = new QPushButton("Close");
+        connect(close, &QPushButton::clicked, &d, &QDialog::accept);
+        v->addWidget(close, 0, Qt::AlignCenter);
+        QTimer::singleShot(60000, &d, &QDialog::accept);
+        if (!qr_shot_.empty())                                    // unattended (--security "qr FILE"): the test reads the code from the picture
+            QTimer::singleShot(600, &d, [this, &d] { d.grab().save(QString::fromStdString(qr_shot_)); qr_shot_.clear(); d.accept(); });
+        std::cerr << "[security] the secret (" << q.name << ", hash " << q.hash << ") is shown as a QR code\n";
+        d.exec();
+        std::cerr << "[security] the QR code is closed\n";
     }
 
     void said_both(const QString& t) { s_result_->setText(t); c_result_->setText(QString(t).replace("\n", "  ·  ")); }
@@ -1113,6 +1173,8 @@ public:
             else if (what == "key") s_buttons_[1]->click();
             else if (what == "protocol") { s_protocol_pick_->setCurrentText(QString::fromStdString(arg)); s_buttons_[2]->click(); }
             else if (what == "ram") { s_ram_to_->setText(QString::fromStdString(arg)); s_buttons_[3]->click(); }
+            else if (what == "reset") s_buttons_[4]->click();
+            else if (what == "qr") { qr_shot_ = arg; show_secret_qr(); }       // the dialog, pictured into the named file, then closed
         }
         if (!opt_.screenshot.empty() && ++ticks_ >= opt_.after) {
             paint_frame();
@@ -1182,6 +1244,8 @@ private:
     QPlainTextEdit* s_ends_ = nullptr;
     std::vector<QPushButton*> s_buttons_;
     uint64_t sec_changes_ = ~0ull;
+    std::string qr_shot_;                                // --security "qr FILE": where the dialog is pictured
+    std::function<void()> after_change_;                 // a reset's second write, made when the first has been answered
     int ends_age_ = 99;
     bool ends_busy_ = false;
 };

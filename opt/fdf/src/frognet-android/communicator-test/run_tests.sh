@@ -9,6 +9,7 @@
 #   2 core      the Java protocol core against comms-ram + comms-media + the C++ and Python Communicators
 #   3 frame     the phone's frame (core/ChannelFrame.java) against the C++ library (ribbit/cpp), both directions
 #   4 secure    the Java core in a sealed call: nine switches by its owner code, the memory moved, wrong secret, no frame
+#   6 secret    the desktop's QR code of a secret, read by the phone's reader; the phone's reset
 #   5 app       the app's CommunicatorActivity under Robolectric (the framework's own code): who is there, answer, eight
 #               changes from the call's Channel panel, the other end hangs up, call again, two more changes, hang up
 set -euo pipefail
@@ -49,7 +50,26 @@ echo "== 5 app (Robolectric)"
 bash $TD/robo/setup.sh "$R" 2>&1 | grep -v "JAVA_\|^WARNING" || true
 rm -rf build/appcls build/robocls; mkdir -p build/appcls build/robocls
 L=$(ls "$R"/lib/*.jar | tr '\n' ':')
-javac -Xlint:-options -nowarn -cp "$R/android-all-13.jar" -d build/appcls $(find app/src/main/java/net/frognet/communicator -name '*.java') 2>&1 | grep -v "^Note:" || true
+javac -Xlint:-options -nowarn -cp "$R/android-all-13.jar:$R/lib/core-3.5.3.jar" -d build/appcls $(find app/src/main/java/net/frognet/communicator -name '*.java') 2>&1 | grep -v "^Note:" || true
 javac -nowarn -cp "$L$R/android-all-13.jar:build/appcls" -d build/robocls $TD/robo/AppCycleTest.java 2>&1 | grep -v "^Note:" || true
 python3 $TD/test_app_cycle.py "$B" "$C" "${L}build/appcls:build/robocls:$R/android-all-13.jar" "$R/deps" > $OUT/test_app_cycle.log 2>&1 || true
 grep -E "^FAIL|^RESULT" $OUT/test_app_cycle.log
+
+echo "== 6 secret by QR code"
+# [A_SECRET_IS_SHOWN_TO_BE_SCANNED_V1] the desktop draws its QR code of a secret (tests/test_secret_qr, C++) for the
+# network's default secret and for a Role's own at a step; the phone's reader (QrRead, the scanner's) reads each out of
+# a camera frame and the phone must then say the hash the desktop says (comms-channel secret). Then the phone's reset.
+SQ=$(mktemp -d); mkdir -p $SQ/a $SQ/b build/sqcls
+head -c 32 /dev/urandom > $SQ/a/default
+(printf 'FROGNET ROLE SECRET AT STEP 7\n'; head -c 48 /dev/urandom) > $SQ/b/mediahost
+"$B/test_secret_qr" $SQ/a mediahost $SQ/a.pgm > /dev/null && "$B/test_secret_qr" $SQ/b mediahost $SQ/b.pgm > /dev/null
+HA=$("$B/comms-channel" --secrets $SQ/a secret mediahost | grep -o 'hash [0-9a-f]*' | cut -d' ' -f2); HB=$("$B/comms-channel" --secrets $SQ/b secret mediahost | grep -o 'hash [0-9a-f]*' | cut -d' ' -f2)
+# and the desktop window's own dialog, pictured (comms-app --security "qr FILE"), read the same way
+"$B/comms-ram" --listen 127.0.0.1:24600 > /dev/null 2>&1 & QR_RAM=$!; sleep 1
+FROGNET_CHANNEL_SECRETS=$SQ/a QT_QPA_PLATFORM=offscreen timeout 60 "$B/comms-app" --ram 127.0.0.1:24600 --media 127.0.0.1:24620 --name Desk --no-audio --synthetic 320x240 \
+    --channel mediahost --tab security --security "qr $SQ/dialog.png" --screenshot $SQ/tab.png --after 25 > $OUT/test_secret_qr_window.log 2>&1 || true
+kill $QR_RAM 2>/dev/null || true
+javac -nowarn -cp "$R/lib/core-3.5.3.jar" -d build/sqcls app/src/main/java/net/frognet/communicator/core/*.java app/src/main/java/net/frognet/communicator/QrRead.java $TD/SecretQrTest.java 2>&1 | grep -v "^Note:" || true
+java -cp "build/sqcls:$R/lib/core-3.5.3.jar" net.frognet.communicator.SecretQrTest $SQ/a.pgm "$HA" $SQ/b.pgm "$HB" $SQ/dialog.png "$HA" > $OUT/test_secret_qr.log 2>&1 || true
+grep -E "^FAIL|^RESULT" $OUT/test_secret_qr.log
+rm -rf $SQ

@@ -121,7 +121,7 @@ public class CommunicatorActivity extends Activity {
     private EditText chanRamE;
     private int callsMade = 0;                       // calls this screen has been in since it opened
     private boolean otherOn = false;                 // the other person has been seen in this call
-    private static final int PICK_SECRET = 7;
+    private static final int PICK_SECRET = 7, SCAN_SECRET = 8;
     private EditText nameE, ramE, mediaE, sayE;
     private TextView lobbyStatus, ringText, statsT, peerT, diagT, chatT, linkT, emptyT, clockT;
     private LinearLayout people, ringBar, chatPanel, statsPanel;
@@ -850,12 +850,30 @@ public class CommunicatorActivity extends Activity {
         in.addView(row("Cipher", new String[]{"Not sealed", "AES-256-GCM", "ChaCha20-Poly1305"}, new Runnable[]{
                 change("not sealed", "", "", true, false), change("sealed with aes-256-gcm", "", "aes-256-gcm", false, false),
                 change("sealed with chacha20-poly1305", "", "chacha20-poly1305", false, false)}), gap(0, 12));
-        in.addView(row("Key", new String[]{"New key", "Import secret…"}, new Runnable[]{change("a new key", "", "", false, true),
+        in.addView(row("Key", new String[]{"New key"}, new Runnable[]{change("a new key", "", "", false, true)}), gap(0, 12));
+        // [A_SECRET_IS_SHOWN_TO_BE_SCANNED_V1] the Role's secret comes to this phone from a machine that holds it: its QR
+        // code read by the camera, or the file itself
+        in.addView(row("This phone's secret", new String[]{"Scan secret…", "Import file…"}, new Runnable[]{
+                new Runnable() { public void run() {
+                    if (core != null) { toastLog("hang up first: the call has the camera"); return; }
+                    startActivityForResult(new android.content.Intent(CommunicatorActivity.this, SecretScanActivity.class), SCAN_SECRET);
+                } },
                 new Runnable() { public void run() {
                     android.content.Intent i = new android.content.Intent(android.content.Intent.ACTION_OPEN_DOCUMENT);
                     i.addCategory(android.content.Intent.CATEGORY_OPENABLE); i.setType("*/*");
                     try { startActivityForResult(i, PICK_SECRET); } catch (RuntimeException e) { toastLog("no file chooser on this device: " + e.getMessage()); }
                 } }}), gap(0, 12));
+        // [THE_PHONE_IS_RESET_V1] back to how the Communicator is on a phone that has never run it: for a demonstration
+        in.addView(row("Start over", new String[]{"Reset this phone"}, new Runnable[]{new Runnable() { public void run() {
+            if (core != null) { toastLog("hang up first"); return; }
+            new android.app.AlertDialog.Builder(CommunicatorActivity.this)
+                    .setTitle("Reset this phone's Communicator?")
+                    .setMessage("Its secret is erased and its Communicator settings go back to what they were at first (it speaks the frame, the picture fills the screen, front camera). "
+                            + "The phone stays joined to FrogNet, and the Role's setting in the memory is not changed.")
+                    .setNegativeButton("Cancel", null)
+                    .setPositiveButton("Reset", new android.content.DialogInterface.OnClickListener() { public void onClick(android.content.DialogInterface d, int w) { resetPhone(); } })
+                    .show();
+        } }}), gap(0, 12));
         in.addView(row("Protocol", new String[]{"tcp", "chorus", "openqasm"}, new Runnable[]{
                 change("protocol tcp", "tcp", "", false, false), change("protocol chorus", "chorus", "", false, false), change("protocol openqasm", "openqasm", "", false, false)}), gap(0, 12));
         in.addView(text("RAM host: another comms-ram that is running, as host:port", 13, MUTED, false));
@@ -896,6 +914,20 @@ public class CommunicatorActivity extends Activity {
     }
 
     /** The app's channel again (another secret, or the frame turned on or off): the room is rejoined with it. */
+    /** [THE_PHONE_IS_RESET_V1] The secrets written over and removed, the Communicator's own settings cleared (the name
+     *  it joined under is kept), and the channel joined again as a phone that holds no secret. */
+    private void resetPhone() {
+        int n = ChannelFrame.forgetSecrets(secretsDir);
+        String name = prefs.getString("name", "");
+        prefs.edit().clear().apply();
+        if (!name.isEmpty()) prefs.edit().putString("name", name).apply();
+        speaksFrame = true; selfCorner = Gravity.TOP | Gravity.END;
+        toastLog("this phone is reset: " + n + " secret(s) erased, settings as at first (it speaks the frame)");
+        rejoinChannel();
+        secShownAt = 0;
+        if (securityV.getVisibility() == View.VISIBLE) refreshSecurity();
+    }
+
     private void rejoinChannel() {
         final Room old = room; room = null;
         ops.execute(new Runnable() { public void run() {
@@ -939,7 +971,7 @@ public class CommunicatorActivity extends Activity {
         Map<String, String> f = ch.fields();
         String number = f.get("number"), cipher = number == null || number.equals("0") || number.isEmpty() ? "not sealed" : String.valueOf(f.get("protection"));
         String secret;
-        try { secret = Channel.secretLine(Channel.ROLE, secretsDir); } catch (ChannelFrame.Gone e) { secret = "this phone holds no secret (Import secret…)"; }
+        try { secret = Channel.secretLine(Channel.ROLE, secretsDir); } catch (ChannelFrame.Gone e) { secret = "this phone holds no secret (Scan secret… or Import file…)"; }
         secNowT.setText("Role " + ch.role + "\nCipher: " + cipher + "\nKey: computed from the secret — " + secret
                 + "\nProtocol: " + (f.get("driver") == null ? "tcp" : f.get("driver")) + "\nRAM host: " + RamAt.text());
         secDeviceT.setText("This phone sends as " + ch.sender + (ch.ignored().isEmpty() ? "" : "\nIt IGNORED the last setting: " + ch.ignored())
@@ -969,6 +1001,14 @@ public class CommunicatorActivity extends Activity {
     @Override
     protected void onActivityResult(int code, int result, android.content.Intent data) {
         super.onActivityResult(code, result, data);
+        if (code == SCAN_SECRET) {                                    // the scanner kept it; this is what a screen may say
+            if (result == RESULT_OK && data != null) {
+                toastLog("secret scanned: " + data.getStringExtra(SecretScanActivity.X_SAID));
+                if (core == null) rejoinChannel();
+                secShownAt = 0;
+            }
+            return;
+        }
         if (code != PICK_SECRET || result != RESULT_OK || data == null || data.getData() == null) return;
         try {
             java.io.InputStream in = getContentResolver().openInputStream(data.getData());

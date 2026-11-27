@@ -273,6 +273,38 @@ public final class ChannelFrame {
         }
     }
 
+    /** [A_SECRET_IS_SHOWN_TO_BE_SCANNED_V1] Keeps a secret this device was shown (a QR code on a machine that holds it) as
+     *  that machine keeps it: [dir]/default, the bytes; or [dir]/[role], the Role's own, with the step it is at. */
+    public static void placeSecret(String name, byte[] value, long step, String dir) throws Gone {
+        if (name == null || !name.matches("[a-z0-9][a-z0-9_.-]{0,63}")) throw new Gone("'" + name + "' is not the name of a secret");
+        if (value == null || value.length < 32 || value.length > 65536) throw new Gone("a secret is 32 bytes to 64 KiB; this one is " + (value == null ? 0 : value.length));
+        if (step < 0 || (name.equals(DEFAULT_SECRET) && step != 0)) throw new Gone("the network's default secret has no step");
+        synchronized (FILES) {
+            new File(dir).mkdirs();
+            File path = new File(dir, name), tmp = new File(dir, name + ".new");
+            try {
+                FileOutputStream f = new FileOutputStream(tmp);
+                try { if (step > 0) f.write(latin(STEPPED + step + "\n")); f.write(value); f.getFD().sync(); } finally { f.close(); }
+                if (!tmp.renameTo(path)) throw new Gone("the secret '" + name + "' could not be written");
+            } catch (IOException e) { throw new Gone("the secret '" + name + "' could not be written: " + e.getMessage()); }
+        }
+    }
+
+    /** [THE_PHONE_IS_RESET_V1] Every secret this device holds is written over and removed. Returns how many. */
+    public static int forgetSecrets(String dir) {
+        synchronized (FILES) {
+            File[] all = new File(dir).listFiles();
+            int n = 0;
+            if (all != null) for (File f : all) {
+                if (!f.isFile()) continue;
+                try { RandomAccessFile r = new RandomAccessFile(f, "rw"); try { r.write(new byte[(int) r.length()]); r.getFD().sync(); } finally { r.close(); } }
+                catch (IOException ignored) { }
+                if (f.delete()) n++;
+            }
+            return n;
+        }
+    }
+
     public static byte[] nextSecret(byte[] secret, String role, long step) throws DoesNotOpen {
         return hmac("HmacSHA384", secret, "next\n" + role + "\n" + step);
     }

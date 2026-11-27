@@ -14,7 +14,7 @@ import java.util.Locale;
 /** The app's own log: every line to logcat (tag FrogComms) AND to a ring the Diagnostics screen shows, so what the phone
  *  did is readable on the phone itself, no adb needed. The build is the first line. */
 public final class Diag {
-    public static final String BUILD = "comms-android-2026-11-26-r7";   // r7: cipher, key, protocol and memory switched from the call (the Channel panel); the Stats show the channel; a call ends when the other person leaves
+    public static final String BUILD = "comms-android-2026-11-27-r8";   // r8: Scan secret (a QR code on a machine that holds it), Reset this phone. r7: cipher, key, protocol and memory switched from the call; the Stats show the channel; a call ends when the other person leaves
     private static final ArrayDeque<String> RING = new ArrayDeque<String>();
     private static final int MAX = 600;
     private static final SimpleDateFormat TS = new SimpleDateFormat("HH:mm:ss.SSS", Locale.ROOT);
