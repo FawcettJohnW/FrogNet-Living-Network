@@ -143,7 +143,13 @@ public class CommunicatorActivity extends Activity {
         java.io.File sd = new java.io.File(getFilesDir(), "channel_secrets");   // the Roles' secrets: this app's private files
         sd.mkdirs();
         secretsDir = sd.getPath();
-        speaksFrame = prefs.getBoolean("frame", true);
+        // [THE_PHONE_SPEAKS_THE_FRAME_V1] (John, 27 Nov 2026, in the middle of a demonstration, on being told to turn the
+        // frame back on: "Doing shit like that without reason isn't a good look.") There is no reason for a phone not to
+        // speak the frame: every media server does, an unsealed Role is carried under it the same, and a sealed one lets
+        // nothing else in. The phone speaks it, always; the switch that turned it off is gone, and a phone on which it
+        // had been turned off speaks it again from this build on.
+        speaksFrame = true;
+        if (!prefs.getBoolean("frame", true)) { prefs.edit().putBoolean("frame", true).apply(); Diag.log("[app] this phone speaks the frame (it had been turned off; that switch is gone)"); }
         final boolean have = readPrefs();                              // before the screens: the setup screen shows them
         setupV = buildSetup(); lobbyV = buildLobby(); callV = buildCall(); diagV = buildDiag(); securityV = buildSecurity();
         root.addView(setupV); root.addView(lobbyV); root.addView(callV); root.addView(diagV); root.addView(securityV);
@@ -908,7 +914,8 @@ public class CommunicatorActivity extends Activity {
             Diag.log("[app] this phone " + (speaksFrame ? "speaks the frame from now on" : "does not speak the frame from now on"));
             rejoinChannel();
         } });
-        in.addView(frameB, gap(12, 8));
+        frameB.setVisibility(View.GONE);                          // [THE_PHONE_SPEAKS_THE_FRAME_V1] no switch: it always does,
+        in.addView(text("This phone speaks the frame", 14, FG, false), gap(12, 8));   // and the page says so
         secResultT = text("", 14, AMBER, false);
         secResultT.setTextIsSelectable(true);
         in.addView(secResultT, gap(8, 8));
