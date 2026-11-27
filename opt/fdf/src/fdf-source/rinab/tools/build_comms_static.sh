@@ -11,7 +11,7 @@ if [ "$A" = arm64 ]; then
 else
   DEPS=${DEPS:-$H/build/comms-deps/x86_64}; GXX=g++; XI=""; XL="-llz4 -lcrypto"
 fi
-CXX="$GXX -O2 -pthread -std=c++17 -D__STDC_CONSTANT_MACROS -I$R/cpp/include -I$R/defaults/api -Isrc -I$DEPS/include $XI"
+CXX="$GXX -O2 -g1 -pthread -std=c++17 -D__STDC_CONSTANT_MACROS -I$R/cpp/include -I$R/defaults/api -Isrc -I$DEPS/include $XI"
 mkdir -p $O/obj
 SRC="$R/cpp/src/frogram.cpp $R/cpp/src/ram_client.cpp $R/cpp/src/ram_host.cpp $R/defaults/api/tuples.cpp src/ram/comms_ram.cpp
      src/fnav/net.cpp src/fnav/frame.cpp src/fnav/plane.cpp src/fnav/segment.cpp src/fnav/bearer.cpp src/media/transcode.cpp
@@ -23,5 +23,7 @@ L="-L$DEPS/lib -lavdevice -lavfilter -lavformat -lavcodec -lswscale -lswresample
 $GXX -pthread -o $O/comms-ram $(ob src/ram/comms_ram.cpp $R/cpp/src/ram_host.cpp $R/cpp/src/frogram.cpp) $XL -ldl -static
 $GXX -pthread -o $O/comms-media $(ob src/media/main.cpp src/media/server.cpp src/media/speed.cpp src/media/transcode.cpp src/fnav/net.cpp src/fnav/frame.cpp src/fnav/plane.cpp src/fnav/segment.cpp src/fnav/bearer.cpp src/comms/call.cpp src/comms/audio.cpp src/comms/room.cpp src/comms/devices.cpp src/comms/channel.cpp $R/cpp/src/channel_frame.cpp $R/cpp/src/frogram.cpp $R/cpp/src/ram_client.cpp $R/defaults/api/tuples.cpp) $L
 $GXX -pthread -o $O/comms-channel $(ob tools/comms_channel.cpp src/media/transcode.cpp src/fnav/net.cpp src/fnav/frame.cpp src/fnav/plane.cpp src/fnav/segment.cpp src/fnav/bearer.cpp src/comms/call.cpp src/comms/audio.cpp src/comms/room.cpp src/comms/devices.cpp src/comms/channel.cpp $R/cpp/src/channel_frame.cpp $R/cpp/src/frogram.cpp $R/cpp/src/ram_client.cpp $R/defaults/api/tuples.cpp) $L
+# [A_SERVER_SAYS_WHY_IT_ENDED_V1] kept unstripped beside the build: `addr2line -Cfpe $O/unstripped/comms-media <addresses>` names where a FATAL line was
+mkdir -p $O/unstripped && cp $O/comms-ram $O/comms-media $O/comms-channel $O/unstripped/
 if [ "$A" = arm64 ]; then aarch64-linux-gnu-strip $O/comms-ram $O/comms-media $O/comms-channel; else strip $O/comms-ram $O/comms-media $O/comms-channel; fi
 file $O/comms-ram $O/comms-media $O/comms-channel

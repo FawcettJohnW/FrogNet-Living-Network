@@ -10,6 +10,7 @@
 //
 //     comms-ram [--listen HOST:PORT]        answers /comms-api
 #include <cstdio>
+#include "../comms/fatal.hpp"
 #include "ram_host.hpp"
 #define COMMS_RAM_VERSION "communicator 2.2"
 
@@ -20,6 +21,7 @@ public:
 };
 
 int main(int argc, char** argv) {
-    std::fprintf(stderr, "[ram] build comms-ram-2026-11-27-r6\n");   // said first: which server runs
+    std::fprintf(stderr, "[ram] build comms-ram-2026-11-27-r7 (says why it ended)\n");   // said first: which server runs
+    comms::say_why_it_ended("[ram] comms-ram-2026-11-27-r7");
     return CommsRam().run(argc, argv);
 }

@@ -8,6 +8,7 @@ extern "C" {
 // viewer's MediaSpeed from the Communicator's memory every 2 s and applies each to that viewer only.
 #include "server.hpp"
 #include "comms/channel.hpp"
+#include "comms/fatal.hpp"
 #include "comms/room.hpp"
 #include "media/speed.hpp"
 #include <memory>
@@ -49,7 +50,8 @@ static int run_main(int argc, char** argv) {
 // and a clean exit -- never "terminate called ... Aborted".
 int main(int argc, char** argv) {
     // said first, so a console or a journal shows which server runs: before 2026-11-24 it did not speak the frame
-    std::fprintf(stderr, "[media] build comms-media-2026-11-27-r6 (speaks the protocol layer's frame to every end that does)\n");
+    std::fprintf(stderr, "[media] build comms-media-2026-11-27-r7 (speaks the protocol layer's frame to every end that does; says why it ended)\n");
+    comms::say_why_it_ended("[media] comms-media-2026-11-27-r7");
     try { return run_main(argc, argv); }
     catch (const std::exception& e) { std::fprintf(stderr, "comms-media: %s\n", e.what()); return 1; }
 }

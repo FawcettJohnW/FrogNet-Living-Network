@@ -15,6 +15,12 @@ John built r5 with Visual Studio (one fault: the frame's DLL import library had 
   comes back ([THE_ROOM_IS_JOINED_AGAIN_V1], `src/comms/room.cpp`): before, the heartbeat failed for ever and the
   window was in nobody's room. `tests/py/test_the_memory_goes_and_comes_back.py` (new): servers killed for 8 s during
   a call, both windows stay up, are back in the room, and call again.
+- **Seattle7's comms-media went away twice during a call** (09:09: Windows saw both planes "forcibly closed by the
+  remote host" seconds after the server began converting its picture to 160x120 for the phone; 07:4x the same, and
+  port 8800 refused after it, which is fdf-comms.sh ending comms-ram when comms-media ends). Why is NOT established:
+  nothing from Seattle7 was seen. Servers r7 say why they ended ([A_SERVER_SAYS_WHY_IT_ENDED_V1], `src/comms/fatal.hpp`):
+  the signal or the uncaught exception, the thread, and the return addresses, which
+  `addr2line -Cfpe build/comms-<arch>/unstripped/comms-media <addresses>` names (the build script keeps that copy).
 - Not done: r6 has not been built on Windows; the new servers have not run on Seattle7; the Python window's room has
   not been given the same rejoin.
 
