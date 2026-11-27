@@ -31,6 +31,10 @@ extern "C" {
 #include <libavutil/log.h>
 }
 #include <QApplication>
+#include <QCryptographicHash>
+#include <QDir>
+#include <QFile>
+#include <QInputDialog>
 #include <QPolygonF>
 #include <deque>
 #include <functional>
@@ -588,6 +592,15 @@ public:
         auto* reset_go = new QPushButton("Reset the channel (tcp, not sealed)");
         connect(reset_go, &QPushButton::clicked, [this] { reset_channel(); });
         more->addWidget(qr_go); more->addWidget(reset_go); more->addStretch();
+        // [THE_SHARED_SECRET_IS_SET_HERE_V1] (John, 27 Nov 2026: "The Windows UI needs to show the shared secret and offer
+        // the user the opportunity to set it.") What this machine holds, as its name and 8-character hash (the secret
+        // itself is never shown), and a button that makes it from a phrase typed here.
+        auto* sec = new QHBoxLayout; sec->setSpacing(10);
+        s_secret_ = new QLabel; s_secret_->setTextInteractionFlags(Qt::TextSelectableByMouse);
+        auto* secret_go = new QPushButton("Set the shared secret...");
+        connect(secret_go, &QPushButton::clicked, [this] { set_shared_secret(); });
+        sec->addWidget(s_secret_, 1); sec->addWidget(secret_go);
+        left->insertLayout(left->count() - 1, sec);
         left->insertLayout(left->count() - 1, more);
         s_buttons_ = {cipher_go, key_go, protocol_go, ram_go, reset_go};
         return w;
@@ -631,6 +644,33 @@ public:
         after_change_ = [this] { set_cipher("not sealed"); };
         set_protocol("tcp");
     }
+    // [THE_SHARED_SECRET_IS_SET_HERE_V1] The shared secret made from a phrase: the 32 bytes of SHA-256 of the phrase as
+    // UTF-8, written as the secrets directory's "default" (the network's secret, used by every Role with no secret of
+    // its own). Every machine given the same phrase holds the same secret and shows the same hash. The phrase is not
+    // kept, printed or logged. The file is read each time a key or a check is computed, so nothing is restarted.
+    void set_shared_secret(const QString& given = QString()) {
+        auto ch = Channel::watching();
+        const std::string role = ch ? ch->role() : std::string(CHANNEL_ROLE), dir = channel_secrets_dir();
+        bool ok = !given.isEmpty();
+        const QString phrase = ok ? given : QInputDialog::getText(this, "Set the shared secret",
+            "Type the phrase. Every machine given the same phrase holds the same secret\nand shows the same hash (the node, this machine, the phone by the QR code).", QLineEdit::Normal, QString(), &ok);
+        if (!ok || phrase.isEmpty()) return;
+        const QByteArray secret = QCryptographicHash::hash(phrase.toUtf8(), QCryptographicHash::Sha256);
+        const QString d = QString::fromStdString(dir);
+        QFile f(d + "/default");
+        if (!QDir().mkpath(d) || !f.open(QIODevice::WriteOnly | QIODevice::Truncate) || f.write(secret) != secret.size()) {
+            said_both("The shared secret was NOT set: " + d + "/default could not be written (" + f.errorString() + ")"); return;
+        }
+        f.close();
+        f.setPermissions(QFileDevice::ReadOwner | QFileDevice::WriteOwner);
+        std::string now;
+        try { now = channel_secret_line(role, dir); } catch (const std::exception& e) { now = e.what(); }
+        const bool own = QFile::exists(d + "/" + QString::fromStdString(role));
+        said_both(QString::fromStdString("The shared secret is set: " + now + (own ? "\n'" + role + "' has a secret of its own on this machine, and that one is used for it, not the shared one." : "")));
+        std::cerr << "[security] the shared secret was set here: " << now << "\n";
+        refresh_security();
+    }
+
     // [A_SECRET_IS_SHOWN_TO_BE_SCANNED_V1] The secret this machine uses for the Role as a QR code, on this screen only:
     // not printed, not logged, not written anywhere. It closes itself after a minute.
     void show_secret_qr() {
@@ -736,6 +776,7 @@ public:
         s_role_->setText(QString::fromStdString(ch->role()));
         s_cipher_->setText(QString::fromStdString(sealed ? get("protection") : std::string("not sealed")));
         s_key_->setText(QString::fromStdString("computed from the secret: " + secret));
+        if (s_secret_) s_secret_->setText(QString::fromStdString("Shared secret on this machine: " + secret));
         s_protocol_->setText(QString::fromStdString(get("driver").empty() ? std::string("tcp") : get("driver")));
         s_ram_->setText(QString::fromStdString(here));
         s_me_->setText(QString::fromStdString(ch->end() + (ch->framed() ? ", its planes under the frame" : ", its planes NOT under the frame (start it with --channel " + ch->role() + ")")
@@ -1168,6 +1209,7 @@ public:
             else if (what == "protocol") { s_protocol_pick_->setCurrentText(QString::fromStdString(arg)); s_buttons_[2]->click(); }
             else if (what == "ram") { s_ram_to_->setText(QString::fromStdString(arg)); s_buttons_[3]->click(); }
             else if (what == "reset") s_buttons_[4]->click();
+            else if (what == "secret") set_shared_secret(QString::fromStdString(arg));   // the phrase, for the test
             else if (what == "qr") { qr_shot_ = arg; show_secret_qr(); }       // the dialog, pictured into the named file, then closed
         }
         if (!opt_.screenshot.empty() && ++ticks_ >= opt_.after) {
@@ -1232,7 +1274,7 @@ private:
     double gap_max_ms_ = 0;
     // the Security tab
     QTabWidget* tabs_ = nullptr;
-    QLabel *s_role_ = nullptr, *s_cipher_ = nullptr, *s_key_ = nullptr, *s_protocol_ = nullptr, *s_ram_ = nullptr, *s_me_ = nullptr, *s_result_ = nullptr;
+    QLabel *s_secret_ = nullptr, *s_role_ = nullptr, *s_cipher_ = nullptr, *s_key_ = nullptr, *s_protocol_ = nullptr, *s_ram_ = nullptr, *s_me_ = nullptr, *s_result_ = nullptr;
     QComboBox *s_cipher_pick_ = nullptr, *s_protocol_pick_ = nullptr;
     QLineEdit* s_ram_to_ = nullptr;
     QPlainTextEdit* s_ends_ = nullptr;
@@ -1265,10 +1307,17 @@ static int run_main(int argc, char** argv) {
         else if (k == "--list-devices") { std::cout << "cameras:\n" << video_devices() << "audio (--mic N / --speaker N):\n" << audio_devices(); return 0; }
         else { std::cerr << "unknown option " << k << "\n"; return 2; }
     }
-    if (o.ram.empty() || o.media.empty() || o.name.empty()) {
-        std::cerr << "usage: comms-app --ram HOST:PORT --media HOST:PORT --name NAME [--video FILE | --camera DEV | --synthetic WxH] [--channel ROLE]\n";
+    if (o.name.empty()) {
+        std::cerr << "usage: comms-app --name NAME [--video FILE | --camera DEV | --synthetic WxH] [--channel ROLE] [--ram HOST:PORT --media HOST:PORT]\n";
         return 2;
     }
+    // [COMMS_ARE_ON_THE_SYSTEMRAM_V1] (John, 27 Nov 2026: "The communicator RAM host should be set to the same machine
+    // that the databasehost is. It is not first-come first-served.") With no --ram and no --media the Communicator's
+    // memory and media server are the SystemRam's node, by its name on the network: nothing is typed and every
+    // machine finds the same one. (--ram/--media remain for a machine that is not on a FrogNet network, and for tests.)
+    if (o.ram.empty()) o.ram = "databasehost.frognet:8800";
+    if (o.media.empty()) o.media = "databasehost.frognet:8994";
+    std::cerr << "[app] the Communicator's memory is at " << o.ram << " and its media server at " << o.media << "\n";
     av_log_set_level(AV_LOG_ERROR);                        // FFmpeg: errors only (5.1 logs a missing SIMD path as a warning)
     // [THE_CALL_IS_UNDER_THE_FRAME_V1] --channel ROLE: this program's planes are under the frame; the Role's setting is
     // read from the memory before any plane is opened

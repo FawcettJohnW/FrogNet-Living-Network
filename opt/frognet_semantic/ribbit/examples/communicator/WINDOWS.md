@@ -27,7 +27,7 @@ are not in the archive: they stay, and the rebuild takes minutes.
 
 ```
 cd F:\Temp
-tar -xf $HOME\Downloads\communicator-r8-full-20261127.zip
+tar -xf $HOME\Downloads\communicator-r9-full-20261127.zip
 cd comms
 powershell -ExecutionPolicy Bypass -File .\build-windows.ps1
 ```
@@ -48,6 +48,27 @@ That prints each camera with the exact `--camera` value to use, and the numbered
 
 Leave out `--mic`/`--speaker` for the Windows defaults. Windows Firewall may ask about network access the first time.
 
+## Where it connects, and the shared secret (r9, 2026-11-27)
+
+With no `--ram` and no `--media` the window uses the SystemRam's node, by name: `databasehost.frognet:8800` and
+`databasehost.frognet:8994` ([COMMS_ARE_ON_THE_SYSTEMRAM_V1]: on a FrogNet network the Communicator's servers run on
+the node that is the SystemRam, and on no other; `fdf-comms.sh` r2 does that). The machine must resolve FrogNet names,
+as any machine on a node's network does. The first console lines say the build and the two addresses.
+
+```
+.\dist\comms-app.exe --name John --channel mediahost --camera "video=<name from the list>" --mic N
+```
+
+The Security tab shows "Shared secret on this machine" with its name and 8-character hash, and "Set the shared
+secret..." makes it from a phrase typed there (SHA-256 of the phrase, written as `default` in the secrets folder).
+The same phrase on a node gives the same secret:
+
+```
+mkdir -p /etc/frognet/channel_secrets && python3 -c 'import hashlib;open("/etc/frognet/channel_secrets/default","wb").write(hashlib.sha256(input("phrase: ").encode()).digest())' && /opt/fdf/comms/comms-channel secret mediahost
+```
+
+The phone takes it from "Show the secret as a QR code...". All three then show one hash.
+
 ## Under the frame: cipher, key, protocol and the RAM host switched from the call (r5, 2026-11-26)
 
 Add `--channel mediahost` and the window's planes are under the protocol layer's frame: the row under the picture
@@ -67,7 +88,7 @@ $env:FROGNET_CHANNEL_SECRETS = "$HOME\frognet-secrets"
 ```
 
 With the variable not set the window looks in `\etc\frognet\channel_secrets` on the drive it was started from.
-The first console line is `[app] build comms-app-2026-11-27-r8`.
+The first console line is `[app] build comms-app-2026-11-27-r9`.
 
 r5 was built with MSVC and run on Windows by John on 2026-11-27 (camera, microphone, a call with the phone, not under
 the frame). The build stopped once: the frame's DLL import library had the static library's name (`ninja: multiple

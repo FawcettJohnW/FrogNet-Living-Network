@@ -1,3 +1,23 @@
+## 2026-11-27 (10:25): the servers are on the SystemRam's node; the shared secret is set in the window (comms-app r9)
+
+John, after the phone joined one node's Communicator and Windows another's (six nodes had been started by hand and the
+phone took the first `where` cell): "The communicator RAM host should be set to the same machine that the databasehost
+is. It is not first-come first-served." and "The Windows UI needs to show the shared secret and offer the user the
+opportunity to set it."
+
+- [COMMS_ARE_ON_THE_SYSTEMRAM_V1] `fdf-comms.sh` r2 (opt/fdf/src/fdf-source/fdf/bin): on a node it runs comms-ram and
+  comms-media only while this node is the SystemRam (`databasehost.frognet` in /etc/hosts is one of its addresses),
+  stops them when it no longer is, and waits otherwise, woken by a change of /etc/hosts (inotify), not a timer. One
+  node writes the pond's `where` cell, so the phone reads one. Tested here with the real servers and a hosts file
+  changed under it: waits, starts, stops. Not run on a node.
+- comms-app: no `--ram`/`--media` means `databasehost.frognet:8800` / `:8994`. Run here with that name in /etc/hosts.
+- [THE_SHARED_SECRET_IS_SET_HERE_V1] Security tab: "Shared secret on this machine: <name>, hash <8>" and "Set the
+  shared secret...": the 32 bytes of SHA-256 of a typed phrase, written as `default`. Unattended: `--security "secret
+  PHRASE"`. Run offscreen: the hash is the one comms-channel says for the same phrase made on Linux.
+- Not changed: the phone still reads the pond's `where` cells and takes the first; with r2 on the nodes there is one.
+  The Python window. A Role's secret is still placed by hand on a node (the phrase line in WINDOWS.md).
+- r9 has not been built with MSVC (it compiles with MinGW-w64).
+
 ## 2026-11-27 (later): the secret by FrogNet QR code; reset for a demonstration (comms-app r8, Android r9)
 
 John: "Import secret kinda sucks. Let's have the Windows app display a QR code for the Android to import from. Either
