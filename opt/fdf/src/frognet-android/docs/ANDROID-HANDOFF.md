@@ -6,7 +6,9 @@
 > and RAM manager) on the app's screen; its built-in first pond is John's own region. How to install a region and
 > the app: `docs/OPERATING.md` in the FrogNet repository. The dated sections below are the record of each build.
 >
-> **2026-11-27: the Communicator is r9** (`comms-android-2026-11-27-r9`): Scan secret (a FrogNet QR code, the frog, holding an `fdfsec1` line,
+> **2026-11-27: the Communicator is r10** (`comms-android-2026-11-27-r10`, member `fdf-kt-2026-11-27-a27`): the Communicator used is the one on the SystemRam's node, the pond's `where` cell that says `at=systemram` (fdf-comms.sh r3), not the first listed; none there: none.
+>
+> **Before that, r9** (`comms-android-2026-11-27-r9`): Scan secret (a FrogNet QR code, the frog, holding an `fdfsec1` line,
 > shown by a machine that holds the secret), Import file, Reset this phone. See `COMMUNICATOR-ANDROID-r8.md`. The app
 > now depends on `com.google.zxing:core:3.5.3`.
 >

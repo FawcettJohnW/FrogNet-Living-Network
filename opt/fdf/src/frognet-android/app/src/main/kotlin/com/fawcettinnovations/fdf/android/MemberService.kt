@@ -277,8 +277,13 @@ class MemberService : Service() {
         if (m == null) { AppLog.add("communicator: not joined to $area yet"); return null }
         val all = try { m.services("comms") } catch (e: Exception) { AppLog.add("communicator: reading $area's where cells failed: ${e.message}"); return null }
         if (all.isEmpty()) { AppLog.add("communicator: no member of $area runs one (no comms in its where cells)"); return null }
-        val (from, b) = all.first()
-        if (all.size > 1) AppLog.add("communicator: ${all.size} in $area (${all.joinToString { it.first }}); using $from's")
+        // [COMMS_ARE_ON_THE_SYSTEMRAM_V1] (John, 27 Nov 2026: "The communicator RAM host should be set to the same machine
+        // that the databasehost is. It is not first-come first-served.") The Communicator is the one on the SystemRam's
+        // node: the cell that says at=systemram (fdf-comms.sh r3 writes it, and only on that node). A node that says it
+        // runs one without saying that is not used, and with none on the SystemRam's node there is none.
+        val (from, b) = all.firstOrNull { it.second["at"].str == "systemram" } ?: run {
+            AppLog.add("communicator: none on $area's SystemRam node (${all.joinToString { it.first }} say they run one, not as the SystemRam's: not used)"); return null }
+        if (all.size > 1) AppLog.add("communicator: ${all.size} in $area say they run one (${all.joinToString { it.first }}); the SystemRam's node is $from")
         // [IDENTITY_IN_TUPLES_V1] the cell names the node by identity; its address is the one it has in this pond
         val ram = try { m.endpoint(b["ram"].str) } catch (e: Exception) { AppLog.add("communicator: $from's memory: ${e.message}"); return null }
         val media = try { m.endpoint(b["media"].str) } catch (e: Exception) { AppLog.add("communicator: $from's media: ${e.message}"); return null }

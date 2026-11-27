@@ -14,8 +14,11 @@ opportunity to set it."
 - [THE_SHARED_SECRET_IS_SET_HERE_V1] Security tab: "Shared secret on this machine: <name>, hash <8>" and "Set the
   shared secret...": the 32 bytes of SHA-256 of a typed phrase, written as `default`. Unattended: `--security "secret
   PHRASE"`. Run offscreen: the hash is the one comms-channel says for the same phrase made on Linux.
-- Not changed: the phone still reads the pond's `where` cells and takes the first; with r2 on the nodes there is one.
-  The Python window. A Role's secret is still placed by hand on a node (the phrase line in WINDOWS.md).
+- 10:40, after "The Android keeps looking at 170": a node still on the earlier script kept its cell, and the phone
+  took the first. `fdf-comms.sh` r3 writes `at=systemram` in its cell, and the phone (Android r10, member a27,
+  `MemberService.communicator()`) uses only the cell that says it; with none, it uses none and says who else claims
+  one. Typechecked; not run on a phone.
+- Not changed: the Python window. A Role's secret is still placed by hand on a node (the phrase line in WINDOWS.md).
 - r9 has not been built with MSVC (it compiles with MinGW-w64).
 
 ## 2026-11-27 (later): the secret by FrogNet QR code; reset for a demonstration (comms-app r8, Android r9)

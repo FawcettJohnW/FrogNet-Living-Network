@@ -16,7 +16,7 @@
 # SystemRam (databasehost.frognet in /etc/hosts is one of this node's addresses) and on no other: this script, started
 # on any node, starts them when this node is the SystemRam, stops them when it no longer is, and otherwise waits. It
 # wakes when /etc/hosts changes (inotify; the merge writes it), never on a timer. So one node says where the
-# Communicator is, and every reader finds the same one. FDF_HOSTS / FDF_MY_ADDRS: the hosts file and this machine's
+# Communicator is, and every reader finds the same one. Its cell says at=systemram, and the phone uses only that cell. FDF_HOSTS / FDF_MY_ADDRS: the hosts file and this machine's
 # addresses, for the test.
 set -eu
 B=${COMMS_BIN:-/opt/fdf/comms}; F=${FDF_BIN:-/opt/fdf/bin}
@@ -27,7 +27,7 @@ try: f=json.load(open(sys.argv[1]))
 except Exception: sys.exit(0)
 print(next((r["ip"] for r in f.get("addrs") or [] if r.get("kind")=="own" and str(r.get("ip","")).endswith(".1")),""))' "$FACTS" 2>/dev/null || true)
 HOSTS=${FDF_HOSTS:-/etc/hosts}
-echo "fdf-comms: fdf-comms-2026-11-27-r2 (the Communicator's servers run on the SystemRam's node)"
+echo "fdf-comms: fdf-comms-2026-11-27-r3 (the Communicator's servers run on the SystemRam's node)"
 if [ -z "$DOT1" ]; then                                    # the droplet: no .1, no SystemRam of its own
     "$B/comms-ram" --listen 0.0.0.0:8800 & R=$!
     trap 'kill $R 2>/dev/null' EXIT
@@ -65,7 +65,7 @@ while True:
             # [ONE_OWNER_V1] the cell is this script's own: (pond, where, w:<guid>/comms), written own:true by fdf-where --hold
             # on its own session and held while the servers run -- gone with it, written by nobody else, swept by nobody
             for i in $(seq 100); do (exec 3<>/dev/tcp/127.0.0.1/8994) 2>/dev/null && break; sleep 0.05; done
-            FDF_ADDIN=comms "$F/fdf-where" --hold comms ram=self:8800 media=self:8994 & W=$!
+            FDF_ADDIN=comms "$F/fdf-where" --hold comms ram=self:8800 media=self:8994 at=systemram & W=$!
             echo "fdf-comms: this node is the SystemRam ($DB): the Communicator is here at $DOT1:8800 / $DOT1:8994, said in the pond at $RINA_RAM (held by pid $W)"
         fi
     else
