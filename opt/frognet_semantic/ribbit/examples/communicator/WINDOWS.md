@@ -27,7 +27,7 @@ are not in the archive: they stay, and the rebuild takes minutes.
 
 ```
 cd F:\Temp
-tar -xf $HOME\Downloads\communicator-r5-full-20261126.zip
+tar -xf $HOME\Downloads\communicator-r6-full-20261127.zip
 cd comms
 powershell -ExecutionPolicy Bypass -File .\build-windows.ps1
 ```
@@ -67,13 +67,12 @@ $env:FROGNET_CHANNEL_SECRETS = "$HOME\frognet-secrets"
 ```
 
 With the variable not set the window looks in `\etc\frognet\channel_secrets` on the drive it was started from.
-The first console line is `[app] build comms-app-2026-11-26-r5`.
+The first console line is `[app] build comms-app-2026-11-27-r6`.
 
-r5 on Windows, what is proven: every source file the Windows build compiles (the vendored memory client, the frame,
-fnav, the codec, the comms library, `comms-feed`, and the Qt window `src/app/main.cpp`) compiles with MinGW-w64 13
-against the Windows headers (2026-11-26, compile only: no link, no run). It has NOT been compiled with MSVC or run on
-Windows; the last tree confirmed on Windows with MSVC is r3. `build-windows.ps1` and `vcpkg.json` (which already
-names OpenSSL, the frame's one new library) are unchanged since r4.
+r5 was built with MSVC and run on Windows by John on 2026-11-27 (camera, microphone, a call with the phone, not under
+the frame). The build stopped once: the frame's DLL import library had the static library's name (`ninja: multiple
+rules generate channel_frame.lib`), fixed in `CMakeLists.txt`. r6 (a failed step no longer ends the window; the room
+is joined again when its memory comes back) compiles with MinGW-w64 13 and has not been built with MSVC.
 
 ## What is and is not proven
 

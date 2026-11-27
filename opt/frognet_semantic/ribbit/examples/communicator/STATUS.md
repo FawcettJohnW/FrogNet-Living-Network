@@ -1,3 +1,23 @@
+## 2026-11-27: first run on Windows and on the phone; r6
+
+John built r5 with Visual Studio (one fault: the frame's DLL import library had the static library's name; fixed in
+`CMakeLists.txt`) and ran it against the phone (Android r7) through `comms-ram` and `comms-media` on Seattle7.
+
+- **Nothing arrived under the frame.** Seattle7's servers were built before 2026-11-24 and do not speak the frame;
+  with both ends not under the frame the call worked. The node's static servers are built by
+  `opt/fdf/src/fdf-source/rinab/tools/build_comms_static.sh`, whose source list did not have the frame: it has now,
+  and it also builds `comms-channel`. Both servers say their build first (`[media] build comms-media-2026-11-27-r6`,
+  `[ram] build comms-ram-2026-11-27-r6`). The aarch64 and x86_64 static servers pass
+  `tests/py/test_the_whole_cycle.py` with the desktop windows (aarch64 under qemu: 18 of 18 changes, 121 ms).
+- **The Windows window ended when the node's comms-ram went away during a call** ("Qt has caught an exception thrown
+  from an event handler"). `comms-app-2026-11-27-r6`: a step that fails in a handler is said on the console and tried
+  again on the next event ([A_FAILED_STEP_DOES_NOT_END_THE_WINDOW_V1]); and the room is joined again when its memory
+  comes back ([THE_ROOM_IS_JOINED_AGAIN_V1], `src/comms/room.cpp`): before, the heartbeat failed for ever and the
+  window was in nobody's room. `tests/py/test_the_memory_goes_and_comes_back.py` (new): servers killed for 8 s during
+  a call, both windows stay up, are back in the room, and call again.
+- Not done: r6 has not been built on Windows; the new servers have not run on Seattle7; the Python window's room has
+  not been given the same rejoin.
+
 ## 2026-11-26: switch it from the call; the overlay shows the channel; the whole cycle, again and again
 
 `comms-app-2026-11-26-r5` (the C++ window). John: "I need to be able to see who is there, to call them, to answer the

@@ -9,6 +9,7 @@
 // callers read that tuple and dial it. The host needs nothing but the memory, so it has no operations of its own.
 //
 //     comms-ram [--listen HOST:PORT]        answers /comms-api
+#include <cstdio>
 #include "ram_host.hpp"
 #define COMMS_RAM_VERSION "communicator 2.2"
 
@@ -18,4 +19,7 @@ public:
     std::string vendor_version() const override { return COMMS_RAM_VERSION; }
 };
 
-int main(int argc, char** argv) { return CommsRam().run(argc, argv); }
+int main(int argc, char** argv) {
+    std::fprintf(stderr, "[ram] build comms-ram-2026-11-27-r6\n");   // said first: which server runs
+    return CommsRam().run(argc, argv);
+}

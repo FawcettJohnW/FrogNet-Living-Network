@@ -35,21 +35,28 @@ Room::Room(const std::string& host, int port, const std::string& name, const std
             for (int i = 0; i < HEARTBEAT_S * 10 && !stop_; ++i) std::this_thread::sleep_for(std::chrono::milliseconds(100));
             if (!stop_) {
                 try { announce(status()); refresh_calls(); }
-                catch (const std::exception& e) { std::fprintf(stderr, "[room] heartbeat failed: %s\n", e.what()); }   // logged, never silent
+                catch (const std::exception& e) {
+                    // [THE_ROOM_IS_JOINED_AGAIN_V1] (27 Nov 2026) the memory went away and came back (comms-ram started
+                    // again on its node): this participant's session there is gone and so are its tuples. The session
+                    // is opened again and presence and calls are asserted, as when the memory moves. Before this the
+                    // heartbeat failed every time for ever and the window was in nobody's room.
+                    std::fprintf(stderr, "[room] heartbeat failed: %s: joining the room again\n", e.what());
+                    attach("was lost");
+                }
             }
         }
     });
 }
 
 // [THE_MEMORY_MOVES_V1]
-void Room::attach() {
+void Room::attach(const char* why) {
     const auto at = RamAt::process().at();
     {
         std::lock_guard<std::mutex> g(c_mu_);
         try { c_.close(); } catch (const std::exception&) {}      // its own tuples at the address it leaves go with the session
         c_up_ = false;
         try { c_.connect(at.first, at.second); c_up_ = true; }
-        catch (const std::exception& e) { std::fprintf(stderr, "[room] the memory moved to %s:%d and it does not answer: %s (tried again at the next write)\n", at.first.c_str(), at.second, e.what()); }
+        catch (const std::exception& e) { std::fprintf(stderr, "[room] the memory %s; %s:%d does not answer: %s (tried again at the next heartbeat)\n", why, at.first.c_str(), at.second, e.what()); }
     }
     moved_ = true;
     try { w_.session().shutdown(); } catch (const std::exception&) {}   // the held read ends now; the watcher attaches its own session
@@ -60,9 +67,9 @@ void Room::attach() {
         { std::lock_guard<std::mutex> g(mu_); speeds = speeds_; }
         for (auto& s : speeds) set_media_speed(s.first, s.second);
         attached_++;
-        std::fprintf(stderr, "[room] the memory moved: attached to %s:%d, presence and calls asserted there\n", at.first.c_str(), at.second);
+        std::fprintf(stderr, "[room] the memory %s: attached to %s:%d, presence and calls asserted there\n", why, at.first.c_str(), at.second);
     } catch (const std::exception& e) {
-        std::fprintf(stderr, "[room] the memory moved to %s:%d; asserting this participant's tuples there failed: %s (the heartbeat asserts them again)\n", at.first.c_str(), at.second, e.what());
+        std::fprintf(stderr, "[room] the memory %s; asserting this participant's tuples at %s:%d failed: %s (the heartbeat asserts them again)\n", why, at.first.c_str(), at.second, e.what());
     }
 }
 

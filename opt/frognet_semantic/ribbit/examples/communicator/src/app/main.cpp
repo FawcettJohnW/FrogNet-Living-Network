@@ -841,7 +841,7 @@ public:
         call_->stop(); call_.reset();
         try { room_->leave_call(session_); } catch (const std::exception& e) { std::cerr << "[room] after the call: " << e.what() << "\n"; }
         session_.clear(); with_.clear();
-        room_->announce("online");
+        try { room_->announce("online"); } catch (const std::exception& e) { std::cerr << "[room] after the call: " << e.what() << "\n"; }
         hang_->setEnabled(false); say_->setEnabled(false); say_->setPlaceholderText("Start a call to chat");
         chat_->clear(); chat_title_->setText("Chat");
         view_->remote = QImage(); view_->self = QImage(); view_->overlay.clear(); view_->who.clear(); view_->no_video.clear(); view_->update();
@@ -1216,7 +1216,23 @@ static int run_main(int argc, char** argv) {
     // read from the memory before any plane is opened
     const auto rc = o.ram.rfind(':');
     auto under = comms::channel_for_program(o.channel, o.name, o.ram.substr(0, rc), std::stoi(o.ram.substr(rc + 1)));
-    QApplication app(argc, argv);
+    // [A_FAILED_STEP_DOES_NOT_END_THE_WINDOW_V1] (John's Windows console, 27 Nov 2026: the node's comms-ram went away
+    // during a call and the window ended with "Qt has caught an exception thrown from an event handler".) A step that
+    // fails in a handler -- the memory or the media server gone -- is said on the console and the handler ends there;
+    // the timer's next tick tries again. The window stays up and finds the room again when the memory is back.
+    struct App : QApplication {
+        using QApplication::QApplication;
+        bool notify(QObject* to, QEvent* e) override {
+            try { return QApplication::notify(to, e); }
+            catch (const std::exception& x) {
+                if (last_ != x.what()) std::cerr << "[app] a step failed: " << x.what() << " (tried again on the next event)\n";
+                last_ = x.what();
+                return false;
+            }
+        }
+        std::string last_;
+    };
+    App app(argc, argv);
     Window w(o);
     w.show();
     return app.exec();

@@ -15,11 +15,13 @@ CXX="$GXX -O2 -pthread -std=c++17 -D__STDC_CONSTANT_MACROS -I$R/cpp/include -I$R
 mkdir -p $O/obj
 SRC="$R/cpp/src/frogram.cpp $R/cpp/src/ram_client.cpp $R/cpp/src/ram_host.cpp $R/defaults/api/tuples.cpp src/ram/comms_ram.cpp
      src/fnav/net.cpp src/fnav/frame.cpp src/fnav/plane.cpp src/fnav/segment.cpp src/fnav/bearer.cpp src/media/transcode.cpp
-     src/media/server.cpp src/media/speed.cpp src/media/main.cpp src/comms/call.cpp src/comms/audio.cpp src/comms/room.cpp src/comms/devices.cpp"
+     src/media/server.cpp src/media/speed.cpp src/media/main.cpp src/comms/call.cpp src/comms/audio.cpp src/comms/room.cpp src/comms/devices.cpp
+     src/comms/channel.cpp $R/cpp/src/channel_frame.cpp tools/comms_channel.cpp"   # [THE_CALL_IS_UNDER_THE_FRAME_V1] 2026-11-27: the frame, the Role's setting, and comms-channel
 pids=""; for s in $SRC; do o=$O/obj/$(echo $s | tr / _).o; $CXX -c $s -o $o & pids="$pids $!"; done; for p in $pids; do wait $p; done
 ob() { for s; do printf '%s ' $O/obj/$(echo $s | tr / _).o; done; }
 L="-L$DEPS/lib -lavdevice -lavfilter -lavformat -lavcodec -lswscale -lswresample -lavutil -lvpx -lopus -lportaudio $XL -lm -ldl -static"
 $GXX -pthread -o $O/comms-ram $(ob src/ram/comms_ram.cpp $R/cpp/src/ram_host.cpp $R/cpp/src/frogram.cpp) $XL -ldl -static
-$GXX -pthread -o $O/comms-media $(ob src/media/main.cpp src/media/server.cpp src/media/speed.cpp src/media/transcode.cpp src/fnav/net.cpp src/fnav/frame.cpp src/fnav/plane.cpp src/fnav/segment.cpp src/fnav/bearer.cpp src/comms/call.cpp src/comms/audio.cpp src/comms/room.cpp src/comms/devices.cpp $R/cpp/src/frogram.cpp $R/cpp/src/ram_client.cpp $R/defaults/api/tuples.cpp) $L
-if [ "$A" = arm64 ]; then aarch64-linux-gnu-strip $O/comms-ram $O/comms-media; else strip $O/comms-ram $O/comms-media; fi
-file $O/comms-ram $O/comms-media
+$GXX -pthread -o $O/comms-media $(ob src/media/main.cpp src/media/server.cpp src/media/speed.cpp src/media/transcode.cpp src/fnav/net.cpp src/fnav/frame.cpp src/fnav/plane.cpp src/fnav/segment.cpp src/fnav/bearer.cpp src/comms/call.cpp src/comms/audio.cpp src/comms/room.cpp src/comms/devices.cpp src/comms/channel.cpp $R/cpp/src/channel_frame.cpp $R/cpp/src/frogram.cpp $R/cpp/src/ram_client.cpp $R/defaults/api/tuples.cpp) $L
+$GXX -pthread -o $O/comms-channel $(ob tools/comms_channel.cpp src/media/transcode.cpp src/fnav/net.cpp src/fnav/frame.cpp src/fnav/plane.cpp src/fnav/segment.cpp src/fnav/bearer.cpp src/comms/call.cpp src/comms/audio.cpp src/comms/room.cpp src/comms/devices.cpp src/comms/channel.cpp $R/cpp/src/channel_frame.cpp $R/cpp/src/frogram.cpp $R/cpp/src/ram_client.cpp $R/defaults/api/tuples.cpp) $L
+if [ "$A" = arm64 ]; then aarch64-linux-gnu-strip $O/comms-ram $O/comms-media $O/comms-channel; else strip $O/comms-ram $O/comms-media $O/comms-channel; fi
+file $O/comms-ram $O/comms-media $O/comms-channel

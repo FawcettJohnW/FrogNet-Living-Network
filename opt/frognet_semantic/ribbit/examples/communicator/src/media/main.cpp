@@ -48,6 +48,8 @@ static int run_main(int argc, char** argv) {
 // [A_FAILURE_SAYS_WHAT_FAILED_V1] an unreachable memory or media server, a camera that will not open: the cause, once,
 // and a clean exit -- never "terminate called ... Aborted".
 int main(int argc, char** argv) {
+    // said first, so a console or a journal shows which server runs: before 2026-11-24 it did not speak the frame
+    std::fprintf(stderr, "[media] build comms-media-2026-11-27-r6 (speaks the protocol layer's frame to every end that does)\n");
     try { return run_main(argc, argv); }
     catch (const std::exception& e) { std::fprintf(stderr, "comms-media: %s\n", e.what()); return 1; }
 }

@@ -68,7 +68,7 @@ public:
     // [THE_MEMORY_MOVES_V1] The memory is at another address (RamAt says where). This participant ends its sessions,
     // attaches there, asserts its own tuples (presence, the calls it offers and is in, its download cap) and sets up
     // its held read again. Called by RamAt when the address changes.
-    void attach();
+    void attach(const char* why = "moved");
     uint64_t attached() const { return attached_.load(); }   // how many times it has followed the memory
 private:
     CommsClient c_;
