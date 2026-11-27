@@ -1,0 +1,5 @@
+phone sender, link 100 kb/s then unlimited, against comms-ram and comms-media (Probe slider), 2026-11-27
+BEFORE (r10), lowered and raised once:   RESULT the picture left the gray sizes 30 s after the link came back
+BEFORE (r10), lowered and raised 4 times: RESULT the picture left the gray sizes 42 s after the link came back
+AFTER (r11), once:    RESULT the picture left the gray sizes 0 s after the link came back
+AFTER (r11), 4 times: RESULT the picture left the gray sizes 0 s after the link came back

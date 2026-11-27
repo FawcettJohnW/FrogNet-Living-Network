@@ -74,3 +74,16 @@ javac -nowarn -cp "$R/lib/core-3.5.3.jar" -d build/sqcls app/src/main/java/net/f
 java -cp "build/sqcls:$R/lib/core-3.5.3.jar" net.frognet.communicator.SecretQrTest $SQ/dialog-a.png "$HA" $SQ/dialog-b.png "$HB" > $OUT/test_secret_qr.log 2>&1 || true
 grep -E "^FAIL|^RESULT" $OUT/test_secret_qr.log
 rm -rf $SQ
+
+echo "== 7 the link slider lowered and raised"
+# [THE_PICTURE_COMES_BACK_V1] the phone's sender against the real servers, fed as CameraGl feeds it: the link at 100 kb/s
+# (the picture walks down to the gray sizes), then unlimited. The picture must be out of the gray sizes at once; and
+# again after the slider has been lowered and raised three times first (holds from earlier failures must not keep it).
+"$B/comms-ram" --listen 127.0.0.1:24700 > /dev/null 2>&1 & SL_RAM=$!; sleep 1
+"$B/comms-media" --listen 127.0.0.1:24720 --ram 127.0.0.1:24700 > /dev/null 2>&1 & SL_MEDIA=$!; sleep 1
+for n in 1 4; do
+  PROBE_CYCLES=$n java -cp build/jvm Probe slider 24700 24720 Phone 100000 15 0 30 $OUT/slider.dump > $OUT/test_slider_$n.log 2>&1 || true
+  if grep -q "^RESULT the picture left the gray sizes [0-3] s after" $OUT/test_slider_$n.log; then echo "PASS lowered and raised $n time(s): $(grep '^RESULT' $OUT/test_slider_$n.log | cut -c8-)"
+  else echo "FAIL lowered and raised $n time(s): $(grep '^RESULT' $OUT/test_slider_$n.log | cut -c8-)"; fi
+done
+kill $SL_RAM $SL_MEDIA 2>/dev/null || true

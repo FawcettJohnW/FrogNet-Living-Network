@@ -27,7 +27,7 @@ are not in the archive: they stay, and the rebuild takes minutes.
 
 ```
 cd F:\Temp
-tar -xf $HOME\Downloads\communicator-r9-full-20261127.zip
+tar -xf $HOME\Downloads\communicator-r10-full-20261127.zip
 cd comms
 powershell -ExecutionPolicy Bypass -File .\build-windows.ps1
 ```
@@ -88,7 +88,7 @@ $env:FROGNET_CHANNEL_SECRETS = "$HOME\frognet-secrets"
 ```
 
 With the variable not set the window looks in `\etc\frognet\channel_secrets` on the drive it was started from.
-The first console line is `[app] build comms-app-2026-11-27-r9`.
+The first console line is `[app] build comms-app-2026-11-27-r10`.
 
 r5 was built with MSVC and run on Windows by John on 2026-11-27 (camera, microphone, a call with the phone, not under
 the frame). The build stopped once: the frame's DLL import library had the static library's name (`ninja: multiple

@@ -30,7 +30,7 @@ public class Probe {
         String role = System.getenv("PROBE_CHANNEL");
         boolean framed = role != null && !role.isEmpty();
         if (!a[0].equals("owner")) {
-            String me = a[0].equals("call") || a[0].equals("feed") ? a[3] : a[0].equals("answer") ? a[2] : "Phone";
+            String me = a[0].equals("call") || a[0].equals("feed") || a[0].equals("slider") ? a[3] : a[0].equals("answer") ? a[2] : "Phone";
             RamAt.start(H, Integer.parseInt(a[1]));
             Channel.forProgram(framed ? role : Channel.ROLE, framed, me, SECRETS, new Channel.Logger() { public void log(String l) { System.out.println(l); } });
         }
@@ -41,6 +41,8 @@ public class Probe {
             case "watch": watch(Integer.parseInt(a[1]), a[2], Integer.parseInt(a[3]), a[4]); break;
             case "call": call(Integer.parseInt(a[1]), Integer.parseInt(a[2]), a[3], a[4], a[5], a[6], Integer.parseInt(a[7]), a[8]); break;
             case "answer": answer(Integer.parseInt(a[1]), a[2], a[3], a[4], a[5], Integer.parseInt(a[6]), a[7]); break;
+            case "slider": slider(Integer.parseInt(a[1]), Integer.parseInt(a[2]), a[3], Long.parseLong(a[4]), Integer.parseInt(a[5]), Long.parseLong(a[6]), Integer.parseInt(a[7]), a[8]); break;
+            case "viewslider": viewslider(Integer.parseInt(a[1]), a[2], Long.parseLong(a[3]), Integer.parseInt(a[4]), Long.parseLong(a[5]), Integer.parseInt(a[6]), a[7]); break;
             case "feed": feed(Integer.parseInt(a[1]), Integer.parseInt(a[2]), a[3], a[4], a[5], Integer.parseInt(a[6])); break;
             default: throw new IllegalArgumentException(a[0]);
         }
@@ -232,6 +234,94 @@ public class Probe {
             for (String l : d.lines) System.out.println("LINE " + l);
             System.out.println("DONE " + d.summary() + (d.moved ? "; chat carried " + d.chatCarried : "") + (d.checked ? "" : "; NO CHECK"));
         } catch (IllegalArgumentException e) { System.out.println("REFUSED " + e.getMessage()); }
+    }
+
+    /** slider RAM_PORT MEDIA_PORT ME LOW_BPS LOW_SECONDS HIGH_BPS HIGH_SECONDS DUMP -- [THE_PICTURE_COMES_BACK_V1] the
+     *  link slider lowered and then raised, as on the phone: a call's video sent the way CameraGl sends it (a 30 frames/s
+     *  camera, a frame encoded when a 24 frames/s period has passed, at the size tick() chose, each frame the size that
+     *  rung's bitrate makes, a keyframe after every size change and on request). One line a second says the rung, the
+     *  size and why; the last line says how long after the link came back the picture left the gray sizes. */
+    static void slider(int ram, int media, String me, long lowBps, int lowS, long highBps, int highS, String dump) throws Exception {
+        Room r = new Room(H, ram, me, "video,audio", LOG);
+        String s = Room.newSession();
+        r.offerCall(s, H, media); r.joinCall(s, H, media);
+        Rx rx = new Rx(dump);
+        CallCore c = new CallCore(H, media, me, s, 24, rx);
+        c.start(); c.startVideo(1280, 720);
+        final long t0 = System.nanoTime(), period = 1_000_000_000L / 24, cam = 1_000_000_000L / 30;
+        long lastEncode = 0, nextCam = t0, lastLine = t0; int encSize = -2; boolean key = true; int sentThisSec = 0;
+        double backAt = -1, colourAt = -1; String worst = "";
+        // PROBE_CYCLES=n: the slider is lowered and raised n-1 times first (LOW_SECONDS down, 15 s up), as a person plays with it
+        final int cycles = System.getenv("PROBE_CYCLES") == null ? 1 : Integer.parseInt(System.getenv("PROBE_CYCLES"));
+        final int pre = 5 + (cycles - 1) * (lowS + 15);
+        long applied = -1;
+        while (true) {
+            long now = System.nanoTime(); double t = (now - t0) / 1e9;
+            if (t >= pre + lowS + highS) break;
+            long want = t < 5 ? 0 : t < pre ? (((int) (t - 5)) % (lowS + 15) < lowS ? lowBps : highBps) : t < pre + lowS ? lowBps : highBps;
+            if (want != applied) { c.setThrottle(want); applied = want; }           // as applyLink: set when the slider moves
+            if (t >= pre + lowS && backAt < 0) backAt = t;
+            if (now - lastEncode >= period - 4_000_000L) {                       // CameraGl.frame's pacing
+                lastEncode = (now - lastEncode > 2 * period) ? now : lastEncode + period;
+                int size = c.tick();
+                if (size != encSize) { encSize = size; key = true; }
+                if (c.takeWantKey()) key = true;
+                if (size >= 0) {
+                    Ladder.Size z = Ladder.SIZES[size];
+                    byte[] f = new byte[Math.max(40, z.bitrate / 8 / 24 * (key ? 4 : 1))];
+                    f[0] = (byte) (key ? 0 : 1);
+                    if (c.sendEncoded(f, key, z)) { sentThisSec++; key = false; }
+                }
+                if (backAt >= 0 && colourAt < 0 && size >= 0 && !Ladder.SIZES[size].gray) colourAt = t;
+            }
+            if (now - lastLine >= 1_000_000_000L) {
+                lastLine += 1_000_000_000L;
+                String z = encSize < 0 ? "audio only" : Ladder.SIZES[encSize] + (Ladder.SIZES[encSize].gray ? " gray" : "");
+                System.out.println(String.format(java.util.Locale.ROOT, "T %3.0f link=%s L%d %s sent=%d/s dropped=%d  %s", t,
+                        applied == 0 ? "unlimited" : (applied / 1000) + "k",
+                        c.stats.rung, z, sentThisSec, c.stats.vDropped, c.stats.reason));
+                sentThisSec = 0;
+            }
+            nextCam += cam;
+            long sl = nextCam - System.nanoTime(); if (sl > 0) Thread.sleep(sl / 1_000_000L, (int) (sl % 1_000_000L));
+        }
+        System.out.println(colourAt < 0 ? "RESULT the picture was still gray " + highS + " s after the link came back"
+                : String.format(java.util.Locale.ROOT, "RESULT the picture left the gray sizes %.0f s after the link came back", colourAt - backAt));
+        c.stop(); r.leaveCall(s); r.close();
+    }
+
+    /** viewslider RAM_PORT FEED LOW_BPS LOW_SECONDS HIGH_BPS HIGH_SECONDS DUMP -- [THE_PICTURE_COMES_BACK_V1] the other
+     *  direction: the phone watches a feed and its link slider is lowered, then raised (MediaSpeed and the local
+     *  throttle, as applyLink does). One line a second says the size of the picture the media server serves it. */
+    static void viewslider(int ram, String feedName, long lowBps, int lowS, long highBps, int highS, String dump) throws Exception {
+        Room r = new Room(H, ram, "Phone", "video,audio", LOG);
+        Room.Offer off = null;
+        long end = System.currentTimeMillis() + 5000;
+        while (off == null && System.currentTimeMillis() < end) {
+            List<String> on = r.callsOf(feedName);
+            for (Room.Offer o : r.offers()) if (on.contains(o.session)) off = o;
+            if (off == null) r.waitChange(r.version(), 500);
+        }
+        if (off == null) { System.out.println("NO-OFFER from " + feedName); r.close(); return; }
+        r.joinCall(off.session, off.mediaHost, off.mediaPort);
+        Rx rx = new Rx(dump);
+        CallCore c = new CallCore(off.mediaHost, off.mediaPort, "Phone", off.session, 24, rx);
+        c.start();
+        final int pre = 6; double backAt = -1, bigAt = -1; int last = 0;
+        for (int t = 0; t < pre + lowS + highS; t++) {
+            long b = t < pre ? 0 : t < pre + lowS ? lowBps : highBps;
+            if (t == 0 || t == pre || t == pre + lowS) { c.setThrottle(b); r.setMediaSpeed(off.session, b); }
+            if (t >= pre + lowS && backAt < 0) backAt = t;
+            Thread.sleep(1000);
+            int[] d; int n;
+            synchronized (rx) { d = rx.dims.get(feedName); n = rx.vcount.containsKey(feedName) ? rx.vcount.get(feedName) : 0; }
+            System.out.println("T " + t + " link=" + (b == 0 ? "unlimited" : (b / 1000) + "k") + " served " + (d == null ? "nothing yet" : d[0] + "x" + d[1]) + " frames=" + (n - last) + "/s");
+            last = n;
+            if (backAt >= 0 && bigAt < 0 && d != null && d[0] >= 854) bigAt = t;
+        }
+        System.out.println(bigAt < 0 ? "RESULT the served picture was still a gray size " + highS + " s after the link came back"
+                : "RESULT the served picture left the gray sizes " + (int) (bigAt - backAt) + " s after the link came back");
+        c.stop(); r.leaveCall(off.session); r.close();
     }
 
     static void call(int ram, int media, String me, String callee, String ivf, String opus, int seconds, String dump) throws Exception {

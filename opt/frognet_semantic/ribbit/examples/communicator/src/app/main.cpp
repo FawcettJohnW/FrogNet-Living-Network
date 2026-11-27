@@ -23,6 +23,7 @@
 #include "comms/call.hpp"
 #include "comms/stamp.hpp"
 #include "fnav/bearer.hpp"
+#include "fnav/net.hpp"
 #include "comms/devices.hpp"
 #include "comms/room.hpp"
 extern "C" {
@@ -1317,6 +1318,29 @@ static int run_main(int argc, char** argv) {
     // machine finds the same one. (--ram/--media remain for a machine that is not on a FrogNet network, and for tests.)
     if (o.ram.empty()) o.ram = "databasehost.frognet:8800";
     if (o.media.empty()) o.media = "databasehost.frognet:8994";
+    // [AN_OFFER_CARRIES_AN_ADDRESS_V1] (John's phone, 27 Nov 2026: "John is calling (session ... at
+    // databasehost.frognet:8994)" then "could not reach the media server databasehost.frognet:8994".) A call's offer
+    // carries where its media server is, and a phone does not resolve FrogNet names: the name is resolved here, once,
+    // and the address is what this program uses and offers.
+    for (std::string* hp : {&o.ram, &o.media}) {
+        const auto c = hp->rfind(':');
+        const std::string host = hp->substr(0, c);
+        in_addr lit{};
+        if (inet_pton(AF_INET, host.c_str(), &lit) == 1) continue;
+        fnav::net_init();
+        addrinfo hints{}, *res = nullptr;
+        hints.ai_family = AF_INET; hints.ai_socktype = SOCK_STREAM;
+        const int rc = getaddrinfo(host.c_str(), nullptr, &hints, &res);
+        if (rc != 0 || !res) {
+            std::cerr << "[app] " << host << " does not resolve on this machine (" << gai_strerror(rc) << "): it is not using a FrogNet node's names. Give --ram HOST:PORT and --media HOST:PORT.\n";
+            return 2;
+        }
+        char ip[64] = {0};
+        inet_ntop(AF_INET, &reinterpret_cast<sockaddr_in*>(res->ai_addr)->sin_addr, ip, sizeof ip);
+        freeaddrinfo(res);
+        std::cerr << "[app] " << host << " is " << ip << "\n";
+        *hp = std::string(ip) + hp->substr(c);
+    }
     std::cerr << "[app] the Communicator's memory is at " << o.ram << " and its media server at " << o.media << "\n";
     av_log_set_level(AV_LOG_ERROR);                        // FFmpeg: errors only (5.1 logs a missing SIMD path as a warning)
     // [THE_CALL_IS_UNDER_THE_FRAME_V1] --channel ROLE: this program's planes are under the frame; the Role's setting is

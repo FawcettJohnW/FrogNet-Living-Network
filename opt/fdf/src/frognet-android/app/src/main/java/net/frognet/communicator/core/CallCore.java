@@ -103,7 +103,30 @@ public final class CallCore {
     public boolean stopped() { return stop; }
 
     /** DEMO / the link: caps the uplink to bps (0 = unlimited); frames over budget are shed and the bearer walks down. */
-    public void setThrottle(long bps) { throttleBps = Math.max(0, bps); }
+    /** The link slider: this end's link, both directions. [THE_PICTURE_COMES_BACK_V1] (John, 27 Nov 2026: "When I increase
+     *  the bitrate after using the slider to lower it, the phone never leaves greyscale mode.") When the link is RAISED,
+     *  what the ladder learned under the smaller link says nothing about the larger one: its failures and their holds
+     *  are forgotten and the picture goes at once to the size the new link affords, by the media server's own rule
+     *  (Server::target_for_cap: the largest size whose bitrate plus audio fits), no larger than the source. A path that
+     *  cannot carry it is found by the ladder as always. Lowering the link is unchanged: the ladder finds the size. */
+    public synchronized void setThrottle(long bps) {
+        long was = throttleBps;
+        throttleBps = Math.max(0, bps);
+        if (bearer == null || was == 0 || (throttleBps != 0 && throttleBps <= was)) return;
+        int i = 0;
+        if (throttleBps > 0) { i = Ladder.SIZES.length; for (int k = 0; k < Ladder.SIZES.length; k++) if (Ladder.SIZES[k].bitrate + AUDIO_BPS <= throttleBps) { i = k; break; } }
+        if (i >= Ladder.SIZES.length) return;                     // not even the floor fits: the ladder stays where it is
+        double t = now();
+        int ceiling = bearer.ceiling;
+        bearer = new Bearer(ceiling, 0, t);                       // no failures, no holds
+        shed = false; bottomOk = 0; winRefused = 0; pendingDropped = 0; bottomAt = t; winT0 = t;
+        if (i <= BOTTOM_FIRST) { inBottom = false; bottom = 0; bearer.resumeAt(Math.min(ceiling, 8 - i), t); }
+        else { inBottom = true; bottom = i - BOTTOM_FIRST; bearer.resumeAt(5, t); }
+        bearer.reason = "the link was raised: at the size it affords";
+        bucket = throttleBps / 8.0; bucketT = t;
+        sentTimes.clear(); rungFrames = 0; rungT0 = t;
+    }
+    static final long AUDIO_BPS = 32000;                           // the media server's (src/media/server.hpp)
 
     public boolean takeWantKey() { boolean k = wantKey; wantKey = false; return k; }
 

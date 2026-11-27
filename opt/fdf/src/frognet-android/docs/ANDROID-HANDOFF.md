@@ -6,7 +6,9 @@
 > and RAM manager) on the app's screen; its built-in first pond is John's own region. How to install a region and
 > the app: `docs/OPERATING.md` in the FrogNet repository. The dated sections below are the record of each build.
 >
-> **2026-11-27: the Communicator is r10** (`comms-android-2026-11-27-r10`, member `fdf-kt-2026-11-27-a27`): the Communicator used is the one on the SystemRam's node, the pond's `where` cell that says `at=systemram` (fdf-comms.sh r3), not the first listed; none there: none.
+> **2026-11-27: the Communicator is r11** (`comms-android-2026-11-27-r11`): (1) [THE_PICTURE_COMES_BACK_V1] when the link slider is raised the sender's ladder restarts at the size the new link affords (the media server's rule), with no failures or holds carried over: measured against the real servers, out of the gray sizes 0 s after the link came back, where r10 took 30 s after one lowering and 42 s after four (`communicator-test/results/test_slider-r11-20261127.txt`; `run_tests.sh` step 7). (2) [A_REFUSED_CALL_SAYS_WHY_V1] a call is not made, and says why, when the Role is sealed and this phone does not speak the frame (the media server lets no such end in). Not changed: the rung controller (`Bearer`), which is still the reference's decision for decision; in the test it sometimes held a rung as "not at full frame rate" while 24 frames a second were sent.
+>
+> **Before that, r10** (`comms-android-2026-11-27-r10`, member `fdf-kt-2026-11-27-a27`): the Communicator used is the one on the SystemRam's node, the pond's `where` cell that says `at=systemram` (fdf-comms.sh r3), not the first listed; none there: none.
 >
 > **Before that, r9** (`comms-android-2026-11-27-r9`): Scan secret (a FrogNet QR code, the frog, holding an `fdfsec1` line,
 > shown by a machine that holds the secret), Import file, Reset this phone. See `COMMUNICATOR-ANDROID-r8.md`. The app

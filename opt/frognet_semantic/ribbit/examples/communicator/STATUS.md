@@ -1,3 +1,13 @@
+## 2026-11-27 (11:45): an offer carries an address (comms-app r10); the phone's picture comes back, a refused call says why (Android r11)
+
+- [AN_OFFER_CARRIES_AN_ADDRESS_V1] r9 made the window use `databasehost.frognet` by name, and its call offers then
+  said "at databasehost.frognet:8994", which a phone cannot resolve (John's phone: "could not reach the media server
+  databasehost.frognet:8994"). r10 resolves the name once at the start and uses and offers the address; a name that
+  does not resolve ends the start with the reason. Run here with the name in /etc/hosts and without it.
+- Android r11: see opt/fdf/src/frognet-android/docs/ANDROID-HANDOFF.md (the link slider raised; a call the media
+  server would refuse is not made and says why).
+- The desktop window's sender has the same ladder as the phone's had; it was not changed or measured here.
+
 ## 2026-11-27 (10:25): the servers are on the SystemRam's node; the shared secret is set in the window (comms-app r9)
 
 John, after the phone joined one node's Communicator and Windows another's (six nodes had been started by hand and the

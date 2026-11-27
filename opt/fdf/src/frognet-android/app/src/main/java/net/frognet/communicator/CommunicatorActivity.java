@@ -418,9 +418,18 @@ public class CommunicatorActivity extends Activity {
     }
 
     private void startCall(final String s, final String host, final int port, final String who) {
-        hangUp(null);
         final Room r = room;
         if (r == null) return;
+        // [A_REFUSED_CALL_SAYS_WHY_V1] (John, 27 Nov 2026: "Way too many times I try to call from Android to Windows and all
+        // I get is a bounce.") The media server lets no end in that does not speak the frame while the Role is sealed
+        // (server.cpp: "not let in"), and all this phone saw was its plane closed. It knows both facts before it dials:
+        // the call is not made, and the screen and the log say why and what to press.
+        final Channel chNow = Channel.watching();
+        if (chNow != null && !chNow.framed && chNow.sealed()) {
+            toastLog("Not called: '" + chNow.role + "' is sealed and this phone does not speak the frame, so the media server will not let it in. Security: turn the frame on.");
+            return;
+        }
+        hangUp(null);
         session = s; with = who;
         otherOn = false; callsMade++;
         answered.add(s);
