@@ -1,0 +1,23 @@
+[SIM_ENV] FROGNET_BIN_ROOT=/home/claude/proto/usr/local/bin FROGNET_BLOB_ROOT=/tmp/frogsim_blob_buz47rr7 FROGNET_DB_CONFIG=/root/.frogsim/DB_CONFIG.json
+== roles-exercise-tier-v4-20261121d, links none: Seattle5 10.250.250.1, Seattle3B 10.251.251.1, New-York-1 10.123.123.1
+   the merge (the machines found each other; no election yet): Seattle5 knows 3, SystemRam Seattle5, ControlRam Seattle3B; Seattle3B knows 3, SystemRam Seattle5, ControlRam Seattle3B; New-York-1 knows 3, SystemRam Seattle5, ControlRam Seattle3B
+  [PASS] every site's daemon and proxy are up, told 'auto,databasehost_control.frognet chorus'
+   the merge (the election ran): Seattle5 knows 3, SystemRam Seattle5, ControlRam Seattle3B; Seattle3B knows 3, SystemRam Seattle5, ControlRam Seattle3B; New-York-1 knows 3, SystemRam Seattle5, ControlRam Seattle3B
+  [PASS] every site's daemon is listening on chorus as well as TCP ({'Seattle5': True, 'Seattle3B': True, 'New-York-1': True})
+  [PASS] Seattle5 wrote its capability tuples into the SystemRam, offering warning, general ({'wrote': 2})
+  [PASS] Seattle3B wrote its capability tuples into the SystemRam, offering assessment, compute, instructor ({'wrote': 3})
+  [PASS] New-York-1 wrote its capability tuples into the SystemRam, offering command, units ({'wrote': 2})
+  [PASS] the application's configuration tuple is in the ControlRam: one application, 'exercise', with 7 memories ({'wrote': True})
+  [PASS] the application election, run on each machine, elected the seven Roles' memories, the same on every machine: warningHost.exercise on Seattle5, exerciseHost.frognet on Seattle5, assessmentHost.exercise on Seattle3B, computeHost.exercise on Seattle3B, instructorHost.exercise on Seattle3B, commandHost.exercise on New-York-1, unitsHost.exercise on New-York-1
+  [PASS] every site's hosts file names the seven memories where the site table puts them: warningHost.exercise on Seattle5, exerciseHost.frognet on Seattle5, assessmentHost.exercise on Seattle3B, computeHost.exercise on Seattle3B, instructorHost.exercise on Seattle3B, commandHost.exercise on New-York-1, unitsHost.exercise on New-York-1
+  [PASS] secret: the Role's secret is on the node already and is left alone (/tmp/roles-exercise-wb9m1mi4/New-York-1/channel_secrets/units is already there (as it was placed, step 0, hash 0c354a68))
+  [PASS] set units --protocol chorus: one write, and every end held it (every end holds it (6) and every end that carries units is sending that way (3), 2083 ms after the write)
+  [FAIL] set units --seal: one write, and every end held it (NOT every end is on it after 60 s: 3 of 6 hold it, 1 of 3 that carry units are sending that way. Behind: 10.250.250.1:daemon_main.py.5746, 10.250.250.)
+  [FAIL] set units --new-key: one write, and every end held it (NOT every end is on it after 60 s: 2 of 6 hold it, 1 of 3 that carry units are sending that way. Behind: 10.250.250.1:daemon_main.py.5746, 10.250.250.)
+  [FAIL] set units --algorithm chacha20-poly1305: one write, and every end held it (NOT every end is on it after 60 s: 5 of 6 hold it, 2 of 3 that carry units are sending that way. Behind: 10.251.251.1:proxy_main.py.5752)
+  [FAIL] set units --protocol openqasm: one write, and every end held it (NOT every end is on it after 60 s: 4 of 6 hold it, 2 of 3 that carry units are sending that way. Behind: 10.251.251.1:daemon_main.py.5751, 10.251.251.)
+  [PASS] a protocol and an encryption in one command: refused, nothing written
+  [FAIL] show, from another site: the setting and all six ends holding it (units: protocol openqasm, sealed with chacha20-poly1305, number 4390813220620365312, step 3)
+  [FAIL] set units --unseal: one write, and every end held it
+RESULT FAIL
+exit 1
