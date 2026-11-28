@@ -1,0 +1,111 @@
+=== CASE 3: clean H4 installed at the far end (H4 - H2 - H1 - H3: three hops), no command run by hand; read after the last node's merge ended (4 min 36 s after H4's reboot) (09:55:20 UTC) ===
+  roles (as h4 has them): {"databasehost.frognet": "10.74.74.1", "databasehost_control.frognet": "10.74.74.1"}
+  PASS h4: same SystemRam and ControlRam as every other node
+  PASS h4: names the node at 10.74.74.1 in /etc/hosts
+  PASS h4: has a route to 10.74.74.0/24
+  PASS h4: reads 10.74.74.1's capability tuple in the ControlRam
+  PASS h4: names the node at 10.72.72.1 in /etc/hosts
+  PASS h4: has a route to 10.72.72.0/24
+  PASS h4: reads 10.72.72.1's capability tuple in the ControlRam
+  PASS h4: pings 10.72.72.1
+  PASS h4: pings 10.72.72.2
+  PASS h4: reads 10.72.72.1's echo through the proxy
+  PASS h4: resolves FrogNetHost.H2 to 10.72.72.1
+  PASS h4: names the node at 10.71.71.1 in /etc/hosts
+  PASS h4: has a route to 10.71.71.0/24
+  PASS h4: reads 10.71.71.1's capability tuple in the ControlRam
+  PASS h4: pings 10.71.71.1
+  PASS h4: pings 10.71.71.2
+  PASS h4: reads 10.71.71.1's echo through the proxy
+  PASS h4: resolves FrogNetHost.H1 to 10.71.71.1
+  PASS h4: names the node at 10.73.73.1 in /etc/hosts
+  PASS h4: has a route to 10.73.73.0/24
+  PASS h4: reads 10.73.73.1's capability tuple in the ControlRam
+  PASS h4: pings 10.73.73.1
+  PASS h4: pings 10.73.73.2
+  PASS h4: reads 10.73.73.1's echo through the proxy
+  PASS h4: resolves FrogNetHost.H3 to 10.73.73.1
+  PASS h2: same SystemRam and ControlRam as every other node
+  PASS h2: names the node at 10.74.74.1 in /etc/hosts
+  PASS h2: has a route to 10.74.74.0/24
+  PASS h2: reads 10.74.74.1's capability tuple in the ControlRam
+  PASS h2: pings 10.74.74.1
+  PASS h2: pings 10.74.74.2
+  PASS h2: reads 10.74.74.1's echo through the proxy
+  PASS h2: resolves FrogNetHost.H4 to 10.74.74.1
+  PASS h2: names the node at 10.72.72.1 in /etc/hosts
+  PASS h2: has a route to 10.72.72.0/24
+  PASS h2: reads 10.72.72.1's capability tuple in the ControlRam
+  PASS h2: names the node at 10.71.71.1 in /etc/hosts
+  PASS h2: has a route to 10.71.71.0/24
+  PASS h2: reads 10.71.71.1's capability tuple in the ControlRam
+  PASS h2: pings 10.71.71.1
+  PASS h2: pings 10.71.71.2
+  PASS h2: reads 10.71.71.1's echo through the proxy
+  PASS h2: resolves FrogNetHost.H1 to 10.71.71.1
+  PASS h2: names the node at 10.73.73.1 in /etc/hosts
+  PASS h2: has a route to 10.73.73.0/24
+  PASS h2: reads 10.73.73.1's capability tuple in the ControlRam
+  PASS h2: pings 10.73.73.1
+  PASS h2: pings 10.73.73.2
+  PASS h2: reads 10.73.73.1's echo through the proxy
+  PASS h2: resolves FrogNetHost.H3 to 10.73.73.1
+  PASS h1: same SystemRam and ControlRam as every other node
+  PASS h1: names the node at 10.74.74.1 in /etc/hosts
+  PASS h1: has a route to 10.74.74.0/24
+  PASS h1: reads 10.74.74.1's capability tuple in the ControlRam
+  PASS h1: pings 10.74.74.1
+  PASS h1: pings 10.74.74.2
+  PASS h1: reads 10.74.74.1's echo through the proxy
+  PASS h1: resolves FrogNetHost.H4 to 10.74.74.1
+  PASS h1: names the node at 10.72.72.1 in /etc/hosts
+  PASS h1: has a route to 10.72.72.0/24
+  PASS h1: reads 10.72.72.1's capability tuple in the ControlRam
+  PASS h1: pings 10.72.72.1
+  PASS h1: pings 10.72.72.2
+  PASS h1: reads 10.72.72.1's echo through the proxy
+  PASS h1: resolves FrogNetHost.H2 to 10.72.72.1
+  PASS h1: names the node at 10.71.71.1 in /etc/hosts
+  PASS h1: has a route to 10.71.71.0/24
+  PASS h1: reads 10.71.71.1's capability tuple in the ControlRam
+  PASS h1: names the node at 10.73.73.1 in /etc/hosts
+  PASS h1: has a route to 10.73.73.0/24
+  PASS h1: reads 10.73.73.1's capability tuple in the ControlRam
+  PASS h1: pings 10.73.73.1
+  PASS h1: pings 10.73.73.2
+  PASS h1: reads 10.73.73.1's echo through the proxy
+  PASS h1: resolves FrogNetHost.H3 to 10.73.73.1
+  PASS h3: same SystemRam and ControlRam as every other node
+  PASS h3: names the node at 10.74.74.1 in /etc/hosts
+  PASS h3: has a route to 10.74.74.0/24
+  PASS h3: reads 10.74.74.1's capability tuple in the ControlRam
+  PASS h3: pings 10.74.74.1
+  PASS h3: pings 10.74.74.2
+  PASS h3: reads 10.74.74.1's echo through the proxy
+  PASS h3: resolves FrogNetHost.H4 to 10.74.74.1
+  PASS h3: names the node at 10.72.72.1 in /etc/hosts
+  PASS h3: has a route to 10.72.72.0/24
+  PASS h3: reads 10.72.72.1's capability tuple in the ControlRam
+  PASS h3: pings 10.72.72.1
+  PASS h3: pings 10.72.72.2
+  PASS h3: reads 10.72.72.1's echo through the proxy
+  PASS h3: resolves FrogNetHost.H2 to 10.72.72.1
+  PASS h3: names the node at 10.71.71.1 in /etc/hosts
+  PASS h3: has a route to 10.71.71.0/24
+  PASS h3: reads 10.71.71.1's capability tuple in the ControlRam
+  PASS h3: pings 10.71.71.1
+  PASS h3: pings 10.71.71.2
+  PASS h3: reads 10.71.71.1's echo through the proxy
+  PASS h3: resolves FrogNetHost.H1 to 10.71.71.1
+  PASS h3: names the node at 10.73.73.1 in /etc/hosts
+  PASS h3: has a route to 10.73.73.0/24
+  PASS h3: reads 10.73.73.1's capability tuple in the ControlRam
+  PASS h4: writes its own tuple into the SystemRam
+  PASS h2: writes its own tuple into the SystemRam
+  PASS h1: writes its own tuple into the SystemRam
+  PASS h3: writes its own tuple into the SystemRam
+  PASS h4: its held read ended with all 4 nodes' tuples (me=10.74.74.1 rows=4 wanted=4 waited=7.43s from=['10.71.71.1', '10.72.72.1', '10.73.73.1', '10.74.74.1'])
+  PASS h2: its held read ended with all 4 nodes' tuples (me=10.72.72.1 rows=4 wanted=4 waited=7.48s from=['10.71.71.1', '10.72.72.1', '10.73.73.1', '10.74.74.1'])
+  PASS h1: its held read ended with all 4 nodes' tuples (me=10.71.71.1 rows=4 wanted=4 waited=7.40s from=['10.71.71.1', '10.72.72.1', '10.73.73.1', '10.74.74.1'])
+  PASS h3: its held read ended with all 4 nodes' tuples (me=10.73.73.1 rows=4 wanted=4 waited=7.45s from=['10.71.71.1', '10.72.72.1', '10.73.73.1', '10.74.74.1'])
+=== CASE 3: clean H4 installed at the far end (H4 - H2 - H1 - H3: three hops), no command run by hand; read after the last node's merge ended (4 min 36 s after H4's reboot): ALL PASS ===

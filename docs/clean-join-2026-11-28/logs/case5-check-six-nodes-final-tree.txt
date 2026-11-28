@@ -1,0 +1,249 @@
+=== CASE 5: clean H6 installed from the committed tree (0988731) on H1's LAN; six nodes; no command run by hand (10:54:07 UTC) ===
+  roles (as h6 has them): {"databasehost.frognet": "10.76.76.1", "databasehost_control.frognet": "10.76.76.1"}
+  PASS h6: same SystemRam and ControlRam as every other node
+  PASS h6: names the node at 10.76.76.1 in /etc/hosts
+  PASS h6: has a route to 10.76.76.0/24
+  PASS h6: reads 10.76.76.1's capability tuple in the ControlRam
+  PASS h6: names the node at 10.71.71.1 in /etc/hosts
+  PASS h6: has a route to 10.71.71.0/24
+  PASS h6: reads 10.71.71.1's capability tuple in the ControlRam
+  PASS h6: pings 10.71.71.1
+  PASS h6: pings 10.71.71.2
+  PASS h6: reads 10.71.71.1's echo through the proxy
+  PASS h6: resolves FrogNetHost.H1 to 10.71.71.1
+  PASS h6: names the node at 10.72.72.1 in /etc/hosts
+  PASS h6: has a route to 10.72.72.0/24
+  PASS h6: reads 10.72.72.1's capability tuple in the ControlRam
+  PASS h6: pings 10.72.72.1
+  PASS h6: pings 10.72.72.2
+  PASS h6: reads 10.72.72.1's echo through the proxy
+  PASS h6: resolves FrogNetHost.H2 to 10.72.72.1
+  PASS h6: names the node at 10.73.73.1 in /etc/hosts
+  PASS h6: has a route to 10.73.73.0/24
+  PASS h6: reads 10.73.73.1's capability tuple in the ControlRam
+  PASS h6: pings 10.73.73.1
+  PASS h6: pings 10.73.73.2
+  PASS h6: reads 10.73.73.1's echo through the proxy
+  PASS h6: resolves FrogNetHost.H3 to 10.73.73.1
+  PASS h6: names the node at 10.74.74.1 in /etc/hosts
+  PASS h6: has a route to 10.74.74.0/24
+  PASS h6: reads 10.74.74.1's capability tuple in the ControlRam
+  PASS h6: pings 10.74.74.1
+  PASS h6: pings 10.74.74.2
+  PASS h6: reads 10.74.74.1's echo through the proxy
+  PASS h6: resolves FrogNetHost.H4 to 10.74.74.1
+  PASS h6: names the node at 10.75.75.1 in /etc/hosts
+  PASS h6: has a route to 10.75.75.0/24
+  PASS h6: reads 10.75.75.1's capability tuple in the ControlRam
+  PASS h6: pings 10.75.75.1
+  PASS h6: pings 10.75.75.2
+  PASS h6: reads 10.75.75.1's echo through the proxy
+  PASS h6: resolves FrogNetHost.H5 to 10.75.75.1
+  PASS h1: same SystemRam and ControlRam as every other node
+  PASS h1: names the node at 10.76.76.1 in /etc/hosts
+  PASS h1: has a route to 10.76.76.0/24
+  PASS h1: reads 10.76.76.1's capability tuple in the ControlRam
+  PASS h1: pings 10.76.76.1
+  PASS h1: pings 10.76.76.2
+  PASS h1: reads 10.76.76.1's echo through the proxy
+  PASS h1: resolves FrogNetHost.H6 to 10.76.76.1
+  PASS h1: names the node at 10.71.71.1 in /etc/hosts
+  PASS h1: has a route to 10.71.71.0/24
+  PASS h1: reads 10.71.71.1's capability tuple in the ControlRam
+  PASS h1: names the node at 10.72.72.1 in /etc/hosts
+  PASS h1: has a route to 10.72.72.0/24
+  PASS h1: reads 10.72.72.1's capability tuple in the ControlRam
+  PASS h1: pings 10.72.72.1
+  PASS h1: pings 10.72.72.2
+  PASS h1: reads 10.72.72.1's echo through the proxy
+  PASS h1: resolves FrogNetHost.H2 to 10.72.72.1
+  PASS h1: names the node at 10.73.73.1 in /etc/hosts
+  PASS h1: has a route to 10.73.73.0/24
+  PASS h1: reads 10.73.73.1's capability tuple in the ControlRam
+  PASS h1: pings 10.73.73.1
+  PASS h1: pings 10.73.73.2
+  PASS h1: reads 10.73.73.1's echo through the proxy
+  PASS h1: resolves FrogNetHost.H3 to 10.73.73.1
+  PASS h1: names the node at 10.74.74.1 in /etc/hosts
+  PASS h1: has a route to 10.74.74.0/24
+  PASS h1: reads 10.74.74.1's capability tuple in the ControlRam
+  PASS h1: pings 10.74.74.1
+  PASS h1: pings 10.74.74.2
+  PASS h1: reads 10.74.74.1's echo through the proxy
+  PASS h1: resolves FrogNetHost.H4 to 10.74.74.1
+  PASS h1: names the node at 10.75.75.1 in /etc/hosts
+  PASS h1: has a route to 10.75.75.0/24
+  PASS h1: reads 10.75.75.1's capability tuple in the ControlRam
+  PASS h1: pings 10.75.75.1
+  PASS h1: pings 10.75.75.2
+  PASS h1: reads 10.75.75.1's echo through the proxy
+  PASS h1: resolves FrogNetHost.H5 to 10.75.75.1
+  PASS h2: same SystemRam and ControlRam as every other node
+  PASS h2: names the node at 10.76.76.1 in /etc/hosts
+  PASS h2: has a route to 10.76.76.0/24
+  PASS h2: reads 10.76.76.1's capability tuple in the ControlRam
+  PASS h2: pings 10.76.76.1
+  PASS h2: pings 10.76.76.2
+  PASS h2: reads 10.76.76.1's echo through the proxy
+  PASS h2: resolves FrogNetHost.H6 to 10.76.76.1
+  PASS h2: names the node at 10.71.71.1 in /etc/hosts
+  PASS h2: has a route to 10.71.71.0/24
+  PASS h2: reads 10.71.71.1's capability tuple in the ControlRam
+  PASS h2: pings 10.71.71.1
+  PASS h2: pings 10.71.71.2
+  PASS h2: reads 10.71.71.1's echo through the proxy
+  PASS h2: resolves FrogNetHost.H1 to 10.71.71.1
+  PASS h2: names the node at 10.72.72.1 in /etc/hosts
+  PASS h2: has a route to 10.72.72.0/24
+  PASS h2: reads 10.72.72.1's capability tuple in the ControlRam
+  PASS h2: names the node at 10.73.73.1 in /etc/hosts
+  PASS h2: has a route to 10.73.73.0/24
+  PASS h2: reads 10.73.73.1's capability tuple in the ControlRam
+  PASS h2: pings 10.73.73.1
+  PASS h2: pings 10.73.73.2
+  PASS h2: reads 10.73.73.1's echo through the proxy
+  PASS h2: resolves FrogNetHost.H3 to 10.73.73.1
+  PASS h2: names the node at 10.74.74.1 in /etc/hosts
+  PASS h2: has a route to 10.74.74.0/24
+  PASS h2: reads 10.74.74.1's capability tuple in the ControlRam
+  PASS h2: pings 10.74.74.1
+  PASS h2: pings 10.74.74.2
+  PASS h2: reads 10.74.74.1's echo through the proxy
+  PASS h2: resolves FrogNetHost.H4 to 10.74.74.1
+  PASS h2: names the node at 10.75.75.1 in /etc/hosts
+  PASS h2: has a route to 10.75.75.0/24
+  PASS h2: reads 10.75.75.1's capability tuple in the ControlRam
+  PASS h2: pings 10.75.75.1
+  PASS h2: pings 10.75.75.2
+  PASS h2: reads 10.75.75.1's echo through the proxy
+  PASS h2: resolves FrogNetHost.H5 to 10.75.75.1
+  PASS h3: same SystemRam and ControlRam as every other node
+  PASS h3: names the node at 10.76.76.1 in /etc/hosts
+  PASS h3: has a route to 10.76.76.0/24
+  PASS h3: reads 10.76.76.1's capability tuple in the ControlRam
+  PASS h3: pings 10.76.76.1
+  PASS h3: pings 10.76.76.2
+  PASS h3: reads 10.76.76.1's echo through the proxy
+  PASS h3: resolves FrogNetHost.H6 to 10.76.76.1
+  PASS h3: names the node at 10.71.71.1 in /etc/hosts
+  PASS h3: has a route to 10.71.71.0/24
+  PASS h3: reads 10.71.71.1's capability tuple in the ControlRam
+  PASS h3: pings 10.71.71.1
+  PASS h3: pings 10.71.71.2
+  PASS h3: reads 10.71.71.1's echo through the proxy
+  PASS h3: resolves FrogNetHost.H1 to 10.71.71.1
+  PASS h3: names the node at 10.72.72.1 in /etc/hosts
+  PASS h3: has a route to 10.72.72.0/24
+  PASS h3: reads 10.72.72.1's capability tuple in the ControlRam
+  PASS h3: pings 10.72.72.1
+  PASS h3: pings 10.72.72.2
+  PASS h3: reads 10.72.72.1's echo through the proxy
+  PASS h3: resolves FrogNetHost.H2 to 10.72.72.1
+  PASS h3: names the node at 10.73.73.1 in /etc/hosts
+  PASS h3: has a route to 10.73.73.0/24
+  PASS h3: reads 10.73.73.1's capability tuple in the ControlRam
+  PASS h3: names the node at 10.74.74.1 in /etc/hosts
+  PASS h3: has a route to 10.74.74.0/24
+  PASS h3: reads 10.74.74.1's capability tuple in the ControlRam
+  PASS h3: pings 10.74.74.1
+  PASS h3: pings 10.74.74.2
+  PASS h3: reads 10.74.74.1's echo through the proxy
+  PASS h3: resolves FrogNetHost.H4 to 10.74.74.1
+  PASS h3: names the node at 10.75.75.1 in /etc/hosts
+  PASS h3: has a route to 10.75.75.0/24
+  PASS h3: reads 10.75.75.1's capability tuple in the ControlRam
+  PASS h3: pings 10.75.75.1
+  PASS h3: pings 10.75.75.2
+  PASS h3: reads 10.75.75.1's echo through the proxy
+  PASS h3: resolves FrogNetHost.H5 to 10.75.75.1
+  PASS h4: same SystemRam and ControlRam as every other node
+  PASS h4: names the node at 10.76.76.1 in /etc/hosts
+  PASS h4: has a route to 10.76.76.0/24
+  PASS h4: reads 10.76.76.1's capability tuple in the ControlRam
+  PASS h4: pings 10.76.76.1
+  PASS h4: pings 10.76.76.2
+  PASS h4: reads 10.76.76.1's echo through the proxy
+  PASS h4: resolves FrogNetHost.H6 to 10.76.76.1
+  PASS h4: names the node at 10.71.71.1 in /etc/hosts
+  PASS h4: has a route to 10.71.71.0/24
+  PASS h4: reads 10.71.71.1's capability tuple in the ControlRam
+  PASS h4: pings 10.71.71.1
+  PASS h4: pings 10.71.71.2
+  PASS h4: reads 10.71.71.1's echo through the proxy
+  PASS h4: resolves FrogNetHost.H1 to 10.71.71.1
+  PASS h4: names the node at 10.72.72.1 in /etc/hosts
+  PASS h4: has a route to 10.72.72.0/24
+  PASS h4: reads 10.72.72.1's capability tuple in the ControlRam
+  PASS h4: pings 10.72.72.1
+  PASS h4: pings 10.72.72.2
+  PASS h4: reads 10.72.72.1's echo through the proxy
+  PASS h4: resolves FrogNetHost.H2 to 10.72.72.1
+  PASS h4: names the node at 10.73.73.1 in /etc/hosts
+  PASS h4: has a route to 10.73.73.0/24
+  PASS h4: reads 10.73.73.1's capability tuple in the ControlRam
+  PASS h4: pings 10.73.73.1
+  PASS h4: pings 10.73.73.2
+  PASS h4: reads 10.73.73.1's echo through the proxy
+  PASS h4: resolves FrogNetHost.H3 to 10.73.73.1
+  PASS h4: names the node at 10.74.74.1 in /etc/hosts
+  PASS h4: has a route to 10.74.74.0/24
+  PASS h4: reads 10.74.74.1's capability tuple in the ControlRam
+  PASS h4: names the node at 10.75.75.1 in /etc/hosts
+  PASS h4: has a route to 10.75.75.0/24
+  PASS h4: reads 10.75.75.1's capability tuple in the ControlRam
+  PASS h4: pings 10.75.75.1
+  PASS h4: pings 10.75.75.2
+  PASS h4: reads 10.75.75.1's echo through the proxy
+  PASS h4: resolves FrogNetHost.H5 to 10.75.75.1
+  PASS h5: same SystemRam and ControlRam as every other node
+  PASS h5: names the node at 10.76.76.1 in /etc/hosts
+  PASS h5: has a route to 10.76.76.0/24
+  PASS h5: reads 10.76.76.1's capability tuple in the ControlRam
+  PASS h5: pings 10.76.76.1
+  PASS h5: pings 10.76.76.2
+  PASS h5: reads 10.76.76.1's echo through the proxy
+  PASS h5: resolves FrogNetHost.H6 to 10.76.76.1
+  PASS h5: names the node at 10.71.71.1 in /etc/hosts
+  PASS h5: has a route to 10.71.71.0/24
+  PASS h5: reads 10.71.71.1's capability tuple in the ControlRam
+  PASS h5: pings 10.71.71.1
+  PASS h5: pings 10.71.71.2
+  PASS h5: reads 10.71.71.1's echo through the proxy
+  PASS h5: resolves FrogNetHost.H1 to 10.71.71.1
+  PASS h5: names the node at 10.72.72.1 in /etc/hosts
+  PASS h5: has a route to 10.72.72.0/24
+  PASS h5: reads 10.72.72.1's capability tuple in the ControlRam
+  PASS h5: pings 10.72.72.1
+  PASS h5: pings 10.72.72.2
+  PASS h5: reads 10.72.72.1's echo through the proxy
+  PASS h5: resolves FrogNetHost.H2 to 10.72.72.1
+  PASS h5: names the node at 10.73.73.1 in /etc/hosts
+  PASS h5: has a route to 10.73.73.0/24
+  PASS h5: reads 10.73.73.1's capability tuple in the ControlRam
+  PASS h5: pings 10.73.73.1
+  PASS h5: pings 10.73.73.2
+  PASS h5: reads 10.73.73.1's echo through the proxy
+  PASS h5: resolves FrogNetHost.H3 to 10.73.73.1
+  PASS h5: names the node at 10.74.74.1 in /etc/hosts
+  PASS h5: has a route to 10.74.74.0/24
+  PASS h5: reads 10.74.74.1's capability tuple in the ControlRam
+  PASS h5: pings 10.74.74.1
+  PASS h5: pings 10.74.74.2
+  PASS h5: reads 10.74.74.1's echo through the proxy
+  PASS h5: resolves FrogNetHost.H4 to 10.74.74.1
+  PASS h5: names the node at 10.75.75.1 in /etc/hosts
+  PASS h5: has a route to 10.75.75.0/24
+  PASS h5: reads 10.75.75.1's capability tuple in the ControlRam
+  PASS h6: writes its own tuple into the SystemRam
+  PASS h1: writes its own tuple into the SystemRam
+  PASS h2: writes its own tuple into the SystemRam
+  PASS h3: writes its own tuple into the SystemRam
+  PASS h4: writes its own tuple into the SystemRam
+  PASS h5: writes its own tuple into the SystemRam
+  PASS h6: its held read ended with all 6 nodes' tuples (me=10.76.76.1 rows=6 wanted=6 waited=9.50s from=['10.71.71.1', '10.72.72.1', '10.73.73.1', '10.74.74.1', '10.75.75.1', '10.76.76.1'])
+  PASS h1: its held read ended with all 6 nodes' tuples (me=10.71.71.1 rows=6 wanted=6 waited=9.75s from=['10.71.71.1', '10.72.72.1', '10.73.73.1', '10.74.74.1', '10.75.75.1', '10.76.76.1'])
+  PASS h2: its held read ended with all 6 nodes' tuples (me=10.72.72.1 rows=6 wanted=6 waited=9.59s from=['10.71.71.1', '10.72.72.1', '10.73.73.1', '10.74.74.1', '10.75.75.1', '10.76.76.1'])
+  PASS h3: its held read ended with all 6 nodes' tuples (me=10.73.73.1 rows=6 wanted=6 waited=9.52s from=['10.71.71.1', '10.72.72.1', '10.73.73.1', '10.74.74.1', '10.75.75.1', '10.76.76.1'])
+  PASS h4: its held read ended with all 6 nodes' tuples (me=10.74.74.1 rows=6 wanted=6 waited=9.54s from=['10.71.71.1', '10.72.72.1', '10.73.73.1', '10.74.74.1', '10.75.75.1', '10.76.76.1'])
+  PASS h5: its held read ended with all 6 nodes' tuples (me=10.75.75.1 rows=6 wanted=6 waited=9.64s from=['10.71.71.1', '10.72.72.1', '10.73.73.1', '10.74.74.1', '10.75.75.1', '10.76.76.1'])
+=== CASE 5: clean H6 installed from the committed tree (0988731) on H1's LAN; six nodes; no command run by hand: ALL PASS ===

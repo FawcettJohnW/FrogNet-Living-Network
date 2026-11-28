@@ -1,0 +1,34 @@
+##### TEST A: H2 put back on the GitHub versions, then the script
+changed /usr/local/bin/dhcp_tracking.bash (the old one is in /var/backups/frognet/clean-join-20261128a-20261128T105807Z)
+changed /usr/local/bin/frognet-merge-watcher.sh (the old one is in /var/backups/frognet/clean-join-20261128a-20261128T105807Z)
+changed /opt/frognet_semantic/discovery/live.py (the old one is in /var/backups/frognet/clean-join-20261128a-20261128T105807Z)
+waiting for any running merge to end, then restarting frognet-merge-watcher
+restarted frognet-merge-watcher: active
+node: H2  dhcp_tracking f41976a404f4  watcher 4653f8424d65  live.py 419ea5a25712 (1 changed line)
+DONE: all three are the new versions
+exit=0
+  byte-identical to the commit: /usr/local/bin/dhcp_tracking.bash (755 root)
+  byte-identical to the commit: /usr/local/bin/frognet-merge-watcher.sh (755 root)
+  byte-identical to the commit: /opt/frognet_semantic/discovery/live.py (644 root)
+##### TEST B: the script again on H2
+already /usr/local/bin/dhcp_tracking.bash (the new version)
+already /usr/local/bin/frognet-merge-watcher.sh (the new version)
+already /opt/frognet_semantic/discovery/live.py (the new version)
+waiting for any running merge to end, then restarting frognet-merge-watcher
+restarted frognet-merge-watcher: active
+node: H2  dhcp_tracking f41976a404f4  watcher 4653f8424d65  live.py 419ea5a25712 (1 changed line)
+DONE: all three are the new versions
+exit=0
+##### TEST C+D: H3 with a live.py and a dhcp_tracking.bash that are not GitHub's (one extra line each), watcher already new
+NOT CHANGED  /usr/local/bin/dhcp_tracking.bash: it is neither the GitHub version nor the new one (sha256 498c78cdd492814b82c3b39e7405bbc897c0773637465bdb181ea92feff198c9); left as it is
+already /usr/local/bin/frognet-merge-watcher.sh (the new version)
+changed one line of /opt/frognet_semantic/discovery/live.py (this node's copy is not the GitHub version; the old one is in /var/backups/frognet/clean-join-20261128a-20261128T105819Z)
+waiting for any running merge to end, then restarting frognet-merge-watcher
+restarted frognet-merge-watcher: active
+node: H3  dhcp_tracking 498c78cdd492  watcher 4653f8424d65  live.py 35ff2a1c5785 (1 changed line)
+NOT DONE: see the lines above
+exit=1
+# a line this node has and GitHub does not
+1191:    strip = lambda s: sorted({l for l in s.splitlines() if not l.endswith(".frognet")})   # [HOSTS_ORDER_IS_NOT_A_CHANGE_V1] the same hosts in another order are the 
+live.py parses
+# a local change

@@ -1,0 +1,70 @@
+========================================================
+  +  hostname
+  +  mariadb running
+  +  apache2 enabled
+  +  apache2 started
+  +  apache2 running
+  +  dnsmasq enabled
+  +  frognet-proxy enabled
+  +  frognet-daemon enabled
+  +  resolved off
+  +  FrogNet DB
+  +  FrogUser auth
+  +  interfaces_override
+  +  ip_forward
+  +  ssl cert
+  +  sudoers
+  +  sudoers valid
+  +  qrencode
+  +  merge controller present
+  +  ssid_projection.conf
+  +  gateways.conf
+  +  dnsmasq node
+  +  proxy enabled
+  +  daemon enabled
+  +  merge hook (one)
+  +  ssl key
+  +  LAN is not the uplink
+  +  echo: H5,10.75.75.1,10.73.73.109,0.0.0.0
+  FrogNet base: build=fdf-2026-11-15-r54 installed=2026-11-28T10:08Z 
+  +  snapshot: mode=lan-only name=H5 build=fdf-2026-11-15-r54 members=0 errors=['/usr/local/bin/makeHostJson.bash: no output']
+
+  All checks passed.
+
+========================================================
+  STEP F7: System tuning
+========================================================
+sysctl: setting key "net.netfilter.nf_conntrack_max": Operation not permitted
+net.netfilter.nf_conntrack_tcp_timeout_time_wait = 30
+net.netfilter.nf_conntrack_tcp_timeout_established = 300
+net.core.somaxconn = 1024
+sysctl: cannot stat /proc/sys/net/core/netdev_max_backlog: No such file or directory
+net.ipv4.tcp_max_syn_backlog = 1024
+net.ipv4.tcp_fin_timeout = 15
+net.ipv4.tcp_tw_reuse = 1
+net.ipv4.ip_local_port_range = 10000 60999
+net.ipv4.tcp_keepalive_time = 60
+net.ipv4.tcp_keepalive_intvl = 10
+net.ipv4.tcp_keepalive_probes = 5
+fs.file-max = 100000
+sysctl: setting key "net.core.rmem_max": Operation not permitted
+sysctl: setting key "net.core.wmem_max": Operation not permitted
+sysctl: setting key "net.core.rmem_default": Operation not permitted
+sysctl: setting key "net.core.wmem_default": Operation not permitted
+sysctl: cannot stat /proc/sys/net/core/default_qdisc: No such file or directory
+net.ipv4.ip_forward = 1
+net.ipv4.conf.all.forwarding = 1
+net.ipv4.conf.all.rp_filter = 0
+net.ipv4.conf.default.rp_filter = 0
+
+========================================================
+  STEP R: Region (none: LAN-only)
+========================================================
+2026-11-28 10:09:44 [install] LAN-only node (no --invite): nothing to join
+
+========================================================
+  STEP F8: Reboot
+========================================================
+  H5 (10.75.75.1) on eth2 installed. --no-reboot: reboot to start it.
+2026-11-28 10:09:44 [install] Install complete (--no-reboot).
+EXIT 0

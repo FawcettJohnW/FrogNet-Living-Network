@@ -1,0 +1,70 @@
+  +  echo: H6,10.76.76.1,10.71.71.109,0.0.0.0
+  FrogNet base: build=fdf-2026-11-15-r54 installed=2026-11-28T10:47Z 
+  +  snapshot: mode=lan-only name=H6 build=fdf-2026-11-15-r54 members=0 errors=['/usr/local/bin/makeHostJson.bash: no output']
+
+  All checks passed.
+
+========================================================
+  STEP F7: System tuning
+========================================================
+[frognet_system_tune][2026-11-28 10:48:38] Discovering hardware...
+[frognet_system_tune][2026-11-28 10:48:38] RAM: 8023MB (tier=8G) CPUs: 2 SD_CARD: 0
+[frognet_system_tune][2026-11-28 10:48:38] Tuning: MySQL max_conn=500 innodb_bp=2G Apache max_workers=256 daemon_pool=256 daemon_db_pool=228
+[frognet_system_tune][2026-11-28 10:48:38] Wrote /etc/mysql/mariadb.conf.d/99-frognet-tune.cnf
+[frognet_system_tune][2026-11-28 10:48:38] Wrote /etc/apache2/mods-available/mpm_prefork.conf
+[frognet_system_tune][2026-11-28 10:48:38] Wrote /etc/sysctl.d/99-frognet.conf
+sysctl: setting key "net.netfilter.nf_conntrack_max": Operation not permitted
+net.netfilter.nf_conntrack_tcp_timeout_time_wait = 30
+net.netfilter.nf_conntrack_tcp_timeout_established = 300
+net.core.somaxconn = 1024
+sysctl: cannot stat /proc/sys/net/core/netdev_max_backlog: No such file or directory
+net.ipv4.tcp_max_syn_backlog = 1024
+net.ipv4.tcp_fin_timeout = 15
+net.ipv4.tcp_tw_reuse = 1
+net.ipv4.ip_local_port_range = 10000 60999
+net.ipv4.tcp_keepalive_time = 60
+net.ipv4.tcp_keepalive_intvl = 10
+net.ipv4.tcp_keepalive_probes = 5
+fs.file-max = 100000
+sysctl: setting key "net.core.rmem_max": Operation not permitted
+sysctl: setting key "net.core.wmem_max": Operation not permitted
+sysctl: setting key "net.core.rmem_default": Operation not permitted
+sysctl: setting key "net.core.wmem_default": Operation not permitted
+sysctl: cannot stat /proc/sys/net/core/default_qdisc: No such file or directory
+[frognet_system_tune][2026-11-28 10:48:38] WARNING: sysctl apply had errors (conntrack module may not be loaded yet)
+net.ipv4.ip_forward = 1
+net.ipv4.conf.all.forwarding = 1
+net.ipv4.conf.all.rp_filter = 0
+net.ipv4.conf.default.rp_filter = 0
+[frognet_system_tune][2026-11-28 10:48:38] Applied sysctl settings
+[frognet_system_tune][2026-11-28 10:48:38] Queueing: 0 fq_codel queues, 0 pfifo_fast
+[frognet_system_tune][2026-11-28 10:48:38] Wrote /etc/security/limits.d/99-frognet.conf
+[frognet_system_tune][2026-11-28 10:48:38] Wrote /etc/systemd/system/frognet-proxy.service.d/99-frognet-tune.conf
+[frognet_system_tune][2026-11-28 10:48:38] Wrote /etc/systemd/system/frognet-daemon.service.d/99-frognet-tune.conf
+[frognet_system_tune][2026-11-28 10:48:38] Wrote /etc/systemd/system/frognet-tunnel-daemon-v3.service.d/99-frognet-tune.conf
+[frognet_system_tune][2026-11-28 10:48:38] Reloaded systemd
+[frognet_system_tune][2026-11-28 10:48:38] Added /tmp tmpfs to fstab (size=256m)
+[frognet_system_tune][2026-11-28 10:48:38] ════════════════════════════════════════════════════════
+[frognet_system_tune][2026-11-28 10:48:38] FrogNet System Tune Complete
+[frognet_system_tune][2026-11-28 10:48:38]   Hardware:  8023MB RAM, 2 cores, tier=8G
+[frognet_system_tune][2026-11-28 10:48:38]   SD Card:   0
+[frognet_system_tune][2026-11-28 10:48:38]   MariaDB:   max_conn=500 innodb_bp=2G log_flush=2
+[frognet_system_tune][2026-11-28 10:48:38]   Apache:    max_workers=256 max_child=1000
+[frognet_system_tune][2026-11-28 10:48:38]   Daemon:    pool=256 db_pool=228 (env via systemd override)
+[frognet_system_tune][2026-11-28 10:48:38]   Kernel:    conntrack=65536 fd=65536
+[frognet_system_tune][2026-11-28 10:48:38]   tmpfs:     /tmp=256m /var/log=no
+[frognet_system_tune][2026-11-28 10:48:38] ════════════════════════════════════════════════════════
+[frognet_system_tune][2026-11-28 10:48:38] Changes applied.  Restart services to take effect:
+[frognet_system_tune][2026-11-28 10:48:38]   systemctl restart mariadb apache2 frognet-proxy frognet-daemon frognet-tunnel-daemon-v3
+
+========================================================
+  STEP R: Region (none: LAN-only)
+========================================================
+2026-11-28 10:48:38 [install] LAN-only node (no --invite): nothing to join
+
+========================================================
+  STEP F8: Reboot
+========================================================
+  H6 (10.76.76.1) on eth2 installed. --no-reboot: reboot to start it.
+2026-11-28 10:48:38 [install] Install complete (--no-reboot).
+EXIT 0

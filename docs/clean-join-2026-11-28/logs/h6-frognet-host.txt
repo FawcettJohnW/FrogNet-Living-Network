@@ -1,0 +1,4 @@
+NRestarts=0 ActiveState=active SubState=running 
+SystemRam 10.76.76.1; databasehost-control 10.76.76.1
+  H6               10.76.76.1      frognet-host-2026-11-07-roles1 [ROLES_ON_API_V1]  last: none
+failed units: []

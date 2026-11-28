@@ -1,0 +1,29 @@
+=== CASE 1: clean H2 installed on H1's LAN (H1 upstream), after H2's reboot, no command run by hand (09:33:04 UTC) ===
+  roles (as h1 has them): {"databasehost.frognet": "10.72.72.1", "databasehost_control.frognet": "10.72.72.1"}
+  PASS h1: same SystemRam and ControlRam as every other node
+  PASS h1: names the node at 10.71.71.1 in /etc/hosts
+  PASS h1: has a route to 10.71.71.0/24
+  PASS h1: reads 10.71.71.1's capability tuple in the ControlRam
+  PASS h1: names the node at 10.72.72.1 in /etc/hosts
+  PASS h1: has a route to 10.72.72.0/24
+  PASS h1: reads 10.72.72.1's capability tuple in the ControlRam
+  PASS h1: pings 10.72.72.1
+  PASS h1: pings 10.72.72.2
+  PASS h1: reads 10.72.72.1's echo through the proxy
+  PASS h1: resolves FrogNetHost.H2 to 10.72.72.1
+  PASS h2: same SystemRam and ControlRam as every other node
+  PASS h2: names the node at 10.71.71.1 in /etc/hosts
+  PASS h2: has a route to 10.71.71.0/24
+  PASS h2: reads 10.71.71.1's capability tuple in the ControlRam
+  PASS h2: pings 10.71.71.1
+  PASS h2: pings 10.71.71.2
+  PASS h2: reads 10.71.71.1's echo through the proxy
+  PASS h2: resolves FrogNetHost.H1 to 10.71.71.1
+  PASS h2: names the node at 10.72.72.1 in /etc/hosts
+  PASS h2: has a route to 10.72.72.0/24
+  PASS h2: reads 10.72.72.1's capability tuple in the ControlRam
+  PASS h1: writes its own tuple into the SystemRam
+  PASS h2: writes its own tuple into the SystemRam
+  PASS h1: its held read ended with all 2 nodes' tuples (me=10.71.71.1 rows=2 wanted=2 waited=5.17s from=['10.71.71.1', '10.72.72.1'])
+  PASS h2: its held read ended with all 2 nodes' tuples (me=10.72.72.1 rows=2 wanted=2 waited=5.13s from=['10.71.71.1', '10.72.72.1'])
+=== CASE 1: clean H2 installed on H1's LAN (H1 upstream), after H2's reboot, no command run by hand: ALL PASS ===

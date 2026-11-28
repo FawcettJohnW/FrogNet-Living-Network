@@ -1,0 +1,6 @@
+h1 since 10:28:19: merges killed by systemd 0, leases 3, watcher waits 1, dnsmasq active
+h2 since 10:28:19: merges killed by systemd 0, leases 0, watcher waits 0, dnsmasq active
+h3 since 10:28:19: merges killed by systemd 0, leases 1, watcher waits 0, dnsmasq active
+h4 since 10:28:19: merges killed by systemd 0, leases 0, watcher waits 0, dnsmasq active
+h5 since 10:28:19: merges killed by systemd 0, leases 0, watcher waits 0, dnsmasq active
+h6 since 10:28:19: merges killed by systemd 0, leases 0, watcher waits 0, dnsmasq active
