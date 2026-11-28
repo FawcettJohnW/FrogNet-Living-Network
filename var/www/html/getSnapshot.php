@@ -28,10 +28,9 @@
  *                          "mode", "mode_why", "ponds":[{area,ram,forward,source,config,members?,me?,reach?,refused?,error?}],
  *                          "hub":[{iface,edge,handshake_age_s,source,error?}], "members":[{name,guid,ip,role,alive,source,
  *                          echo,self?}], "elections":{role: ip},
- *                          "roles":{hosting:{memory: ip}, carried_as:{memory: Role|""}, supports:{ip: [memory]}, source, error?},
- *                          "channel":{ram, settings:{role:{protocol,sealed,cipher,number_tag?,step?}},
- *                                     ends:[{ip,process,roles:{role:{...,ignored?}}}], source, error?},
- *                          "sources":{...}, "errors":[...]}   ([THE_DASHBOARD_SHOWS_ROLES_AND_SECURITY_V1])
+ *                          "roles":{hosting:{memory: ip}, supports:{ip: [memory]}, source, error?},
+ *                          "sources":{...}, "errors":[...]}   ([THE_DASHBOARD_SHOWS_ROLES_V1]; nothing of how any
+ *                          connection is protected: [A_VIEWER_IS_NOT_TOLD_HOW_A_CONNECTION_IS_PROTECTED_V1])
  */
 header('Content-Type: application/json');
 header('Cache-Control: no-store');

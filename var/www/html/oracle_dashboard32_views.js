@@ -186,32 +186,23 @@ const clockRe = "\\d\\d:\\d\\d:\\d\\d";
     check(!re.test(script.replace(/\/\*[\s\S]*?\*\//g, "").replace(/\/\/.*$/gm, "")), "no " + what + " in the page's code");
   check(!/broker/i.test(script), "no broker vocabulary in the page's script (comments included)");
 
-  // ---- [THE_DASHBOARD_SHOWS_ROLES_AND_SECURITY_V1] the Roles a node can host, the star where it hosts one, and the
-  // security on a connection, from the snapshot's `roles` and `channel` and nothing else
-  console.log("\nroles and security, from the snapshot");
+  // ---- [THE_DASHBOARD_SHOWS_ROLES_V1] the Roles a node can host and the star where it hosts one, from the snapshot's
+  // `roles` and nothing else. [A_VIEWER_IS_NOT_TOLD_HOW_A_CONNECTION_IS_PROTECTED_V1] and nothing of any connection's
+  // protocol, algorithm or key, whatever a snapshot might carry.
+  console.log("\nroles, from the snapshot");
   const SNAP2 = {roles: {hosting: {databasehost: "10.188.188.1", databasehost_control: "10.188.188.1", "unitsHost.protocolchat": "10.130.130.1"},
-                         carried_as: {databasehost: "", databasehost_control: "", "unitsHost.protocolchat": "units"},
-                         supports: {"10.170.170.1": ["databasehost", "databasehost_control"], "10.188.188.1": ["databasehost", "databasehost_control"]}},
-                 channel: {settings: {units: {protocol: "chorus", sealed: true, cipher: "chacha20-poly1305", number_tag: "f40e"}, semantic: {protocol: "", sealed: false, cipher: ""}},
-                           ends: [{ip: "10.130.130.1", process: "p.1", roles: {units: {protocol: "chorus", sealed: true, cipher: "chacha20-poly1305", number_tag: "f40e", step: 3}}},
-                                  {ip: "10.170.170.1", process: "p.2", roles: {units: {protocol: "tcp", sealed: false, cipher: ""}}},
-                                  {ip: "10.188.188.1", process: "p.3", roles: {units: {protocol: "tcp", sealed: false, cipher: "", ignored: true}}}]}};
+                         supports: {"10.170.170.1": ["databasehost", "databasehost_control"], "10.188.188.1": ["databasehost", "databasehost_control"]}}};
   const say = ip => ctx.rolesOfNode(SNAP2, ip).map(r => (r.hosts ? "*" : "") + r.label).join(" ");
   check(say("10.188.188.1") === "*ControlRam *SystemRam", "the node that hosts the SystemRam and the ControlRam shows both with the star", say("10.188.188.1"));
   check(say("10.170.170.1") === "ControlRam SystemRam", "a node that can host them and does not shows them without it", say("10.170.170.1"));
   check(say("10.130.130.1") === "*unitsHost.protocolchat", "a Team's memory is shown, starred, on the node that hosts it and on no other", say("10.130.130.1"));
-  check(say("10.9.9.1") === "", "a node the snapshot says nothing of shows no Role");
-  const L1 = ctx.securityOfLink(SNAP2, "10.130.130.1", "10.170.170.1");
-  check(L1.length === 1 && L1[0].text === "chorus \u00b7 sealed chacha20-poly1305 \u00b7 key f40e", "a link to the node hosting a sealed Role's memory says its protocol, algorithm and key tag", JSON.stringify(L1));
-  check(L1.length === 1 && L1[0].behind.length === 1 && L1[0].behind[0].ip === "10.170.170.1" && L1[0].behind[0].text === "tcp \u00b7 not sealed",
-        "an end of that link running something else is named with what it runs; the end on the setting (at another step) is not", JSON.stringify(L1[0] && L1[0].behind));
-  const L2 = ctx.securityOfLink(SNAP2, "10.130.130.1", "10.188.188.1").find(r => r.memory === "unitsHost.protocolchat");
-  check(L2 && L2.behind.length === 1 && /does not carry it/.test(L2.behind[0].text), "an end that holds no secret for the Role is said not to carry it", JSON.stringify(L2 && L2.behind));
-  const L3 = ctx.securityOfLink(SNAP2, "10.170.170.1", "10.188.188.1");
-  check(L3.length === 2 && L3.every(r => r.text === "the node's own protocol \u00b7 not sealed"), "the SystemRam's and the ControlRam's traffic is under the setting of no Role", JSON.stringify(L3.map(r => r.text)));
-  check(ctx.securityOfLink({}, "a", "b").length === 0 && ctx.rolesOfNode(null, "a").length === 0, "a snapshot without roles or channel draws nothing and does not throw");
+  check(say("10.9.9.1") === "" && ctx.rolesOfNode(null, "a").length === 0, "a node the snapshot says nothing of shows no Role; no snapshot draws nothing and does not throw");
+  const code = script.replace(/\/\*[\s\S]*?\*\//g, "").replace(/\/\/.*$/gm, "");
+  for (const [re, what] of [[/sealed|cipher|chacha|aes-?256|number_tag/i, "a word for how a connection is protected"],
+                            [/databasehost_control\.frognet|SensorType=channel|snap(shot)?\.channel|\.channel\b/i, "a read of the ControlRam's channel tuples"]])
+    check(!re.test(code), "no " + what + " in the page's code");
 
   console.log();
   if (FAIL) { console.log(`FAILED ${FAIL} check(s)`); process.exit(1); }
-  console.log("PASS \u2014 [MAP_FROM_THE_SNAPSHOT_V1] [ONE_MONITOR_TRUTH_V1] [THE_DASHBOARD_SHOWS_ROLES_AND_SECURITY_V1]");
+  console.log("PASS \u2014 [MAP_FROM_THE_SNAPSHOT_V1] [ONE_MONITOR_TRUTH_V1] [THE_DASHBOARD_SHOWS_ROLES_V1] [A_VIEWER_IS_NOT_TOLD_HOW_A_CONNECTION_IS_PROTECTED_V1]");
 })().catch(e => { console.error("FATAL: " + (e && e.stack || e)); process.exit(1); });

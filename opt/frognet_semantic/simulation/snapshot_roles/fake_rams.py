@@ -19,5 +19,6 @@ class H(BaseHTTPRequestHandler):
     def do_POST(self):
         self.rfile.read(int(self.headers.get("Content-Length") or 0)); self._send(WORLD if "op=rina" in self.path else {})
     def do_GET(self):
+        if "api.php" in self.path: open(sys.argv[2], "a").write(self.path + "\n")       # a read of the ControlRam: recorded, so the test can say there was none
         self._send(ROWS if "SensorType=channel" in self.path else {"cells": []})
 HTTPServer(("127.0.0.1", int(sys.argv[1])), H).serve_forever()
