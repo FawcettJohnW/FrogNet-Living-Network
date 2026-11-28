@@ -149,8 +149,8 @@ class ControlPlane:
         # nm-dispatcher fires a merge synchronously on the state change.
         self.run_merge(trigger=f"nm-dispatcher:{iface}-{event}")
 
-    # dnsmasq: a DHCP lease change runs the dhcp-script, which (per the
-    # cutover) sets sync_required and triggers a merge / neighbor notify.
+    # dnsmasq: a DHCP lease change runs the dhcp-script, which asks the merge
+    # watcher for a merge ([LEASE_ASKS_THE_WATCHER_V1]); modelled here as the merge it gets.
     def dnsmasq_lease(self, action, mac, ip):
         self.dnsmasq_triggers += 1
         self._emit(f"dnsmasq: dhcp-script {action} {mac} {ip} -> sync_required, runMerge")

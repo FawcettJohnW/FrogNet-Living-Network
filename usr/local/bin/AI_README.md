@@ -25,10 +25,13 @@ repository root.
 
 ## Traps
 
-- **`dhcp_tracking.bash` must detach the merge, not `exec` it.** dnsmasq runs
-  `dhcp-script` synchronously and waits. `exec`ing `runMerge` held that slot for
-  the whole merge and stalled DHCP for every other client on the segment. It uses
-  `setsid` — a bare `&` is not enough, because dnsmasq may reap the process group.
+- **`dhcp_tracking.bash` asks the merge watcher; it must not run `runMerge.bash`** (`[LEASE_ASKS_THE_WATCHER_V1]`).
+  Whatever dnsmasq's `dhcp-script` starts runs in `dnsmasq.service`'s control group, and `setsid` does not leave it:
+  a merge started there is killed by its own `systemctl restart dnsmasq` (90 s of no DHCP and no DNS, then SIGKILL).
+  It writes one file in `/run/frognet/merge_requests`, as the NetworkManager hook does, and returns.
+- **The merge watcher keeps a request until a merge is started for it** (`[REQUEST_KEPT_UNTIL_ITS_MERGE_STARTS_V1]`).
+  Do not make it consume the batch and write `runAgain` when the lock is held: the running merge may already have
+  read `runAgain`, and the event then gets no merge. Oracle: `discovery/test_merge_request_kept_oracle.py`.
 - **`frognet_build_release.sh` uses an explicit `WORLD_PATHS` manifest**, not a
   glob. If you ever change that to a glob, exclude the four repository documents
   at `/` or they will land on every node.

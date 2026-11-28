@@ -339,6 +339,74 @@ def plane_reset_release_symmetry():
               f"{'' if shipped else ' [installer writes it]' if written else ''}")
 
 
+def _unit_program(exec_start):
+    """The file a unit's ExecStart needs on the node: the script an interpreter is given, else the program itself.
+    None when it is an interpreter's module (-m), an inline command (-c), or a system program."""
+    toks = exec_start.split()
+    if not toks:
+        return None
+    prog = toks[0].lstrip("-@+!")
+    rest = toks[1:]
+    if _os.path.basename(prog) in ("python3", "python", "bash", "sh"):
+        for t in rest:
+            if t in ("-m", "-c"):
+                return None                       # a module on the venv's path / an inline command
+            if t.startswith("-"):
+                continue
+            return t if t.startswith("/") else None
+        return None
+    if prog.startswith(("/usr/local/", "/opt/")):
+        return prog
+    return None                                    # /usr/bin, /usr/sbin, /bin: the OS's (apt, phase A2)
+
+
+def plane_units():
+    """[FROGNETHOST_ON_EVERY_NODE_V1] Every unit the installer enables must have its program on a clean machine.
+    Field case 2026-11-28, five clean LAN-only installs: frognet-host.service enabled, its program
+    /opt/fdf/bin/frognet-host laid only by a region join - `can't open file`, Restart=always, 1,808 restarts in 70
+    minutes on H1. A program reaches a clean LAN-only node one of two ways: it is in the tree at its node path (the
+    node file set), or the installer lays it and says where."""
+    print("\n=== PLANE 1f: every unit the installer enables has its program on a clean LAN-only node ===")
+    check(_unit_program("/usr/bin/python3 /opt/nowhere/prog serve") == "/opt/nowhere/prog",
+          "CONTROL: a unit's program is read from its ExecStart (the script after the interpreter)")
+    check(_unit_program("/opt/frognet_semantic/venv/bin/python3 -m proxy.proxy_main --listen 0.0.0.0:80") is None,
+          "CONTROL: an interpreter's module is not taken for a file")
+    inst = _script("frognet_install.sh")
+    if not inst:
+        print("  SKIP units plane - frognet_install.sh is release tooling")
+        return
+    itext = open(inst, encoding="utf-8", errors="replace").read()
+    names = []
+    for arr in ("CORE_SERVICES", "OPT_SERVICES"):
+        m = re.search(arr + r"=\(([^)]*)\)", itext)
+        check(m is not None, f"installer lists {arr}")
+        if m:
+            names += [t for t in m.group(1).split() if not t.startswith("#")]
+    for n in names:
+        unit = None
+        for root in ("/", _TREE):
+            u = _os.path.join(root, "etc", "systemd", "system", n + ".service")
+            if _os.path.exists(u):
+                unit = u
+                break
+        if unit is None:
+            check(False, f"{n}.service is in the tree")
+            continue
+        ex = [ln.split("=", 1)[1].strip() for ln in open(unit, encoding="utf-8", errors="replace")
+              if ln.startswith("ExecStart=")]
+        prog = _unit_program(ex[0]) if ex else None
+        if prog is None:
+            check(bool(ex), f"{n}: runs a module or a system program ({(ex[0] if ex else 'no ExecStart')[:60]})")
+            continue
+        in_tree = _os.path.exists(_os.path.join(_TREE, prog.lstrip("/")))
+        laid = re.search(r"install\s[^\n]*\s" + re.escape(prog) + r"(\s|$)", itext) is not None
+        check(in_tree or laid,
+              f"{n}: its program {prog} is "
+              + ("in the tree" if in_tree else "laid by the installer" if laid else "NOWHERE a clean LAN-only install puts it"))
+    check("NOT enabled: frognet-host" in itext,
+          "a release that does not carry /opt/fdf/bin/frognet-host does not enable the unit (and says so)")
+
+
 def plane_merge():
     print("\n=== PLANE 2: the installed node converges, every shape ===")
     from discovery.sim.system import System
@@ -368,13 +436,69 @@ def plane_merge():
             check(False, f"{label}: converge raised {type(e).__name__}: {e}")
 
 
+def plane_join():
+    """[CLEAN_NODE_JOINS_V1] The question itself: a clean machine is installed and merges while directly connected
+    to ONE FrogNet node - on that node's LAN (the node is its upstream), or with that node on ITS LAN (the node is
+    its downstream). Is it then a full member of the whole network? The real walk, promote and route planner over
+    the simulator's LANs; convergence by the neighbours' notifications (System.converge_by_notification), the way
+    the boxes do it, not by merging everybody in turn. "Full member" here: every node knows every /24, and every
+    pair reaches each other over the installed tables (System.validate). On hardware the same five shapes ran as
+    real installs on 2026-11-28 (H1..H5), with names, roles, capability tuples and held reads checked as well."""
+    print("\n=== PLANE 3: a clean node joins an existing network, upstream and downstream ===")
+    from discovery.sim.system import System, TopologySpec, NodeSpec
+
+    def settled(sy, label):
+        events, quiet = sy.converge_by_notification()
+        probs = sy.validate()
+        check(quiet and not probs,
+              f"{label}: full member everywhere after {events} merge(s)" + (f" - {probs[:3]}" if probs else ""))
+
+    def existing():
+        # H1 serves a LAN; H2 is on it and serves its own (the two-node network a clean machine meets)
+        return System(TopologySpec(nodes=[NodeSpec("H1", "10.71.71"),
+                                          NodeSpec("H2", "10.72.72", guest_on=("H1", "10.71.71.194"))]))
+
+    sy = existing()
+    settled(sy, "the existing network (H1, H2 on H1's LAN)")
+
+    # CONTROL: a node that is connected to nothing is NOT a member - validate must say so, or it proves nothing
+    sy = existing(); sy.converge_by_notification()
+    sy.add_node(NodeSpec("LONE", "10.79.79")); sy.converge_by_notification()
+    check(bool(sy.validate()), "CONTROL: a clean node connected to no FrogNet node is reported as not a member")
+
+    # the clean node's UPSTREAM is an existing node: it is on H2's LAN (H2 at the end), and on H1's LAN (H1 the root)
+    sy = existing(); sy.converge_by_notification()
+    sy.add_node(NodeSpec("CLEAN", "10.74.74", guest_on=("H2", "10.72.72.208")))
+    settled(sy, "clean node on H2's LAN (existing node upstream; two hops from H1)")
+    sy = existing(); sy.converge_by_notification()
+    sy.add_node(NodeSpec("CLEAN", "10.74.74", guest_on=("H1", "10.71.71.50")))
+    settled(sy, "clean node on H1's LAN (existing node upstream; a second child)")
+
+    # the clean node's DOWNSTREAM is an existing node: H1, the existing network's root, is on the clean node's LAN
+    sy = existing(); sy.converge_by_notification()
+    sy.add_node(NodeSpec("CLEAN", "10.73.73"))
+    sy.move_node("H1", new_guest_on=("CLEAN", "10.73.73.72"))
+    settled(sy, "existing H1 on the clean node's LAN (existing network downstream; H2 two hops below)")
+
+    # the five-node line that ran on hardware, one clean node at a time: H4 - H2 - H1 - H3 - H5
+    sy = existing(); sy.converge_by_notification()
+    sy.add_node(NodeSpec("H3", "10.73.73")); sy.move_node("H1", new_guest_on=("H3", "10.73.73.72"))
+    settled(sy, "H3 joins above H1")
+    sy.add_node(NodeSpec("H4", "10.74.74", guest_on=("H2", "10.72.72.208")))
+    settled(sy, "H4 joins below H2 (three hops from H3)")
+    sy.add_node(NodeSpec("H5", "10.75.75", guest_on=("H3", "10.73.73.40")))
+    settled(sy, "H5 joins below H3 (four hops from H4)")
+
+
 def main():
     plane_install()
     plane_reinstall()
     plane_three_modes()
     plane_filesystem()
     plane_reset_release_symmetry()
+    plane_units()
     plane_merge()
+    plane_join()
     print()
     if PROBS:
         print("CLEAN-INSTALL ORACLE FAILED")

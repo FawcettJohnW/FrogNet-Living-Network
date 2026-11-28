@@ -5,7 +5,7 @@ is running, and what the logs say when something is wrong. Every command here na
 that start with `usr/`, `opt/` or `docs/` are in the repository checkout; paths that start with `/` are on the machine.
 
 Build ids at the time of writing (each program logs its own; see "What is running"):
-installer `frognet-install-2026-10-14-r28`, tunnel daemon `frognet-tunnel-2026-10-12-r20`, FrogNet base and FD&F
+installer `frognet-install-2026-11-28-r29`, tunnel daemon `frognet-tunnel-2026-10-12-r20`, FrogNet base and FD&F
 `fdf-2026-11-15-r54`.
 
 ## 1. What FrogNet is
@@ -32,8 +32,9 @@ removed by `fdf-leave`).
 | `frognet-proxy` (HTTP :80) | yes | yes | — |
 | `frognet-daemon` (data daemon :9009) | yes | yes | — |
 | `frognet-tunnel-daemon-v3` | yes, `mode lan-only` | yes, `mode region` | — |
-| `frognet-merge-watcher` (runs `runMerge.bash` on requests) | yes | yes | — |
+| `frognet-merge-watcher` (runs `runMerge.bash` on requests: the NetworkManager hook's, a DHCP lease's, a neighbour's notification; a request is kept until a merge is started for it) | yes | yes | — |
 | `frognet-sysperf`, `frognet-gps`, `frognet-transit-boot` (once at boot: a direct cable to another node becomes a 10.253.253.x/30 link) | yes | yes | — |
+| `frognet-host` (the FrogNetHost Admin: holds a read on this node's configuration tuple at the ControlRam, writes its state in the SystemRam; `/opt/fdf/bin/frognet-host`) | yes: `--from-repo` lays the program from the checkout | yes: the FD&F node installer lays it | — |
 | `frognet-dbhost-elect.timer` (1/min; works only on the control, the highest .1, for 10 min after a merge) | yes | stopped and disabled by `fdf-region-join`; `fdf-leave` enables it again | — |
 | `apache2` (:8080, :8443), `mariadb`, `dnsmasq`, `NetworkManager`, `cron` | yes | yes | — |
 | `fdf-client` (the node's session to the RAM manager), `fdf-facts` | — | yes | — |
@@ -363,7 +364,7 @@ node's identity, reset with `--keep-identity` first, from the checkout's root:
 
 | component | build line | log |
 |---|---|---|
-| installer | `frognet_install.sh build frognet-install-2026-10-14-r28 starting on ...` | `/var/log/frognet_install.log` |
+| installer | `frognet_install.sh build frognet-install-2026-11-28-r29 starting on ...` | `/var/log/frognet_install.log` |
 | reset / uninstall | `FrogNet reset (build frognet-reset-2026-10-12-t4a) on ...` | `/var/tmp/frognet_reset.log` |
 | FrogNet base | `/opt/frognet_semantic/BUILD` (`build=fdf-2026-11-15-r54`, `installed=...`); F6 prints it | — |
 | tunnel daemon | `Starting frognet-tunnel-daemon v3.0.0 build frognet-tunnel-2026-10-12-r20 (mode lan-only\|region) base fdf-2026-11-15-r54` | `journalctl -u frognet-tunnel-daemon-v3` |

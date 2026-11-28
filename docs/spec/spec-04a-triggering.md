@@ -88,12 +88,12 @@ The handler MUST filter on two axes before invoking the controller, and MUST inv
 
 | Condition                                           | Meaning                         | Action                 |
 |-----------------------------------------------------|---------------------------------|------------------------|
-| `add` of a FrogNet address                          | A peer joined                   | detach `runMerge.bash` |
-| `del` of a FrogNet address                          | A peer left                     | detach `runMerge.bash` |
+| `add` of a FrogNet address                          | A peer joined                   | ask the merge watcher  |
+| `del` of a FrogNet address                          | A peer left                     | ask the merge watcher  |
 | `old`                                               | Lease renewal — nothing changed | Ignore                 |
 | Address outside 10/8, or in `10.253.*` / `10.254.*` | Non-FrogNet DHCP churn          | Ignore                 |
 
-**The controller MUST be detached, not `exec`ed.** dnsmasq runs its `dhcp-script` synchronously and waits for the process before handling the next lease event. Replacing the handler with the merge holds that slot for the whole merge, so a slow merge stalls DHCP for every other client on the segment. The handler MUST start the controller in its own session and return immediately; a bare background job is not sufficient, because dnsmasq may reap its script’s process group.
+**The handler MUST NOT run the controller; it asks the merge watcher** \[LEASE_ASKS_THE_WATCHER_V1\], the same way `90-frognet-merge` does: one empty file in `/run/frognet/merge_requests`, and it returns. dnsmasq runs its `dhcp-script` synchronously and waits for it, so the handler must return at once; and whatever the handler starts runs inside `dnsmasq.service`'s control group, which a new session (`setsid`) does not leave. The reference handler used to start `runMerge.bash` in its own session. To systemd that merge was part of dnsmasq, so when the merge had something to tell dnsmasq — a node had joined, `/etc/hosts` and the forwarders had changed — its own `systemctl restart dnsmasq` stopped the unit the merge was running in: 90 s later (`State 'final-sigterm' timed out`) systemd killed the merge, its Python and its `systemctl`. Measured on 28 November 2026 on five clean-installed nodes: three of seven lease merges ended that way, each with no DHCP and no DNS on that node for 90 s, no merge tail (default route, `resolv.conf`, propagation), and nothing in a log, because the handler sent the merge's output to `/dev/null`. The merge the watcher starts runs in the watcher's unit and writes to the watcher's log.
 
 **Both filters are required.** Firing on `old` makes every renewal a topology event and merges on a timer that is really the lease interval. Omitting the address filter makes any DHCP client on the segment — a phone, a printer — merge the mesh. An implementation MUST log the event and the filter decision; the reference implementation tags every branch through `debugTag`.
 
@@ -139,7 +139,9 @@ flock -n 9  ->  held?
                   no:   proceed
 ```
 
-This is why several dispatcher hooks firing on one physical event is harmless, and why the merge watcher’s debounce in front of the controller (30 s, reset by each request) loses nothing: a request whose window expires while a merge runs is carried forward as `runAgain`.
+This is why a second `runMerge.bash` started while one runs (by hand, or by the tunnel daemon) is harmless.
+
+The merge watcher in front of the controller (a 30 s window, reset by each request) does not use the flag \[REQUEST_KEPT_UNTIL_ITS_MERGE_STARTS_V1\]. **A request leaves the watcher's queue only when a merge is started for it.** When the window expires while a merge holds the lock, the requests stay in `/run/frognet/merge_requests`; the watcher waits on the lock (a blocking `flock`: the kernel returns when the running merge exits, there is no polling and no timer), then consumes the batch and starts one merge, which therefore reads the world after every event in the batch. The watcher used to consume the batch and write `runAgain`. The controller reads `runAgain` once, straight after its discovery stage, and holds the lock for 0.8 to 2.2 s more (measured on 16 merges, 28 November 2026); a batch whose window expired in that stretch, or while the lock was held by a merge that was never going to finish, left a flag nothing read, and its event got no merge. That is how a node that had just joined was never learned by its neighbour that day.
 
 ### 4.2 The converge loop \[RUNAGAIN_ON_MUTATION_V1\]
 
@@ -226,7 +228,7 @@ Two requirements on the controller are not about topology and are stated because
 
 ## 7. Non-goals
 
-There is **no timer**. Nothing schedules a merge, and an implementation MUST NOT add one: the dnsmasq `dhcp-script` and the NetworkManager up/down hooks are the whole of the external surface, and they land in the same controller. There is **no queue** in the controller: a trigger arriving during a merge leaves a flag, not an entry; the merge watcher holds requests only until its window expires. There is **no coordinator**: no node instructs another to merge, and an announcement is a notification that something changed here, never an instruction or a derived view (§2d). There is **no delivery guarantee** on an announcement: a peer that misses one discovers the change on its own next trigger.
+There is **no timer**. Nothing schedules a merge, and an implementation MUST NOT add one: the dnsmasq `dhcp-script` and the NetworkManager up/down hooks are the whole of the external surface, and both ask the merge watcher, which runs the one controller. There is **no queue** in the controller: a second controller started during a merge leaves a flag, not an entry. The queue is the merge watcher's own (`/run/frognet/merge_requests`), and a request stays in it until a merge is started for it (§4a.4.1). There is **no coordinator**: no node instructs another to merge, and an announcement is a notification that something changed here, never an instruction or a derived view (§2d). There is **no delivery guarantee** on an announcement: a peer that misses one discovers the change on its own next trigger.
 
 ## 8. References
 

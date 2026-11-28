@@ -64,12 +64,36 @@ fi
 
 # This is a FrogNet peer add or del - we need to sync.
 #
-# Detached, not exec'd. dnsmasq runs dhcp-script SYNCHRONOUSLY: it waits for this
-# process before handling the next lease event. exec'ing runMerge held that slot
-# for the whole merge, so a slow merge stalled DHCP for every other client on the
-# segment. setsid + disown also survives dnsmasq reaping its script's process
-# group, which a bare & does not reliably do.
-/usr/local/bin/debugTag "dhcp_tracking: FrogNet peer $cmd ip=$ip — backgrounding runMerge"
-setsid /usr/local/bin/runMerge.bash </dev/null >/dev/null 2>&1 &
-disown 2>/dev/null || true
+# [LEASE_ASKS_THE_WATCHER_V1] One action: a request to the merge watcher, the same as the NetworkManager hook
+# ([HOOK_ASKS_THE_WATCHER_V1], etc/NetworkManager/dispatcher.d/90-frognet-merge). frognet-merge-watcher.sh owns
+# $REQ_DIR; the merge it forks runs in the watcher's own service and writes to the watcher's log.
+#
+# What stood here was `setsid /usr/local/bin/runMerge.bash </dev/null >/dev/null 2>&1 &`. setsid gives the merge its
+# own session; it does NOT take it out of dnsmasq.service's control group, and dnsmasq.service is
+# KillMode=control-group. So the merge a lease started was, to systemd, part of dnsmasq - and when that merge found
+# something to tell dnsmasq (a node has joined: /etc/hosts and the forwarders changed), its own
+# `systemctl restart dnsmasq` (discovery/live.py _apply_dnsmasq) stopped the unit the merge was running in. Found
+# 2026-11-28, five clean-installed nodes, three of seven lease merges (H1 09:24:18, H2 09:44:46, H3 10:12:25), each
+# the same in the journal:
+#
+#   10:10:22 dnsmasq-dhcp: DHCPACK(eth1) 10.73.73.40          <- the lease; this script forks runMerge 38263
+#   10:10:55 systemd: Stopping dnsmasq.service ...             <- that merge's own restart of dnsmasq
+#   10:11:27 "GET /propogateNotification.php?event=f7ec..."    <- the joining node says it is here
+#   10:11:58 [MERGE-ACCUM] fire decision=set_runAgain reason=merge_running
+#   10:12:25 systemd: dnsmasq.service: State 'final-sigterm' timed out. Killing.
+#            Killing process 38263 (runMerge.bash) with signal SIGKILL.
+#            Killing process 38553 (python3) ... 39596 (systemctl) with signal SIGKILL.
+#
+# The node served no DHCP and no DNS for 90 s, the merge died before its tail (no default-route fix, no resolv.conf,
+# no propagation, mergePending left behind), the joining node's notification landed on a lock held by a merge
+# that was already dead, and H3 never learned H5 was there. With >/dev/null on top, none of it reached a log.
+#
+# dnsmasq runs dhcp-script SYNCHRONOUSLY and waits for it: this writes one empty file and returns.
+REQ_DIR="/run/frognet/merge_requests"
+if { [[ -d "$REQ_DIR" ]] || { mkdir -p "$REQ_DIR" && chmod 1777 "$REQ_DIR"; }; } \
+   && : > "${REQ_DIR}/dhcp-${cmd}-${ip}-$$"; then
+  /usr/local/bin/debugTag "dhcp_tracking: FrogNet peer $cmd ip=$ip - merge requested from the watcher [LEASE_ASKS_THE_WATCHER_V1]"
+else
+  /usr/local/bin/debugTag "dhcp_tracking: FrogNet peer $cmd ip=$ip - FAILED to write a merge request in $REQ_DIR (the next lease event asks again) [LEASE_ASKS_THE_WATCHER_V1]"
+fi
 exit 0

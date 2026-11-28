@@ -900,10 +900,12 @@ def main():
     # [RUNAGAIN_IS_EXTERNAL_ONLY_V1] The merge does NOT write runAgain. It never
     # should have. runAgain means "something arrived from outside while this
     # merge was in flight, and that something may have changed the routing table
-    # after this pass had already read it" -- a DHCP lease, an NM interface
-    # event, a neighbour's notification, a concurrent runMerge that bailed on
-    # the held lock. It is not a convergence loop and it is not this pass's
-    # opinion of its own work.
+    # after this pass had already read it" -- its writer is a concurrent
+    # runMerge that bailed on the held lock. (A DHCP lease, an NM interface
+    # event and a neighbour's notification ask the merge watcher, which since
+    # [REQUEST_KEPT_UNTIL_ITS_MERGE_STARTS_V1] keeps them until it can start a
+    # merge of their own and writes no runAgain.) It is not a convergence loop
+    # and it is not this pass's opinion of its own work.
     #
     # runMerge.bash clears the sentinel at the top of every pass. So anything
     # present when the pass ends arrived DURING the pass, from another process,
@@ -1187,8 +1189,20 @@ def _topology_changed(old_content: str, new_content: str) -> bool:
     NOT a topology change and must NEVER trigger re-sync/propagation (that is the
     merge-storm: each node re-derives a role line, the byte differs, it propagates,
     the neighbor re-derives, forever). Strip `.frognet` lines from both sides and
-    compare what remains - node-identity / route-bearing lines only."""
-    strip = lambda s: [l for l in s.splitlines() if not l.endswith(".frognet")]
+    compare what remains - node-identity / route-bearing lines only.
+
+    [HOSTS_ORDER_IS_NOT_A_CHANGE_V1] ... as a SET of lines, not in file order. The
+    frognet_hosts sentinel is written in the order the walk found the peers
+    (orchestrate.merge appends disc.hosts.added as it stands), and two peers behind
+    the same neighbour are probed in parallel, so their order is whichever answered
+    first. The line-by-line compare that stood here called that a topology change:
+    on 2026-11-28, four clean-installed nodes in a line, converged, `runMerge.bash`
+    by hand on the end node twice - each pass `TABLE_FINGERPRINT ... changed=0`, each
+    pass `sync_required set reason=hosts_changed` and a propogateNotification, and its
+    neighbour ran a 26 s and a 29 s merge to find nothing. The two files differed only
+    in which of H2 and H4 came first. /etc/hosts never showed it (build_etc_hosts
+    sorts). Oracle: test_hosts_order_not_a_change_oracle.py."""
+    strip = lambda s: sorted({l for l in s.splitlines() if not l.endswith(".frognet")})
     return strip(old_content) != strip(new_content)
 
 

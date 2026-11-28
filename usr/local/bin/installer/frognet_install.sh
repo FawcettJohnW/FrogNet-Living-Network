@@ -331,7 +331,7 @@ log()       { echo "$(date '+%Y-%m-%d %H:%M:%S') [install] $*"; }
 warn()      { echo "$(date '+%Y-%m-%d %H:%M:%S') [WARN]    $*" >&2; }
 die()       { echo "$(date '+%Y-%m-%d %H:%M:%S') [FATAL]   $*" >&2; exit 1; }
 
-INSTALL_BUILD="frognet-install-2026-10-14-r28"   # [EVERY_COMPONENT_LOGS_ITS_BUILD_V1]
+INSTALL_BUILD="frognet-install-2026-11-28-r29"   # [EVERY_COMPONENT_LOGS_ITS_BUILD_V1]
 log "frognet_install.sh build ${INSTALL_BUILD} starting on $(hostname) - $(uname -m) - $(date) - $( [[ -n "$REGION_RAM" ]] && echo "region ${REGION_AREA} at ${REGION_RAM}" || echo "LAN-only" )"
 
 # [INSTALL_QUIESCE_MERGE_V1] Take runMerge's own lock and hold it for the whole
@@ -852,6 +852,28 @@ if (( FROM_REPO )); then
         echo "usr/local/share/frognet/${_d}" >> "$_NODE_LIST"
     done
     log "  laid the licence and documents in /usr/local/share/frognet from the checkout's root"
+    # [FROGNETHOST_ON_EVERY_NODE_V1] The FrogNetHost Admin is every node's own role ([ROLES_ON_API_V1] 10a.1: "independent,
+    # where every node holds its own"); it speaks to the roles' api.php on port 80 and needs no region. Its unit
+    # (etc/systemd/system/frognet-host.service) is in the node file set and F1 enables it, but its program is
+    # /opt/fdf/bin/frognet-host, and /opt/fdf reached a node only through the FD&F node installer (phase R, a region
+    # join). On a LAN-only node the unit was therefore enabled with nothing to run: found 2026-11-28 on five clean
+    # LAN-only installs, `python3: can't open file '/opt/fdf/bin/frognet-host'`, Restart=always, RestartSec=2 - 1,808
+    # restarts on H1 in 70 minutes, and no (frognethost, state, <guid>) tuple for any of them in the SystemRam.
+    # Laid here from the checkout's one copy of it, opt/fdf/src/fdf-source/fdf (full_tar.bash: /opt/fdf's scripts and lib
+    # ARE that source): the program and the Python library beside it. A later region join's .run lays the same paths.
+    _FH_SRC="${SCRIPT_DIR}/opt/fdf/src/fdf-source/fdf"
+    [[ -f "${_FH_SRC}/bin/frognet-host" ]] || die "--from-repo: ${_FH_SRC}/bin/frognet-host not found - the checkout has no FrogNetHost Admin"
+    install -D -m 0755 -o root -g root "${_FH_SRC}/bin/frognet-host" /opt/fdf/bin/frognet-host \
+        || die "--from-repo: could not lay /opt/fdf/bin/frognet-host"
+    echo "opt/fdf/bin/frognet-host" >> "$_NODE_LIST"
+    _fh_n=0
+    for _f in "${_FH_SRC}"/lib/python/*.py; do
+        [[ -f "$_f" ]] || die "--from-repo: ${_FH_SRC}/lib/python has no Python library for frognet-host"
+        install -D -m 0644 -o root -g root "$_f" "/opt/fdf/lib/python/${_f##*/}" \
+            || die "--from-repo: could not lay /opt/fdf/lib/python/${_f##*/}"
+        echo "opt/fdf/lib/python/${_f##*/}" >> "$_NODE_LIST"; _fh_n=$((_fh_n+1))
+    done
+    log "  laid the FrogNetHost Admin in /opt/fdf (bin/frognet-host and ${_fh_n} library files) from ${_FH_SRC} [FROGNETHOST_ON_EVERY_NODE_V1]"
 else
     log "Extracting $WORLD_TGZ -> / ($(du -h "$WORLD_TGZ" | cut -f1))"
     # [EXTRACT_PROGRESS_V1] tar without -v prints NOTHING, so a multi-minute extraction
@@ -2077,6 +2099,13 @@ if (( ${#MISSING[@]} )); then
     die "release is incomplete - ${#MISSING[@]} core unit(s) absent from /etc/systemd/system: ${MISSING[*]}. These ship in the world tar; a release built without them installs a node that boots with no proxy, no daemon and no tunnels. Rebuild the release and reinstall."
 fi
 for svc in "${OPT_SERVICES[@]}"; do
+    # [FROGNETHOST_ON_EVERY_NODE_V1] a unit whose program is not on the node is not enabled (it would restart every
+    # 2 s for ever): said, with where the program comes from. --from-repo lays it in C1; a release carries it when
+    # the machine that built the release had it.
+    if [[ "$svc" == frognet-host && ! -f /opt/fdf/bin/frognet-host ]]; then
+        log "  NOT enabled: frognet-host (its program /opt/fdf/bin/frognet-host is not on this node: this release does not carry the FrogNetHost Admin; the FD&F node installer or an install --from-repo lays it)"
+        continue
+    fi
     [[ -f "/etc/systemd/system/${svc}.service" ]] && systemctl enable "$svc" 2>/dev/null || true
 done
 systemctl enable apache2 mariadb dnsmasq NetworkManager cron

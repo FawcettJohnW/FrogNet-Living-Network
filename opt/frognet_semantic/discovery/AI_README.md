@@ -10,7 +10,7 @@ and what to do before reporting a defect); this file lists only the hazards in t
 
 ## What is here
 
-144 Python files. Roughly a third is the engine and two thirds are oracles and their scenarios.
+146 Python files. Roughly a third is the engine and two thirds are oracles and their scenarios.
 
 | | |
 |---|---|
@@ -18,7 +18,7 @@ and what to do before reporting a defect); this file lists only the hazards in t
 | `routes.py` | the route planner — pure; it plans, it does not touch the kernel |
 | `live.py` | commit, and the sync-on-mutation flag |
 | `hosts.py` `resolv.py` | `/etc/hosts` and resolver composition |
-| `test_*_oracle.py` | the oracles; `run_discovery_oracles.py` runs 84. Each asserts an outcome and exits nonzero on failure |
+| `test_*_oracle.py` | the oracles; `run_discovery_oracles.py` runs 86. Each asserts an outcome and exits nonzero on failure |
 | `sim/` | scenario checks — safeboot, host reset, service election |
 
 Run them: `cd .. && PYTHONPATH=. python3 -m discovery selfcheck`

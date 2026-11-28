@@ -69,9 +69,10 @@ def _clear_at_top():
 
 
 def _external_poke():
-    """Another process: nm-dispatcher, dnsmasq dhcp-script, the merge
-    accumulator's set_runAgain branch, or a concurrent runMerge hitting the
-    held lock."""
+    """Another process: a concurrent runMerge hitting the held lock (by hand, or the
+    tunnel daemon's). The NetworkManager hook, the dnsmasq dhcp-script and a neighbour's
+    notification ask the merge watcher, and since [REQUEST_KEPT_UNTIL_ITS_MERGE_STARTS_V1]
+    the watcher keeps their requests until it can start a merge: it writes no runAgain."""
     open(RUN_AGAIN, "w").close()
 
 
