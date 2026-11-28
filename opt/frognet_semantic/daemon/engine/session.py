@@ -622,7 +622,11 @@ class EngineSession:
             print("[CHANNEL-SETTING] [A_SEALED_ROLE_IS_NOT_TAKEN_UNSEALED_V1] a request from %s for %s arrived outside the "
                   "frame, unsealed, and the Role %r is sealed: REFUSED, not run (%d so far in this daemon). The sender "
                   "runs a build that does not put a Role's traffic in the frame." % (self.peer_ip, dest_host, role, n), flush=True)
-        return wrap_error(403, "the Role %r is sealed: its traffic is taken only inside the frame" % role)
+        # [A_REFUSAL_STATES_THE_NUMBER_V1] the number is what a sequence's first frame states in the clear already. An
+        # end that has just started holds no setting for the Role, cannot know it is sealed, and is refused here: with
+        # the number it seals from the secret it holds and asks again (core/channel_setting.py). No key, no secret.
+        return wrap_error(403, "the Role %r is sealed: its traffic is taken only inside the frame [SEALED_AT_NUMBER %d]"
+                          % (role, int((channel_setting.setting_of(role) or {}).get("number") or 0)))
 
     def __init__(self, peer_ip: str, resolver, http_client=None):
         from core import channel_setting                 # [CHANNEL_SETTING_IS_A_TUPLE_V1] a session arriving is an event:

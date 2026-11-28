@@ -26,7 +26,27 @@ The design is "CroakOS Protocol Layer Demonstration: Walkthrough and Detailed De
     (channel, setting, semantic)   the setting of traffic that belongs to no Role (the SystemRam, the ControlRam).
     (channel, at, <ip>:<proc>.<pid>)  written by each end: what it holds and what it is sending under, for each Role.
 
-They are in the ControlRam, where the capability tuples live. A Role's setting holds:
+[A_ROLES_SETTING_IS_IN_THE_ROLES_OWN_RAM_V1] (John, 28 Nov 2026: "That data should not exist in control ram if it is
+not needed. Ciphers, key, and protocol are local to the role." And of a page that showed them: "A viewer should not be
+able to tell that a connection is encrypted or what the parameters are.") WHERE they are:
+
+    (channel, setting, <Role>)        in each MEMORY OF THAT ROLE (a Role's memory is <app>Host.frognet or
+                                      <team>Host.<app>, core/app_hosts.py; role_of() reads the name), and nowhere else.
+    (channel, at, <end>)              an end's report of what it holds and runs for a Role: in that Role's memories.
+    (channel, setting, semantic)      in the ControlRam, as before: it is the system's own (traffic of no Role).
+    (channel, at, <end>) there        says only what the end runs for traffic of no Role. It names no Role.
+
+Until this build both were in the ControlRam, which every machine of the network reads. The ControlRam now holds
+nothing of any Role's protocol, whether it is sealed, its algorithm or its number; a machine that does not carry a
+Role reads nothing of it. An end holds its read on each Role memory its hosts file names (one held read for each),
+and the owner writes a Role's setting into every memory of the Role. A Role's memories carry one setting: an end
+takes the cell a store stamped newest among them. The setting is read through the Role's own channel, sealed like
+the rest of the Role's traffic: an end can open what tells it of a new key because the sender states its number in the
+clear when it switches, and the receiver advances its secret until the key opens ([THE_SECRET_IS_ADVANCED_UNTIL_ITS_KEY_OPENS_V1],
+core/channel_frame.py).
+docs/ROLE-SETTING-IS-IN-THE-ROLES-RAM.md.
+
+A Role's setting holds:
 
     driver      the protocol: a word a driver registered (tcp, chorus, openqasm). Absent: the carrier's own.
     number      a random number the Admin sets ([THE_KEY_IS_COMPUTED_V1], core/channel_frame.py). Each sending node
@@ -42,6 +62,7 @@ each connection, told by on_change() that the setting moved. Nothing polls and n
 is not taken, it is held again at the next network event (the hosts file is rewritten). A process with no such tuple
 in its ControlRam behaves exactly as it did before this file existed.
 """
+import re
 import json
 import os
 import queue
@@ -51,7 +72,7 @@ import threading
 import time
 from typing import Callable, Dict, List, Optional, Tuple
 
-BUILD = "channel-setting-is-a-tuple-v10-20261123d"
+BUILD = "channel-setting-is-in-the-roles-ram-v11-20261128b"
 SERVICE, VAR, SCOPE = "channel", "setting", "semantic"
 CONTROL_RAM = "databasehost_control.frognet"
 HOLD_S = 300.0
@@ -69,6 +90,9 @@ _at: dict = {}                           # a RAM's role name -> the one address 
 _me: Optional[str] = None
 _reports: "queue.SimpleQueue" = queue.SimpleQueue()
 _ignored: dict = {}                      # a Role -> the last setting for it this end ignored (said once)
+_mem: dict = {}                          # [A_ROLES_SETTING_IS_IN_THE_ROLES_OWN_RAM_V1] a Role memory's name -> (stamp, setting) as last read from it
+_mem_holds: dict = {}                    # a Role memory's name -> the Event that wakes its hold when it waits for an event
+_mem_parked: set = set()                 # the Role memories whose hold was not taken and waits for an event
 
 
 def _tuples():
@@ -119,6 +143,239 @@ def check_of(role: str, value: dict) -> Optional[str]:
     return hmac.new(secret, check_text(role, value), hashlib.sha384).hexdigest()
 
 
+def memories(role: Optional[str] = None) -> Dict[str, str]:
+    """[A_ROLES_SETTING_IS_IN_THE_ROLES_OWN_RAM_V1] The Role memories this node's hosts file names, each with the Role
+    its name says (role_of): {memory's name, as the file writes it (a Host is looked up as written): Role}. With a Role: that Role's memories only. A name the file
+    puts at two addresses is at neither. Read at an event (a change of the file, a write), never per message."""
+    _, H = _tuples()
+    at: dict = {}
+    as_written: dict = {}
+    try:
+        with open(H.HOSTS) as f:
+            for line in f:
+                p = line.split("#", 1)[0].split()
+                for name in p[1:]:
+                    if role_of(name):
+                        at.setdefault(name.lower(), set()).add(p[0])
+                        as_written.setdefault(name.lower(), name)
+    except OSError as e:
+        print("[CHANNEL-SETTING] this node's hosts file could not be read (%s): no Role's memory is known" % e, flush=True)
+    want = (role or "").lower()
+    return {as_written[n]: role_of(n) for n, a in sorted(at.items()) if len(a) == 1 and (not want or role_of(n) == want)}
+
+
+def _newest(rows, scope: str):
+    """The cell of (channel, setting, <scope>) a store stamped newest among `rows`: (stamp, the setting) or None."""
+    T, _ = _tuples()
+    name = T.var_name(VAR, scope)
+    for r in reversed(oldest_first(rows)):
+        if str(r.get("SensorName") or r.get("name") or "") == name or (r.get("var") == VAR and str(r.get("scope") or "").lower() == scope):
+            v = r.get("data") if isinstance(r.get("data"), dict) else r.get("value")
+            if isinstance(v, dict):
+                v = dict(v); v.pop("ts", None)
+                if v:
+                    try:
+                        stamp = (int(r.get("UpdatedAtEpoch") or r.get("ts_env") or 0), int(r.get("SensorID") or 0))
+                    except (TypeError, ValueError):
+                        stamp = (0, 0)
+                    return stamp, v
+    return None
+
+
+def _rams_from_memories() -> dict:
+    """Each Role's setting, from what was last read of its memories: the cell stamped newest among them."""
+    best: dict = {}
+    for mem, cell in _mem.items():
+        role = role_of(mem)
+        if cell is not None and role and (role not in best or cell[0] > best[role][0]):
+            best[role] = cell
+    out = {role: cell[1] for role, cell in best.items()}
+    for role in [r for r in _learned if r in out]:
+        _learned.pop(role)                               # the Role's own setting is here: what was learned is done with
+    out.update(_learned)
+    return out
+
+
+def _kept_though_its_cell_is_gone(every: dict) -> list:
+    """[A_MISSING_CELL_CHANGES_NOTHING_V1] A Role's setting that this end holds, and that proved itself, is not given up
+    because its cell is no longer in the Role's memory. A store removes every tuple a machine wrote when that machine
+    leaves ([WRITER_GONE_V1]); the Admin who wrote a Role's setting may work on another node than the one that hosts
+    the Role's memory, and when that node's daemon restarted the cell went, every end read "no setting", and a sealed
+    Role went back to unsealed (simulator, 28 Nov 2026). A Role is unsealed by its owner writing a setting that says
+    so, which proves itself like any other: never by a cell that is missing. Only a memory the hosts file no longer
+    names ends a Role's setting here. Adds what is kept to `every`; returns [(memory, Role, setting)] for the
+    memories THIS node hosts, which it writes back (_write_back). Called with _lock held."""
+    back = []
+    here = None
+    for role, held in _rams.items():
+        if role in every or held.get("learned"):
+            continue
+        mems = [m for m in _mem_holds if role_of(m) == role]
+        if not mems:
+            continue                                     # the hosts file names no memory of the Role any more
+        every[role] = held
+        for mem in mems:
+            if _mem.get(mem) is None and mem in _mem:    # read, and the cell was not there
+                if here is None:
+                    T, H = _tuples()
+                    here = (T.my_ip(), {})
+                    try:
+                        with open(H.HOSTS) as f:
+                            for line in f:
+                                p = line.split("#", 1)[0].split()
+                                for n in p[1:]:
+                                    here[1].setdefault(n.lower(), set()).add(p[0])
+                    except OSError:
+                        pass
+                if here[1].get(mem.lower()) == {here[0]}:
+                    back.append((mem, role, held))
+    return back
+
+
+def _write_back(mem: str, role: str, held: dict) -> None:
+    """The node that hosts a Role's memory writes the Role's setting back into it when the cell is gone: the same value,
+    with the check its owner made (this node makes nothing). It is this node's own write into its own store, so it
+    stays for as long as the memory is here. An end that starts later reads it there."""
+    ok = False
+    try:
+        ok = _put_setting(mem, role, held)
+    except Exception as e:
+        print("[CHANNEL-SETTING] %s [A_MISSING_CELL_CHANGES_NOTHING_V1] %s's setting was not written back into %s: %r; it is "
+              "written at this memory's next read" % (BUILD, role, mem, e), flush=True)
+        return
+    print("[CHANNEL-SETTING] %.6f %s [A_MISSING_CELL_CHANGES_NOTHING_V1] the cell of %s's setting was gone from its memory %s, "
+          "which this node hosts (the machine that wrote it left): this end keeps running the setting it holds, and %s"
+          % (time.time(), BUILD, role, mem, "wrote it back" if ok else "its write back was NOT taken; it is written at this memory's next read"), flush=True)
+
+
+# [AN_END_THAT_HAS_JUST_STARTED_LEARNS_THE_NUMBER_V1] role -> {"number", "protection", "learned": True}. An end holding no
+# setting for a sealed Role cannot read the setting: it is in the Role's memory, behind the Role's key. It is told
+# the number in the clear (a refusal's [SEALED_AT_NUMBER n], or the far end's own statement on the connection), seals
+# from the secret this machine holds, advanced until a frame opens (core/channel_frame.py), and then reads the
+# setting like any end. What is learned is never written anywhere, is not reported as held, and is dropped when the
+# Role's own setting, which proves itself, arrives.
+_learned: dict = {}
+
+
+def _default_driver() -> str:
+    from core import channel_carrier
+    return channel_carrier.DEFAULT_DRIVER
+
+
+def learned(role: str, number: int, protection: Optional[str] = None, step: Optional[int] = None, secret: Optional[bytes] = None) -> bool:
+    """The far end stated `number` for a Role this process holds no proved setting for; with `secret`, a frame has
+    opened under the key that secret (at `step`) gives and `protection`. True when this changed what this end runs."""
+    role = (role or "").lower()
+    if not role or not number:
+        return False
+    with _lock:
+        held = _rams.get(role)
+        if held is not None and not held.get("learned"):
+            return False                                 # this end holds the Role's own setting: nothing is learned over it
+        new = {"number": int(number), "protection": protection or (held or {}).get("protection") or "aes-256-gcm",
+               # the protocol: any the frame carries is read by the far end (each message says its protocol's word);
+               # the carrier's default is used until the Role's own setting names one
+               "driver": (held or {}).get("driver") or _default_driver(), "learned": True}
+        if step is not None:
+            new["step"] = int(step)
+        new = {k: x for k, x in new.items() if x is not None}
+        if new == held and (secret is None or _secrets.get(role) == (step, secret)):
+            return False
+        _learned[role] = new
+        if secret is not None and step is not None:
+            _secrets[role] = (int(step), secret)
+    print("[CHANNEL-SETTING] %.6f %s [AN_END_THAT_HAS_JUST_STARTED_LEARNS_THE_NUMBER_V1] %s: this end holds no setting for it and was "
+          "told its number, %d: it seals with %s%s until the Role's own setting is read"
+          % (time.time(), BUILD, role, int(number), new["protection"],
+             " and this machine's secret advanced in memory to step %d" % step if secret is not None and step is not None else ""), flush=True)
+    with _lock:
+        every = _rams_from_memories()
+        _kept_though_its_cell_is_gone(every)
+    _take(_cur, "the far end stated %s's number" % role, every)
+    return True
+
+
+def read_setting(role: str) -> Optional[dict]:
+    """One read, now, of a Role's setting from the Role's own memories (the owner's tool and the tests use it): the
+    cell stamped newest among them, None when no memory of the Role holds one."""
+    T, _ = _tuples()
+    best = None
+    for mem in memories(role):
+        try:
+            cell = _newest(T._values_raw(SERVICE, mem, name_like=T.var_name(VAR, role.lower())), role.lower())
+        except Exception as e:
+            print("[CHANNEL-SETTING] %s the setting of %s was not read from its memory %s: %r" % (BUILD, role, mem, e), flush=True)
+            continue
+        if cell is not None and (best is None or cell[0] > best[0]):
+            best = cell
+    return best[1] if best else None
+
+
+def reports(role: Optional[str] = None) -> Dict[str, dict]:
+    """What each end says it runs: {<ip>:<process>.<pid>: its report}. For a Role: read from the Role's memories (an
+    end writes its report into each); with none: the reports in the ControlRam, which are for traffic of no Role."""
+    T, _ = _tuples()
+    out: Dict[str, dict] = {}
+    for where in (list(memories(role)) if role else [CONTROL_RAM]):
+        try:
+            for r in T.get(SERVICE, "at", dbhost=where):
+                scope = str(r.get("scope") or "")
+                of, tilde, end = scope.partition("~")           # [A_REPORT_NAMES_ITS_ROLE_V1] "<Role>~<end>" in a Role's memory
+                if isinstance(r.get("value"), dict) and ((of == role and tilde) if role else not tilde):
+                    out.setdefault(end if role else scope, r["value"])
+        except Exception as e:
+            print("[CHANNEL-SETTING] %s the ends' reports were not read from %s: %r" % (BUILD, where, e), flush=True)
+    return out
+
+
+def _put_setting(dbhost: str, scope: str, value: dict) -> bool:
+    T, _ = _tuples()
+    ok = bool(T.put(SERVICE, VAR, scope, value, dbhost=dbhost, own=False))
+    if ok:
+        # [THE_NEWEST_CELL_IS_THE_SETTING_V1] the cells of this setting that other machines wrote before this one are
+        # superseded: removed, so the setting is one cell again. Only cells the store puts BEFORE this machine's are
+        # removed, so of two machines writing at once exactly one cell is left, the one every end takes.
+        try:
+            name = T.var_name(VAR, scope)
+            cells = oldest_first([r for r in T._values_raw(SERVICE, dbhost, name_like=name) if str(r.get("SensorName") or "") == name])
+            mine = max((i for i, r in enumerate(cells) if str(r.get("SensorAddress") or "") == T.my_ip()), default=None)
+            for r in (cells[:mine] if mine is not None else []):
+                if str(r.get("SensorAddress") or "") != T.my_ip() and T._delete_by_id(dbhost, r.get("SensorID")):
+                    print("[CHANNEL-SETTING] %s [THE_NEWEST_CELL_IS_THE_SETTING_V1] the setting of %s in %s written earlier from %s "
+                          "is superseded by this write and removed" % (BUILD, scope, dbhost, r.get("SensorAddress")), flush=True)
+        except Exception as e:                       # not removed now: every end takes the newest cell all the same
+            print("[CHANNEL-SETTING] %s an earlier writer's setting of %s in %s was not removed (%s: %s); the ends take the "
+                  "newest one, and the next write removes it" % (BUILD, scope, dbhost, type(e).__name__, e), flush=True)
+    return ok
+
+
+def _nothing_of_a_role_is_left_in_the_controlram(role: str) -> None:
+    """[A_ROLES_SETTING_IS_IN_THE_ROLES_OWN_RAM_V1] A network that ran a build before v11 has (channel, setting, <Role>)
+    cells in its ControlRam. No build from v11 on reads them; the owner's next write of the Role removes them."""
+    T, H = _tuples()
+    try:
+        # [THE_CONTROLRAM_AND_A_MEMORY_ON_ONE_NODE_ARE_ONE_STORE_V1] On the node that is the ControlRam, a Role's memory
+        # is the same store: the cell "in the ControlRam" there IS the Role's setting in its own memory. Removing it
+        # removed the setting just written (simulator, 28 Nov 2026: Seattle3B is the ControlRam and hosts assessment
+        # and compute; every end took the setting, held again, was handed no rows, and went back to unsealed).
+        at: dict = {}
+        with open(H.HOSTS) as f:
+            for line in f:
+                p = line.split("#", 1)[0].split()
+                for n in p[1:]:
+                    at.setdefault(n.lower(), set()).add(p[0])
+        if at.get(CONTROL_RAM.lower(), set()) & set().union(*[at.get(m.lower(), set()) for m in memories(role)] or [set()]):
+            return
+        name = T.var_name(VAR, role)
+        for r in T._values_raw(SERVICE, CONTROL_RAM, name_like=name):
+            if str(r.get("SensorName") or "") == name and r.get("SensorID") is not None and T._delete_by_id(CONTROL_RAM, r["SensorID"]):
+                print("[CHANNEL-SETTING] %s the setting of %s that an earlier build kept in the ControlRam is removed: it is "
+                      "in the Role's own memories now" % (BUILD, role), flush=True)
+    except Exception as e:
+        print("[CHANNEL-SETTING] %s an earlier build's setting of %s was not looked for in the ControlRam (%r); the next "
+              "write of the Role looks again" % (BUILD, role, e), flush=True)
+
+
 def write(value: dict, dbhost: str = CONTROL_RAM, ram: Optional[str] = None) -> bool:
     """The owner's act: set a Role's channel (`ram`: the Role), or with none the setting of traffic that belongs to no
     Role. A Role's setting is written with its check, which only a machine holding that Role's secret can make: the
@@ -132,24 +389,22 @@ def write(value: dict, dbhost: str = CONTROL_RAM, ram: Optional[str] = None) -> 
                   "and the ends that hold the secret will ignore it" % ram, flush=True)
         else:
             value["check"] = c
-    scope = (ram or SCOPE).lower()
-    ok = bool(T.put(SERVICE, VAR, scope, value, dbhost=dbhost, own=False))
-    if ok:
-        # [THE_NEWEST_CELL_IS_THE_SETTING_V1] the cells of this setting that other machines wrote before this one are
-        # superseded: removed, so the setting is one cell again. Only cells the store puts BEFORE this machine's are
-        # removed, so of two machines writing at once exactly one cell is left, the one every end takes.
-        try:
-            name = T.var_name(VAR, scope)
-            cells = oldest_first([r for r in T._values_raw(SERVICE, dbhost, name_like=name) if str(r.get("SensorName") or "") == name])
-            mine = max((i for i, r in enumerate(cells) if str(r.get("SensorAddress") or "") == T.my_ip()), default=None)
-            for r in (cells[:mine] if mine is not None else []):
-                if str(r.get("SensorAddress") or "") != T.my_ip() and T._delete_by_id(dbhost, r.get("SensorID")):
-                    print("[CHANNEL-SETTING] %s [THE_NEWEST_CELL_IS_THE_SETTING_V1] the setting of %s written earlier from %s "
-                          "is superseded by this write and removed" % (BUILD, scope, r.get("SensorAddress")), flush=True)
-        except Exception as e:                       # not removed now: every end takes the newest cell all the same
-            print("[CHANNEL-SETTING] %s an earlier writer's setting of %s was not removed (%s: %s); the ends take the "
-                  "newest one, and the next write removes it" % (BUILD, scope, type(e).__name__, e), flush=True)
-    return ok
+    if not ram:
+        return _put_setting(dbhost, SCOPE, value)        # traffic of no Role: the system's own setting, in the ControlRam
+    # [A_ROLES_SETTING_IS_IN_THE_ROLES_OWN_RAM_V1] a Role's setting is written into every memory of the Role, and
+    # nowhere else. `dbhost` is not consulted for a Role.
+    role = ram.lower()
+    mems = list(memories(role))
+    if not mems:
+        print("[CHANNEL-SETTING] %s NOT written: this node's hosts file names no memory of the Role %r (a Role's setting "
+              "is kept in the Role's own memories: <app>Host.frognet, <team>Host.<app>)" % (BUILD, ram), flush=True)
+        return False
+    took = [m for m in mems if _put_setting(m, role, value)]
+    if len(took) != len(mems):
+        print("[CHANNEL-SETTING] %s the setting of %s was taken by %d of its %d memories; NOT by: %s" % (BUILD, role, len(took), len(mems),
+              ", ".join(m for m in mems if m not in took)), flush=True)
+    _nothing_of_a_role_is_left_in_the_controlram(role)
+    return len(took) == len(mems)
 
 
 # [A_ROLES_OWN_SECRET_MOVES_FORWARD_V1] role -> (step, the Role's own secret at that step): the secret that goes with the
@@ -330,14 +585,17 @@ def _remove_reports_of_processes_that_ended() -> None:
     try:
         T, _ = _tuples()
         mine = "%s:" % T.my_ip()
-        pre = T.var_name("at", mine)
+        pre = T.var_name("at", "")
         gone = []
-        for row in T._values_raw(SERVICE, CONTROL_RAM):
-            name = str(row.get("SensorName") or "")
-            pid = name.rsplit(".", 1)[-1]
-            if name.startswith(pre) and pid.isdigit() and int(pid) != os.getpid() and not os.path.exists("/proc/%s" % pid) \
-                    and row.get("SensorID") is not None and T._delete_by_id(CONTROL_RAM, row["SensorID"]):
-                gone.append(name[len(pre) - len(mine):])
+        for where in [CONTROL_RAM] + list(memories()):       # (a Role's reports are in the Role's memories)
+            for row in T._values_raw(SERVICE, where):
+                name = str(row.get("SensorName") or "")
+                pid = name.rsplit(".", 1)[-1]
+                end = name[len(pre):].rpartition("~")[2] if name.startswith(pre) else ""    # "<end>", or "<Role>~<end>"
+                if end.startswith(mine) and pid.isdigit() and int(pid) != os.getpid() and not os.path.exists("/proc/%s" % pid) \
+                        and row.get("SensorID") is not None and T._delete_by_id(where, row["SensorID"]) \
+                        and end not in gone:
+                    gone.append(end)
         if gone:
             print("[CHANNEL-SETTING] %s [A_REPORT_ENDS_WITH_ITS_PROCESS_V1] removed the report(s) of %d process(es) of "
                   "this node that are no longer running: %s" % (BUILD, len(gone), ", ".join(sorted(gone))), flush=True)
@@ -392,6 +650,9 @@ def _take(v: Optional[dict], how: str, rams: Optional[dict] = None) -> None:
         kept = {}
         for role, new in rams.items():
             held = _rams.get(role)
+            if new.get("learned"):                   # not the Role's setting: what this end runs until it has read it
+                kept[role] = new
+                continue
             why = None if new == held else _proved(role, new, held)
             if why is None:
                 kept[role] = new
@@ -437,6 +698,7 @@ def _hosts_watch() -> None:
             with _lock:
                 _where()                                 # [A_SETTING_PER_RAM_CONNECTION_V1] a role may have moved
             _kick.set()
+            _hold_the_memories()                         # a Role's memory may have come, gone or moved
 
 
 # [A_REPORT_NOT_WRITTEN_IS_WRITTEN_AT_THE_NEXT_EVENT_V1] this end's report has not reached the ControlRam. True from
@@ -469,7 +731,7 @@ def _say_where_i_am(v: Optional[dict]) -> None:
                             # [A_ROLES_OWN_SECRET_MOVES_FORWARD_V1] "Each end's report carries its step": the step of
                             # the Role's own secret this process is on (none for a Role on the network's secret)
                             **({"step": step_in_use(role)} if step_in_use(role) is not None else {})}
-                     for role, x in _rams.items()}
+                     for role, x in _rams.items() if not x.get("learned")}       # what was learned is not a setting held
             # [AN_END_SAYS_WHAT_IT_IGNORED_V1] 23 Nov 2026. A machine that does not hold a Role's own secret cannot
             # verify that Role's setting and ignores it; that is right, it does not carry the Role. It says so here,
             # naming the setting it ignored by its number, protocol and step, so the owner's page can tell an end that
@@ -477,19 +739,32 @@ def _say_where_i_am(v: Optional[dict]) -> None:
             for role, x in list(_ignored.items()):
                 holds.setdefault(role, {})["ignored"] = {"number": int(x.get("number") or 0), "driver": x.get("driver"),
                                                          "step": int(x.get("step") or 0)}
-            what = dict({"is": {k: x for k, x in (v or {}).items() if k != "check"} if v is not None else None},
-                        **({"rams": holds} if holds else {}))
-            what["build"] = builds()                  # [AN_END_SAYS_ITS_BUILD_V1] so nobody has to ask a node what it runs
-            if RUNNING is not None:
-                # [AN_END_REPORTS_WHAT_IT_RUNS_V1] the design's 10.6: for each Role this end carries, the protocol, the
-                # count of switches and the algorithm it is sending under now. No key and no seed.
-                what["running"] = RUNNING()
-            ok = T.put(SERVICE, "at", "%s:%s.%d" % (T.my_ip(), os.path.basename(sys.argv[0]) or "py", os.getpid()),
-                       what, dbhost=CONTROL_RAM, own=True)
+            me = "%s:%s.%d" % (T.my_ip(), os.path.basename(sys.argv[0]) or "py", os.getpid())
+            running = RUNNING() if RUNNING is not None else None
+            # [A_ROLES_SETTING_IS_IN_THE_ROLES_OWN_RAM_V1] in the ControlRam this end says only what it runs for traffic
+            # of no Role, and its build; it names no Role there. What it holds and runs for a Role it says in that
+            # Role's own memories, each of them, and nowhere else.
+            what = {"is": {k: x for k, x in (v or {}).items() if k != "check"} if v is not None else None, "build": builds()}
+            ok = bool(T.put(SERVICE, "at", me, what, dbhost=CONTROL_RAM, own=True))
+            if not ok:
+                print("[CHANNEL-SETTING] this end's own tuple (what it runs) was not taken by the ControlRam; it is written "
+                      "again when this end's held read next returns", flush=True)
+            for mem, role in memories().items():
+                mine = {"build": builds()}
+                if role in holds:
+                    mine["rams"] = {role: holds[role]}
+                if running is not None:
+                    # [AN_END_REPORTS_WHAT_IT_RUNS_V1] the design's 10.6: the protocol, the count of switches and the
+                    # algorithm this end is sending under now for the Role. No key and no seed.
+                    mine["running"] = {role: running[role]} if role in running else {}
+                # [A_REPORT_NAMES_ITS_ROLE_V1] several memories of one node are one store (seen in the simulator, 28 Nov
+                # 2026: Seattle3B hosts assessment, compute and instructor; an end's three reports were one cell and
+                # the last written was the only one read). So a Role's report is named for the Role and the end.
+                if not T.put(SERVICE, "at", "%s~%s" % (role, me), mine, dbhost=mem, own=True):
+                    ok = False
+                    print("[CHANNEL-SETTING] %s this end's report for the Role %s was not taken by its memory %s; it is "
+                          "written again when a held read of this end next returns" % (BUILD, role, mem), flush=True)
         _report_owed = not ok
-        if not ok:
-            print("[CHANNEL-SETTING] this end's own tuple (what it runs) was not taken by the ControlRam; it is written "
-                  "again when this end's held read next returns", flush=True)
     except Exception as e:
         _report_owed = True
         print("[CHANNEL-SETTING] this end's own tuple (what it runs) was not written: %r; it is written again when this "
@@ -522,7 +797,7 @@ def _run() -> None:
         # and immediately release." What the wake brought is handed to the one thread that takes settings up (in the
         # order the wakes came), and this thread holds again at once. It used to take the setting up itself, listeners
         # and all, and only then hold again.
-        _woke.put((_value_of(rows), _rams_of(rows)))
+        _woke.put((_value_of(rows), None))            # (a Role's setting is not read from the ControlRam: [A_ROLES_SETTING_IS_IN_THE_ROLES_OWN_RAM_V1])
         if _report_owed:
             # [A_REPORT_NOT_WRITTEN_IS_WRITTEN_AT_THE_NEXT_EVENT_V1] found between machines, 22 Nov 2026: an end that
             # started before the ControlRam could be reached failed its one report and never wrote another until a
@@ -531,10 +806,77 @@ def _run() -> None:
             report()
 
 
+def _hold_the_memories() -> None:
+    """[A_ROLES_SETTING_IS_IN_THE_ROLES_OWN_RAM_V1] One held read on each Role memory this node's hosts file names. Called
+    when the process starts watching and at each hosts event: a memory that is new gets its hold; one that is gone is
+    forgotten (its hold ends itself the next time it returns or fails); one whose hold is waiting for an event is woken."""
+    now = memories()
+    with _lock:
+        for mem in [m for m in _mem_holds if m not in now]:
+            _mem_holds.pop(mem).set()
+            if _mem.pop(mem, None) is not None:
+                _woke.put(("memories", None, None))
+        new = [m for m in now if m not in _mem_holds]
+        for mem in new:
+            _mem_holds[mem] = threading.Event()
+        for ev in _mem_holds.values():
+            ev.set()
+    for mem in new:
+        threading.Thread(target=_run_memory, args=(mem,), daemon=True, name="channel-setting-" + mem[:24]).start()
+
+
+def _run_memory(mem: str) -> None:
+    T, H = _tuples()
+    role, seen = role_of(mem), None
+    while True:
+        ev = _mem_holds.get(mem)
+        if ev is None:
+            return                                       # the hosts file names this memory no longer
+        ev.clear()                                       # [AN_EVENT_DURING_THE_ATTEMPT_IS_NOT_LOST_V1] before the hold is tried
+        try:
+            # [A_HOLD_NAMES_ITS_ROLE_V1] the hold is on this Role's one tuple by name. Several memories of one node
+            # are one store, and a store keeps one hold for one holder and one pattern: with "setting.%" this
+            # process's holds for units and for command, both on New-York-1, were ONE hold, the fire for units'
+            # setting woke the read made for command, and units' read never returned (simulator, 28 Nov 2026).
+            rows = H.wait_change(SERVICE, mem, seen, name=T.var_name(VAR, role), wait_s=HOLD_S)
+            seen = H.signature(rows)
+        except Exception as e:
+            print("[CHANNEL-SETTING] %s the hold on (%s, %s) in the Role %s's memory %s was not taken: %r; holding again at the "
+                  "next event" % (BUILD, SERVICE, VAR, role, mem, e), flush=True)
+            told = re.search(r"\[SEALED_AT_NUMBER (\d+)\]", str(e))
+            if told and learned(role, int(told.group(1))):
+                continue                                 # the event: this end now seals for the Role. It holds again.
+            _mem_parked.add(mem)                         # the next event: the hosts file rewritten, or this process next using the channel
+            ev.wait()
+            _mem_parked.discard(mem)
+            continue
+        if _mem_holds.get(mem) is not ev:
+            return
+        cell = _newest(rows, role)
+        if cell is None:
+            print("[CHANNEL-SETTING] %.6f %s the held read on %s for %r returned no cell of the Role's setting: %d row(s): %s"
+                  % (time.time(), BUILD, mem, role, len(rows or []),
+                     [(r.get("SensorName"), r.get("SensorAddress"), r.get("UpdatedAtEpoch"), sorted((r.get("data") or {}).keys()) if isinstance(r.get("data"), dict) else type(r.get("data")).__name__)
+                      for r in (rows or [])][:8]), flush=True)
+        _woke.put(("memory", mem, cell))
+        if _report_owed:
+            report()                                     # [A_REPORT_NOT_WRITTEN_IS_WRITTEN_AT_THE_NEXT_EVENT_V1] this memory has just answered
+
+
 def _taker() -> None:
     while True:
-        v, rams = _woke.get()
+        v, rams, cell = (_woke.get() + (None,))[:3]
         try:
+            if v in ("memory", "memories"):              # what a Role memory's hold brought (or a memory that is gone)
+                with _lock:
+                    if v == "memory" and rams in _mem_holds:
+                        _mem[rams] = cell
+                    every = _rams_from_memories()
+                    back = _kept_though_its_cell_is_gone(every)
+                for mem, role, held in back:
+                    _write_back(mem, role, held)
+                _take(_cur, "the held read on %s returned" % (rams or "a Role's memory"), every)
+                continue
             _take(v, "the held read returned", rams)
         except Exception as e:
             print("[CHANNEL-SETTING] %s what a wake brought was not taken up: %s: %r" % (BUILD, type(e).__name__, e), flush=True)
@@ -550,13 +892,38 @@ def start() -> None:
     threading.Thread(target=_taker, daemon=True, name="channel-setting-take").start()
     threading.Thread(target=_run, daemon=True, name="channel-setting").start()
     threading.Thread(target=_reporter, daemon=True, name="channel-setting-at").start()
+    _hold_the_memories()
 
 
 def current() -> Optional[dict]:
     start()
     if _parked:
         _kick.set()                      # this use of the channel is the event the hold was waiting for
+    if _mem_parked:
+        for mem in list(_mem_parked):    # and the event a Role memory's hold was waiting for
+            ev = _mem_holds.get(mem)
+            if ev is not None:
+                ev.set()
     return _cur
+
+
+def _read_memories_now() -> dict:
+    """One read of each Role memory's setting, made at an event (see read_now)."""
+    T, _ = _tuples()
+    for mem, role in memories().items():
+        try:
+            cell = _newest(T._values_raw(SERVICE, mem, name_like=T.var_name(VAR, role)), role)
+        except Exception as e:
+            print("[CHANNEL-SETTING] %s the read of %s made at an arrival failed: %r" % (BUILD, mem, e), flush=True)
+            continue
+        with _lock:
+            _mem[mem] = cell
+    with _lock:
+        every = _rams_from_memories()
+        back = _kept_though_its_cell_is_gone(every)
+    for mem, role, held in back:
+        _write_back(mem, role, held)
+    return every
 
 
 def connection_ended() -> None:
@@ -585,8 +952,7 @@ def read_now() -> Optional[dict]:
             v = r.get("value")
             if isinstance(v, dict):
                 v = dict(v); v.pop("ts", None)
-    if v is not None:
-        _take(v, "a read made at an arrival", _rams_of(rows))
+    _take(v if v is not None else _cur, "a read made at an arrival", _read_memories_now())
     return _cur
 
 

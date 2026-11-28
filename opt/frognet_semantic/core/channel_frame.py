@@ -38,6 +38,16 @@ whatever Role it is for and whatever protocol that Role's channel is set to.
     opened the connection gives each Role a sequence of its own; a reply has its request's ID with the reply bit.
     The first frame of a sequence, in each direction, names the Role and states the sender's count of encryption
     switches, in the clear, and carries no data (counter 0, reply bit 0). Nothing else is added to a frame.
+  * [A_SWITCH_STATES_THE_SENDERS_NUMBER_V1] (v14, 28 Nov 2026.) A sender that switches its encryption for a Role then
+    says, in the clear, the number its key is now computed from: the frame that names a sequence (counter 0, no reply
+    bit), sent again. Until v14 that number was in the clear on a sequence's first frame only, and at a switch a
+    receiver took it from its own copy of the Role's setting. That copy now comes through the Role's own channel
+    ([A_ROLES_SETTING_IS_IN_THE_ROLES_OWN_RAM_V1], core/channel_setting.py), sealed with the very key it announces.
+  * [THE_SECRET_IS_ADVANCED_UNTIL_ITS_KEY_OPENS_V1] A receiver whose setting is not on the stated number moves the
+    secret it holds forward a step at a time, in memory, trying the key for the stated number under each registered
+    algorithm, until a frame opens. John: "all we have to do is advance the existing secret until it has a key that
+    matches the current one, and we're done. If we go too many generations (100?), it fails and must be reset by
+    hand." "Reset means using the qr code again." The secret's step is not on the wire. Nothing is written to a secret's file from a frame.
   * A SWITCH is a frame like any other, sealed like any other, whose data is one word: SWP (switch protocol) or SWE
     (switch encryption). It says nothing of what from or to. It has counter 0 and the reply bit. Everything the
     sender puts on the connection for that Role after it is the new way, and every read after it is the new way.
@@ -82,7 +92,7 @@ from typing import Callable, Dict, List, Optional, Tuple
 from core import channel_protection as CP
 from core.transport_driver import ConnectionGone
 
-BUILD = "channel-frame-v13-20261123f"
+BUILD = "channel-frame-v14-20261128a"
 SECRETS = os.environ.get("FROGNET_CHANNEL_SECRETS", "/etc/frognet/channel_secrets")
 SWITCH_PROTOCOL = b"SWP\x01"
 SWITCH_ENCRYPTION = b"SWE\x01"
@@ -321,7 +331,7 @@ def _varint(z: int) -> bytes:
 
 class _Side:
     """One Role, one direction of one connection: the protocol in use, the number its key was computed from, the key."""
-    __slots__ = ("role", "word", "number", "key", "protection", "state", "named", "count", "fnid", "owed", "lost",
+    __slots__ = ("role", "word", "number", "key", "protection", "state", "named", "count", "fnid", "owed", "unsure", "step", "lost",
                  "got", "skip", "kept", "base", "since")
 
     def __init__(self, role: str, fnid: str = ""):
@@ -330,6 +340,8 @@ class _Side:
         self.fnid = fnid                # the SENDING node's FNID: this node's on a sending side, the far node's on a receiving one
         self.count = 0                  # sending: the last counter of this Role's sequence of requests
         self.owed = False               # receiving: a switch call was read and this end's setting had not changed yet
+        self.unsure = False             # receiving: the sender stated its number and nothing has opened under it yet: a frame that does not open is searched for
+        self.step = None                # sending: the step of the Role's secret this side's key was computed at
         self.lost = False               # receiving: a frame did not open; nothing is taken until the sender starts again
         self.got = 0                    # receiving: messages taken, in order
         self.skip = 0                   # receiving: messages the sender is sending again that this end already took
@@ -364,9 +376,12 @@ class Link:
     """
 
     def __init__(self, sock, far: Tuple[str, int], opener: bool, setting: Callable, deliver: Optional[Callable] = None,
-                 secret: Callable = secret_of, say: Callable = None, fnid: Optional[str] = None):
+                 secret: Callable = secret_of, say: Callable = None, fnid: Optional[str] = None, step: Optional[Callable] = None,
+                 learned: Optional[Callable] = None):
         self.sock, self.far, self.opener = sock, far, opener
         self._setting, self._deliver, self._secret, self._fnid = setting, deliver, secret, fnid
+        self._learned = learned                      # told (role, number, algorithm, step, secret) when a search opens a frame
+        self._step = step or (lambda role: None)     # the step the secret `secret(role)` gives is at; None for a Role on the network's secret
         self._ready: List[tuple] = []                # messages opened and not yet returned by receive()
         self._say = say or (lambda text: print("[CHANNEL-FRAME] %.6f %s" % (time.time(), text), flush=True))
         self._todo: "queue.SimpleQueue" = queue.SimpleQueue()      # what the writer is handed, in order
@@ -486,9 +501,15 @@ class Link:
                     return body
             elif len(body) >= 12 + CP.TAG:
                 try:
-                    return CP.PROTECTIONS[side.protection][1](side.key, body[:12], struct.pack("!Q", pid), body[12:])
+                    data = CP.PROTECTIONS[side.protection][1](side.key, body[:12], struct.pack("!Q", pid), body[12:])
+                    side.unsure = False
+                    return data
                 except ValueError:
                     pass
+                if side.unsure:
+                    data = self._search(side, pid, body)
+                    if data is not None:
+                        return data
             if attempt or not (side.owed or side.lost):
                 break
             number, protection = wanted(self._setting(side.role))
@@ -503,6 +524,14 @@ class Link:
         if self._fnid is None:
             self._fnid = fnid_here()
         return self._fnid
+
+    @staticmethod
+    def _stated(side: _Side) -> bytes:
+        """What a sender says of a Role's sequence in the clear: the number its key is computed from, its node's FNID
+        and the Role's name. Said on the sequence's first frame and again each time the sender switches its encryption
+        ([A_SWITCH_STATES_THE_SENDERS_NUMBER_V1]). Nothing of the secret, and not its step."""
+        fnid = side.fnid.encode("utf-8")
+        return struct.pack("!QB", side.number, len(fnid)) + fnid + side.role.encode("utf-8")
 
     def _out_side(self, role: str, stream: Optional[int]) -> Tuple[int, _Side]:
         """This end's sending side for a Role, named on the connection before its first frame: the number its key is
@@ -534,9 +563,9 @@ class Link:
                     raise
                 side.fnid = ""
             side.rekey(number, protection, self._secret)
+            side.step = s.get("step") if number else None
             side.word = DRIVERS[self._driver_of(s, role)][0]
-            fnid = side.fnid.encode("utf-8")
-            self._put(packet_id(0, stream, False), struct.pack("!QB", side.number, len(fnid)) + fnid + role.encode("utf-8"))
+            self._put(packet_id(0, stream, False), self._stated(side))
             side.named = True
             self._note()
             self._say("to %s:%d, sequence %d is %r: %s" % (self.far[0], self.far[1], stream, role, side.running()))
@@ -567,12 +596,14 @@ class Link:
             self._say("to %s:%d for %r: SWITCH PROTOCOL sent; %s until here, %s from here"
                       % (self.far[0], self.far[1], side.role, was, WORDS[word]))
         number, protection = wanted(s)
-        if number != side.number or (number and protection != side.protection):
+        if number != side.number or (number and (protection != side.protection or s.get("step") != side.step)):
             self._call(stream, side, SWITCH_ENCRYPTION)
             self.calls["encryption"][0] += 1
             if number and not side.fnid:
                 side.fnid = self._mine()
             side.rekey(number, protection, self._secret)
+            side.step = s.get("step") if number else None    # (the setting's own word for it: no file is read per message)
+            self._put(packet_id(0, stream, False), self._stated(side))    # [A_SWITCH_STATES_THE_SENDERS_NUMBER_V1]
             # The first thing under the new key says where this end is in its messages. A receiver that lost frames
             # before the switch reads it, sees it opens, and asks for them (NOT OPENED); one that lost none goes on.
             side.state = {}
@@ -633,6 +664,7 @@ class Link:
         there = self._in.get(stream)
         if first is None or there is None:
             return
+        there.unsure = bool(there.number)    # what comes again is tried against the secret this machine holds NOW, and the steps after it
         stream, side = self._out_side(there.role, stream)
         self._catch_up(stream, side)
         self._call(stream, side, NOT_OPENED + _varint(first))
@@ -746,6 +778,60 @@ class Link:
             self.on_running()
 
     # ---- receiving
+    MAX_STEPS_AHEAD = 100                # John, 28 Nov 2026: "If we go too many generations (100?), it fails and must be reset by hand"
+
+    def _rekey_stated(self, side: _Side, number: int) -> None:
+        """[A_SWITCH_STATES_THE_SENDERS_NUMBER_V1] The sender stated the number its key is computed from. This end's key is
+        that number under the secret and algorithm it holds. When its setting is not on that number, the sender may
+        also be on a later step of the Role's secret or on the other algorithm: the next frame finds out (_search)."""
+        side.owed = False
+        held_number, protection = wanted(self._setting(side.role))
+        side.unsure = bool(number)       # (the search runs only if a frame does not open under the key computed here)
+        if protection not in CP.PROTECTIONS:
+            protection = DEFAULT_PROTECTION
+        side.protection, side.number = protection, int(number)
+        try:
+            side.key = key_for(self._secret(side.role), side.fnid, side.role, side.number) if side.number else None
+        except DoesNotOpen as e:
+            self._say("from %s:%d for %r: %s; its frames do not open here" % (self.far[0], self.far[1], side.role, e))
+            side.key = None
+
+    def _search(self, side: _Side, pid: int, body: bytes) -> Optional[bytes]:
+        """[THE_SECRET_IS_ADVANCED_UNTIL_ITS_KEY_OPENS_V1] John, 28 Nov 2026: "all we have to do is advance the existing
+        secret until it has a key that matches the current one, and we're done. If we go too many generations (100?),
+        it fails and must be reset by hand." The secret this end holds is moved forward one step at a time, IN MEMORY,
+        and at each step the key for the stated number is tried on this frame under each registered algorithm. The one
+        that opens is the sender's. Nothing is written to the secret's file here: the setting, which arrives through
+        the channel this opens, does that (core/channel_setting.py). A Role on the network's secret has no steps:
+        only the algorithms are tried. None opened in MAX_STEPS_AHEAD steps: said once, and nothing opens until the
+        Role's secret is set again on this machine. John, 28 Nov 2026: "Reset means using the qr code again."""
+        try:
+            secret, at = self._secret(side.role), self._step(side.role)     # at None: a Role on the network's secret
+        except (DoesNotOpen, OSError) as e:
+            self._say("from %s:%d for %r: %s; its frames do not open here" % (self.far[0], self.far[1], side.role, e))
+            side.unsure = False
+            return None
+        aad = struct.pack("!Q", pid)
+        for ahead in range(0, (self.MAX_STEPS_AHEAD if at is not None else 0) + 1):
+            if ahead:
+                secret = next_secret(secret, side.role, at + ahead)
+            key = key_for(secret, side.fnid, side.role, side.number)
+            for name in sorted(CP.PROTECTIONS):
+                try:
+                    data = CP.PROTECTIONS[name][1](key, body[:12], aad, body[12:])
+                except ValueError:
+                    continue
+                side.key, side.protection, side.unsure = key, name, False
+                if self._learned is not None:            # [AN_END_THAT_HAS_JUST_STARTED_LEARNS_THE_NUMBER_V1] (core/channel_setting.py)
+                    self._learned(side.role, side.number, name, (at + ahead) if at is not None else None, secret if at is not None else None)
+                self._say("from %s:%d for %r: the sender's number %d opens here with this end's secret moved forward %d step(s), %s"
+                          % (self.far[0], self.far[1], side.role, side.number, ahead, name))
+                return data
+        side.unsure = False
+        self._say("from %s:%d for %r: NOTHING OPENS under the sender's number %d with this machine's secret or any of the %d steps after it. "
+                  "This machine's secret for the Role must be set again: take it again from the FrogNet QR code" % (self.far[0], self.far[1], side.role, side.number, self.MAX_STEPS_AHEAD))
+        return None
+
     def _rekey_in(self, side: _Side, number: int, protection: str) -> None:
         side.owed = False
         try:
@@ -785,11 +871,15 @@ class Link:
                 raise ConnectionGone("a sequence's first frame from %s:%d is %d bytes" % (self.far[0], self.far[1], len(body)))
             number, k = struct.unpack("!QB", body[:9])
             fnid, role = body[9:9 + k].decode("utf-8", "replace"), body[9 + k:].decode("utf-8", "replace")
-            side = self._in[stream] = _Side(role, fnid)
+            side = self._in.get(stream)
+            if side is None or side.role != role or side.fnid != fnid:
+                side = self._in[stream] = _Side(role, fnid)      # the sequence's first frame
+            # (else [A_SWITCH_STATES_THE_SENDERS_NUMBER_V1]: the sender switched and says the number it is on now; the
+            # sequence goes on, with what this end has taken of it)
             side.named = True
             if not self.opener:
                 self._stream.setdefault(role, stream)
-            self._rekey_in(side, number, wanted(self._setting(role))[1])
+            self._rekey_stated(side, number)
             self._say("from %s:%d, sequence %d is %r, from node %s%s" % (self.far[0], self.far[1], stream, role, fnid or "(not said)",
                       ", sealed with " + side.protection if side.key else ", not sealed"))
             return

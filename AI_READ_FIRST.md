@@ -823,9 +823,19 @@ switched, the design as built, and in its section 11.3 what is built and what is
 
 - **A Role is a service; how a Role is reached is a separate thing.** A Role's memory is an application memory
   (`core/app_hosts.py`: `<app>Host.frognet`, `<team>Host.<app>`), elected as every application memory is. How it is
-  reached is its channel setting, the tuple (channel, setting, `<Role>`) in the ControlRam
-  (`core/channel_setting.py`): `{driver, number, protection, check}`. Its owner is the Role, and the Role's
-  admin tool is its only writer. (channel, setting, semantic) is the setting of traffic that belongs to no Role.
+  reached is its channel setting, the tuple (channel, setting, `<Role>`) **in the Role's own memory**
+  (`core/channel_setting.py` v11, 2026-11-28; `docs/ROLE-SETTING-IS-IN-THE-ROLES-RAM.md`):
+  `{driver, number, protection, step, check}`. Its owner is the Role, and the Role's admin tool is its only writer.
+  Each end's report for a Role, (channel, at, `<Role>~<ip>:<process>.<pid>`), is in that memory too. The ControlRam
+  holds only (channel, setting, semantic), the setting of traffic that belongs to no Role, and each end's
+  (channel, at, `<end>`) naming no Role. John: "Ciphers, key, and protocol are local to the role."
+  The setting is read through the Role's own sealed channel. That works because (`core/channel_frame.py` v14):
+  a sender states its number in the clear on a sequence's first frame AND at every switch of encryption; a receiver
+  computes the key from that number and the secret it holds, advancing the secret a step at a time in memory and
+  trying both algorithms until a frame opens (limit 100 steps, then it says to take the secret again from the QR
+  code); an end that has just started is refused with `[SEALED_AT_NUMBER n]` and seals from there; a setting whose
+  cell disappears (its writer's machine left: WRITER_GONE) stays in force and the memory's own node writes it back.
+  A Role is unsealed only by its owner writing a setting that says so.
   None of this is site-wide, and nothing in a Role's service names a protocol or a key.
 - **Protocol and encryption are different things and are switched separately** (John, 2026-11-21). The encryption is
   the outside of a frame; the protocol is the data inside it, beginning with the protocol's 4-byte word. One layer,

@@ -66,9 +66,14 @@ class End:
     """One end: its Link, its reader thread, what it has taken, what it said."""
     def __init__(self, sock, opener, settings, secret_dir, fnid, far):
         self.settings, self.taken, self.said, self.why = settings, queue.Queue(), [], None
+        self.secret_dir = secret_dir            # a check sets this to stand for the secret being set again by hand
+
+        def step(r):
+            held = F.read_secret(r, self.secret_dir)
+            return held[1] if held[2] else None
         self.link = F.Link(sock, (far, 1), opener, lambda r: self.settings.get(r),
-                           deliver=lambda *m: self.taken.put(m), secret=lambda r: F.secret_of(r, secret_dir),
-                           say=self.said.append, fnid=fnid)
+                           deliver=lambda *m: self.taken.put(m), secret=lambda r: F.secret_of(r, self.secret_dir),
+                           say=self.said.append, fnid=fnid, step=step)
         threading.Thread(target=self._read, daemon=True).start()
 
     def _read(self):
@@ -185,21 +190,20 @@ def main():
     check(texts(B.take()) == [b"three changes later"] and A.link.calls["encryption"][0] == 2 and B.link.not_opened == 0,
           "the number went through three values, lower and higher: one more call, and the frame opens under the last")
 
-    # ---- the receiver is behind: it goes back for a retry
+    # ---- the receiver's setting is behind: the sender states its number at the switch and the frames open
+    # [A_SWITCH_STATES_THE_SENDERS_NUMBER_V1] (until v14: nothing opened until the receiver's own setting arrived)
     A.set("assessment", number=8001)
+    was = B.link.not_opened
     for i in range(5):
         A.link.submit("assessment", b"while b is behind %d" % i)
     A.link.settle()
-    check(B.nothing() == [] and B.link.not_opened >= 5 and B.why is None,
-          "the receiver's setting is behind: the frames do not open under the one key it holds, none is taken, the connection stays")
-    check(B.link.calls["not opened"][0] == 0,
-          "and it has not asked yet: nothing has happened that would make a retry open")
-    B.set("assessment", number=8001)
     got = B.take(5)
-    check(texts(got) == [b"while b is behind %d" % i for i in range(5)] and B.nothing() == [],
-          "its setting arrives: it says NOT OPENED, the sender sends the five again under the current key, and they are taken once each, in order")
-    check(B.link.calls["not opened"][0] == 1 and A.link.calls["again"][0] >= 1 and A.link.sent_again == 5,
-          "one NOT OPENED, one start again, five messages sent a second time")
+    check(texts(got) == [b"while b is behind %d" % i for i in range(5)] and B.link.not_opened == was and B.why is None
+          and B.settings["assessment"].get("number") != 8001,
+          "the receiver's setting is behind: the sender stated its number when it switched, the receiver computed the key, and all five are taken")
+    check(B.link.calls["not opened"][0] == 0 and A.link.sent_again == 0, "nothing was asked for again and nothing sent twice")
+    B.set("assessment", number=8001)
+    check(B.nothing() == [] and B.link.calls["not opened"][0] == 0, "its setting arrives later: nothing more happens")
     A.link.submit("assessment", b"and on"); A.link.settle()
     check(texts(B.take()) == [b"and on"], "and the sequence goes on")
 
@@ -220,18 +224,19 @@ def main():
     # ---- the algorithm
     A.set("assessment", number=8100, protection="chacha20-poly1305")
     A.link.submit("assessment", b"under the other algorithm"); A.link.settle()
-    check(B.nothing() == [], "an algorithm switch reaches a receiver whose setting is behind: the frame does not open and is not taken")
-    B.set("assessment", number=8100, protection="chacha20-poly1305")
     got = B.take()
-    check(texts(got) == [b"under the other algorithm"] and B.link._in[got[0][1]].protection == "chacha20-poly1305",
-          "its setting arrives and the frame comes again and opens")
+    check(texts(got) == [b"under the other algorithm"] and B.link._in[got[0][1]].protection == "chacha20-poly1305"
+          and B.settings["assessment"].get("protection") != "chacha20-poly1305" and B.link.calls["not opened"][0] == 0,
+          "an algorithm switch reaches a receiver whose setting is behind: the algorithm that opens is the sender's, and the frame is taken")
+    B.set("assessment", number=8100, protection="chacha20-poly1305")
 
     # ---- encryption turned on
     A.set("warning", number=31337)
     A.link.submit("warning", b"sealed from here"); A.link.settle()
-    check(B.nothing() == [] and B.why is None, "encryption turned on for a Role: a receiver that has not heard takes nothing")
+    got = B.take()
+    check(texts(got) == [b"sealed from here"] and B.why is None and B.link._in[got[0][1]].key is not None,
+          "encryption turned on for a Role: a receiver whose setting has not heard computes the key from the stated number and takes it")
     B.set("warning", number=31337)
-    check(texts(B.take()) == [b"sealed from here"], "and takes it when it has")
 
     # ---- the protocol
     for e in (B, A):
@@ -250,11 +255,10 @@ def main():
     B.set("assessment", number=8200)
     B.link.submit_reply("assessment", q[1], q[2], b"the answer")
     B.link.settle()
-    check(A.nothing() == [], "a reply sealed under a number the asking end has not heard of does not open there")
-    A.set("assessment", number=8200)
     r = A.take()
-    check(texts(r) == [b"the answer"] and r[0][2] == q[2] and r[0][3] is True,
-          "the asking end's setting arrives: the reply comes again, under the same packet ID")
+    check(texts(r) == [b"the answer"] and r[0][2] == q[2] and r[0][3] is True and A.link.calls["not opened"][0] == 0,
+          "a reply sealed under a number the asking end's setting has not heard of opens there: the replying end stated its number")
+    A.set("assessment", number=8200)
 
     # ---- a sender keeps a message only until it is said to be received
     for i in range(F.SAY_RECEIVED_EVERY * 2 + 3):
@@ -268,17 +272,48 @@ def main():
           "the receiver says RECEIVED every %d messages and the sender lets those go (%d kept, %d let go)"
           % (F.SAY_RECEIVED_EVERY, len(side.kept), side.base))
 
-    # ---- asked twice, sent twice, taken once
+    # ---- frames that do not open go back for a retry: the secret is wrong, then set again
+    # (the retry itself is as it was; until v14 these checks made frames not open with a setting that was behind)
+    wrong = secrets(["assessment", "units", "warning"], salt="not this network's ")
+    B.secret_dir = wrong
     A.set("assessment", number=8300)
     for i in range(3):
         A.link.submit("assessment", b"once %d" % i)
     A.link.settle()
-    B.nothing()
+    check(B.nothing() == [] and B.link.not_opened >= 3 and B.why is None and any("NOTHING OPENS" in t and "QR code" in t for t in B.said),
+          "a receiver holding the wrong secret: nothing opens at its secret or the %d steps after it, none is taken, the connection stays, "
+          "and it says the secret must be taken again from the QR code" % F.Link.MAX_STEPS_AHEAD)
+    B.secret_dir = S
     B.settings["assessment"]["number"] = 8300
     B.link.setting_changed("assessment"); B.link.setting_changed("assessment")
     got = B.take(3)
     check(texts(got) == [b"once %d" % i for i in range(3)] and B.nothing() == [] and B.link.calls["not opened"][0] >= 2,
-          "the receiver's held read woke twice and it asked twice: what was sent again twice is taken once")
+          "the secret is set again and the receiver's held read woke twice: it asked twice, and what was sent again twice is taken once")
+    check(A.link.calls["again"][0] >= 1 and A.link.sent_again >= 3, "NOT OPENED was answered: the sender started again and sent the three a second time")
+
+    # ---- [THE_SECRET_IS_ADVANCED_UNTIL_ITS_KEY_OPENS_V1] a Role's own secret that has moved forward at the sender
+    def stepped(steps):
+        d = secrets(["assessment", "units", "warning"])
+        sec0 = F.secret_of("assessment", d)
+        for k in range(1, steps + 1):
+            sec0 = F.next_secret(sec0, "assessment", k)
+        if steps:
+            F.keep_secret("assessment", sec0, steps, d)
+        return d
+    for ahead, opens in ((3, True), (F.Link.MAX_STEPS_AHEAD, True), (F.Link.MAX_STEPS_AHEAD + 1, False)):
+        now = copy.deepcopy(base); now["assessment"] = dict(now["assessment"], number=9100 + ahead)
+        A7, B7, _t = pair(now, copy.deepcopy(base), stepped(ahead), stepped(0))
+        A7.link.submit("assessment", b"from %d steps on" % ahead); A7.link.settle()
+        got = B7.take(1, 5.0 if opens else NOTHING_S)
+        if opens:
+            check(texts(got) == [b"from %d steps on" % ahead] and F.read_secret("assessment", B7.secret_dir)[1] == 0
+                  and any("moved forward %d step" % ahead in t for t in B7.said),
+                  "the sender's secret is %d step(s) on: the receiver advanced its own in memory until the key opened, took the message, "
+                  "and wrote nothing to its secret's file" % ahead)
+        else:
+            check(got == [] and B7.why is None and any("NOTHING OPENS" in t and "QR code" in t for t in B7.said),
+                  "the sender's secret is %d steps on, one past the limit: nothing opens, and the receiver says the secret must be taken again from the QR code" % ahead)
+        A7.link.close(); B7.link.close()
 
     # ---- a connection opened later states the number
     behind = copy.deepcopy(A.settings)
@@ -309,7 +344,7 @@ def main():
           "data for an unsealed Role that begins with no protocol's word ends the connection with the reason")
 
     # ---- every build says what it is
-    check("v13" in F.BUILD, "the build is named (%s)" % F.BUILD)
+    check("v14" in F.BUILD, "the build is named (%s)" % F.BUILD)
 
     print("RESULT %s (%s)" % ("FAIL" if FAILED else "PASS", F.BUILD))
     return 1 if FAILED else 0

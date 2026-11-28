@@ -1,9 +1,9 @@
 # A Role's protocol, cipher and key number live in the Role's own RAM, not the ControlRam
 
-Status: NOT DONE. The code is written as a patch and is NOT applied to the branch (the branch's protocol layer is as
-it was, v10): see the Log for why and for what is left. Started 2026-11-28 01:00 PT, branch
-`setting-not-written-from-behind-20261126`. This file is the
-plan and the log; read it before touching `core/channel_setting.py`.
+Status: DONE IN THE SIMULATOR, 2026-11-28 02:50 PT (channel-setting v11, channel-frame v14), on branch
+`setting-not-written-from-behind-20261126`. Every step of `simulation/roles_exercise_tier.py` passes, with a check that
+the ControlRam holds nothing of the Role. NOT yet run on John's nodes. The C++ and Java frames (the Communicator's
+planes) do not use this module's settings and were not changed. Read this before touching `core/channel_setting.py`.
 
 ## The ruling
 
@@ -56,16 +56,16 @@ An end reads a Role's setting through the connection that the setting governs.
 
 ## Steps (tick each as it is committed)
 
-- [ ] 1. channel_setting: settings keyed by memory; read from, held on and written to the Role's memories; reports
+- [x] 1. channel_setting: settings keyed by memory; read from, held on and written to the Role's memories; reports
         written there; `semantic` stays in the ControlRam.
-- [ ] 2. channel_frame: a sealed frame for a Role whose algorithm this end does not hold yet is tried with each
+- [x] 2. channel_frame: a sealed frame for a Role whose algorithm this end does not hold yet is tried with each
         registered algorithm.
-- [ ] 3. channel_admin, channel_chat, channel_test: read and write through channel_setting (no ControlRam for a Role).
-- [ ] 4. the oracles (test_setting_not_written_from_behind_oracle, test_report_ends_with_its_process_oracle) and the
+- [x] 3. channel_admin, channel_chat, channel_test: read and write through channel_setting (no ControlRam for a Role).
+- [x] 4. the oracles (test_setting_not_written_from_behind_oracle, test_report_ends_with_its_process_oracle) and the
         simulator's roles exercise (`simulation/roles_exercise_tier.py`, every step), then `simulation/run_all.py`.
-- [ ] 5. a check that after a full exercise the ControlRam holds no (channel, setting, <Role>) and no Role in any
+- [x] 5. a check that after a full exercise the ControlRam holds no (channel, setting, <Role>) and no Role in any
         (channel, at, ...).
-- [ ] 6. docs: AI_READ_FIRST.md, the protocol-layer design documents, frognet_monitor's reader (channel.py) if it reads
+- [x] 6. docs: AI_READ_FIRST.md, the protocol-layer design documents, frognet_monitor's reader (channel.py) if it reads
         the ControlRam.
 - [ ] 7. node deliverable (only after 4 and 5 pass).
 
@@ -98,7 +98,49 @@ Run: `simulation/roles_exercise_tier.py --step admin` (the outputs are in `docs/
    that arrives outside the frame, and it decides from the destination alone, in three of its five places before the
    request is decoded.
 
-## What is left to decide and do
+### 2026-11-28 01:30 to 02:50 PT: built John's way
+
+John, 01:27: "I thought you said the index for the key was passed in the clear. As long as they have the original
+secret or the most recent secret, and they know what generation the most recent secret is, they should be able to
+generate the current key very quickly." 01:31: "all we have to do is advance the existing secret until it has a key
+that matches the current one, and we're done. If we go too many generations (100?), it fails and must be reset by
+hand." 01:33: "Reset means using the qr code again."
+
+What was built, each found by a failing simulator step and named in the code:
+
+| Marker | What | Found by |
+|---|---|---|
+| A_SWITCH_STATES_THE_SENDERS_NUMBER_V1 | the sender states its number in the clear at every switch of encryption (before: first frame of a sequence only) | the bootstrap loop of 01:50 |
+| THE_SECRET_IS_ADVANCED_UNTIL_ITS_KEY_OPENS_V1 | the receiver advances its secret in memory, both algorithms, until a frame opens; 100 steps, then "take it again from the FrogNet QR code". The step is not on the wire; no file is written from a frame | John's ruling; frame oracle: 3, 100 and 101 steps |
+| A_REPORT_NAMES_ITS_ROLE_V1 | a Role's report is named `<Role>~<end>`: the memories of one node are one store and three Roles' reports were one cell | step memories: hold 0 of 6 |
+| A_HOLD_NAMES_ITS_ROLE_V1 | the hold is on the Role's one tuple by name: two holds of one process with one pattern on one store are one hold | step admin: one end never woke |
+| THE_CONTROLRAM_AND_A_MEMORY_ON_ONE_NODE_ARE_ONE_STORE_V1 | the removal of an earlier build's cells from the ControlRam is skipped where that store is the Role's memory: it removed the setting just written | steps memories, pages: ends went back to unsealed |
+| EVERY_END_OF_THE_NETWORK_IS_WAITED_FOR_V1 | the Admin's command waits for every end the ControlRam lists to report in the Role's memory | step admin: "every end holds it (3)" of six |
+| A_REFUSAL_STATES_THE_NUMBER_V1, AN_END_THAT_HAS_JUST_STARTED_LEARNS_THE_NUMBER_V1 | an end that restarted holds no setting, sent plain and was refused for ever. The refusal says `[SEALED_AT_NUMBER n]`; the end seals from the secret it holds, learns step and algorithm from the first frame that opens, then reads the setting, which proves itself | step admin-restart |
+| A_MISSING_CELL_CHANGES_NOTHING_V1 | the store removes a machine's tuples when it leaves (WRITER_GONE). The Admin had written units' setting from another node; that node restarted, the cell went, and every end UNSEALED the Role. Now a proved setting stays until its owner writes another, and the memory's own node writes the cell back | step admin-restart (when the store saw the writer leave) |
+
+The frame oracle's checks that a receiver whose setting is behind "takes nothing until its setting arrives" were
+the old rule and now assert the new one (it takes the frames at once); the retry (NOT OPENED, start again) is
+exercised with a wrong secret that is then set again.
+
+Runs, 02:25 to 02:50: frame oracle 33/33; setting oracle pass; report, secret-moves-forward,
+setting-not-written-from-behind, homa-carrier oracles pass; roles exercise memories 21, pages 18, admin 18,
+admin-restart 10, holds 9, fires 9, test (the hardware test, 92 checks, and its must-fail case), chat 16,
+chat-again 25: all pass; wire_between_machines (chorus, topo_dual_wg_transit_bridge) 213/213.
+run_all.py: door_semantic_tier and proxy/test_homa_ordering_oracle.py fail the same way on the branch before this
+work (d826c68); the rest of what ran passed; it was stopped in wire_between_machines `--topology all` for time.
+
+## Known limits
+
+- On a node that hosts the ControlRam and a memory of a Role, they are one store (api.php does not keep memories
+  apart): that Role's cells are in the table the ControlRam's are in.
+- A node whose secret for a Role is more than 100 steps behind, or wrong, opens nothing for that Role and says so
+  once per connection; its secret is taken again from the QR code.
+- What an end learns from a refusal or from the wire is in memory only and is not reported as a setting it holds.
+
+## Superseded: the two ways considered at 01:50 (kept for the record)
+
+
 
 The setting has to reach a Role's ends by a road that the Role's own switch of encryption does not close. Two ways:
 
@@ -113,7 +155,7 @@ B. The frame changes: after SWITCH ENCRYPTION the sender states its number again
    under the Role's own key. This goes against "It does not say what from or to", and the C++ and Java frames follow
    the Python one.
 
-Until one is built and the roles exercise passes every step, the nodes stay on v10 (settings in the ControlRam).
+(B was built, without stating anything but the number, as John ruled.)
 
 One thing neither way changes: on a node that hosts both the ControlRam and a memory of a Role, they are one store
 (api.php does not keep memories apart), so that Role's cells are in the same table the ControlRam's are.

@@ -245,7 +245,7 @@ def set_channels(machines, owner, settings, check, why):
     for role, value in settings.items():
         ran, took, saw = owner_sets(machines, role, value)
         check(ran, "%s: %s's owner set its channel to %s; every daemon and proxy held it %.0f ms after the write (%s)"
-              % (why, role, json.dumps(value, sort_keys=True), (took or 0) * 1000, {k: saw.get(k) for k in ("ends", "hold", "carry", "run", "error") if k in saw}))
+              % (why, role, json.dumps(value, sort_keys=True), (took or 0) * 1000, {k: saw.get(k) for k in ("ends", "hold", "carry", "run", "error", "behind") if k in saw}))
         if not ran:
             return False
     return True
@@ -554,6 +554,22 @@ def step_admin(a, check):
     rc, out = admin(by[SITES["A"]], "show", "units")
     check(rc == 0 and "units: protocol openqasm, sealed with chacha20-poly1305" in out and out.count("holds it") == 6,
           "show, from another site: the setting and all six ends holding it (%s)" % out.strip().splitlines()[1][:110])
+    # [A_ROLES_SETTING_IS_IN_THE_ROLES_OWN_RAM_V1] John, 28 Nov 2026: "That data should not exist in control ram if it is
+    # not needed. Ciphers, key, and protocol are local to the role." Units' memory is on New-York-1 and the ControlRam
+    # on another machine: after five changes of units' channel the ControlRam's store holds nothing of units.
+    # (channel, setting, semantic) and each end's own (channel, at, <end>), naming no Role, are what it holds.
+    saw = on(by[SITES["A"]], "from core import channel_setting as C\n"
+                             "T, _ = C._tuples()\n"
+                             "rows = T._values_raw(C.SERVICE, C.CONTROL_RAM)\n"
+                             "names = sorted(str(r.get('SensorName') or '') for r in rows)\n"
+                             "bad = [n for n in names if 'units' in n.lower()]\n"
+                             "told = [n for r in rows for n in [str(r.get('SensorName') or '')] if isinstance(r.get('data'), dict) and (r['data'].get('rams') or r['data'].get('running') or 'units' in json.dumps(r['data']).lower())]\n"
+                             "mem = sorted(str(r.get('SensorName') or '') for r in T._values_raw(C.SERVICE, 'unitsHost.exercise'))\n"
+                             "print('@@ ' + json.dumps({'names': names, 'bad': bad, 'told': told, 'mem': mem}))")
+    check(not saw.get("error") and saw.get("names") and not saw.get("bad") and not saw.get("told")
+          and any(n.endswith("setting.units") for n in saw.get("mem") or []) and sum(1 for n in saw.get("mem") or [] if ".units~" in n or "at.units~" in n) == 6,
+          "the ControlRam holds nothing of units: no setting of it and no end's report naming it (%d cell(s) there: %s); units' own memory holds "
+          "its setting and its six ends' reports" % (len(saw.get("names") or []), saw.get("error") or ", ".join(n.split(":", 1)[-1][:28] for n in (saw.get("names") or [])[:8])))
     rc, out = admin(c, "set", "units", "--unseal")
     check(rc == 0 and '"number"' not in out.split("\n")[1] and "every end holds it (6)" in out, "set units --unseal: one write, and every end held it")
     return machines

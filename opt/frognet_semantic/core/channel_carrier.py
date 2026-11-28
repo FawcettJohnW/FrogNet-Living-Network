@@ -43,7 +43,7 @@ from core import channel_frame as F
 from core.homa_socket import Msg, RpcFailed, CarrierClosed, HomaUnavailable, PeerConnectionEnded
 from core.transport_driver import ConnectionGone
 
-BUILD = "channel-carrier-v8-20261123g"
+BUILD = "channel-carrier-v9-20261128a"
 WORD = b"FRM\x01"                     # what the end that opens a connection says first
 DEFAULT_DRIVER = "chorus"            # the protocol of a Role (or of no Role) whose setting names none: this carrier's own
 SERVER = None                        # this process's daemon end, when it has one: adopt() is its call
@@ -114,6 +114,22 @@ def _setting(role: str) -> dict:
     s = dict(channel_setting.setting_of(role) or {})
     s.setdefault("driver", DEFAULT_DRIVER)
     return s
+
+
+def _learned(role: str, number: int, protection: str, step, secret) -> None:
+    from core import channel_setting
+    channel_setting.learned(role, number, protection, step, secret)
+
+
+def _step(role: str):
+    """The step the secret _secret(role) gives is at: the step of the setting this process holds for the Role, else the
+    step the Role's own file is at. None for a Role on the network's secret, which has no steps."""
+    from core import channel_setting
+    at = channel_setting.step_in_use(role)
+    if at is None:
+        held = F.read_secret((role or "").lower(), channel_setting.SECRETS)
+        at = held[1] if held[2] else None
+    return at
 
 
 def _secret(role: str) -> bytes:
@@ -223,7 +239,7 @@ class FrameCarrier:
                 return False
             got += part
         s.setsockopt(socket.IPPROTO_TCP, socket.TCP_NODELAY, 1)
-        link = F.Link(s, (addr[0], addr[1]), False, _setting, secret=_secret, say=self._say)
+        link = F.Link(s, (addr[0], addr[1]), False, _setting, secret=_secret, say=self._say, step=_step, learned=_learned)
         link._deliver = lambda *got, _l=link: self._arrived(_l, *got)
         link.on_broken = lambda why, _l=link: self._ended(_l, "its writer stopped: %s" % why, ours=True)
         link.on_sent = self._sent
@@ -245,7 +261,7 @@ class FrameCarrier:
         packet of this layer. Its packets are this carrier's from here, on that session's own sockets."""
         _pipe_n[0] += 1
         addr = (peer_ip, _pipe_n[0])                  # (a number where a port would be: this is no connection of its own)
-        link = F.Link(pipe, addr, False, _setting, secret=_secret, say=self._say)
+        link = F.Link(pipe, addr, False, _setting, secret=_secret, say=self._say, step=_step, learned=_learned)
         self._hold(link)
         with self._lock:
             self._accepted.add(link)
@@ -279,7 +295,7 @@ class FrameCarrier:
             # [THE_FRAME_RIDES_THE_WIRE_SOCKET_V1] a node not told chorus: its wire session to that daemon carries it
             pipe = self.wire(far) if self.wire is not None else None
             if pipe is not None:
-                link = F.Link(pipe, far, True, _setting, secret=_secret, say=self._say)
+                link = F.Link(pipe, far, True, _setting, secret=_secret, say=self._say, step=_step, learned=_learned)
                 self._hold(link)
                 with self._lock:
                     self._links[far] = link
@@ -301,7 +317,7 @@ class FrameCarrier:
                 # (not _away: a node that cannot be connected to is down or unreachable. Seen in the simulator, 22 Nov:
                 # a restarting daemon was reported as "does not take this node's framed connection".)
                 raise ConnectionGone("no connection to %s:%d: %s" % (far[0], far[1], e)) from e
-            link = F.Link(s, far, True, _setting, secret=_secret, say=self._say)
+            link = F.Link(s, far, True, _setting, secret=_secret, say=self._say, step=_step, learned=_learned)
             link._deliver = lambda *got, _l=link: self._arrived(_l, *got)
             link.on_broken = lambda why, _l=link: self._ended(_l, "its writer stopped: %s" % why, ours=True)
             link.on_sent = self._sent

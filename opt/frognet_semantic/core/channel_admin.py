@@ -43,7 +43,7 @@ import time
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
-BUILD = "channel-admin-v6-20261125a"
+BUILD = "channel-admin-v7-20261128a"
 PROTOCOLS = ("tcp", "chorus", "openqasm")
 
 
@@ -159,12 +159,18 @@ def write_and_wait(role: str, value: dict, ends: int = 1, wait_s: float = 60.0) 
     value = with_step(role, value, settings().get(role) or {})
     t0 = time.time()
     ok = C.write(value, ram=role)
-    pre, last = T.var_name("at", ""), {}
+    pre, last = T.var_name("at", role + "~"), {}      # [A_REPORT_NAMES_ITS_ROLE_V1] this Role's reports, in its memory
+    # [EVERY_END_OF_THE_NETWORK_IS_WAITED_FOR_V1] The ends of the network are the ones that say so in the ControlRam
+    # (each writes there what it runs for traffic of no Role, naming no Role). The command is not done until each of
+    # them has reported in this Role's memory. Without this the first command after a start returned when the three
+    # ends that had reported so far held the setting, and said "every end holds it (3)" of six (simulator, 28 Nov 2026).
+    known = set(C.reports())
 
     def done(rows):
         at = [(str(r.get("SensorName") or "")[len(pre):], r.get("data") or {}) for r in rows
               if str(r.get("SensorName") or "").startswith(pre)]
         last["ends"] = len(at)
+        last["missing"] = sorted(known - {n for n, _d in at})
 
         def ignored(d):
             # [AN_END_SAYS_WHAT_IT_IGNORED_V1] this end could not verify THIS setting (it does not hold the Role's own
@@ -177,15 +183,17 @@ def write_and_wait(role: str, value: dict, ends: int = 1, wait_s: float = 60.0) 
         last["hold"] = sum(1 for _n, d in at if _fits((d.get("rams") or {}).get(role) or {}, value))
         last["carry"] = sum(1 for _n, d in at if role in (d.get("running") or {}))
         last["run"] = sum(1 for _n, d in at if role in (d.get("running") or {}) and _fits(d["running"][role], value))
-        last["behind"] = sorted(n for n, d in at if not _fits((d.get("rams") or {}).get(role) or {}, value)
+        last["behind"] = sorted(n + " (has not reported for this Role)" for n in last["missing"]) + sorted(n for n, d in at if not _fits((d.get("rams") or {}).get(role) or {}, value)
                                 or (role in (d.get("running") or {}) and not _fits(d["running"][role], value)))
-        return last["ends"] >= ends and last["hold"] == len(at) and last["run"] == last["carry"]
+        return last["ends"] >= ends and not last["missing"] and last["hold"] == len(at) and last["run"] == last["carry"]
     try:
         # [A_HOSTS_EVENT_IS_NOT_THE_ANSWER_V1] a held read also returns when the hosts file is rewritten (the role may
         # be elsewhere now): that is a reason to hold again, not the ends' answer. Held again until done or the bound.
         until = time.monotonic() + wait_s
         while True:
-            rows = H.holder().wait_until(C.SERVICE, C.CONTROL_RAM, done, name_like=T.var_name("at", "%"),
+            # [A_ROLES_SETTING_IS_IN_THE_ROLES_OWN_RAM_V1] the ends' reports for a Role are in the Role's memories (each
+            # end writes its report into every one of them): the read is held on one
+            rows = H.holder().wait_until(C.SERVICE, (list(C.memories(role)) or [C.CONTROL_RAM])[0], done, name_like=pre + "%",
                                          wait_s=max(0.0, until - time.monotonic()))
             finished = done(rows)
             if finished or time.monotonic() >= until:
@@ -197,20 +205,34 @@ def write_and_wait(role: str, value: dict, ends: int = 1, wait_s: float = 60.0) 
 
 
 def settings() -> dict:
-    """{Role: its setting} as the ControlRam holds them now."""
+    """{Role: its setting} as the Roles' own memories hold them now, and "semantic" (traffic of no Role) as the
+    ControlRam holds it. [A_ROLES_SETTING_IS_IN_THE_ROLES_OWN_RAM_V1]"""
     from core import channel_setting as C
     T, _H = C._tuples()
     out = {}
     for r in C.oldest_first(T.get(C.SERVICE, C.VAR, dbhost=C.CONTROL_RAM)):     # [THE_NEWEST_CELL_IS_THE_SETTING_V1]
-        out[str(r.get("scope") or "")] = r.get("value") or {}
+        if str(r.get("scope") or "") == C.SCOPE:
+            out[C.SCOPE] = r.get("value") or {}
+    for role in sorted(set(C.memories().values())):
+        v = C.read_setting(role)
+        if v is not None:
+            out[role] = v
     return out
 
 
 def reports() -> dict:
-    """{end: its report} as the ControlRam holds them now."""
+    """{end: its report}: what each end says of traffic of no Role (the ControlRam) together with what it says, in each
+    Role's own memories, of that Role. One report for each end, its "rams" and "running" holding every Role it told."""
     from core import channel_setting as C
-    T, _H = C._tuples()
-    return {str(r.get("scope") or ""): (r.get("value") or {}) for r in T.get(C.SERVICE, "at", dbhost=C.CONTROL_RAM)}
+    out = {n: dict(d) for n, d in C.reports().items()}
+    for role in sorted(set(C.memories().values())):
+        for n, d in C.reports(role).items():
+            e = out.setdefault(n, {})
+            for part in ("rams", "running"):
+                if isinstance(d.get(part), dict):
+                    e.setdefault(part, {}).update(d[part])
+            e.setdefault("build", d.get("build"))
+    return out
 
 
 def cmd_secret(a) -> int:

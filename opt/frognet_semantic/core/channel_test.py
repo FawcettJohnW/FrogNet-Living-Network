@@ -69,7 +69,7 @@ import time
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
-BUILD = "channel-test-v10-20261123k"
+BUILD = "channel-test-v11-20261128a"
 passed = failed = 0
 rows = []          # the summary table: one row for each test, [part, what was tested, measured, passed]
 
@@ -251,7 +251,7 @@ def main(argv=None) -> int:
     from core import channel_frame as F
     from core import channel_setting as C
     T, H = C._tuples()
-    pre = T.var_name("at", "")
+    pre = T.var_name("at", role.lower() + "~")        # [A_REPORT_NAMES_ITS_ROLE_V1]
     mine = C.builds()
     me = T.my_ip()
     print("[CHANNEL-TEST] %s on %s; this node's build: %s" % (BUILD, me, mine))
@@ -283,7 +283,7 @@ def main(argv=None) -> int:
             return bool(done(state["ends"]))
         until = time.monotonic() + wait_s
         while True:                                  # (held again after a hosts-file event: that is not the answer)
-            H.holder().wait_until(C.SERVICE, C.CONTROL_RAM, _done, name_like=T.var_name("at", "%"), wait_s=max(0.0, until - time.monotonic()))
+            H.holder().wait_until(C.SERVICE, (list(C.memories(role)) or [C.CONTROL_RAM])[0], _done, name_like=pre + "%", wait_s=max(0.0, until - time.monotonic()))
             if done(state.get("ends") or {}) or time.monotonic() >= until:
                 break
         return state.get("ends") or {}, time.time() - t0, bool(done(state.get("ends") or {}))
@@ -467,7 +467,8 @@ def main(argv=None) -> int:
             ours.add(key_of(forged))
             mark = traffic.now()
             before = {n: about(d).get("step") for n, d in ADM.reports().items() if n in holders}
-            ok = T.put(C.SERVICE, C.VAR, role, dict(forged), dbhost=C.CONTROL_RAM, own=False)
+            # (into the Role's own memories, where its setting is: [A_ROLES_SETTING_IS_IN_THE_ROLES_OWN_RAM_V1])
+            ok = all([T.put(C.SERVICE, C.VAR, role, dict(forged), dbhost=m, own=False) for m in C.memories(role)] or [False])
 
             def said(d):
                 i = about(d).get("ignored") or {}
@@ -612,7 +613,7 @@ def main(argv=None) -> int:
                     return True
                 while watching.is_set():
                     try:
-                        H.holder().wait_until(C.SERVICE, C.CONTROL_RAM, changed, name_like=T.var_name(C.VAR, "%"), wait_s=C.HOLD_S)   # (the hold every end has)
+                        H.holder().wait_until(C.SERVICE, (list(C.memories(role)) or [C.CONTROL_RAM])[0], changed, name_like=T.var_name(C.VAR, "%"), wait_s=C.HOLD_S)   # (the hold every end has, on the Role's memory)
                     except Exception as e:           # said, and held again at the next event (the hosts file, a write)
                         print("   (the read held on %s's setting ended: %s: %s)" % (role, type(e).__name__, e), flush=True)
                         time.sleep(1)
