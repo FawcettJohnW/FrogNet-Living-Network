@@ -136,6 +136,27 @@ changed twice, no notification, H1 did not merge.
 
 Discovery gate (`python3 -m discovery.run_discovery_oracles`): 86 pass, 0 regression.
 
+## The simulator
+
+On commit `0988731`, in this workspace (2 cores), after `simulation/setup.sh --yes`:
+
+- Discovery gate, `python3 -m discovery.run_discovery_oracles`: **86 pass, 0 regression**. `python3 -m discovery selfcheck`:
+  **14/14**.
+- `simulation/run_all.py` **did not complete here**. It passed 20 tiers (the model suite, the real engine over 23
+  topologies, failure modes, regression, S scale, the 20 hardware topologies with events and slow links, IS-IS loop
+  persistence, the proxy and transport tiers, the codex, four Homa tiers), then spent over 35 minutes in "Homa driver
+  between machines, every hardware topology" with the load average at 138 and the workspace no longer answering, and
+  was stopped by hand. Not run: that tier and the five `roles_exercise_tier` runs between machines. None of them runs a
+  file this branch changes (they write the hosts file with their own `the_merge`).
+- Run one at a time afterwards, all pass: the held-sockets oracle (6), the setting-from-behind oracle (22), DAF
+  discovery (20 topologies, 3 failure scenarios).
+- Three tiers failed in the stopped run. Ribbit-LISP against lispers.net needs `setup.sh --lisp`, which was not run.
+  `door_semantic_tier` and `proxy/test_homa_ordering_oracle.py` fail the same way, in under 3 s, on `42830a6` before
+  these changes and on this branch (`logs/two-failed-tiers-before-and-after.txt`); `door_semantic_tier` unpacks an
+  earlier commit from git history, and this checkout is a depth-1 clone.
+
+**The whole gate still has to be run on a machine that can carry it.**
+
 ## An installed node
 
 `frognet-update-clean-join-20261128a.sh` (delivered beside this branch, not in the tree) changes the three run-time

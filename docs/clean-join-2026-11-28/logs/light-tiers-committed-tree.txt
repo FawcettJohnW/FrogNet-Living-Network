@@ -1,0 +1,4 @@
+rc=0 core/test_held_sockets_survive_the_merge_oracle.py :: 6 passed, 0 failed
+rc=0 core/test_setting_not_written_from_behind_oracle.py :: 22 passed, 0 failed  (channel-admin-v6-20261125a)
+rc=0 simulation/daf_discovery_tier.py :: DAF DISCOVERY: PASS (20 topologies, 3 failure scenarios, 0 failing)
+14/14 suites pass - all green

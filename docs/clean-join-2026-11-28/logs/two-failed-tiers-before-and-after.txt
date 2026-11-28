@@ -1,0 +1,4 @@
+before my changes (42830a6) rc=1 0s simulation/door_semantic_tier.py :: subprocess.CalledProcessError: Command '['tar', 'x', '--strip-components=2', '-C', '/tmp/door-semantic-9mfuzucl/before']' returned non-zero exit statu
+before my changes (42830a6) rc=1 2s proxy/test_homa_ordering_oracle.py :: HOMA-ORDERING ORACLE FAILED {'free': 1, 'ordered': 1, 'pieces': 1, 'gone': 1, 'sim': 1, 'simheld': 1, 'soft': 1} (every mode's output: /tmp/homa_order
+with my changes  (778c298) rc=1 0s simulation/door_semantic_tier.py :: subprocess.CalledProcessError: Command '['tar', 'x', '--strip-components=2', '-C', '/tmp/door-semantic-aj91cs4p/before']' returned non-zero exit statu
+with my changes  (778c298) rc=1 2s proxy/test_homa_ordering_oracle.py :: HOMA-ORDERING ORACLE FAILED {'free': 1, 'ordered': 1, 'pieces': 1, 'gone': 1, 'sim': 1, 'simheld': 1, 'soft': 1} (every mode's output: /tmp/homa_order
