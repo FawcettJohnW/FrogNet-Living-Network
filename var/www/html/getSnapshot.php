@@ -27,7 +27,11 @@
  * GET /getSnapshot.php -> {"snapshot":1, "at", "node":{name,dot1,guid,echo}, "build":{build,commit?,installed?},
  *                          "mode", "mode_why", "ponds":[{area,ram,forward,source,config,members?,me?,reach?,refused?,error?}],
  *                          "hub":[{iface,edge,handshake_age_s,source,error?}], "members":[{name,guid,ip,role,alive,source,
- *                          echo,self?}], "elections":{role: ip}, "sources":{...}, "errors":[...]}
+ *                          echo,self?}], "elections":{role: ip},
+ *                          "roles":{hosting:{memory: ip}, carried_as:{memory: Role|""}, supports:{ip: [memory]}, source, error?},
+ *                          "channel":{ram, settings:{role:{protocol,sealed,cipher,number_tag?,step?}},
+ *                                     ends:[{ip,process,roles:{role:{...,ignored?}}}], source, error?},
+ *                          "sources":{...}, "errors":[...]}   ([THE_DASHBOARD_SHOWS_ROLES_AND_SECURITY_V1])
  */
 header('Content-Type: application/json');
 header('Cache-Control: no-store');

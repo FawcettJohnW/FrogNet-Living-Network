@@ -354,7 +354,7 @@ node's identity, reset with `--keep-identity` first, from the checkout's root:
 |---|---|
 | landing page (name, .1, mode, build; links) | `http://<node>/` (the proxy on :80) or `http://<node>:8080/` (Apache) |
 | the node snapshot (build, mode, ponds, members, hub link, elections, errors): what the monitor and the dashboard draw | `http://<node>:8080/getSnapshot.php` |
-| the dashboard (members, ponds, hub links, database host; drawn from the snapshot only) | `http://<node>/fln_dashboard32.html` |
+| the dashboard (members, ponds, hub links, database host; each node's Roles, starred where it hosts a Role's RAM; the security on each link: protocol, sealed or not, algorithm, key tag; drawn from the snapshot only) | `http://<node>/fln_dashboard32.html` |
 | the region's members (region nodes only; a LAN-only node answers 403) | `http://<node>/fdf/` |
 | the monitor, one frame as text / full screen | `/usr/local/bin/frognet_monitor --once` / `/usr/local/bin/frognet_monitor` |
 | the region's members from the region host (it has no `join.env`, so give the RAM manager: 51888 or the `--ram-port` used) | `/opt/fdf/bin/fdf-ls 127.0.0.1:51888`, `RINA_RAM=127.0.0.1:51888 /opt/fdf/bin/fdf-monitor --once` |

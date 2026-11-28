@@ -292,6 +292,115 @@ function fn_hub($mode, &$errors) {
 }
 
 // The whole snapshot [ONE_MONITOR_TRUTH_V1]. One read of each source.
+// [THE_DASHBOARD_SHOWS_ROLES_AND_SECURITY_V1] (John, 28 Nov 2026: "Add roles supported as something for each node, and
+// show a * or something for nodes there that role is hosting ram. ... Also show the security employed for each
+// connection.") Two more things in the one snapshot, each read from where the system itself keeps it:
+//
+//   roles    which Roles each node can host, and which node hosts each Role's RAM now.
+//            hosting:  <role>.frognet in /etc/hosts (the elections' result; the same rows as `elections`).
+//            supports: region mode: the election's own input ([ELECTION_FROM_FACTS_V1], core/region_capability.py):
+//                      every alive member whose role is node and whose facts carry a capability is a candidate for
+//                      every elected Role. Read from the forward pond's RAM manager (op world), as the elector's
+//                      snapshot is. LAN-only: the candidates are <role>/capability tuples in the control store; they
+//                      are not read here, and `source` says so.
+//   channel  how each Role's traffic is carried ([core/channel_setting.py]): (channel, setting, <Role>) is the Role's
+//            protocol, whether it is sealed and with which algorithm; (channel, at, <ip>:<process>.<pid>) is what
+//            each end says it runs. Both are in the ControlRam. A setting's number is shown as a four-character
+//            tag made from it (the number "is not a key and not a secret"): the tag changes when the key does. No
+//            key, no secret and no hash of either is read or shown here.
+//
+// FROGNET_SNAPSHOT_CONTROL_RAM: the ControlRam's address in place of its name, for the test.
+// The Role a memory's name says, as core/channel_setting.py role_of does: an application memory is <app>Host.frognet
+// and a Team's is <team>Host.<app>, so the Role is the name before "Host."; '' for the SystemRam, the ControlRam and
+// anything else (their traffic is under the setting of no Role, (channel, setting, semantic)).
+function fn_role_of($name) {
+    $n = strtolower(trim((string)$name));
+    $i = strpos($n, 'host.');
+    if ($i === false || $i === 0) return '';
+    $head = substr($n, 0, $i);
+    if (strpos($head, '.') !== false || $head === 'database' || $head === 'frognet' || strpos($n, 'databasehost') === 0) return '';
+    return $head;
+}
+
+function fn_roles($mode, $elections, &$errors) {
+    // hosting: every elected name (<role>.frognet, keyed without the suffix, as `elections` is) and every Team memory
+    // (<team>Host.<app>, keyed by its whole name), with the node each is at now
+    $hosting = is_array($elections) ? $elections : [];
+    $t = (string)@file_get_contents(fn_path('/etc/hosts'));
+    foreach (preg_split('/\r?\n/', $t) as $ln) {
+        $f = preg_split('/\s+/', trim(explode('#', $ln, 2)[0]));
+        if (count($f) < 2 || strpos($f[0], '10.') !== 0) continue;
+        foreach (array_slice($f, 1) as $n) {
+            if (substr(strtolower($n), -8) === '.frognet' || fn_role_of($n) === '') continue;
+            if (!isset($hosting[$n])) $hosting[$n] = $f[0];
+        }
+    }
+    ksort($hosting);
+    $carried = [];                                          // memory -> the Role whose setting carries its traffic ('' = none)
+    foreach ($hosting as $n => $ip) $carried[$n] = fn_role_of(isset($elections[$n]) ? $n . '.frognet' : $n);
+    $out = ['hosting' => $hosting ? $hosting : (object)[], 'carried_as' => $carried ? $carried : (object)[], 'supports' => (object)[]];
+    if ($mode['mode'] !== 'region') { $out['source'] = 'hosting: /etc/hosts; supports: not read in LAN-only mode (the candidates are <role>/capability tuples in the control store)'; return $out; }
+    $out['source'] = 'hosting: /etc/hosts; supports: the forward pond\'s members whose facts carry a capability (the elections\' input). An application\'s or a Team\'s memory is placed by that application\'s own capability tuples, which are not read here: it is shown only where it is hosted.';
+    $w = fn_ram_call($mode['ram'], 'POST', '?op=rina', ['op' => 'world']);
+    if (!$w || empty($w['ok'])) { $out['error'] = 'the forward pond\'s RAM manager at ' . $mode['ram'] . ' did not answer'; $errors[] = 'roles: ' . $out['error']; return $out; }
+    $roles = [];
+    foreach ($hosting as $n => $ip) if ($carried[$n] === '') $roles[] = $n;      // the Roles the capability election places
+    $sup = [];
+    foreach (($w['participants'] ?? []) as $q) {
+        $f = is_array($q['facts'] ?? null) ? $q['facts'] : [];
+        if (empty($q['alive']) || ($f['role'] ?? '') !== 'node' || !is_array($f['capability'] ?? null)) continue;
+        $ip = fn_member_ip($f);
+        if ($ip !== '') $sup[$ip] = $roles;
+    }
+    ksort($sup);
+    if ($sup) $out['supports'] = $sup;
+    return $out;
+}
+
+function fn_channel(&$errors) {
+    $ram = getenv('FROGNET_SNAPSHOT_CONTROL_RAM') ?: 'databasehost_control.frognet';
+    $out = ['ram' => $ram, 'settings' => (object)[], 'ends' => [],
+            'source' => '(channel, setting, <Role>) and (channel, at, <end>) in the ControlRam'];
+    $ctx = stream_context_create(['http' => ['timeout' => 2, 'ignore_errors' => true]]);
+    $t = @file_get_contents('http://' . $ram . '/api.php?entity=sensors&action=values&parse=1&SensorType=channel', false, $ctx);
+    $j = $t === false ? null : json_decode($t, true, 64, JSON_BIGINT_AS_STRING);
+    if (!is_array($j) || !is_array($j['rows'] ?? null)) { $out['error'] = "the ControlRam at $ram did not answer"; $errors[] = 'channel: ' . $out['error']; return $out; }
+    $one = function ($x) {                                  // what a screen may say of one Role's setting
+        $n = $x['number'] ?? 0;
+        $n = is_float($n) ? sprintf('%.0f', $n) : (string)$n;   // a number too large for an integer still makes a tag
+        $sealed = $n !== '0' && $n !== '';
+        $o = ['protocol' => (string)($x['driver'] ?? ''), 'sealed' => $sealed,   // '' = the carrier's own (the node's protocol)
+              'cipher' => $sealed ? (string)(($x['protection'] ?? '') ?: 'aes-256-gcm') : ''];
+        if ($sealed) $o['number_tag'] = substr(sha1($n), 0, 4);
+        if (isset($x['step'])) $o['step'] = (int)$x['step'];
+        return $o;
+    };
+    $settings = []; $ends = [];
+    foreach ($j['rows'] as $r) {
+        $name = (string)($r['SensorName'] ?? ''); $d = $r['data'] ?? null;
+        if (!is_array($d)) continue;
+        if (strpos($name, 'SD:setting.') === 0) $settings[substr($name, 11)] = $one($d);
+        elseif (strpos($name, 'SD:at.') === 0) {
+            $who = substr($name, 6);                         // <ip>:<process>.<pid>
+            $e = ['ip' => explode(':', $who)[0], 'process' => (string)(explode(':', $who, 2)[1] ?? ''), 'roles' => (object)[]];
+            $rr = [];
+            foreach ((is_array($d['rams'] ?? null) ? $d['rams'] : []) as $role => $x) {
+                if (!is_array($x)) continue;
+                $rr[$role] = $one($x);
+                if (isset($x['ignored'])) $rr[$role]['ignored'] = true;   // this end holds no secret for the Role: it does not carry it
+            }
+            ksort($rr);
+            if ($rr) $e['roles'] = $rr;
+            $ends[] = $e;
+        }
+    }
+    ksort($settings);
+    usort($ends, function ($a, $b) { return strcmp($a['ip'] . $a['process'], $b['ip'] . $b['process']); });
+    if ($settings) $out['settings'] = $settings;
+    $out['ends'] = $ends;
+    return $out;
+}
+
 function fn_snapshot() {
     $errors = [];
     $mode = fn_mode();
@@ -322,7 +431,9 @@ function fn_snapshot() {
         'ponds'     => fn_ponds($mode, $guid, $errors),
         'hub'       => fn_hub($mode, $errors),
         'members'   => $members,
-        'elections' => fn_elections($errors),
+        'elections' => ($elections = fn_elections($errors)),
+        'roles'     => fn_roles($mode, is_array($elections) ? $elections : [], $errors),
+        'channel'   => fn_channel($errors),
         'sources'   => $mode['mode'] === 'region'
             ? ['members' => '/var/lib/frognet/region_hosts.json (the daemon\'s applied plan; alive = the member\'s region session this event)',
                'node' => '/opt/fdf/var/facts.json', 'ponds' => '/opt/fdf/var (ponds/, forward, join.env, facts.json pond) + each pond\'s RAM manager',

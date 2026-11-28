@@ -1389,6 +1389,49 @@ async function buildFromSources(){
 /**********************************************************************
  * Sidebar — Hosts
  **********************************************************************/
+/**********************************************************************
+ * [THE_DASHBOARD_SHOWS_ROLES_AND_SECURITY_V1] (John, 28 Nov 2026: "Add roles supported as something for each node,
+ * and show a * or something for nodes there that role is hosting ram. ... Also show the security employed for each
+ * connection.") Drawn from the snapshot only (its `roles` and `channel`; frognet_node.inc.php says where each is
+ * read from). These three functions take the snapshot and return plain data; the tiles below put it on the page with
+ * textContent (names come from other machines).
+ *   rolesOfNode     the Roles a node can host and the ones it hosts now (hosts: true -> the star)
+ *   securityText    one Role's setting in words: protocol, sealed or not, the algorithm, the key's tag
+ *   securityOfLink  for a link between two nodes: each memory hosted at either end and how its traffic is carried
+ **********************************************************************/
+function roleLabel(n){ return n==="databasehost"?"SystemRam":n==="databasehost_control"?"ControlRam":String(n); }
+function rolesOfNode(snap,ip){
+  const R=(snap&&snap.roles)||{}, hosting=R.hosting||{}, sup=(R.supports&&R.supports[ip])||[];
+  const names=new Set(sup); for(const n of Object.keys(hosting)) if(hosting[n]===ip) names.add(n);
+  return Array.from(names).map(n=>({name:n,label:roleLabel(n),hosts:hosting[n]===ip}))
+              .sort((a,b)=>(b.hosts-a.hosts)||a.label.localeCompare(b.label));
+}
+function securityText(x){
+  if(!x) return "";
+  const p=x.protocol||"the node's own protocol";
+  if(!x.sealed) return `${p} · not sealed`;
+  return `${p} · sealed ${x.cipher} · key ${x.number_tag}`+(x.step!=null?` · step ${x.step}`:"");
+}
+function securityOfLink(snap,a,b){
+  const R=(snap&&snap.roles)||{}, hosting=R.hosting||{}, carried=R.carried_as||{};
+  const C=(snap&&snap.channel)||{}, S=C.settings||{}, ends=C.ends||[];
+  const out=[];
+  for(const n of Object.keys(hosting)){
+    const at=hosting[n]; if(at!==a&&at!==b) continue;
+    const role=carried[n]||"", own=!!(role&&S[role]), set=own?S[role]:(S.semantic||null);
+    const row={memory:n,label:roleLabel(n),at,role:own?role:"",text:set?securityText(set):"no setting: the node's own protocol · not sealed",behind:[]};
+    if(own) for(const e of ends){                       // an end of this link that says it runs something else for the Role
+      if(e.ip!==a&&e.ip!==b) continue;
+      const r=e.roles&&e.roles[role]; if(!r) continue;
+      const same=!r.ignored&&set&&(r.protocol||"")===(set.protocol||"")&&!!r.sealed===!!set.sealed&&(r.cipher||"")===(set.cipher||"")&&(r.number_tag||"")===(set.number_tag||"");
+      const t=r.ignored?"does not carry it (no secret for the Role)":securityText(r);
+      if(!same&&!row.behind.some(x=>x.ip===e.ip&&x.text===t)) row.behind.push({ip:e.ip,text:t});
+    }
+    out.push(row);
+  }
+  return out.sort((x,y)=>x.label.localeCompare(y.label));
+}
+
 function renderHostTiles(){
   const el=document.getElementById("hostTiles"); if(!el) return; el.innerHTML="";
   const hosts=Array.from(HOSTS.values()).sort((a,b)=>(a.ip||"").localeCompare(b.ip||""));
@@ -1425,7 +1468,18 @@ function renderHostTiles(){
       showModal(`${h.hostname} — All Sensors`,list||"No sensors");
     };
     mini.appendChild(allBtn);
-    t.append(row,mini); el.appendChild(t);
+    // [THE_DASHBOARD_SHOWS_ROLES_AND_SECURITY_V1] the Roles this node can host; a star on the ones whose RAM it hosts now
+    const rl=document.createElement("div"); rl.className="linkmeta";
+    const roles=rolesOfNode(SNAPSHOT,hostIp);
+    const lead=document.createElement("b"); lead.textContent="Roles: "; rl.append(lead);
+    if(!roles.length) rl.append(document.createTextNode((SNAPSHOT&&SNAPSHOT.roles&&SNAPSHOT.roles.error)?SNAPSHOT.roles.error:"none"));
+    roles.forEach((r,i)=>{
+      const sp=document.createElement(r.hosts?"b":"span"); sp.textContent=(r.hosts?"\u2605 ":"")+r.label;
+      sp.title=r.hosts?`${r.label}: its RAM is hosted here now`:`${r.label}: this node can host it`;
+      rl.append(sp); if(i<roles.length-1) rl.append(document.createTextNode(" · "));
+    });
+    rl.title="\u2605 = hosts that Role's RAM now; the others it can host. "+((SNAPSHOT&&SNAPSHOT.roles&&SNAPSHOT.roles.source)||"");
+    t.append(row,rl,mini); el.appendChild(t);
   }
 }
 
@@ -1460,7 +1514,24 @@ function renderLinkTiles(){
     const btn=document.createElement("div"); btn.className="tag"; btn.innerHTML=`<strong>Details</strong>`;
     btn.onclick=()=>showModal(`Link ${E.a_sub}↔${E.b_sub}`,{link:L||null});
     mini.appendChild(btn);
-    t.append(row,meta,mini); el.appendChild(t);
+    // [THE_DASHBOARD_SHOWS_ROLES_AND_SECURITY_V1] the security on this connection: each memory hosted at either end
+    // and how its traffic is carried (protocol, sealed or not, the algorithm, the key's tag); an end that says it
+    // runs something else is named
+    const sec=document.createElement("div"); sec.className="linkmeta";
+    const ch=SNAPSHOT&&SNAPSHOT.channel;
+    if(L&&ch&&ch.error){ sec.textContent="Security: "+ch.error; }
+    else if(L){
+      const rowsS=securityOfLink(SNAPSHOT,String(L.a),String(L.b));
+      if(!rowsS.length) sec.textContent="Security: no Role's memory is hosted at either end";
+      for(const r of rowsS){
+        const d=document.createElement("div");
+        const b1=document.createElement("b"); b1.textContent=`${r.label} @ ${hostName(r.at)}: `;
+        d.append(b1,document.createTextNode(r.text));
+        for(const x of r.behind){ const w=document.createElement("div"); w.style.paddingLeft="12px"; w.textContent=`${hostName(x.ip)} says: ${x.text}`; d.append(w); }
+        sec.append(d);
+      }
+    }
+    t.append(row,meta,sec,mini); el.appendChild(t);
   }
 }
 
