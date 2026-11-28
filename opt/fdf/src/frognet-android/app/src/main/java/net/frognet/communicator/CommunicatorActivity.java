@@ -381,7 +381,7 @@ public class CommunicatorActivity extends Activity {
         Room r = room;
         if (r == null) return;
         List<String> on = r.callsOf(feed);
-        for (Room.Offer o : r.offers()) if (on.contains(o.session)) { startCall(o.session, o.mediaHost, o.mediaPort, "*" + feed); return; }
+        for (Room.Offer o : r.offers()) if (on.contains(o.session)) { startCall(o.session, mediaHost, mediaPort, "*" + feed); return; }
         toastLog("*" + feed + " is in the room but offers no call yet");
     }
 
@@ -414,7 +414,14 @@ public class CommunicatorActivity extends Activity {
         stopRinging();
         if (o == null) return;
         answered.add(o.session);
-        startCall(o.session, o.mediaHost, o.mediaPort, o.offeredBy);
+        // [A_CALL_IS_ANSWERED_AT_THIS_ENDS_ADDRESS_V1] (John, 27 Nov 2026: "I cannot start a session from the Windows side to
+        // Android. If I do that, android hangs.") An offer names the media server as the OFFERER reaches it (a Windows
+        // machine said "databasehost.frognet:8994"); this phone may not resolve that, or may reach the same server at
+        // another address, and it then sat connecting. There is one media server, the Communicator's, and this phone
+        // already knows its own way to it (the pond's cell): the call is joined there, whatever the offer says.
+        if (!String.valueOf(o.mediaHost).equals(mediaHost) || o.mediaPort != mediaPort)
+            Diag.log("[app] the offer says the media server is at " + o.mediaHost + ":" + o.mediaPort + "; this phone reaches it at " + mediaAddr + " and joins there");
+        startCall(o.session, mediaHost, mediaPort, o.offeredBy);
     }
 
     private void decline() {

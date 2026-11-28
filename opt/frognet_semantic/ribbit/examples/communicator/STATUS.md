@@ -1,3 +1,16 @@
+## 2026-11-27 (22:30): a raised link restores the picture at once here too; a call is joined at this end's own address (comms-app r11, Android r13)
+
+- [THE_PICTURE_COMES_BACK_V1] in the C++ sender (`src/comms/call.cpp`, `Call::set_throttle` and the send loop), as the
+  phone got in r11: when the link is raised the ladder's failures and holds are forgotten and the picture goes to the
+  size the new link affords (the media server's rule). `tests/test_bottom` now times it: 11.1 s before, 0.1 s after
+  (`tests/results-the-picture-comes-back-20261127.txt`), and fails if it takes more than 3 s.
+- [A_CALL_IS_ANSWERED_AT_THIS_ENDS_ADDRESS_V1] (John: "I cannot start a session from the Windows side to Android. If I
+  do that, android hangs.") An offer names the media server as the offerer reaches it. Both the window (`answer()`,
+  and joining a feed) and the phone (r13) now join a call at their OWN address for the Communicator's media server
+  and log the offer's address when it differs. Tested where the two are the same (test_call, the whole cycle, the
+  memory goes and comes back, the phone's seven steps: all pass); a differing offer was not reproduced here.
+- Not changed: the Python window (it still joins at the offer's address and has the step-by-step ladder).
+
 ## 2026-11-27 (11:45): an offer carries an address (comms-app r10); the phone's picture comes back, a refused call says why (Android r11)
 
 - [AN_OFFER_CARRIES_AN_ADDRESS_V1] r9 made the window use `databasehost.frognet` by name, and its call offers then

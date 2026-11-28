@@ -3,6 +3,7 @@
 #include "comms/stamp.hpp"
 #include "call.hpp"
 #include "channel.hpp"
+#include <iostream>
 #include <condition_variable>
 #include "media/transcode.hpp"
 extern "C" {
@@ -212,7 +213,18 @@ void Call::stop() {
     vdl_.reset(); adl_.reset();                            // their readers end with the planes' shutdown
 }
 
-void Call::set_throttle(long bps) { throttle_bps_ = bps < 0 ? 0 : bps; }
+// [THE_PICTURE_COMES_BACK_V1] (John, 27 Nov 2026: "When I increase the bitrate after using the slider to lower it, the
+// phone never leaves greyscale mode"; then of this window, "it comes up slower than it goes down": "Fix".) When the link
+// is RAISED, what the ladder learned under the smaller link says nothing about the larger one: the sender forgets its
+// failures and their holds and goes at once to the size the new link affords, by the media server's own rule
+// (Server::target_for_cap: the largest size whose bitrate plus audio fits), no larger than the source. A path that
+// cannot carry it is found by the ladder as always. Lowering the link is unchanged. The phone does the same
+// (frognet-android core/CallCore.setThrottle).
+void Call::set_throttle(long bps) {
+    bps = bps < 0 ? 0 : bps;
+    const long was = throttle_bps_.exchange(bps);
+    if (was != 0 && (bps == 0 || bps > was)) link_raised_ = true;
+}
 void Call::set_volume(float g) { gain_ = g < 0 ? 0.f : g > 1.5f ? 1.5f : g; }
 void Call::set_jitter(int ms) { jitter_ms_ = ms < 0 ? 0 : ms; }
 
@@ -252,6 +264,24 @@ void Call::video_tx() {
             src_->next(pic);
             if (stamp) stamp_picture(pic, ++stamped);                         // [STAMP_THE_PICTURE_V1]
             { std::lock_guard<std::mutex> g(pmu_); copy_picture(pic, self_); }   // the self-view
+            if (link_raised_.exchange(false)) {              // [THE_PICTURE_COMES_BACK_V1]
+                const long bps = throttle_bps_.load();
+                const long AUDIO_BPS = 32000;                // the media server's (src/media/server.hpp)
+                int i = 0;
+                if (bps > 0) { i = int(media::SIZES.size()); for (size_t k = 0; k < media::SIZES.size(); ++k) if (media::SIZES[k].bitrate + AUDIO_BPS <= bps) { i = int(k); break; } }
+                if (i < int(media::SIZES.size())) {          // (not even the floor fits: the ladder stays where it is)
+                    const double t = now_s();
+                    const int ceiling = bearer.ceiling();
+                    bearer = Bearer(ceiling, 0, t);          // no failures, no holds
+                    shed = false; bottom_ok = 0; win_refused = 0; bottom_at = t; win_t0 = t;
+                    if (i <= BOTTOM_FIRST) { in_bottom = false; bottom = 0; bearer.resume_at(std::min(ceiling, 8 - i), t); }
+                    else { in_bottom = true; bottom = i - BOTTOM_FIRST; bearer.resume_at(5, t); }
+                    bucket = bps / 8.0; bucket_t = t;
+                    sent_times.clear(); rung_frames = 0; rung_t0 = t; stress_from = clean_from = -1;
+                    std::cerr << "[call] the link was raised to " << (bps ? std::to_string(bps / 1000) + " kb/s" : std::string("unlimited"))
+                              << ": the picture goes to the size it affords\n";
+                }
+            }
             int size;
             if (shed) size = -1;                             // audio only
             else if (in_bottom || bottom > 0) size = BOTTOM_FIRST + bottom;   // the bottom walk owns the size

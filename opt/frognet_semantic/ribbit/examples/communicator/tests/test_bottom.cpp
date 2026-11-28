@@ -33,14 +33,21 @@ int main() {
               << (got ? std::to_string(p.w) + "x" + std::to_string(p.h) : std::string("nothing")) << "\n";
     if (smallest > 640 || donna.stats.send_w == 0) { ++fail; std::cout << "FAIL at 128 kb/s the sender should still send a small picture\n"; }
     donna.set_throttle(0);                                       // the wire opens
-    int largest = 0;
-    for (int s = 0; s < 90 && largest < 640; ++s) {
-        std::this_thread::sleep_for(std::chrono::seconds(1));
+    // [THE_PICTURE_COMES_BACK_V1] the link raised: the picture is out of the gray sizes (854 wide or more) at once,
+    // not after a climb. Measured in tenths of a second from the raise.
+    int largest = 0; double colour_at = -1;
+    const auto raised = std::chrono::steady_clock::now();
+    for (int s = 0; s < 900 && colour_at < 0; ++s) {
+        std::this_thread::sleep_for(std::chrono::milliseconds(100));
         largest = std::max(largest, donna.stats.send_w.load());
-        if (s % 10 == 9) std::cout << "  t=" << s + 1 << "s unthrottled: sending " << donna.stats.send_w << "x" << donna.stats.send_h << " (L" << donna.stats.rung << ")\n";
+        if (donna.stats.send_w.load() >= 854) colour_at = std::chrono::duration<double>(std::chrono::steady_clock::now() - raised).count();
+        if (s % 100 == 99) std::cout << "  t=" << (s + 1) / 10 << "s unthrottled: sending " << donna.stats.send_w << "x" << donna.stats.send_h << " (L" << donna.stats.rung << ")\n";
     }
     std::cout << "unthrottled: grew back to " << largest << " wide\n";
     if (largest < 640) { ++fail; std::cout << "FAIL the picture did not grow back to 640x360 within 90 s\n"; }
+    if (colour_at < 0) std::cout << "MEASURED the picture was still a gray size 90 s after the link was raised\n";
+    else std::cout << "MEASURED the picture left the gray sizes " << colour_at << " s after the link was raised\n";
+    if (colour_at < 0 || colour_at > 3.0) { ++fail; std::cout << "FAIL the picture should be out of the gray sizes within 3 s of the link being raised\n"; }
     donna.stop(); john.stop(); srv.stop(); th.join();
     std::cout << (fail ? "RESULT FAIL" : "RESULT PASS") << " the bottom walk: " << fail << " fail\n";
     return fail ? 1 : 0;

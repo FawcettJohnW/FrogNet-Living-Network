@@ -20,7 +20,7 @@ extern "C" {
 namespace comms {
 
 // the participant programs' build, printed at start and shown in the window: what is running, never a guess
-constexpr const char* COMMS_APP_BUILD = "comms-app-2026-11-27-r10";   // r10: databasehost.frognet is resolved at the start, so an offer carries an address a phone can use. r9: Set the shared secret (from a phrase) and its hash shown; no --ram/--media: the SystemRam's node. r8: the secret's code is a FrogNet QR code (a frog), holding a short fdfsec1 line. r7: the secret shown as a QR code for the phone; Reset the channel. r6: a failed step does not end the window; the room is joined again. r5: the switches beside the picture, the overlay shows the channel, a call ends when the other leaves, --script. r4: under the protocol layer's frame; the Security tab; the memory follows its owner
+constexpr const char* COMMS_APP_BUILD = "comms-app-2026-11-27-r11";   // r11: a raised link restores the picture at once; a call is joined at this end's own address for the media server. r10: databasehost.frognet is resolved at the start, so an offer carries an address a phone can use. r9: Set the shared secret (from a phrase) and its hash shown; no --ram/--media: the SystemRam's node. r8: the secret's code is a FrogNet QR code (a frog), holding a short fdfsec1 line. r7: the secret shown as a QR code for the phone; Reset the channel. r6: a failed step does not end the window; the room is joined again. r5: the switches beside the picture, the overlay shows the channel, a call ends when the other leaves, --script. r4: under the protocol layer's frame; the Security tab; the memory follows its owner
 
 inline bool stamp_enabled() { const char* e = getenv("COMMS_STAMP"); return !(e && e[0] == '0'); }
 

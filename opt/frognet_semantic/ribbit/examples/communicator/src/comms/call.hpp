@@ -116,6 +116,7 @@ private:
     std::thread atx_, arx_, play_;
     std::atomic<bool> stop_{false}, want_key_{false};
     std::atomic<long> throttle_bps_{0};
+    std::atomic<bool> link_raised_{false};             // [THE_PICTURE_COMES_BACK_V1] set_throttle raised the link: the sender restarts its ladder
     std::atomic<int> jitter_ms_{0};
     std::atomic<float> gain_{1.0f};
     std::unique_ptr<class DelayLine> vdl_, adl_;        // the receive side of the jitter

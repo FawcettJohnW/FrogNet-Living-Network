@@ -863,12 +863,23 @@ public:
         std::vector<std::string> on = room_->calls_of(feed);
         for (auto& x : room_->offers())
             for (auto& s : on)
-                if (x.session == s) { start_call(x.session, x.media_host, x.media_port, "*" + feed); return true; }
+                if (x.session == s) { start_call(x.session, media_host_, media_port_, "*" + feed); return true; }
         std::cerr << "[app] *" << feed << " is in the lobby but offers no call yet\n";
         return false;
     }
 
-    void answer() { if (pending_.session.size()) { Offer o = pending_; pending_ = Offer{}; start_call(o.session, o.media_host, o.media_port, o.offered_by); } }
+    // [A_CALL_IS_ANSWERED_AT_THIS_ENDS_ADDRESS_V1] (John, 27 Nov 2026: "I cannot start a session from the Windows side to
+    // Android. If I do that, android hangs.") An offer names the media server as the OFFERER reaches it; another end may
+    // reach the same server by another name or address, or not resolve the offerer's at all. There is one media server,
+    // the Communicator's, and each end already knows its own way to it: a call is joined there, whatever the offer says.
+    void answer() {
+        if (pending_.session.empty()) return;
+        Offer o = pending_; pending_ = Offer{};
+        if (o.media_host != media_host_ || o.media_port != media_port_)
+            std::cerr << "[app] the offer says the media server is at " << o.media_host << ":" << o.media_port << "; this end reaches it at "
+                      << media_host_ << ":" << media_port_ << " and joins there\n";
+        start_call(o.session, media_host_, media_port_, o.offered_by);
+    }
 
     // half a second: one Sample, rates from counter differences; no call = a gap ([DIAG_IS_UNGATED_V1])
     void sample() {
